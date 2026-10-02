@@ -128,6 +128,118 @@ pub fn decode_element_header(input: &[u8]) -> Result<ElementHeader, HeaderError>
     })
 }
 
+/// An element whose body lies entirely inside the parsed input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Element<'a> {
+    /// Which element this is.
+    pub id: ElementId,
+    /// The element's body, borrowed from the input.
+    pub body: &'a [u8],
+}
+
+/// Why iteration over sibling elements stopped early.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementError {
+    /// An element header was malformed.
+    Header {
+        /// Where the header started, in octets from the start of the input.
+        offset: usize,
+        /// What was wrong with it.
+        error: HeaderError,
+    },
+    /// An element's body ran past the end of the input.
+    BodyTruncated {
+        /// Where the element started, in octets from the start of the input.
+        offset: usize,
+        /// Which element it was.
+        id: ElementId,
+        /// Octets the body declared.
+        needed: u64,
+        /// Octets left in the input after the header.
+        available: usize,
+    },
+    /// An element declared an unknown size, so its end cannot be found
+    /// without interpreting its children.
+    UnknownSize {
+        /// Where the element started, in octets from the start of the input.
+        offset: usize,
+        /// Which element it was.
+        id: ElementId,
+    },
+}
+
+impl ElementError {
+    /// Where the offending element started, in octets from the start of the
+    /// input.
+    #[must_use]
+    pub const fn offset(&self) -> usize {
+        match *self {
+            Self::Header { offset, .. }
+            | Self::BodyTruncated { offset, .. }
+            | Self::UnknownSize { offset, .. } => offset,
+        }
+    }
+}
+
+/// Iterator over the sibling elements in a buffer. See [`elements`].
+#[derive(Debug, Clone)]
+pub struct Elements<'a> {
+    input: &'a [u8],
+    /// Where the next element starts. Equal to `input.len()` once finished.
+    offset: usize,
+}
+
+impl<'a> Iterator for Elements<'a> {
+    type Item = Result<Element<'a>, ElementError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let offset = self.offset;
+        let rest = &self.input[offset..];
+        if rest.is_empty() {
+            return None;
+        }
+        // Finished unless this element turns out to be well formed.
+        self.offset = self.input.len();
+
+        let header = match decode_element_header(rest) {
+            Ok(header) => header,
+            Err(error) => return Some(Err(ElementError::Header { offset, error })),
+        };
+        let header_len = usize::from(header.header_len);
+        let after_header = &rest[header_len..];
+        let DataSize::Known(needed) = header.size else {
+            return Some(Err(ElementError::UnknownSize {
+                offset,
+                id: header.id,
+            }));
+        };
+        let Some(body) = usize::try_from(needed)
+            .ok()
+            .and_then(|len| after_header.get(..len))
+        else {
+            return Some(Err(ElementError::BodyTruncated {
+                offset,
+                id: header.id,
+                needed,
+                available: after_header.len(),
+            }));
+        };
+        self.offset = offset + header_len + body.len();
+        Some(Ok(Element {
+            id: header.id,
+            body,
+        }))
+    }
+}
+
+/// Iterates over the sibling elements packed back to back in `input`.
+///
+/// After yielding an error the iterator is finished and yields nothing more.
+#[must_use]
+pub fn elements(input: &[u8]) -> Elements<'_> {
+    Elements { input, offset: 0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,7 +254,112 @@ mod tests {
         (value | marker).to_be_bytes()[8 - usize::from(width)..].to_vec()
     }
 
+    /// Collects every item from [`elements`], failing instead of hanging if
+    /// the iterator yields more than the input could hold. An element is at
+    /// least two octets, so `len / 2` elements plus one error is the ceiling.
+    fn collect_all(input: &[u8]) -> Vec<Result<Element<'_>, ElementError>> {
+        let octets = input.len();
+        let ceiling = octets / 2 + 1;
+        let items: Vec<_> = elements(input).take(ceiling + 1).collect();
+        let yielded = items.len();
+        assert!(
+            yielded <= ceiling,
+            "iterator yielded {yielded} items from {octets} octets"
+        );
+        items
+    }
+
+    /// An element as the tests describe it: raw ID with marker, and body.
+    type Described = (u32, Vec<u8>);
+
+    /// Generates an element description together with its encoding.
+    fn encoded_element() -> impl Strategy<Value = (Described, Vec<u8>)> {
+        (1_u8..=4, any::<u64>(), 1_u8..=8, vec(any::<u8>(), 0..64)).prop_map(
+            |(id_width, id_raw, size_width, body)| {
+                let id_marker = 1_u64 << (7 * u32::from(id_width));
+                let id_data = id_raw % id_marker;
+                let mut bytes = encode_vint(id_data, id_width);
+                bytes.extend(encode_vint(u64::try_from(body.len()).unwrap(), size_width));
+                bytes.extend(&body);
+                ((u32::try_from(id_data | id_marker).unwrap(), body), bytes)
+            },
+        )
+    }
+
+    #[test]
+    fn reports_where_each_kind_of_error_happened() {
+        assert_eq!(
+            ElementError::Header {
+                offset: 7,
+                error: HeaderError::Id(VintError::Empty),
+            }
+            .offset(),
+            7
+        );
+        assert_eq!(
+            ElementError::BodyTruncated {
+                offset: 11,
+                id: ElementId(0xEC),
+                needed: 3,
+                available: 1,
+            }
+            .offset(),
+            11
+        );
+        assert_eq!(
+            ElementError::UnknownSize {
+                offset: 13,
+                id: ElementId(0xEC),
+            }
+            .offset(),
+            13
+        );
+    }
+
     proptest! {
+        #[test]
+        fn yields_every_element_the_reference_encoder_writes(
+            encoded in vec(encoded_element(), 0..6),
+        ) {
+            let bytes: Vec<u8> = encoded.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+            let expected: Vec<_> = encoded
+                .iter()
+                .map(|((id, body), _)| Ok(Element { id: ElementId(*id), body }))
+                .collect();
+            prop_assert_eq!(collect_all(&bytes), expected);
+        }
+
+        #[test]
+        fn yields_whole_elements_then_one_error_at_any_cut(
+            encoded in vec(encoded_element(), 1..6),
+            cut_seed in any::<usize>(),
+        ) {
+            let bytes: Vec<u8> = encoded.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+            let cut = cut_seed % bytes.len();
+
+            // Work out, independently of the iterator, which elements fit.
+            let mut expected = Vec::new();
+            let mut start = 0;
+            let mut cut_inside_element_at = None;
+            for ((id, body), element_bytes) in &encoded {
+                let end = start + element_bytes.len();
+                if end <= cut {
+                    expected.push(Element { id: ElementId(*id), body });
+                } else if start < cut {
+                    cut_inside_element_at = Some(start);
+                }
+                start = end;
+            }
+
+            let mut results = collect_all(&bytes[..cut]);
+            if let Some(error_offset) = cut_inside_element_at {
+                let last = results.pop().expect("an error for the cut element");
+                prop_assert_eq!(last.as_ref().map_err(ElementError::offset), Err(error_offset));
+            }
+            let expected: Vec<Result<_, ElementError>> = expected.into_iter().map(Ok).collect();
+            prop_assert_eq!(results, expected);
+        }
+
         #[test]
         fn decodes_whatever_the_reference_encoder_writes(
             width in 1_u8..=8,
@@ -429,6 +646,150 @@ mod tests {
                 "bytes {bytes:02X?}"
             );
         }
+    }
+
+    /// The children of a real EBML header: `EBMLVersion` 1, `EBMLReadVersion`
+    /// 1, an empty Void, and `DocType` "matroska".
+    const EBML_HEADER_CHILDREN: [u8; 21] = [
+        0x42, 0x86, 0x81, 0x01, // EBMLVersion
+        0x42, 0xF7, 0x81, 0x01, // EBMLReadVersion
+        0xEC, 0x80, // Void
+        0x42, 0x82, 0x88, b'm', b'a', b't', b'r', b'o', b's', b'k', b'a', // DocType
+    ];
+
+    #[test]
+    fn yields_nothing_for_empty_input() {
+        assert_eq!(collect_all(&[]), vec![]);
+    }
+
+    #[test]
+    fn yields_each_sibling_element_with_its_exact_body() {
+        assert_eq!(
+            collect_all(&EBML_HEADER_CHILDREN),
+            vec![
+                Ok(Element {
+                    id: ElementId(0x4286),
+                    body: &[0x01],
+                }),
+                Ok(Element {
+                    id: ElementId(0x42F7),
+                    body: &[0x01],
+                }),
+                Ok(Element {
+                    id: ElementId(0xEC),
+                    body: &[],
+                }),
+                Ok(Element {
+                    id: ElementId(0x4282),
+                    body: b"matroska",
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn stops_with_an_error_when_a_body_runs_past_the_input() {
+        // Everything up to and including "ma" of the DocType body.
+        let cut = &EBML_HEADER_CHILDREN[..15];
+        assert_eq!(
+            collect_all(cut),
+            vec![
+                Ok(Element {
+                    id: ElementId(0x4286),
+                    body: &[0x01],
+                }),
+                Ok(Element {
+                    id: ElementId(0x42F7),
+                    body: &[0x01],
+                }),
+                Ok(Element {
+                    id: ElementId(0xEC),
+                    body: &[],
+                }),
+                Err(ElementError::BodyTruncated {
+                    offset: 10,
+                    id: ElementId(0x4282),
+                    needed: 8,
+                    available: 2,
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn stops_with_an_error_when_a_body_is_larger_than_any_input() {
+        assert_eq!(
+            collect_all(&[0xEC, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xAA]),
+            vec![Err(ElementError::BodyTruncated {
+                offset: 0,
+                id: ElementId(0xEC),
+                needed: 72_057_594_037_927_934,
+                available: 1,
+            })]
+        );
+    }
+
+    #[test]
+    fn stops_with_the_offset_of_a_malformed_header() {
+        // One good element, then an ID that declares four octets but has two.
+        assert_eq!(
+            collect_all(&[0x42, 0x86, 0x81, 0x01, 0x1A, 0x45]),
+            vec![
+                Ok(Element {
+                    id: ElementId(0x4286),
+                    body: &[0x01],
+                }),
+                Err(ElementError::Header {
+                    offset: 4,
+                    error: HeaderError::Id(VintError::Truncated {
+                        needed: 4,
+                        available: 2,
+                    }),
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn stops_with_an_error_at_an_element_of_unknown_size() {
+        assert_eq!(
+            collect_all(&[0xEC, 0x80, 0x1F, 0x43, 0xB6, 0x75, 0xFF, 0xAA, 0xBB]),
+            vec![
+                Ok(Element {
+                    id: ElementId(0xEC),
+                    body: &[],
+                }),
+                Err(ElementError::UnknownSize {
+                    offset: 2,
+                    id: ElementId(0x1F43_B675),
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_returning_none_after_the_end_or_an_error() {
+        let mut finished = elements(&[0xEC, 0x80]);
+        assert_eq!(
+            finished.next(),
+            Some(Ok(Element {
+                id: ElementId(0xEC),
+                body: &[],
+            }))
+        );
+        assert_eq!(finished.next(), None);
+        assert_eq!(finished.next(), None);
+
+        let mut failed = elements(&[0x00, 0xEC, 0x80]);
+        assert_eq!(
+            failed.next(),
+            Some(Err(ElementError::Header {
+                offset: 0,
+                error: HeaderError::Id(VintError::InvalidWidth),
+            }))
+        );
+        assert_eq!(failed.next(), None);
+        assert_eq!(failed.next(), None);
     }
 
     #[test]

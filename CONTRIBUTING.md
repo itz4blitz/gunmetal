@@ -19,7 +19,9 @@ These are not guidelines. A change that breaks one does not merge.
 6. **Zero surviving mutants.** Every survivor is either killed with a real
    behavioural assertion or removed by restructuring the code so the
    equivalent mutant cannot be generated. Do not write a test whose only
-   purpose is to match one mutant's syntax, and do not skip mutants.
+   purpose is to match one mutant's syntax, and do not skip mutants. A
+   mutant that times out also fails the gate: a hang is not a detection, so
+   assert termination (see `collect_all` in `ebml.rs`) and make it fail fast.
 7. **Prove behaviour at the lowest layer that can observe it.** Parsing and
    decision logic are proven by unit and property tests in the core crate.
    Higher layers test wiring only.
