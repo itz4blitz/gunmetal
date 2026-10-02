@@ -1,8 +1,8 @@
 # Gunmetal
 
-An open-source media server and client, built so the server almost never has
-to transcode: the client plays the original file, and the server mostly just
-sends bytes.
+An open-source media server and player for music, movies and TV, built so the
+server almost never has to transcode: the client plays the original file, and
+the server mostly just sends bytes.
 
 **Status: pre-alpha.** Nothing here is usable yet. The only code that exists
 is the first piece of the Matroska parser. See
