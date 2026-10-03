@@ -1254,7 +1254,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-072
     #[test]
     fn describes_every_variant_as_the_passkey_problem() {
         let errors: [(WebauthnError, u64); 16] = [
