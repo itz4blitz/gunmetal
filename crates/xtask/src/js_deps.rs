@@ -2,9 +2,12 @@
 //! `supply-chain/js-direct-deps.toml` with a written reason (SEC-SUP-035).
 //!
 //! The list is empty until the web client adds a package. A `package.json`
-//! whose `dependencies` or `devDependencies` names a package the list does
-//! not, or a list entry with no reason, fails. Tests use fixture manifests,
-//! never the network.
+//! that names a package the list does not, or a list entry with no reason,
+//! fails. Every key npm installs a direct dependency from is read:
+//! `dependencies`, `devDependencies`, `optionalDependencies` and
+//! `peerDependencies` (npm 7 and later install peers by default).
+//! `bundleDependencies` only repeats names from `dependencies`, so it is not
+//! read. Tests use fixture manifests, never the network.
 
 use std::collections::BTreeMap;
 
@@ -102,7 +105,12 @@ fn direct_names(text: &str) -> Option<Vec<String>> {
         return None;
     };
     let mut names = Vec::new();
-    for key in ["dependencies", "devDependencies"] {
+    for key in [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+    ] {
         match value.get(key) {
             None | Some(Value::Null) => {}
             Some(Value::Object(members)) => {
@@ -256,13 +264,42 @@ mod tests {
         }
     }
 
+    /// Verifies: SEC-SUP-035
     #[test]
-    fn reads_dependencies_and_dev_dependencies() {
-        let text = r#"{"dependencies":{"a":"1"},"devDependencies":{"b":"2"},"peerDependencies":{"c":"3"}}"#;
+    fn an_unlisted_optional_or_peer_dependency_fails() {
+        for key in ["optionalDependencies", "peerDependencies"] {
+            let manifest = format!(r#"{{"name":"web","{key}":{{"fsevents":"2.3.3"}}}}"#);
+            let tree = Memory::default()
+                .with(LIST, "")
+                .with("web/package.json", &manifest);
+            assert_eq!(
+                check(&tree),
+                [Finding::Unlisted {
+                    path: "web/package.json".to_owned(),
+                    name: "fsevents".to_owned(),
+                }]
+            );
+            let listed = Memory::default()
+                .with(LIST, "fsevents = \"file watching on macOS\"\n")
+                .with("web/package.json", &manifest);
+            assert_eq!(check(&listed), []);
+        }
+    }
+
+    #[test]
+    fn reads_every_key_npm_installs_direct_dependencies_from() {
+        let text = r#"{"dependencies":{"a":"1"},"devDependencies":{"b":"2"},"peerDependencies":{"c":"3"},"optionalDependencies":{"d":"4"},"bundleDependencies":["a"],"scripts":{"e":"5"}}"#;
         assert_eq!(
             direct_names(text),
-            Some(vec!["a".to_owned(), "b".to_owned()])
+            Some(vec![
+                "a".to_owned(),
+                "b".to_owned(),
+                "d".to_owned(),
+                "c".to_owned()
+            ])
         );
+        assert_eq!(direct_names(r#"{"optionalDependencies":[]}"#), None);
+        assert_eq!(direct_names(r#"{"peerDependencies":{"c":3}}"#), None);
         assert_eq!(direct_names("{}"), Some(vec![]));
         assert_eq!(direct_names(r#"{"dependencies":null}"#), Some(vec![]));
         assert_eq!(direct_names("not json"), None);
