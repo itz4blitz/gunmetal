@@ -10,3 +10,4 @@
 
 pub mod bytes;
 pub mod checksum;
+pub mod tempdir;
