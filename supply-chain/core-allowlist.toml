@@ -70,6 +70,16 @@ reason = "SHA-256 in src/crypto.rs only: the schema digest and content identity 
 reviewed = 2026-10-03
 
 [[crate]]
+name = "tinyvec"
+reason = "Small-array buffer unicode-normalization uses while decomposing (WP-036, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
 name = "typenum"
 reason = "Type-level array lengths for hybrid-array (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "unicode-normalization"
+reason = "Canonical and compatibility decomposition for search folding and natural sort (WP-036, D-02, MUS-020, DIS-085)."
 reviewed = 2026-10-03

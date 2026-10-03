@@ -223,6 +223,11 @@ version = "2.0.119"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.tinyvec]]
+version = "1.13.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with unicode-normalization for search folding and natural sort (WP-036, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.typenum]]
 version = "1.20.1"
 criteria = "safe-to-deploy"
@@ -232,6 +237,11 @@ notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122
 version = "1.0.26"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.unicode-normalization]]
+version = "0.1.25"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 for gunmetal-core search folding and natural sort, its only user in the core (WP-036, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.windows-link]]
 version = "0.2.1"
