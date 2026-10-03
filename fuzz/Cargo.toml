@@ -81,6 +81,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "mpa"
+path = "fuzz_targets/mpa.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "net"
 path = "fuzz_targets/net.rs"
 test = false

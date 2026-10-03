@@ -20,6 +20,7 @@
 pub mod base64;
 pub mod ebml;
 pub mod link;
+pub mod mpa;
 pub mod net;
 pub mod registry;
 pub mod text;

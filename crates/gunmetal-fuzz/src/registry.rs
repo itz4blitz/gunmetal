@@ -53,6 +53,7 @@ harnesses! {
     base64,
     ebml,
     link,
+    mpa,
     net,
     text,
     time,
