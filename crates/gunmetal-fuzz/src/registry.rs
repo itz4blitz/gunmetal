@@ -53,6 +53,8 @@ harnesses! {
     base64,
     detect,
     ebml,
+    http_forwarded,
+    http_range,
     link,
     net,
     text,

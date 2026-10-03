@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6b5cde2b16c050abe6bcfc8001b9f365e780311b87f582e3c487f0fc97790085 # shrinks to chain = [(10.0.0.0, 0)], peer = 10.0.0.0, forwarded = false, gaps = [","]
+cc 1401439dd3b1376cec4fcdc1128551108b57f8b693e6ba655f48ae0bbe5a5ea0 # shrinks to peer = ::ffff:0.0.0.0, lines = []
+cc bc08699c723f3dc38bc629dce938c9f522bae0e63e4eec2a2433b36860a1b7fb # shrinks to prefix = [], client = (0.0.0.0, 0), suffix = [], peer = 10.0.0.0, forwarded = false, gaps = [","], breaks = [false]
+cc 76ef90baa589487c8e76c3b14540d58399d3075011b85aa4682107806ac9cb61 # shrinks to peer = 10.0.0.0, lines = []
