@@ -28,12 +28,13 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Write};
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
-use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, OpenOptions, OpenOptionsExt};
+use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions, OpenOptionsExt};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
-use crate::host::{Filesystem, HostFacts, NetworkFs};
+use crate::host::{Holds, HostFacts, NetworkFs};
 use crate::path::{self, DataDir, DataPath};
 
 /// The mode of every directory in the data directory.
@@ -293,19 +294,6 @@ impl Facts {
             owner: stat.st_uid,
             mode: stat.st_mode & 0o7777,
         }
-    }
-}
-
-/// Refuses a network filesystem unless the policy accepts it.
-fn check_filesystem(
-    filesystem: Filesystem,
-    policy: NetworkFilesystems,
-) -> Result<(), DataRootError> {
-    match (filesystem, policy) {
-        (Filesystem::Network(kind), NetworkFilesystems::Refuse) => {
-            Err(DataRootError::NetworkFilesystem(kind))
-        }
-        _ => Ok(()),
     }
 }
 
@@ -597,7 +585,11 @@ impl DataRoot {
         network: NetworkFilesystems,
         settler: &mut Settler,
     ) -> Result<Self, DataRootError> {
-        check_filesystem(settler.host.filesystem, network)?;
+        settler
+            .host
+            .filesystem
+            .admits(Holds::Data(network))
+            .map_err(DataRootError::NetworkFilesystem)?;
         // Resolving once gives SQLite a path with no symlinks in it, which
         // its no-follow open then insists on (see `sqlite_path`).
         let path = std::fs::canonicalize(path).map_err(io_error(Item::Root, Op::Resolve))?;
@@ -742,11 +734,48 @@ impl DataRoot {
     pub(crate) fn sqlite_path(&self, path: &DataPath) -> PathBuf {
         self.path.join(path.beneath())
     }
+
+    /// Whether the path [`DataRoot::sqlite_path`] gives for `path` names the
+    /// file the handle holds there, in the directory the handle holds it
+    /// in: both have the same device and inode whether they are reached by
+    /// that path or beneath the handle. SQLite opens by path, so its
+    /// opener asks this once the file is open and before it writes
+    /// anything, and refuses a data directory whose path was moved or
+    /// replaced after [`DataRoot::open`]. A link in place of the file is
+    /// never followed on either side.
+    ///
+    /// The check and SQLite's open are separate steps, so it does not
+    /// catch a path that was swapped for the open and swapped back before
+    /// the check; only an open beneath the handle could, and SQLite has
+    /// none. SQLite also opens `-wal` and `-shm` by path at the first
+    /// statement, which is after the check, so a data directory swapped
+    /// after the opener returns still gets those files created outside the
+    /// handle.
+    pub(crate) fn holds_sqlite_path(&self, path: &DataPath) -> bool {
+        let file = path.beneath();
+        let parent = path.parent();
+        let beneath = |rel: &Path| {
+            self.dir
+                .symlink_metadata(rel)
+                .map(|found| (found.dev(), found.ino()))
+                .ok()
+        };
+        let by_path = |rel: &Path| {
+            std::fs::symlink_metadata(self.path.join(rel))
+                .map(|found| (found.dev(), found.ino()))
+                .ok()
+        };
+        beneath(&parent)
+            .zip(beneath(&file))
+            .zip(by_path(&parent).zip(by_path(&file)))
+            .is_some_and(|(held, named)| held == named)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::Filesystem;
     use proptest::prelude::*;
     use std::io::Read;
 
@@ -758,36 +787,6 @@ mod tests {
 
     fn key() -> Item {
         Item::Path(DataPath::constant(DataDir::Secrets, "root.key"))
-    }
-
-    #[test]
-    fn accepts_a_local_filesystem_and_an_allowed_network_one() {
-        assert_eq!(
-            check_filesystem(Filesystem::Local, NetworkFilesystems::Refuse),
-            Ok(())
-        );
-        assert_eq!(
-            check_filesystem(Filesystem::Local, NetworkFilesystems::Allow),
-            Ok(())
-        );
-        assert_eq!(
-            check_filesystem(
-                Filesystem::Network(NetworkFs::Smb),
-                NetworkFilesystems::Allow
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn refuses_a_network_filesystem_by_default() {
-        assert_eq!(
-            check_filesystem(
-                Filesystem::Network(NetworkFs::Fuse),
-                NetworkFilesystems::Refuse
-            ),
-            Err(DataRootError::NetworkFilesystem(NetworkFs::Fuse))
-        );
     }
 
     /// Verifies: SEC-OPS-012
