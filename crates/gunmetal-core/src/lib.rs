@@ -14,6 +14,7 @@ pub mod net;
 pub mod parse;
 pub mod problem;
 pub mod schema;
+pub mod shuffle;
 pub mod text;
 pub mod time;
 pub mod untrusted;
