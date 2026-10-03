@@ -50,6 +50,9 @@ pub enum CoseKey {
 
 /// Reads a `COSE_Key` that occupies the whole of `bytes`.
 ///
+/// The budget is spent as [`super::cbor`] spends it, one step per CBOR
+/// item: at most `n + 1` steps for `n` octets (k = 1, c = 1).
+///
 /// # Errors
 ///
 /// Returns a typed error when the bytes are not a `COSE_Key` map for `ES256`
@@ -151,6 +154,9 @@ fn required_coord(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{
+        bytes, len, map, negative_arg, on_small_stack, repeated, unsigned, write_head,
+    };
     use super::*;
     use crate::parse::ParseFault;
     use proptest::collection::vec;
@@ -173,54 +179,6 @@ mod tests {
         )
     }
 
-    fn write_head(out: &mut Vec<u8>, major: u8, n: u64) {
-        let lead = major.checked_mul(0x20).unwrap_or(0);
-        if n < 24 {
-            out.push(lead | u8::try_from(n).unwrap());
-        } else if let Ok(byte) = u8::try_from(n) {
-            out.push(lead | 0x18);
-            out.push(byte);
-        } else if let Ok(wide) = u16::try_from(n) {
-            out.push(lead | 0x19);
-            out.extend_from_slice(&wide.to_be_bytes());
-        } else if let Ok(wide) = u32::try_from(n) {
-            out.push(lead | 0x1A);
-            out.extend_from_slice(&wide.to_be_bytes());
-        } else {
-            out.push(lead | 0x1B);
-            out.extend_from_slice(&n.to_be_bytes());
-        }
-    }
-
-    fn unsigned(n: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 0, n);
-        out
-    }
-
-    fn negative_arg(n: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 1, n);
-        out
-    }
-
-    fn bytes(value: &[u8]) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 2, u64::try_from(value.len()).unwrap());
-        out.extend_from_slice(value);
-        out
-    }
-
-    fn map(pairs: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 5, u64::try_from(pairs.len()).unwrap());
-        for (key, value) in pairs {
-            out.extend_from_slice(key);
-            out.extend_from_slice(value);
-        }
-        out
-    }
-
     fn es256(x: [u8; 32], y: [u8; 32]) -> Vec<u8> {
         map(&[
             (unsigned(1), unsigned(2)),
@@ -240,7 +198,6 @@ mod tests {
         ])
     }
 
-    /// Verifies: SEC-MED-001, SEC-HIS-036
     #[test]
     fn reads_an_es256_key() {
         let bytes = es256(X, Y);
@@ -258,7 +215,6 @@ mod tests {
         assert_eq!(parse(&bytes), Ok(CoseKey::Es256 { x: X, y: Y }));
     }
 
-    /// Verifies: SEC-MED-001, SEC-HIS-036
     #[test]
     fn reads_an_eddsa_key() {
         let bytes = eddsa(P);
@@ -273,7 +229,6 @@ mod tests {
         assert_eq!(parse(&bytes), Ok(CoseKey::Eddsa { x: P }));
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn accepts_labels_in_any_order_and_ignores_unknown_ones() {
         let shuffled = map(&[
@@ -295,7 +250,6 @@ mod tests {
         assert_eq!(parse(&with_y), Ok(CoseKey::Eddsa { x: P }));
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn reads_integer_labels_and_values_at_every_width() {
         let encoded = map(&[
@@ -325,7 +279,6 @@ mod tests {
         assert_eq!(parse(&with_wide), Ok(CoseKey::Es256 { x: X, y: Y }));
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn refuses_rs256_and_every_other_algorithm() {
         let rs256 = map(&[(unsigned(1), unsigned(3)), (unsigned(3), negative_arg(256))]);
@@ -387,7 +340,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[expect(
         clippy::too_many_lines,
         reason = "each missing or malformed field is an independent oracle"
@@ -535,7 +487,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001, SEC-HIS-036
     #[test]
     fn refuses_octets_after_the_key() {
         let mut bytes = es256(X, Y);
@@ -548,7 +499,7 @@ mod tests {
             })
         );
         let mut two = eddsa(P);
-        let key_len = u64::try_from(two.len()).unwrap();
+        let key_len = len(&two);
         two.extend_from_slice(&[0x01, 0x02]);
         assert_eq!(
             parse(&two),
@@ -602,7 +553,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn leaves_following_octets_when_read_from_a_cursor() {
         let mut bytes = es256(X, Y);
@@ -621,10 +571,34 @@ mod tests {
     }
 
     proptest! {
-        /// Verifies: SEC-MED-001, SEC-HIS-036
+        /// Verifies: SEC-MED-001
         #[test]
         fn never_panics_on_any_input(bytes in vec(any::<u8>(), 0..96)) {
-            let _ = parse(&bytes);
+            on_small_stack(move || {
+                let _ = parse(&bytes);
+            });
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn spends_at_most_one_step_per_octet_plus_one(
+            bytes in prop_oneof![
+                vec(any::<u8>(), 0..256),
+                (any::<u8>(), 0usize..512).prop_map(|(octet, count)| repeated(&[octet], count)),
+                vec(any::<u8>(), 0..32).prop_map(|tail| {
+                    let mut key = es256(X, Y);
+                    key.extend_from_slice(&tail);
+                    key
+                }),
+            ],
+        ) {
+            let octets = len(&bytes);
+            let spent = on_small_stack(move || {
+                let mut budget = plenty();
+                let _ = cose_key(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+                u64::MAX.checked_sub(budget.remaining()).unwrap()
+            });
+            prop_assert!(spent <= octets.checked_add(1).unwrap());
         }
     }
 }

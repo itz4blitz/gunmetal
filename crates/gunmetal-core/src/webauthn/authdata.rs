@@ -88,6 +88,10 @@ pub struct AuthData<'a> {
 
 /// Reads authenticator data from `bytes`.
 ///
+/// The parse spends one step for the fixed 37-octet prefix and one per CBOR
+/// item in the credential key and extensions, so `n` octets cost at most
+/// `n + 1` steps (k = 1, c = 1; SEC-MED-007).
+///
 /// # Errors
 ///
 /// Returns a typed error when the input is shorter than 37 octets, the
@@ -101,7 +105,18 @@ pub fn auth_data<'a>(
     budget: &mut Budget,
     depth: Depth,
 ) -> Result<AuthData<'a>, WebauthnError> {
-    let mut cursor = Cursor::new(bytes);
+    auth_data_from(Cursor::new(bytes), limits, budget, depth)
+}
+
+/// Reads authenticator data that fills the whole of `cursor`, reporting
+/// offsets from that cursor's position, so authenticator data inside an
+/// attestation object reports where it failed in the whole object.
+pub(super) fn auth_data_from<'a>(
+    mut cursor: Cursor<'a>,
+    limits: &Limits,
+    budget: &mut Budget,
+    depth: Depth,
+) -> Result<AuthData<'a>, WebauthnError> {
     budget.charge(1, cursor.offset())?;
     let rp_id_hash = cursor.array()?;
     let flags_at = cursor.offset();
@@ -174,6 +189,9 @@ fn read_extensions<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{
+        bytes, len, map, negative_arg, on_small_stack, repeated, unsigned,
+    };
     use super::*;
     use crate::parse::{LimitKind, ParseFault};
     use proptest::collection::vec;
@@ -214,58 +232,13 @@ mod tests {
         out
     }
 
-    fn write_head(out: &mut Vec<u8>, major: u8, n: u64) {
-        let lead = major.checked_mul(0x20).unwrap_or(0);
-        if n < 24 {
-            out.push(lead | u8::try_from(n).unwrap());
-        } else if let Ok(byte) = u8::try_from(n) {
-            out.push(lead | 0x18);
-            out.push(byte);
-        } else if let Ok(wide) = u16::try_from(n) {
-            out.push(lead | 0x19);
-            out.extend_from_slice(&wide.to_be_bytes());
-        } else {
-            out.push(lead | 0x1A);
-            out.extend_from_slice(&u32::try_from(n).unwrap().to_be_bytes());
-        }
-    }
-
-    fn unsigned(n: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 0, n);
-        out
-    }
-
-    fn negative_arg(n: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 1, n);
-        out
-    }
-
-    fn cbor_bytes(value: &[u8]) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 2, u64::try_from(value.len()).unwrap());
-        out.extend_from_slice(value);
-        out
-    }
-
-    fn map(pairs: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
-        let mut out = Vec::new();
-        write_head(&mut out, 5, u64::try_from(pairs.len()).unwrap());
-        for (key, value) in pairs {
-            out.extend_from_slice(key);
-            out.extend_from_slice(value);
-        }
-        out
-    }
-
     fn es256_key() -> Vec<u8> {
         map(&[
             (unsigned(1), unsigned(2)),
             (unsigned(3), negative_arg(6)),
             (negative_arg(0), unsigned(1)),
-            (negative_arg(1), cbor_bytes(&X)),
-            (negative_arg(2), cbor_bytes(&Y)),
+            (negative_arg(1), bytes(&X)),
+            (negative_arg(2), bytes(&Y)),
         ])
     }
 
@@ -274,7 +247,7 @@ mod tests {
             (unsigned(1), unsigned(1)),
             (unsigned(3), negative_arg(7)),
             (negative_arg(0), unsigned(6)),
-            (negative_arg(1), cbor_bytes(&P)),
+            (negative_arg(1), bytes(&P)),
         ])
     }
 
@@ -299,7 +272,6 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-IAM-018, SEC-HIS-036
     #[test]
     fn reads_the_37_octet_prefix() {
         let bytes = prefix(UP | UV, 0x0102_0304);
@@ -315,49 +287,39 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-018, SEC-IAM-020, SEC-IAM-021
     #[test]
     fn decodes_every_flags_combination() {
         let key = es256_key();
         for raw in 0u8..=255 {
-            let mut bytes = prefix(raw, 9);
+            let mut input = prefix(raw, 9);
             if raw & AT != 0 {
-                bytes.extend_from_slice(&attested(CRED_ID, &key));
+                input.extend_from_slice(&attested(CRED_ID, &key));
             }
             if raw & ED != 0 {
-                bytes.push(0xA0);
+                input.push(0xA0);
             }
-            let result = parse(&bytes);
-            if raw & BS != 0 && raw & BE == 0 {
-                assert_eq!(
-                    result,
-                    Err(WebauthnError::BackupState {
-                        offset: 32,
-                        flags: raw,
+            let expected = if raw & BS != 0 && raw & BE == 0 {
+                Err(WebauthnError::BackupState {
+                    offset: 32,
+                    flags: raw,
+                })
+            } else {
+                Ok(AuthData {
+                    rp_id_hash: RP,
+                    flags: expected_flags(raw),
+                    sign_count: 9,
+                    attested: (raw & AT != 0).then_some(AttestedCredential {
+                        aaguid: AAGUID,
+                        credential_id: CRED_ID,
+                        public_key: CoseKey::Es256 { x: X, y: Y },
                     }),
-                    "flags {raw:#04X}"
-                );
-                continue;
-            }
-            let got = result.expect("valid flags parse");
-            assert_eq!(got.rp_id_hash, RP, "flags {raw:#04X}");
-            assert_eq!(got.flags, expected_flags(raw), "flags {raw:#04X}");
-            assert_eq!(got.sign_count, 9, "flags {raw:#04X}");
-            assert_eq!(got.attested.is_some(), raw & AT != 0, "flags {raw:#04X}");
-            assert_eq!(got.extensions.is_some(), raw & ED != 0, "flags {raw:#04X}");
-            if raw & AT != 0 {
-                let attested = got.attested.expect("AT set");
-                assert_eq!(attested.aaguid, AAGUID);
-                assert_eq!(attested.credential_id, CRED_ID);
-                assert_eq!(attested.public_key, CoseKey::Es256 { x: X, y: Y });
-            }
-            if raw & ED != 0 {
-                assert_eq!(got.extensions, Some(Cbor::Map(Vec::new())));
-            }
+                    extensions: (raw & ED != 0).then_some(Cbor::Map(Vec::new())),
+                })
+            };
+            assert_eq!(parse(&input), expected);
         }
     }
 
-    /// Verifies: SEC-IAM-018, SEC-HIS-036
     #[test]
     fn reads_attested_credential_data_with_an_eddsa_key() {
         let mut bytes = prefix(AT, 0);
@@ -374,7 +336,6 @@ mod tests {
         assert_eq!(got.extensions, None);
     }
 
-    /// Verifies: SEC-IAM-018
     #[test]
     fn reads_attested_credential_data_then_extensions() {
         let mut bytes = prefix(AT | ED, 1);
@@ -403,7 +364,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-018
     #[test]
     fn accepts_a_1023_octet_credential_id_and_refuses_zero_or_1024() {
         let key = es256_key();
@@ -436,7 +396,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-018
     #[test]
     fn refuses_extension_data_that_is_not_a_map() {
         let mut bytes = prefix(ED, 0);
@@ -459,7 +418,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-018, SEC-HIS-036
     #[test]
     fn refuses_trailing_octets() {
         let mut prefix_only = prefix(UP, 0);
@@ -494,7 +452,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001, SEC-MED-004
     #[test]
     fn reports_truncation_at_each_boundary() {
         assert_eq!(
@@ -612,7 +569,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-021
     #[test]
     fn keeps_backup_eligible_without_backup_state() {
         let bytes = prefix(BE, 0);
@@ -649,10 +605,35 @@ mod tests {
     }
 
     proptest! {
-        /// Verifies: SEC-MED-001, SEC-HIS-036
+        /// Verifies: SEC-MED-001
         #[test]
-        fn never_panics_on_any_input(bytes in vec(any::<u8>(), 0..160)) {
-            let _ = parse(&bytes);
+        fn never_panics_on_any_input(input in vec(any::<u8>(), 0..160)) {
+            on_small_stack(move || {
+                let _ = parse(&input);
+            });
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn spends_at_most_one_step_per_octet_plus_one(
+            input in prop_oneof![
+                vec(any::<u8>(), 0..256),
+                (any::<u8>(), 0usize..512).prop_map(|(octet, count)| repeated(&[octet], count)),
+                (any::<u8>(), vec(any::<u8>(), 0..160)).prop_map(|(flags, tail)| {
+                    let mut input = prefix(flags | AT, 0);
+                    input.extend_from_slice(&attested(CRED_ID, &es256_key()));
+                    input.extend_from_slice(&tail);
+                    input
+                }),
+            ],
+        ) {
+            let octets = len(&input);
+            let spent = on_small_stack(move || {
+                let mut budget = plenty();
+                let _ = auth_data(&input, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+                u64::MAX.checked_sub(budget.remaining()).unwrap()
+            });
+            prop_assert!(spent <= octets.checked_add(1).unwrap());
         }
     }
 }

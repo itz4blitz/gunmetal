@@ -3,15 +3,21 @@
 //! The reader accepts definite-length unsigned and negative integers at
 //! every width, byte strings, UTF-8 text, arrays, maps, `true`, `false`
 //! and `null`. It refuses indefinite lengths, reserved additional-info
-//! values, tags, floating-point numbers, and maps with two keys that
-//! decode to the same value.
+//! values, tags, floating-point numbers, map keys that are not integers or
+//! text, and maps with two keys that decode to the same value.
 //!
-//! [`decode`] spends one step of the budget per data item. An input of
-//! `n` octets holds at most `n` items, because each item starts with a
-//! type octet. Arrays and maps each count as one nesting level against
+//! [`decode`] spends one step of the budget per data item before reading
+//! the item's type octet (SEC-MED-007). Each item has a type octet of its
+//! own, so an input of `n` octets costs at most `n` steps when it decodes
+//! and `n + 1` when it stops early at a missing octet: k = 1 and c = 1.
+//! Arrays and maps each count as one nesting level against
 //! [`crate::parse::LimitKind::ContainerDepth`], and their declared
 //! lengths count against [`crate::parse::LimitKind::Children`]. Byte and
 //! text string lengths count against [`crate::parse::LimitKind::LongText`].
+//! Every declared length is checked against its limit before the reader
+//! takes any octet or sizes any allocation from it.
+
+use std::collections::BTreeSet;
 
 use crate::parse::{
     Budget, Cursor, Depth, LimitKind, Limits, ParseFault, bounded_capacity, bounded_vec,
@@ -87,6 +93,12 @@ pub enum WebauthnError {
         /// The tag number.
         tag: u64,
     },
+    /// A map key that is not an integer or a text string. CTAP2 canonical
+    /// CBOR, which `WebAuthn` and COSE keys use, has no other key types.
+    KeyType {
+        /// Where the key starts.
+        offset: u64,
+    },
     /// A map key that decodes to the same value as an earlier key.
     DuplicateKey {
         /// Where the second key starts.
@@ -125,6 +137,20 @@ pub enum WebauthnError {
         /// The `crv` label's value, when it was an integer.
         crv: Option<i64>,
     },
+    /// An attestation object field that is missing or not what format
+    /// "none" requires.
+    Attestation {
+        /// Where the attestation object starts.
+        offset: u64,
+        /// The field that is wrong.
+        field: AttestationField,
+    },
+    /// An attestation object whose authenticator data has no attested
+    /// credential data (flag bit 6 unset).
+    MissingCredential {
+        /// Where the authenticator data's flags octet is.
+        offset: u64,
+    },
     /// Authenticator-data flag bit 4 (backup state) set without bit 3
     /// (backup eligible), which `WebAuthn` Level 3 section 6.1.3 forbids.
     BackupState {
@@ -143,6 +169,19 @@ pub enum WebauthnError {
     },
 }
 
+/// A field of an attestation object (`WebAuthn` Level 3 section 6.5.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttestationField {
+    /// The object itself, which must be a CBOR map.
+    Object,
+    /// `fmt`, which must be the text "none".
+    Fmt,
+    /// `attStmt`, which format "none" requires to be an empty map.
+    AttStmt,
+    /// `authData`, which must be a byte string.
+    AuthData,
+}
+
 impl WebauthnError {
     /// Where the parser was working when it stopped, in octets from the
     /// start of the input.
@@ -154,11 +193,14 @@ impl WebauthnError {
             | Self::ReservedInfo { offset, .. }
             | Self::Simple { offset, .. }
             | Self::Tag { offset, .. }
+            | Self::KeyType { offset }
             | Self::DuplicateKey { offset }
             | Self::Text { offset }
             | Self::Trailing { offset, .. }
             | Self::CoseField { offset, .. }
             | Self::Algorithm { offset, .. }
+            | Self::Attestation { offset, .. }
+            | Self::MissingCredential { offset }
             | Self::BackupState { offset, .. }
             | Self::CredentialId { offset, .. } => offset,
         }
@@ -330,7 +372,30 @@ fn read_array<'a>(
     Ok(Cbor::Array(items))
 }
 
-/// Reads a definite-length map, refusing a key that equals an earlier one.
+/// A map key: the only key types CTAP2 canonical CBOR allows. Ordered so
+/// a map's keys go in a [`BTreeSet`], which finds a repeated key in
+/// logarithmic time rather than by comparing it with every earlier key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MapKey<'a> {
+    Unsigned(u64),
+    Negative(u64),
+    Text(&'a str),
+}
+
+impl<'a> MapKey<'a> {
+    /// The key `value` stands for, or the error for a key of another type.
+    const fn of(value: &Cbor<'a>, offset: u64) -> Result<Self, WebauthnError> {
+        match *value {
+            Cbor::Unsigned(n) => Ok(Self::Unsigned(n)),
+            Cbor::Negative(n) => Ok(Self::Negative(n)),
+            Cbor::Text(text) => Ok(Self::Text(text)),
+            _ => Err(WebauthnError::KeyType { offset }),
+        }
+    }
+}
+
+/// Reads a definite-length map, refusing a key that is not an integer or
+/// text, and a key that equals an earlier one.
 fn read_map<'a>(
     cursor: &mut Cursor<'a>,
     limits: &Limits,
@@ -348,10 +413,11 @@ fn read_map<'a>(
         cursor.remaining(),
         limits.get(LimitKind::Children),
     );
+    let mut seen = BTreeSet::new();
     for _ in 0..bounded_capacity(count, 1, u64::MAX, count) {
         let key_at = cursor.offset();
         let key = decode_from(cursor, limits, budget, nested)?;
-        if entries.iter().any(|(seen, _)| seen == &key) {
+        if !seen.insert(MapKey::of(&key, key_at)?) {
             return Err(WebauthnError::DuplicateKey { offset: key_at });
         }
         let value = decode_from(cursor, limits, budget, nested)?;
@@ -379,18 +445,10 @@ fn read_simple(additional: u8, offset: u64) -> Result<Cbor<'static>, WebauthnErr
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{head, len, on_small_stack, repeated};
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
-
-    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
-        std::thread::Builder::new()
-            .stack_size(262_144)
-            .spawn(work)
-            .expect("the test thread starts")
-            .join()
-            .expect("the code under test returned instead of panicking")
-    }
 
     fn plenty() -> Budget {
         Budget::for_input(0, 0, u64::MAX)
@@ -506,13 +564,11 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-MED-001, SEC-HIS-036
     #[test]
     fn reads_a_zero_unsigned_integer() {
         assert_eq!(decode_default(&[0x00]), ok_value(Cbor::Unsigned(0)));
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn reads_unsigned_integers_at_every_width() {
         let cases: [(u64, &[u8]); 9] = [
@@ -530,12 +586,8 @@ mod tests {
             ),
         ];
         for (n, bytes) in cases {
-            assert_eq!(
-                decode_default(bytes),
-                ok_value(Cbor::Unsigned(n)),
-                "{bytes:02X?}"
-            );
-            assert_eq!(encode(&Cbor::Unsigned(n)), bytes, "encoder {n}");
+            assert_eq!(decode_default(bytes), ok_value(Cbor::Unsigned(n)));
+            assert_eq!(encode(&Cbor::Unsigned(n)), bytes);
         }
         // The same values encoded at a longer width still read as that integer.
         assert_eq!(
@@ -602,7 +654,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn reads_negative_integers_at_every_width() {
         // Major type 1, value n, means -1 - n. 0x20 is -1, 0x37 is -24.
@@ -618,12 +669,8 @@ mod tests {
             ),
         ];
         for (n, bytes) in cases {
-            assert_eq!(
-                decode_default(bytes),
-                ok_value(Cbor::Negative(n)),
-                "{bytes:02X?}"
-            );
-            assert_eq!(encode(&Cbor::Negative(n)), bytes, "encoder {n}");
+            assert_eq!(decode_default(bytes), ok_value(Cbor::Negative(n)));
+            assert_eq!(encode(&Cbor::Negative(n)), bytes);
         }
         assert_eq!(
             decode_default(&[0x3A, 0x00, 0x00, 0x00, 0x00]),
@@ -631,7 +678,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001, SEC-TM-032
+    /// Verifies: SEC-MED-006
     #[test]
     fn reads_byte_and_text_strings() {
         assert_eq!(decode_default(&[0x40]), ok_value(Cbor::Bytes(&[])));
@@ -679,7 +726,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn reads_bool_null_array_and_map() {
         assert_eq!(decode_default(&[0xF4]), ok_value(Cbor::Bool(false)));
@@ -767,7 +813,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001, SEC-HIS-036
     #[test]
     fn returns_the_unused_suffix() {
         assert_eq!(
@@ -786,7 +831,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn refuses_duplicate_map_keys_including_across_widths() {
         // Two inline 1 keys.
@@ -810,7 +854,6 @@ mod tests {
         assert_eq!(WebauthnError::DuplicateKey { offset: 3 }.offset(), 3);
     }
 
-    /// Verifies: SEC-MED-001
     #[expect(
         clippy::too_many_lines,
         reason = "each octet is an independent refusal oracle"
@@ -1000,12 +1043,11 @@ mod tests {
             (&[0xC1], WebauthnError::Tag { offset: 0, tag: 1 }),
             (&[0xD8, 0x2A], WebauthnError::Tag { offset: 0, tag: 42 }),
         ] {
-            assert_eq!(decode_default(bytes), Err(error), "{bytes:02X?}");
-            assert_eq!(error.offset(), 0, "{error:?}");
+            assert_eq!(decode_default(bytes), Err(error));
+            assert_eq!(error.offset(), 0);
         }
     }
 
-    /// Verifies: SEC-MED-001, SEC-MED-004
     #[test]
     fn reports_truncation_with_exact_offsets() {
         assert_eq!(decode_default(&[]), Err(truncated(0, 1, 0)));
@@ -1184,7 +1226,6 @@ mod tests {
         assert_eq!(budget.remaining(), 0);
     }
 
-    /// Verifies: SEC-MED-008
     #[test]
     fn a_nested_walk_always_stops() {
         // Thirty-three nested empty arrays would hang a reader that did
@@ -1209,7 +1250,7 @@ mod tests {
     /// Verifies: SEC-API-072
     #[test]
     fn describes_every_variant_as_the_passkey_problem() {
-        let errors: [(WebauthnError, u64); 12] = [
+        let errors: [(WebauthnError, u64); 15] = [
             (truncated(1, 2, 0), 1),
             (
                 WebauthnError::Indefinite {
@@ -1273,16 +1314,24 @@ mod tests {
                 },
                 12,
             ),
+            (WebauthnError::KeyType { offset: 13 }, 13),
+            (
+                WebauthnError::Attestation {
+                    offset: 14,
+                    field: AttestationField::AttStmt,
+                },
+                14,
+            ),
+            (WebauthnError::MissingCredential { offset: 15 }, 15),
         ];
         for (error, offset) in errors {
-            assert_eq!(error.offset(), offset, "{error:?}");
+            assert_eq!(error.offset(), offset);
             assert_eq!(
                 error.problem(),
                 Problem {
                     code: ProblemCode::WebauthnDataUnreadable,
                     args: vec![("offset", Arg::Number(offset))],
-                },
-                "{error:?}"
+                }
             );
         }
         assert_eq!(
@@ -1311,6 +1360,129 @@ mod tests {
         assert_eq!(integer(&Cbor::Null), None);
     }
 
+    #[test]
+    fn refuses_map_keys_that_are_not_integers_or_text() {
+        for bytes in [
+            [0xA1, 0x40, 0x00],
+            [0xA1, 0x80, 0x00],
+            [0xA1, 0xA0, 0x00],
+            [0xA1, 0xF4, 0x00],
+            [0xA1, 0xF5, 0x00],
+            [0xA1, 0xF6, 0x00],
+        ] {
+            assert_eq!(
+                decode_default(&bytes),
+                Err(WebauthnError::KeyType { offset: 1 })
+            );
+        }
+        // The offset is the key's, in a map that is not at the start.
+        assert_eq!(
+            decode_default(&[0x81, 0xA2, 0x01, 0x02, 0x41, 0xFF, 0x00]),
+            Err(WebauthnError::KeyType { offset: 4 })
+        );
+        assert_eq!(WebauthnError::KeyType { offset: 4 }.offset(), 4);
+        // Text and integers of either sign are keys, and -1 differs from 0.
+        assert_eq!(
+            decode_default(&[0xA3, 0x61, b'a', 0x00, 0x20, 0x01, 0x00, 0x02]),
+            ok_value(Cbor::Map(vec![
+                (Cbor::Text("a"), Cbor::Unsigned(0)),
+                (Cbor::Negative(0), Cbor::Unsigned(1)),
+                (Cbor::Unsigned(0), Cbor::Unsigned(2)),
+            ]))
+        );
+        assert_eq!(
+            decode_default(&[0xA2, 0x61, b'a', 0x00, 0x61, b'a', 0x01]),
+            Err(WebauthnError::DuplicateKey { offset: 4 })
+        );
+        assert_eq!(
+            decode_default(&[0xA3, 0x20, 0x00, 0x01, 0x00, 0x38, 0x00, 0x00]),
+            Err(WebauthnError::DuplicateKey { offset: 5 })
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_a_map_at_the_default_children_limit_and_refuses_one_more() {
+        let mut bytes = head(5, 65_536);
+        let mut expected = Vec::new();
+        for key in 0..65_536 {
+            bytes.extend_from_slice(&head(0, key));
+            bytes.push(0xF6);
+            expected.push((Cbor::Unsigned(key), Cbor::Null));
+        }
+        on_small_stack(move || {
+            assert_eq!(
+                decode_default(&bytes).map(|item| item.value),
+                Ok(Cbor::Map(expected))
+            );
+        });
+        assert_eq!(
+            decode_default(&head(5, 65_537)),
+            Err(WebauthnError::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Children,
+                value: 65_537,
+                max: 65_536,
+                offset: 0,
+            }))
+        );
+    }
+
+    /// Verifies: SEC-MED-005
+    #[test]
+    fn reads_nesting_at_the_default_depth_limit_and_refuses_one_more() {
+        let mut at_limit = repeated(&[0x81], 31);
+        at_limit.extend_from_slice(&[0xA1, 0x00, 0xF6]);
+        let mut expected = Cbor::Map(vec![(Cbor::Unsigned(0), Cbor::Null)]);
+        for _ in 0..31 {
+            expected = Cbor::Array(vec![expected]);
+        }
+        on_small_stack(move || {
+            assert_eq!(
+                decode_default(&at_limit).map(|item| item.value),
+                Ok(expected)
+            );
+        });
+        let mut past = repeated(&[0x81], 32);
+        past.extend_from_slice(&[0xA1, 0x00, 0xF6]);
+        assert_eq!(
+            on_small_stack(move || decode_default(&past).map(|_| ())),
+            Err(WebauthnError::Fault(ParseFault::TooDeep {
+                limit: LimitKind::ContainerDepth,
+                depth: 33,
+                max: 32,
+                offset: 32,
+            }))
+        );
+    }
+
+    /// Verifies: SEC-MED-004, SEC-TM-032
+    #[test]
+    fn refuses_lengths_near_u64_max_before_reading_them() {
+        for (major, limit) in [
+            (2, LimitKind::LongText),
+            (3, LimitKind::LongText),
+            (4, LimitKind::Children),
+            (5, LimitKind::Children),
+        ] {
+            assert_eq!(
+                decode_default(&head(major, u64::MAX)),
+                Err(WebauthnError::Fault(ParseFault::LimitExceeded {
+                    limit,
+                    value: u64::MAX,
+                    max: 65_536,
+                    offset: 0,
+                }))
+            );
+        }
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::LongText, LimitKind::LongText.ceiling())
+            .expect("the ceiling is allowed");
+        assert_eq!(
+            decode_at(&head(2, 262_144), &limits, Depth::CONTAINER_ROOT),
+            Err(truncated(5, 262_144, 0))
+        );
+    }
+
     /// A small owned tree the property test generates, independent of
     /// [`Cbor`].
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1337,7 +1509,7 @@ mod tests {
         leaf.prop_recursive(depth, 16, 4, |inner| {
             prop_oneof![
                 vec(inner.clone(), 0..3).prop_map(Tree::Array),
-                vec((inner.clone(), inner), 0..3).prop_map(|pairs| {
+                vec((key(), inner), 0..3).prop_map(|pairs| {
                     let mut keys = Vec::new();
                     let mut unique = Vec::new();
                     for (key, value) in pairs {
@@ -1350,6 +1522,36 @@ mod tests {
                 }),
             ]
         })
+    }
+
+    /// A map key of a type the reader accepts: an integer or text.
+    fn key() -> impl Strategy<Value = Tree> {
+        prop_oneof![
+            (0u64..4).prop_map(Tree::Unsigned),
+            (0u64..4).prop_map(Tree::Negative),
+            any::<u64>().prop_map(Tree::Unsigned),
+            "[a-c]{0,2}".prop_map(Tree::Text),
+        ]
+    }
+
+    /// How many data items the tree holds, counted independently of the
+    /// reader.
+    fn items(tree: &Tree) -> u64 {
+        match *tree {
+            Tree::Array(ref values) => values
+                .iter()
+                .map(items)
+                .sum::<u64>()
+                .checked_add(1)
+                .unwrap(),
+            Tree::Map(ref entries) => entries
+                .iter()
+                .map(|(key, value)| items(key).checked_add(items(value)).unwrap())
+                .sum::<u64>()
+                .checked_add(1)
+                .unwrap(),
+            _ => 1,
+        }
     }
 
     fn encoded(tree: &Tree) -> Vec<u8> {
@@ -1408,7 +1610,7 @@ mod tests {
     }
 
     proptest! {
-        /// Verifies: SEC-MED-001, SEC-HIS-036
+        /// Verifies: SEC-MED-001
         #[test]
         fn never_panics_on_any_input(bytes in vec(any::<u8>(), 0..64)) {
             on_small_stack(move || {
@@ -1416,7 +1618,93 @@ mod tests {
             });
         }
 
-        /// Verifies: SEC-MED-001, SEC-MED-008
+        /// Verifies: SEC-MED-007, SEC-MED-008
+        #[test]
+        fn spends_at_most_one_step_per_octet_plus_one(
+            bytes in prop_oneof![
+                vec(any::<u8>(), 0..256),
+                (any::<u8>(), 0usize..512).prop_map(|(octet, count)| repeated(&[octet], count)),
+                (vec(any::<u8>(), 1..4), 0usize..128)
+                    .prop_map(|(unit, count)| repeated(&unit, count)),
+            ],
+        ) {
+            let octets = len(&bytes);
+            let spent = on_small_stack(move || {
+                let mut budget = plenty();
+                let _ = decode(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+                u64::MAX.checked_sub(budget.remaining()).unwrap()
+            });
+            prop_assert!(spent <= octets.checked_add(1).unwrap());
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn spends_exactly_one_step_per_item(value in tree(3)) {
+            let bytes = encoded(&value);
+            let mut budget = plenty();
+            let got = decode(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+            prop_assert_eq!(got.map(|item| item.value), Ok(as_cbor(&value)));
+            prop_assert_eq!(u64::MAX.checked_sub(budget.remaining()).unwrap(), items(&value));
+        }
+
+        /// Verifies: SEC-MED-005, SEC-MED-001
+        #[test]
+        fn refuses_any_tree_deeper_than_the_limit_on_a_small_stack(
+            levels in vec(any::<bool>(), 33..300),
+        ) {
+            // Each level is a one-item array or a one-pair map keyed by 0.
+            let mut bytes = Vec::new();
+            let mut offset_of_33rd = 0;
+            for (index, is_map) in levels.iter().enumerate() {
+                if index == 32 {
+                    offset_of_33rd = len(&bytes);
+                }
+                if *is_map {
+                    bytes.extend_from_slice(&[0xA1, 0x00]);
+                } else {
+                    bytes.push(0x81);
+                }
+            }
+            bytes.push(0xF6);
+            let got = on_small_stack(move || decode_default(&bytes).map(|_| ()));
+            prop_assert_eq!(
+                got,
+                Err(WebauthnError::Fault(ParseFault::TooDeep {
+                    limit: LimitKind::ContainerDepth,
+                    depth: 33,
+                    max: 32,
+                    offset: offset_of_33rd,
+                }))
+            );
+        }
+
+        /// Verifies: SEC-TM-032
+        #[test]
+        fn refuses_a_declared_length_past_the_limit_or_the_input(
+            major in prop_oneof![Just(2u8), Just(3u8), Just(4u8)],
+            declared in prop_oneof![65_537..=u64::MAX, 1..=65_536u64],
+            filler in 0u64..16,
+        ) {
+            prop_assume!(declared > filler);
+            let mut bytes = head(major, declared);
+            let head_len = len(&bytes);
+            bytes.extend((0..filler).map(|_| 0x00));
+            let limit = if major == 4 { LimitKind::Children } else { LimitKind::LongText };
+            let expected = if declared > 65_536 {
+                WebauthnError::Fault(ParseFault::LimitExceeded {
+                    limit,
+                    value: declared,
+                    max: 65_536,
+                    offset: 0,
+                })
+            } else if major == 4 {
+                truncated(head_len.checked_add(filler).unwrap(), 1, 0)
+            } else {
+                truncated(head_len, declared, filler)
+            };
+            prop_assert_eq!(decode_default(&bytes), Err(expected));
+        }
+
         #[test]
         fn reading_an_encoded_tree_returns_it(
             value in tree(3),
