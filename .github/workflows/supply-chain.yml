@@ -1,0 +1,59 @@
+name: Supply chain
+
+# SEC-SUP-021: cargo-deny runs on every pull request inside scripts/gate.sh
+# (ci.yml), and daily here on main against the newest advisory database, so
+# an advisory published after a merge is caught without new commits. A
+# failure opens an issue, or comments on the open one, which records when the
+# remediation clock of SEC-SUP-023 started.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - run: cargo deny --locked check
+
+  # Separate from the check so that only this job, which runs no repository
+  # code, can write issues.
+  report:
+    needs: deny
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Daily cargo-deny check failed on main
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Still failing: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --body "The scheduled cargo-deny check failed: $RUN_URL. Remediation deadlines run from today (SEC-SUP-023)."
+          fi

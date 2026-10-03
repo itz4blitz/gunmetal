@@ -14,11 +14,21 @@ if ! command -v rustup >/dev/null; then
   export LLVM_PROFDATA="${LLVM_PROFDATA:-$(command -v llvm-profdata)}"
 fi
 
+# GATE_OFFLINE=1 runs the dependency checks without network: cargo-deny uses
+# its cached advisory database and fails once that is more than 90 days old.
+locked=--locked
+if [[ "${GATE_OFFLINE:-0}" == 1 ]]; then
+  locked=--frozen
+fi
+
 echo "==> format"
 cargo fmt --all -- --check
 
 echo "==> lint"
 cargo clippy --locked --workspace --all-targets -- -D warnings
+
+echo "==> dependency policy: advisories, bans, licences, sources"
+cargo deny "$locked" check
 
 echo "==> tests with 100% coverage"
 cargo llvm-cov --locked --workspace \

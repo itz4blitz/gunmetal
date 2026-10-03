@@ -1,0 +1,187 @@
+# Dependency policy, checked by `cargo deny check` in scripts/gate.sh.
+#
+# Every rule here traces to a requirement in docs/security. A change to this
+# file needs code-owner review (SEC-SUP-005). Reference:
+# https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+
+[graph]
+# Check the graph as it is built on every platform, with default features.
+all-features = false
+
+# SEC-SUP-021: vulnerabilities always fail (cargo-deny no longer lets them be
+# downgraded); unmaintained and unsound crates fail wherever they appear;
+# yanked versions fail.
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+# SEC-SUP-022: every entry here must also have an entry in
+# supply-chain/exceptions.toml giving the reason, an owner and a review-by
+# date at most 90 days ahead.
+ignore = []
+
+# SEC-SUP-029: only licences compatible with AGPL-3.0-or-later. Anything not
+# listed fails, and so does a crate with no licence. The incompatible ones the
+# requirement names (GPL-2.0-only, EPL, CDDL, SSPL, BUSL, JSON, OpenSSL,
+# BSD-4-Clause, Apache-1.1, MPL-1.1, MPL-2.0-no-copyleft-exception, which is
+# MPL-2.0 marked "Incompatible With Secondary Licenses", and non-commercial
+# licences) are absent on purpose. OFL-1.1 is for font files only, so it goes
+# in a per-crate exception if a font ever ships. Every `clarify` entry needs
+# code-owner review. Licences are checked for normal and build dependencies,
+# which is what ships; dev-dependencies are still checked for advisories,
+# bans and sources.
+[licenses]
+allow = [
+    "0BSD",
+    "AGPL-3.0-or-later",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "GPL-3.0-or-later",
+    "ISC",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-or-later",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# The list is a policy, not an inventory of what is in the graph today.
+unused-allowed-license = "allow"
+
+[bans]
+# SEC-SUP-021: no `*` version requirements.
+wildcards = "deny"
+multiple-versions = "warn"
+
+deny = [
+    # SEC-TM-006, SEC-NET-030, SEC-HIS-052: the server never asks a router to
+    # open ports. UPnP IGD, NAT-PMP, PCP and SSDP clients.
+    { crate = "igd", reason = "UPnP IGD port mapping (SEC-TM-006)" },
+    { crate = "igd-next", reason = "UPnP IGD port mapping (SEC-TM-006)" },
+    { crate = "rupnp", reason = "UPnP control point (SEC-TM-006)" },
+    { crate = "easy-upnp", reason = "UPnP port mapping (SEC-TM-006)" },
+    { crate = "upnp-client", reason = "UPnP client (SEC-TM-006)" },
+    { crate = "ssdp-client", reason = "UPnP SSDP discovery (SEC-TM-006, SEC-NET-059)" },
+    { crate = "natpmp", reason = "NAT-PMP port mapping (SEC-TM-006)" },
+    { crate = "crab_nat", reason = "NAT-PMP and PCP port mapping (SEC-TM-006)" },
+    { crate = "pcp-client", reason = "PCP port mapping (SEC-TM-006)" },
+    { crate = "portmapper", reason = "UPnP, NAT-PMP and PCP port mapping (SEC-TM-006, SEC-OPS-040)" },
+
+    # SEC-STD-011: regular expressions over untrusted input run only in the
+    # linear-time `regex` crate. Backtracking engines are banned.
+    { crate = "fancy-regex", reason = "backtracking regex engine (SEC-STD-011)" },
+    { crate = "pcre2", reason = "backtracking regex engine, PCRE2 (SEC-STD-011)" },
+    { crate = "pcre2-sys", reason = "backtracking regex engine, PCRE2 (SEC-STD-011)" },
+    { crate = "pcre", reason = "backtracking regex engine, PCRE (SEC-STD-011)" },
+    { crate = "onig", reason = "backtracking regex engine, Oniguruma (SEC-STD-011)" },
+    { crate = "onig_sys", reason = "backtracking regex engine, Oniguruma (SEC-STD-011)" },
+    { crate = "regress", reason = "backtracking regex engine, ECMAScript (SEC-STD-011)" },
+
+    # SEC-STD-022: non-cryptographic generators are banned outside tests. The
+    # two that test tooling needs are allowed only under the crate that pulls
+    # them in: proptest's dev-dependency tree uses fastrand through tempfile
+    # (for temporary file names) and rand_xorshift for reproducible cases.
+    { crate = "fastrand", wrappers = ["tempfile"], reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "rand_xorshift", wrappers = ["proptest"], reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "oorandom", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "nanorand", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "wyrand", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "turborand", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "tinyrand", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "frand", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "rand_pcg", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "rand_xoshiro", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "rand_sfc", reason = "non-cryptographic RNG (SEC-STD-022)" },
+    { crate = "rand_isaac", reason = "RNG with no current security review (SEC-STD-022)" },
+
+    # SEC-STD-010: no SAML, LDAP or other directory authentication, SMS or
+    # voice codes, GraphQL, WebRTC or STUN/TURN, memcache, or XPath and XSLT.
+    # Adopting one needs an architecture record first.
+    { crate = "samael", reason = "SAML (SEC-STD-010)" },
+    { crate = "saml-rs", reason = "SAML (SEC-STD-010)" },
+    { crate = "ldap3", reason = "LDAP (SEC-STD-010)" },
+    { crate = "ldap3_proto", reason = "LDAP (SEC-STD-010)" },
+    { crate = "ldap-rs", reason = "LDAP (SEC-STD-010)" },
+    { crate = "simple-ldap", reason = "LDAP (SEC-STD-010)" },
+    { crate = "twilio", reason = "SMS and voice codes (SEC-STD-010)" },
+    { crate = "async-graphql", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "juniper", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "graphql-parser", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "graphql_client", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "cynic", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "apollo-parser", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "apollo-compiler", reason = "GraphQL (SEC-STD-010)" },
+    { crate = "webrtc", reason = "WebRTC (SEC-STD-010)" },
+    { crate = "rtc", reason = "WebRTC (SEC-STD-010)" },
+    { crate = "str0m", reason = "WebRTC (SEC-STD-010)" },
+    { crate = "webrtc-ice", reason = "WebRTC ICE (SEC-STD-010)" },
+    { crate = "webrtc-dtls", reason = "WebRTC DTLS (SEC-STD-010)" },
+    { crate = "stun", reason = "STUN (SEC-STD-010)" },
+    { crate = "stun-rs", reason = "STUN (SEC-STD-010)" },
+    { crate = "turn", reason = "TURN (SEC-STD-010)" },
+    { crate = "memcache", reason = "memcache (SEC-STD-010)" },
+    { crate = "sxd-xpath", reason = "XPath (SEC-STD-010)" },
+    { crate = "xrust", reason = "XPath and XSLT (SEC-STD-010)" },
+    { crate = "libxslt", reason = "XSLT (SEC-STD-010)" },
+
+    # SEC-STD-019: cryptography only from a reviewed allow-list, AEAD only.
+    # Broken or obsolete primitives and unauthenticated block modes are banned.
+    { crate = "md2", reason = "broken hash (SEC-STD-019)" },
+    { crate = "md4", reason = "broken hash (SEC-STD-019)" },
+    { crate = "des", reason = "obsolete cipher, DES and 3DES (SEC-STD-019)" },
+    { crate = "rc2", reason = "obsolete cipher (SEC-STD-019)" },
+    { crate = "rc4", reason = "broken cipher (SEC-STD-019)" },
+    { crate = "blowfish", reason = "obsolete 64-bit block cipher (SEC-STD-019)" },
+    { crate = "cast5", reason = "obsolete 64-bit block cipher (SEC-STD-019)" },
+    { crate = "idea", reason = "obsolete 64-bit block cipher (SEC-STD-019)" },
+    { crate = "ecb", reason = "ECB mode (SEC-STD-019)" },
+    { crate = "cbc", reason = "unauthenticated CBC mode (SEC-STD-019)" },
+    { crate = "cfb-mode", reason = "unauthenticated CFB mode (SEC-STD-019)" },
+    { crate = "cfb8", reason = "unauthenticated CFB-8 mode (SEC-STD-019)" },
+    { crate = "ofb", reason = "unauthenticated OFB mode (SEC-STD-019)" },
+    { crate = "block-modes", reason = "deprecated unauthenticated block modes (SEC-STD-019)" },
+    { crate = "rust-crypto", reason = "unmaintained crate of mixed, partly broken primitives (SEC-STD-019)" },
+    # CTR mode is acceptable only inside an AEAD construction built on it.
+    # When the cryptography architecture record (SEC-STD-019) picks one, add
+    # that crate (for example aes-gcm) as the only wrapper here.
+    { crate = "ctr", reason = "unauthenticated CTR mode outside an AEAD (SEC-STD-019)" },
+    # MD5 and SHA-1 may appear only behind a type that marks them as
+    # non-security. Until that type exists, nothing may depend on them; a
+    # reviewed library that needs one for a legacy protocol field (such as the
+    # WebSocket handshake) is added here as a wrapper.
+    { crate = "md-5", reason = "MD5 outside the non-security digest type (SEC-STD-019)" },
+    { crate = "md5", reason = "MD5 outside the non-security digest type (SEC-STD-019)" },
+    { crate = "sha1", reason = "SHA-1 outside the non-security digest type (SEC-STD-019)" },
+    { crate = "sha1_smol", reason = "SHA-1 outside the non-security digest type (SEC-STD-019)" },
+
+    # SEC-EXT-001: only the egress crate may construct an HTTP client. When
+    # that crate exists (for example `gunmetal-egress`), add it as the only
+    # wrapper of the one client it uses, so no other crate can pull one in.
+    { crate = "reqwest", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "ureq", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "isahc", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "attohttpc", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "surf", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "minreq", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "ehttp", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "curl", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+]
+
+# SEC-STD-022: rand's small_rng feature is a non-cryptographic generator.
+[[bans.features]]
+crate = "rand"
+deny = ["small_rng"]
+reason = "SmallRng is a non-cryptographic generator (SEC-STD-022)"
+
+# SEC-SUP-021: crates.io is the only allowed source. No git dependencies and
+# no other registries.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
