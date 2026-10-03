@@ -269,7 +269,7 @@ fn finish(raw: f32, source: Source, peak: Option<PeakRatio>, mut clamp: Clamp) -
         Some(peak) => {
             let ratio = peak.ratio();
             if ratio > 0.0 {
-                let headroom = 20.0 * (1.0 / ratio).log10();
+                let headroom = peak_headroom_db(ratio);
                 if ranged > headroom {
                     clamp = Clamp::Peak;
                     headroom
@@ -290,6 +290,17 @@ fn finish(raw: f32, source: Source, peak: Option<PeakRatio>, mut clamp: Clamp) -
         applied: gain_in_tag_range(applied),
         source,
         clamp,
+    }
+}
+
+/// Headroom to full scale: 20 · log10(1 / peak), correctly rounded to f32.
+fn peak_headroom_db(ratio: f32) -> f32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "20·log10(1/peak) for a peak in (0, 16] is a finite f32 before the −30…+12 clamp"
+    )]
+    {
+        (20.0 * (1.0 / f64::from(ratio)).log10()) as f32
     }
 }
 
@@ -340,12 +351,19 @@ mod tests {
         }
     }
 
-    /// Independent oracle: 20 · log10(1 / peak), the headroom to full scale.
+    /// Independent oracle: 20 · log10(1 / peak), correctly rounded to f32.
+    /// Used only by the peak-headroom property, never as a unit-test expected.
     fn headroom_db(ratio: f32) -> f32 {
-        20.0 * (1.0 / ratio).log10()
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the property oracle rounds 20·log10(1/peak) to the f32 the player applies"
+        )]
+        {
+            (20.0 * (1.0 / f64::from(ratio)).log10()) as f32
+        }
     }
 
-    /// Verifies: SEC-MED-015
+    /// Album gain is used only in a From-lane album run (MUS-087).
     #[test]
     fn auto_uses_album_gain_only_inside_an_album_run() {
         let mut input = blank();
@@ -392,7 +410,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Track and album modes ignore the From-lane neighbours (MUS-087).
     #[test]
     fn track_and_album_modes_ignore_the_album_run() {
         let mut input = blank();
@@ -425,7 +443,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Missing preferred tag falls back to the other, then measured, then estimated (MUS-089).
     #[test]
     fn missing_preferred_tag_falls_back_to_the_other_then_measured_then_estimated() {
         let target = Lufs::REPLAYGAIN;
@@ -460,7 +478,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// A tag is used in preference to a scan-time measurement (MUS-084).
     #[test]
     fn tags_win_over_a_measurement() {
         let mut input = blank();
@@ -483,14 +501,16 @@ mod tests {
             (0.0, None, 0.0, Clamp::None),
             (0.0, Some(0.5), 0.0, Clamp::None),
             (6.0, Some(0.5), 6.0, Clamp::None),
-            (headroom_db(0.5), Some(0.5), headroom_db(0.5), Clamp::None),
+            // 20·log10(1/0.5) = 20·log10(2) ≈ 6.020599913279624
+            (6.020_6, Some(0.5), 6.020_6, Clamp::None),
             (12.0, Some(0.1), 12.0, Clamp::None),
             (60.0, Some(0.1), 12.0, Clamp::Range),
             (60.0, None, 0.0, Clamp::NoPeak),
             (60.0, Some(1.0), 0.0, Clamp::Peak),
             (3.0, Some(1.0), 0.0, Clamp::Peak),
-            (3.0, Some(1.5), headroom_db(1.5), Clamp::Peak),
-            (-2.0, Some(1.5), headroom_db(1.5), Clamp::Peak),
+            // 20·log10(1/1.5) ≈ −3.521825181113625
+            (3.0, Some(1.5), -3.521_825, Clamp::Peak),
+            (-2.0, Some(1.5), -3.521_825, Clamp::Peak),
             (-6.5, Some(1.5), -6.5, Clamp::None),
             (-60.0, Some(1.0), -30.0, Clamp::Range),
             (-30.0, Some(1.0), -30.0, Clamp::None),
@@ -512,7 +532,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-MED-015
+    /// Opus header output gain always applies; an R128 tag is added to it (MUS-085).
     #[test]
     fn opus_header_gain_plus_r128_track_gain() {
         let mut input = blank();
@@ -531,7 +551,29 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Opus header output gain always applies; a `ReplayGain` tag is added to it (MUS-085).
+    #[test]
+    fn opus_header_gain_plus_replaygain_track_gain() {
+        let mut input = blank();
+        input.scheme = Scheme::ReplayGain;
+        input.opus_header = Some(db(-3.0));
+        input.track_gain = Some(db(-4.0));
+        input.track_peak = Some(peak(0.5));
+
+        assert_eq!(
+            decide(&input, Mode::Track, Lufs::REPLAYGAIN),
+            decision(-7.0, Source::TaggedTrack, Clamp::None)
+        );
+
+        // Tight peak: the header is added before the peak clamp, so −4−3 stays −7.
+        input.track_peak = Some(peak(1.0));
+        assert_eq!(
+            decide(&input, Mode::Track, Lufs::REPLAYGAIN),
+            decision(-7.0, Source::TaggedTrack, Clamp::None)
+        );
+    }
+
+    /// A zero `ReplayGain` tag stays at the `ReplayGain` reference; R128 adds 5 dB at −18 LUFS (MUS-084).
     #[test]
     fn replaygain_zero_tag_stays_zero_at_its_reference_and_r128_adds_five() {
         let mut rg = blank();
@@ -603,6 +645,18 @@ mod tests {
             decide(&input, Mode::Off, Lufs::REPLAYGAIN),
             decision(12.0, Source::Off, Clamp::Range)
         );
+
+        // A non-reference target must not add an offset: Off is header only (MUS-085).
+        input.opus_header = Some(db(-3.0));
+        input.track_peak = Some(peak(0.5));
+        assert_eq!(
+            decide(&input, Mode::Off, Lufs::new(-14.0).unwrap()),
+            decision(-3.0, Source::Off, Clamp::None)
+        );
+        assert_eq!(
+            decide(&input, Mode::Off, Lufs::R128),
+            decision(-3.0, Source::Off, Clamp::None)
+        );
     }
 
     /// Verifies: SEC-MED-015
@@ -644,7 +698,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Measured loudness is the difference to the target, plus the Opus header (MUS-089).
     #[test]
     fn measured_loudness_is_the_difference_to_the_target() {
         let mut input = blank();
@@ -657,15 +711,23 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Album source clamps against the album peak, falling back to the track peak (MUS-088).
     #[test]
     fn album_source_prefers_the_album_peak() {
         let mut input = blank();
+        input.track_gain = Some(db(6.0));
         input.album_gain = Some(db(6.0));
         input.album_peak = Some(peak(1.0));
         input.track_peak = Some(peak(0.25));
         assert_eq!(
             decide(&input, Mode::Album, Lufs::REPLAYGAIN),
+            decision(0.0, Source::TaggedAlbum, Clamp::Peak)
+        );
+
+        input.prev_same_album = true;
+        input.next_same_album = false;
+        assert_eq!(
+            decide(&input, Mode::Auto, Lufs::REPLAYGAIN),
             decision(0.0, Source::TaggedAlbum, Clamp::Peak)
         );
 
@@ -676,7 +738,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Track source clamps against the track peak, falling back to the album peak (MUS-088).
     #[test]
     fn track_source_prefers_the_track_peak_and_falls_back_to_the_album_peak() {
         let mut input = blank();
@@ -695,13 +757,13 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-015
+    /// Auto is the default loudness mode (MUS-087).
     #[test]
     fn default_mode_is_auto() {
         assert_eq!(Mode::default(), Mode::Auto);
     }
 
-    /// Verifies: SEC-MED-015
+    /// LUFS targets are finite and from −70 to 0.
     #[test]
     fn lufs_accepts_its_range_and_refuses_the_rest() {
         assert_eq!(Lufs::new(Lufs::MIN), Ok(Lufs::new(-70.0).unwrap()));
@@ -718,14 +780,15 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-MED-015
+    /// Tag-gain clamps sit inside the [`GainDb`] range.
     #[test]
     fn tag_gain_bounds_are_inside_gain_db() {
         assert_eq!(GainDb::new(TAG_GAIN_MIN_DB), Ok(db(-30.0)));
         assert_eq!(GainDb::new(TAG_GAIN_MAX_DB), Ok(db(12.0)));
         assert_eq!(db(FALLBACK_DB), db(-5.0));
-        let headroom = headroom_db(1.5);
-        assert_eq!(GainDb::new(headroom), Ok(db(headroom)));
+        // 20·log10(1/1.5) and 20·log10(1/16), the grid's peak-clamp literals.
+        assert_eq!(GainDb::new(-3.521_825), Ok(db(-3.521_825)));
+        assert_eq!(GainDb::new(-24.082_4), Ok(db(-24.082_4)));
     }
 
     /// Verifies: SEC-MED-015
@@ -736,7 +799,8 @@ mod tests {
         input.track_peak = Some(peak(16.0));
         assert_eq!(
             decide(&input, Mode::Track, Lufs::REPLAYGAIN),
-            decision(headroom_db(16.0), Source::TaggedTrack, Clamp::Peak)
+            // 20·log10(1/16) ≈ −24.082399653118497
+            decision(-24.082_4, Source::TaggedTrack, Clamp::Peak)
         );
     }
 
@@ -784,7 +848,8 @@ mod tests {
         fn applied_gain_never_takes_the_recorded_peak_above_full_scale(
             track_gain in optional_gain(),
             album_gain in optional_gain(),
-            peak in optional_peak(),
+            track_peak in optional_peak(),
+            album_peak in optional_peak(),
             scheme in any_scheme(),
             opus_header in optional_gain(),
             measured in any_measured(),
@@ -796,8 +861,8 @@ mod tests {
             let input = GainInput {
                 track_gain,
                 album_gain,
-                track_peak: peak,
-                album_peak: peak,
+                track_peak,
+                album_peak,
                 scheme,
                 opus_header,
                 measured,
@@ -808,17 +873,25 @@ mod tests {
             let applied = decided.applied.db();
             prop_assert!((TAG_GAIN_MIN_DB..=TAG_GAIN_MAX_DB).contains(&applied));
             prop_assert!(applied.is_finite());
-            if peak.is_none_or(|peak| peak.ratio() == 0.0) {
+            let recorded = match decided.source {
+                Source::TaggedAlbum => album_peak.or(track_peak),
+                Source::TaggedTrack | Source::Measured | Source::Estimated | Source::Off => {
+                    track_peak.or(album_peak)
+                }
+            };
+            if recorded.is_none_or(|peak| peak.ratio() == 0.0) {
                 prop_assert!(applied <= 0.0);
             }
-            if let Some(peak) = peak.filter(|peak| peak.ratio() > 0.0) {
-                let resulting = peak.ratio() * 10.0_f32.powf(applied / 20.0);
+            if let Some(peak) = recorded.filter(|peak| peak.ratio() > 0.0) {
+                let ratio = peak.ratio();
+                let headroom = headroom_db(ratio);
+                // One ulp of the dB headroom: the 20·log10 round-trip can
+                // land 1 ulp above the f32 value, but 1e-4 dB of slack would
+                // still accept a peak slightly over full scale.
                 prop_assert!(
-                    resulting <= 1.0 + 1e-5,
-                    "peak {} × 10^({applied}/20) = {resulting}",
-                    peak.ratio()
+                    applied <= headroom.next_up(),
+                    "applied {applied} exceeds headroom {headroom} of peak {ratio}"
                 );
-                prop_assert!(applied <= headroom_db(peak.ratio()) + 1e-4);
             }
         }
     }
