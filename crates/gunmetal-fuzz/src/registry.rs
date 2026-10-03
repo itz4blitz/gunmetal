@@ -50,6 +50,7 @@ macro_rules! harnesses {
 }
 
 harnesses! {
+    aiff,
     base64,
     detect,
     ebml,
@@ -57,6 +58,7 @@ harnesses! {
     http_range,
     link,
     net,
+    riff,
     text,
     time,
     values,
