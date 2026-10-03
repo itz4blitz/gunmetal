@@ -23,9 +23,10 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 9] = [
+const SEEDS: [&str; 10] = [
     "empty",
     "newer-version-with-a-trailing-octet",
+    "older-version",
     "over-the-cap",
     "sample",
     "stream-then-unknown-kind",
@@ -166,6 +167,31 @@ fn replays_a_newer_version_with_a_trailing_octet() {
             agreed: Err(Upgrade::Server {
                 client_newest: ProtocolVersion(2),
             }),
+        },
+    );
+}
+
+/// An empty `End` frame in version 0, older than the version 1 the server
+/// speaks, so the client is the one that must update.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_frame_in_an_older_version() {
+    replay(
+        "older-version",
+        &[3, 0, 0, 0, 0, 0, 4],
+        &Outcome {
+            frames: vec![Read {
+                version: ProtocolVersion(0),
+                kind: FrameKind::End,
+                len: 7,
+                decoded: Err(WireError::Malformed {
+                    offset: 0,
+                    reason: PostcardError::DeserializeUnexpectedEnd,
+                }),
+            }],
+            stop: None,
+            agreed: CLIENT_MUST_UPDATE,
         },
     );
 }
