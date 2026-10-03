@@ -1,0 +1,43 @@
+{
+  "packages": [
+    {
+      "name": "gunmetal-server",
+      "version": "0.0.0",
+      "id": "gunmetal-server@0.0.0",
+      "links": null,
+      "manifest_path": "crates/server/Cargo.toml"
+    },
+    {
+      "name": "bindings-sys",
+      "version": "1.0.0",
+      "id": "bindings-sys@1.0.0",
+      "links": "bindings",
+      "manifest_path": "crates/bindings-sys/Cargo.toml"
+    }
+  ],
+  "workspace_members": [
+    "gunmetal-server@0.0.0"
+  ],
+  "resolve": {
+    "nodes": [
+      {
+        "id": "gunmetal-server@0.0.0",
+        "deps": [
+          {
+            "pkg": "bindings-sys@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bindings-sys@1.0.0",
+        "deps": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "packages": [
+    {
+      "name": "gunmetal-server",
+      "version": "0.0.0",
+      "id": "gunmetal-server@0.0.0",
+      "links": null,
+      "manifest_path": "crates/server/Cargo.toml"
+    }
+  ],
+  "workspace_members": [
+    "gunmetal-server@0.0.0"
+  ],
+  "resolve": {
+    "nodes": [
+      {
+        "id": "gunmetal-server@0.0.0",
+        "deps": []
+      }
+    ]
+  }
+}

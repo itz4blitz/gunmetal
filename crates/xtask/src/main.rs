@@ -21,6 +21,9 @@
 //! - `lockfile-age override <codeowners> <reviews> <head-sha>`: a code
 //!   owner of every lock file approved commit `<head-sha>`, which a pull
 //!   request carrying the override label needs instead (SEC-SUP-027).
+//! - `native-code <cargo-metadata-output>`: every crate in the shipped graph
+//!   that is a `-sys` crate, declares `links` or uses `unsafe` is on the
+//!   justified allow-list (SEC-TM-034).
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
@@ -35,6 +38,7 @@ mod json;
 mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
+mod native_code;
 mod toml;
 mod tree;
 
@@ -108,6 +112,11 @@ fn dispatch(
             out,
             &lockfile_age::requests(&read(&tree, base)?, &read(&tree, head)?).map_err(rendered)?,
         ),
+        ["native-code", metadata] => report(native_code::check(
+            &tree,
+            &read(&tree, metadata)?,
+            &tree.read(native_code::ALLOWLIST).unwrap_or_default(),
+        )),
         _ => Err(Failure::Usage),
     }
 }
@@ -214,6 +223,8 @@ mod tests {
             &["lockfile-age", "check", "base", "head"],
             &["lockfile-age", "override", "codeowners", "reviews"],
             &["lockfile-age", "requests", "base"],
+            &["native-code"],
+            &["native-code", "metadata", "extra"],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),
@@ -285,6 +296,53 @@ mod tests {
             run_in(&root, &["core-deps", "allowed.txt"], 0, &[]),
             (
                 Err(findings(&[r#"Unlisted { name: "sha2" }"#])),
+                String::new()
+            )
+        );
+    }
+
+    /// Verifies: SEC-TM-034
+    #[test]
+    fn native_code_compares_the_shipped_graph_with_the_allow_list() {
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &["native-code", "native-code/listed.json"],
+                0,
+                &[]
+            ),
+            (Ok(()), String::new())
+        );
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &["native-code", "native-code/unlisted.json"],
+                0,
+                &[]
+            ),
+            (
+                Err(findings(&[
+                    r#"Unlisted { name: "fast", version: "1.0.0", sys: false, links: None, unsafe_in: Some("src/lib.rs") }"#
+                ])),
+                String::new()
+            )
+        );
+    }
+
+    /// Verifies: SEC-TM-034
+    #[test]
+    fn native_code_reads_a_missing_allow_list_as_the_empty_list() {
+        let root = format!("{FIXTURES}/native-code");
+        assert_eq!(
+            run_in(&root, &["native-code", "alone.json"], 0, &[]),
+            (Ok(()), String::new())
+        );
+        assert_eq!(
+            run_in(&root, &["native-code", "bindings.json"], 0, &[]),
+            (
+                Err(findings(&[
+                    r#"Unlisted { name: "bindings-sys", version: "1.0.0", sys: true, links: Some("bindings"), unsafe_in: Some("src/lib.rs") }"#
+                ])),
                 String::new()
             )
         );
@@ -443,6 +501,7 @@ mod tests {
         let head = "lockfile-age/head.lock";
         for args in [
             &["core-deps", "missing"][..],
+            &["native-code", "missing"],
             &[
                 "lockfile-age",
                 "check",
