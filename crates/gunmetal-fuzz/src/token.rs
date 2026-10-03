@@ -13,7 +13,7 @@ const RFC4231_CASE1: [u8; 32] = [
     0x88, 0x1d, 0xc1, 0x81, 0xfd, 0xd9, 0xd4, 0xa9, 0x27, 0xad, 0xb2, 0xbd, 0x57, 0xb7, 0x99, 0xdf,
 ];
 
-/// A provider that answers every key identifier with the RFC 4231 case 1 tag.
+/// A provider that answers only key identifier 1, with the RFC 4231 case 1 tag.
 struct FuzzMac;
 
 impl MacProvider for FuzzMac {
@@ -21,8 +21,8 @@ impl MacProvider for FuzzMac {
         1
     }
 
-    fn mac(&self, _kid: u8, _msg: &[u8]) -> Option<[u8; 32]> {
-        Some(RFC4231_CASE1)
+    fn mac(&self, kid: u8, _msg: &[u8]) -> Option<[u8; 32]> {
+        (kid == 1).then_some(RFC4231_CASE1)
     }
 }
 
@@ -40,12 +40,14 @@ pub struct Outcome {
 /// # Panics
 ///
 /// Panics when an accepted capability token names an expiry outside
-/// [`Timestamp::MIN`] to [`Timestamp::MAX`], or when a session hash is
-/// returned for an input that is not 32 octets.
+/// [`Timestamp::MIN`] to [`Timestamp::MAX`], when a session hash is
+/// returned for an input that is not 32 octets, or when a fake provider's
+/// current key is not 1.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(data);
     let mac = FuzzMac;
+    assert_eq!(mac.current_kid(), 1);
     let now = Timestamp::from_millis(0).unwrap_or(Timestamp::MIN);
     let verified = verify(Untrusted::new(text.as_ref()), &mac, now);
     if let Ok(fields) = &verified {
@@ -69,6 +71,7 @@ pub fn run(data: &[u8]) -> Outcome {
         assert_ne!(data.len(), SESSION_LEN);
     }
     if data.len() == SESSION_LEN {
+        assert_eq!(EmptyMac.current_kid(), 1);
         assert_eq!(
             hash_session(Untrusted::new(data), &EmptyMac),
             Err(SessionHashError::Invalid)
