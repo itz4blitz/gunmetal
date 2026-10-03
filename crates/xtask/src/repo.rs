@@ -1656,7 +1656,6 @@ path = [\"fuzz/seeds/**\"]
         );
     }
 
-    /// Verifies: SEC-SUP-010
     #[test]
     fn checkout_must_drop_credentials() {
         let text =
@@ -1684,7 +1683,6 @@ path = [\"fuzz/seeds/**\"]
         .collect()
     }
 
-    /// Verifies: SEC-SUP-010
     #[test]
     fn each_checkout_step_must_drop_its_own_credentials() {
         let second = format!(
