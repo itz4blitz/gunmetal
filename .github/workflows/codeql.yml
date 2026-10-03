@@ -68,5 +68,6 @@ jobs:
           output: codeql-results
           upload: never
           upload-database: false
-      # `analyze` does not fail the job on findings when upload is `never` (SEC-SUP-018).
-      - run: cargo run --locked --quiet -p xtask -- repo codeql codeql-results
+      # `analyze` does not fail the job on findings when upload is `never`
+      # (SEC-SUP-018). SARIF stays on the runner while the repository is
+      # private; GitHub Code Security upload waits until it is public.
