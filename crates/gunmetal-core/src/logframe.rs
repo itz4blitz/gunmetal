@@ -210,7 +210,7 @@ pub fn header(segment: &[u8], budget: &mut Budget) -> Result<SegmentHeader, Head
 ///
 /// [`ParseFault::BudgetExceeded`] when the step budget is spent.
 #[must_use]
-pub fn records<'a, 'b>(segment: &'a [u8], budget: &'b mut Budget) -> Records<'a, 'b> {
+pub fn records(segment: &[u8], budget: &mut Budget) -> Records<'_, '_> {
     Records {
         segment,
         pos: 0,
@@ -238,7 +238,7 @@ pub fn recover_tail(segment: &[u8], budget: &mut Budget) -> Result<usize, ParseF
     }
 }
 
-impl<'a, 'b> Iterator for Records<'a, 'b> {
+impl<'a> Iterator for Records<'a, '_> {
     type Item = Result<Item<'a>, ParseFault>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -282,11 +282,11 @@ impl<'a, 'b> Iterator for Records<'a, 'b> {
 }
 
 /// A whole record starting at `pos`, and the octet after it.
-fn record_at<'a>(
-    segment: &'a [u8],
+fn record_at(
+    segment: &[u8],
     pos: usize,
     budget: &mut Budget,
-) -> Result<Option<(Record<'a>, usize)>, ParseFault> {
+) -> Result<Option<(Record<'_>, usize)>, ParseFault> {
     let Some(rest) = segment.get(pos..) else {
         return Ok(None);
     };
