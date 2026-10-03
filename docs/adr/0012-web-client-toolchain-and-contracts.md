@@ -3,7 +3,10 @@
 Date: 2026-10-03
 Status: proposed. It records the technical choices behind the
 [client plan](../plan/client-packages.md), which the owner reviews with
-that plan. The owner's product choice it rests on, to start the web player
+that plan. Revised on 2026-10-03 after an adversarial review of the plan:
+decisions 2, 9, 10 and 12 changed and decisions 13 to 17 were added. The
+choices that answer open register decisions are also recorded there as
+delegated technical answers (D-02). The owner's product choice it rests on, to start the web player
 now against a small fake server, is in the
 [decision register](../decisions.md#owner-answers-2026-10-02).
 
@@ -42,27 +45,40 @@ land. Three things follow that are architecture and not just planning:
    the web-only parts (`player`, `core-wasm`, `http-server`, `apps/web`)
    are the ones R2 replaces with native modules and UniFFI.
 
-2. **One well-known tool per job.**
+2. **One well-known tool per job, each pinned to its newest release at
+   least seven days old.**
 
    | Job | Tool |
    |---|---|
-   | Package manager | pnpm |
-   | Language | TypeScript, strict |
-   | UI | React with React Native for Web |
-   | Bundler and dev server | Vite |
-   | Unit and component tests | Vitest, jsdom, Testing Library |
+   | Runtime for the tools | Node 24, the long-term support line |
+   | Package manager | pnpm 12 |
+   | Language | TypeScript 6.0, strict |
+   | UI | React 19 with React Native for Web |
+   | Bundler and dev server | Vite 8 |
+   | Unit and component tests | Vitest 4, jsdom, Testing Library |
    | Coverage | Vitest's V8 coverage, thresholds at 100 per file, branches included |
-   | Mutation testing | StrykerJS with its Vitest runner and TypeScript checker |
-   | Lint and format | ESLint with typescript-eslint and the React plugins; Prettier |
+   | Mutation testing | StrykerJS 10 with its Vitest runner and TypeScript checker |
+   | Lint and format | ESLint 10 with typescript-eslint, the React hooks plugin and the project's own rules; Prettier |
    | Browser tests | Playwright in Chromium, Firefox and WebKit, with axe |
-   | WASM bindings | `wasm-bindgen` |
+   | WASM bindings and types | `wasm-bindgen`, `tsify`, `serde-wasm-bindgen` |
 
-   The exact package names, the versions seen on the registry and the
-   reason for each are in the client plan, because a person checks every
-   dependency before it is added (AGENTS.md).
+   Three pins are deliberately not the newest major. TypeScript 6.0,
+   because typescript-eslint does not state support for 7. Vitest 4,
+   because version 5 was days old and StrykerJS, released before it, has
+   not stated support for it. And the linter is ESLint 10, not 9: ESLint
+   9 reached end of life on 2026-08-06 by ESLint's own support page, and
+   `eslint-plugin-react` supports nothing newer, so the two React rules
+   the baseline names are written as the project's own rules instead of
+   keeping an unsupported linter. `@types/react-native-web` is not used,
+   because it depends on `react-native` and would bring React Native and
+   Metro into the lockfile; the client owns one small declaration file.
+   The exact package names, pins, publication dates and the reason for
+   each are in the client plan, because a person checks every dependency
+   before it is added (AGENTS.md).
 
 3. **The testing rules mean the same in TypeScript as in Rust.** Coverage
-   has no exclusions. The gate fails unless every mutant was killed; a
+   and mutation apply to one stated set of files (decision 15), and no
+   file in it is excluded. The gate fails unless every mutant was killed; a
    timeout is a failure, not a detection. Snapshot assertions are banned,
    because a snapshot is an expected value derived from the code under
    test. Every escape hatch (skipped tests, lint and type suppressions,
@@ -101,28 +117,34 @@ land. Three things follow that are architecture and not just planning:
    credential, so no test of it proves a security property of the
    server. The production build fails if it contains any of it.
 
-9. **No core logic is written in TypeScript, even as a stand-in.** The
-   client reaches core logic only through `CorePort`. The facade crate
-   is built in slices as each core module merges: the wave 1 modules
-   (queue, shuffle, gain, player state, lyrics, palette, links) by a
-   client package, the wave 2 modules (search, decision, Home rows) by
-   another, and what needs wave 3 (sync frames, the library held in
-   WASM, response decoding) by WP-088. Each export is a direct call with
-   conversion only, as WP-088 specifies, so the early slices are that
-   package's own work done sooner. Until a slice exists, the screens
-   that need it are proved in component tests with scripted doubles that
-   hold no rule, and are not wired into the demo. The one thing the
-   fixtures answer directly is reading the library by ID and in an order
-   the fixture already holds, which is a lookup, not a rule.
+9. **No core logic is written in TypeScript, even as a stand-in, and no
+   client package owns Rust.** The client reaches core logic only
+   through `CorePort`. That covers the queue, shuffle, gain, the player
+   state, lyrics, search, Home rows, the playback decision, user events
+   with their IDs and clock, parsing inbound links (SEC-CLI-025), and the
+   rule that turns an artwork colour into a surface that passes the
+   contrast check. The facade crate has one owner, the backend plan, and
+   is built in slices as each core module merges: WP-235 in wave 1 (the
+   crate, the mechanism of decision 13, the lint answer of decision 14,
+   on types already on `main`), WP-236 and WP-237 in wave 2 (the wave 1
+   modules), and WP-088 in wave 3 (what needs wave 2: sync, the library,
+   search, the decision, Home rows, response decoding). Each export is a
+   direct call with conversion only. Until a slice exists, the screens
+   that need it are not started. The one thing the fixtures answer
+   directly is reading the library by ID and in an order the fixture
+   already holds, which is a lookup, not a rule.
 
 10. **Four checks keep the fake and the server in step**, each as soon as
-    the Rust side exists: the client's problem codes against the core's
-    catalogue; the facade's generated TypeScript declarations against
-    `CorePort` at compile time; every call the HTTP adapter makes against
-    the committed `openapi.json`; and one conformance suite run against
-    both the fake and a real server process over the same synthetic
-    library, with the fake's recorded frames re-recorded and compared in
-    CI. The last is the test that fails when the two disagree.
+    the Rust side exists: every generated problem code has a sentence;
+    the generated types of decision 13; every call the HTTP adapter makes
+    against the committed `openapi.json`; and one conformance suite run
+    against the fake with the hand-written demo library, the fake
+    replaying a recording, and a real server process. The real server
+    runs with a fixed seed and an injected clock, and recordings are
+    compared after decoding, value by value, never by a hash of bytes.
+    The run is a step of the gate. It is the test that fails when the
+    two disagree, for the `ServerPort` methods it has reached; the
+    packages that extend it per server wave are named in the plan.
 
 11. **R1 plays through the browser's own decoders, by two paths the core
     chooses between.** The original file through an audio element, and
@@ -135,6 +157,61 @@ land. Three things follow that are architecture and not just planning:
 12. **The layout contract is checked as measured positions.** The gate
     compares the position and order of the pinned controls with literal
     numbers in three engines, instead of comparing stored screenshots.
+
+13. **Types cross from Rust to TypeScript by generation, never by hand.**
+    `wasm-bindgen` alone types only simple exports, and the core cannot
+    carry its attributes (record 6). So for each core type that crosses,
+    the facade holds a mirror type whose conversion takes the core value
+    apart field by field with no catch-all: a core field renamed,
+    retyped, added or removed stops the facade compiling. The mirrors
+    derive `serde` and `tsify`, values cross through
+    `serde-wasm-bindgen`, and the TypeScript declarations are generated,
+    committed under `crates/gunmetal-wasm/types/` and regenerated by an
+    xtask check that fails on any difference. The client imports only
+    those declarations, and lint refuses a hand-written type for a value
+    that crosses a port. `tsify` and `serde-wasm-bindgen` are dependency
+    requests of WP-235 with the owner's approval; neither is a dependency
+    of the core. WP-235 proves the mechanism on WP-005's and WP-006's
+    types before anything else is built on it. What the mechanism does
+    not catch is a change of behaviour behind unchanged types; the
+    conformance suites are for that.
+
+14. **`unsafe`: the core keeps `forbid` with no exception; the facade
+    alone may carry the narrowest exception generated code needs.** This
+    answers the backend plan's owner decision 34 as a delegated technical
+    choice. Hand-written `unsafe` stays refused in the facade by an xtask
+    check on the keyword, and the exception is on the xtask exception
+    list. `wasm-bindgen`'s generated items are compiled only for
+    `wasm32`, so the proof is a `wasm32` build under the lint in the
+    gate, exporting WP-005's link filter. No other facade slice, and no
+    client package that needs one, starts before that build passes.
+
+15. **Coverage and mutation apply to a stated set, and what is outside
+    it is outside by where it lives.** The set is each package's `src/`,
+    each app's `src/` and the client's own tools. Browser adapters (one
+    file per browser interface, in a `browser/` directory) are outside
+    it: jsdom has none of those interfaces, and a stand-in would test the
+    stand-in. Lint allows no branch, loop or arithmetic in an adapter, so
+    the logic stays in `src/`; the browser suite calls every adapter
+    export in three engines, and Chromium's script coverage of the
+    adapters must be 100%. Adapters are not mutated. Module-level data is
+    kept in JSON or returned by functions, so no mutant is static. The
+    gate sets fixed worker counts, a fixed timeout and a time budget for
+    the shared build machine, in the committed configuration.
+
+16. **There are no client wave branches.** A client package branches
+    from, and merges into, the server wave branch that is open and holds
+    what it depends on, through that wave's integrator; the wave's one
+    pull request into `main` carries both. Client waves are groups by
+    what the owner can test, not branches. This keeps one branch per
+    server wave and one pull request per wave into `main` (D-01), and
+    puts the facade crate on the same branch as the code that calls it.
+
+17. **The client's router matches fixed, secret-free paths and parses
+    nothing.** Which item a page shows is kept in the browser's history
+    state. Any address with a fragment, a query string or an unknown
+    path, and any QR payload, goes whole to the core's parser. Addresses
+    for single items arrive in R1.2 with the core's routes for them.
 
 ## Alternatives considered
 
@@ -159,6 +236,23 @@ land. Three things follow that are architecture and not just planning:
 - **A network-mocking library in the page.** Rejected: it fakes at the
   HTTP level, which again needs routes that do not exist yet, and adds a
   dependency and a service worker that R1 otherwise does not have.
+- **Client wave branches (`client-0` to `client-5`).** The first draft
+  had them. Rejected: server wave 3 starts on top of `wave-2`, so a
+  facade crate created on a client branch would not be where WP-088
+  needs it, and a client pull request would carry a whole unmerged
+  server wave to the owner.
+- **Client packages owning Rust files in the facade.** The first draft
+  had them. Rejected: one crate would have had two owners in two plans.
+- **Hand-written TypeScript mirrors of the Rust types.** Rejected: they
+  drift silently, which is the failure the contract exists to prevent.
+- **`ts-rs` for type generation.** Well known, but its derive sits on
+  the type itself, which would put a new dependency into the core.
+  `tsify` on mirror types keeps the core's dependency list unchanged.
+- **Keeping ESLint 9 for `eslint-plugin-react`.** Rejected: an
+  end-of-life linter held for two rules that are small to own.
+- **Mock-testing browser interfaces in jsdom to reach 100%.** Rejected:
+  it asserts what the mock does. Thin adapters proved in real browsers
+  are honest about what was tested.
 - **A temporary TypeScript queue and player state machine.** The fastest
   way to a playing demo. Rejected because it is exactly the duplicated
   logic record 1 forbids: it would be tested, mutated and then thrown
@@ -166,10 +260,6 @@ land. Three things follow that are architecture and not just planning:
   product's.
 - **Waiting for WP-088 before building any player screen.** Rejected by
   the owner's choice to start now.
-- **Generating TypeScript types from Rust with an extra crate.** Not
-  needed yet: `wasm-bindgen` already writes declarations for the facade,
-  and responses are decoded by the core. It can be revisited if the
-  generated declarations prove too loose.
 - **Stored screenshots for the layout contract.** They catch more than
   positions, but they are binary baselines that differ between machines
   and cannot be read in review. Screenshots are still produced for a
@@ -177,16 +267,23 @@ land. Three things follow that are architecture and not just planning:
 
 ## Consequences
 
-- WP-088 no longer creates `crates/gunmetal-wasm`; it extends it. The
-  risks that package records (whether `wasm-bindgen`'s generated code
-  passes `unsafe_code = "forbid"`, and how coverage counts the glue)
-  arrive in server wave 1's wake instead of wave 3. The backend plan
-  needs that change applied.
+- The facade is four backend packages instead of one, and WP-088 no
+  longer creates the crate. The backend plan carries that change.
+- Two Rust crates join the facade's dependencies (not the core's), with
+  the owner's approval.
+- The questions that were WP-088's risks in wave 3 (the `unsafe` lint,
+  coverage of generated glue) are answered in wave 1 by WP-235, and
+  everything else on the facade waits for that answer.
 - The gate needs Node, pnpm, a `wasm32` target and three browser builds,
-  and takes longer. The Rust and web halves can run as two jobs.
-- The first clickable build depends on six wave 1 core packages merging.
-  If one is late, the milestone waits; nothing is written in TypeScript
-  to cover for it.
+  and takes longer. The Rust and web halves can run as two jobs, and the
+  web half has a stated time budget.
+- The first clickable build depends on WP-235, WP-236 and the six wave 1
+  core packages WP-236 wraps. If one is late, the milestone waits;
+  nothing is written in TypeScript to cover for it. It records no plays
+  and no loves, which arrive with WP-237.
+- Browser adapters are not mutation-tested. That is a stated limit, kept
+  small by the lint that allows no logic in them.
+- R1 pages for single items have no address of their own.
 - Until server wave 3, the fake's behaviour is checked against the
   server only by types, the route table and review. The fake is kept
   small for that reason.
