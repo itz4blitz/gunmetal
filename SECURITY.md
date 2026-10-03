@@ -7,8 +7,9 @@ before each release.
 
 Report vulnerabilities privately through GitHub's private vulnerability
 reporting: on this repository's **Security** tab, choose **Report a
-vulnerability**. Do not open a public issue, discussion or pull request for
-a security problem.
+vulnerability**, or go straight to
+<https://github.com/PremierStudio/gunmetal/security/advisories/new>. Do not
+open a public issue, discussion or pull request for a security problem.
 
 GitHub offers private vulnerability reporting only on public repositories,
 and this repository is still private. Until it is public, people who can

@@ -24,12 +24,12 @@ pub const MUST_BE_TEN: &[&str] = &[
     "Token-Permissions",
 ];
 
-/// Scorecard checks with a recorded floor until the repository is public.
-pub const BASELINE: &[(&str, i32)] = &[
-    ("Branch-Protection", 0),
-    ("SBOM", -1),
-    ("Signed-Releases", -1),
-];
+/// Scorecard checks with a recorded floor: the scores of the run on `main`
+/// of 2026-10-03 (run 37139408544). Branch-Protection scored 4. There is no
+/// release yet, so Signed-Releases is inconclusive (-1) and the release
+/// package must raise this floor with the first release. scorecard-action
+/// v2.4.4 does not run the SBOM check, so SBOM has no floor until it does.
+pub const BASELINE: &[(&str, i32)] = &[("Branch-Protection", 4), ("Signed-Releases", -1)];
 
 /// Compromise-runbook commands, in the order owners run them. `repo` checks
 /// their presence and order only (SEC-OPS-072 also asks CI to run them).
@@ -2070,6 +2070,54 @@ path = [\"fuzz/seeds/**\"]
         assert_eq!(scorecard(&scorecard_ok()), []);
     }
 
+    /// The Scorecard run on `main` of 2026-10-03 (run 37139408544, SARIF
+    /// format). Its results name the checks scored under the action's
+    /// policy: Branch-Protection 4, Security-Policy 4, and 0 for SAST,
+    /// Code-Review, Maintained and CII-Best-Practices. The other gated
+    /// checks have no result, so they are written here as 10; there is no
+    /// release, so Signed-Releases is inconclusive (-1); and the run has no
+    /// SBOM rule at all.
+    const MAIN_2026_10_03: &str = r#"{"checks":[{"name":"Binary-Artifacts","score":10},{"name":"Branch-Protection","score":4},{"name":"CII-Best-Practices","score":0},{"name":"Code-Review","score":0},{"name":"Dangerous-Workflow","score":10},{"name":"Dependency-Update-Tool","score":10},{"name":"License","score":10},{"name":"Maintained","score":0},{"name":"Pinned-Dependencies","score":10},{"name":"SAST","score":0},{"name":"Security-Policy","score":4},{"name":"Signed-Releases","score":-1},{"name":"Token-Permissions","score":10}]}"#;
+
+    /// Verifies: SEC-SUP-019
+    #[test]
+    fn main_s_recorded_scores_fail_only_on_the_security_policy() {
+        assert_eq!(
+            scorecard(MAIN_2026_10_03),
+            [Finding::ScoreBelow {
+                check: "Security-Policy".to_owned(),
+                score: 4,
+                required: 10,
+            }]
+        );
+    }
+
+    /// [`MAIN_2026_10_03`] with the security policy at 10.
+    fn recorded_with_policy_fixed() -> String {
+        MAIN_2026_10_03.replace(
+            r#""name":"Security-Policy","score":4"#,
+            r#""name":"Security-Policy","score":10"#,
+        )
+    }
+
+    /// Verifies: SEC-SUP-019
+    #[test]
+    fn branch_protection_under_its_recorded_baseline_fails() {
+        assert_eq!(scorecard(&recorded_with_policy_fixed()), []);
+        let lower = recorded_with_policy_fixed().replace(
+            r#""name":"Branch-Protection","score":4"#,
+            r#""name":"Branch-Protection","score":3"#,
+        );
+        assert_eq!(
+            scorecard(&lower),
+            [Finding::ScoreBelow {
+                check: "Branch-Protection".to_owned(),
+                score: 3,
+                required: 4,
+            }]
+        );
+    }
+
     /// Verifies: SEC-SUP-019
     #[test]
     fn a_missing_scorecard_check_fails_closed() {
@@ -2312,10 +2360,12 @@ path = [\"fuzz/seeds/**\"]
 
     #[test]
     fn scorecard_baseline_and_advisory_shapes() {
-        let text =
-            scorecard_ok().replace(r#""name":"SBOM","score":-1"#, r#""name":"SBOM","score":-2"#);
+        let text = scorecard_ok().replace(
+            r#""name":"Signed-Releases","score":-1"#,
+            r#""name":"Signed-Releases","score":-2"#,
+        );
         assert!(scorecard(&text).contains(&Finding::ScoreBelow {
-            check: "SBOM".to_owned(),
+            check: "Signed-Releases".to_owned(),
             score: -2,
             required: -1,
         }));
@@ -2355,11 +2405,7 @@ path = [\"fuzz/seeds/**\"]
         assert!(MUST_BE_TEN.contains(&"License"));
         assert_eq!(
             BASELINE,
-            &[
-                ("Branch-Protection", 0),
-                ("SBOM", -1),
-                ("Signed-Releases", -1),
-            ]
+            &[("Branch-Protection", 4), ("Signed-Releases", -1),]
         );
         assert_eq!(COMPROMISE_COMMANDS[0], "gunmetal audit verify");
         assert_eq!(COMPROMISE_COMMANDS[5], "gunmetal update");
@@ -2760,9 +2806,9 @@ updates:
             required: 10,
         }));
         assert!(findings.contains(&Finding::ScoreBelow {
-            check: "SBOM".to_owned(),
+            check: "Branch-Protection".to_owned(),
             score: -1,
-            required: -1,
+            required: 4,
         }));
         let tree = live_ok().with("live/ruleset-note.txt", "not a ruleset");
         assert_eq!(settings(&tree, "live"), []);
