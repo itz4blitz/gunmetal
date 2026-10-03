@@ -566,6 +566,101 @@ mod tests {
         vec(strategies::event(), 0..8).prop_map(set_of)
     }
 
+    /// One event per ID, keeping the larger of two bodies under one ID,
+    /// written over the raw list so the oracles below do not go through
+    /// [`EventSet`].
+    fn unique_by_id(events: &[Event]) -> Vec<Event> {
+        let mut by_id = BTreeMap::new();
+        for event in events {
+            match by_id.entry(event.id) {
+                Entry::Vacant(slot) => {
+                    slot.insert(event.clone());
+                }
+                Entry::Occupied(mut slot) => {
+                    if event > slot.get() {
+                        slot.insert(event.clone());
+                    }
+                }
+            }
+        }
+        by_id.into_values().collect()
+    }
+
+    /// Play and skip counts from the raw list: one play or skip per event
+    /// ID, then a saturating count and the latest play clock per item.
+    fn counts_from_list(events: &[Event], stream: Stream) -> Counts {
+        let mut counts = Counts::new();
+        for event in unique_by_id(events) {
+            if event.stream != stream {
+                continue;
+            }
+            let (item, played) = match event.body {
+                Body::Play(play) => (play.item, true),
+                Body::Skip(skip) => (skip.item, false),
+                _ => continue,
+            };
+            let entry = counts.entry(item).or_insert(ItemCounts {
+                plays: 0,
+                skips: 0,
+                last_played: None,
+            });
+            if played {
+                entry.plays = entry.plays.saturating_add(1);
+                entry.last_played = entry.last_played.max(Some(event.clock));
+            } else {
+                entry.skips = entry.skips.saturating_add(1);
+            }
+        }
+        counts
+    }
+
+    /// Latest-wins over the raw list: the maximum `(clock, device, id)`
+    /// after de-duplicating by ID, among events of `stream` that `pick`
+    /// accepts.
+    fn latest_from_list<T>(
+        events: &[Event],
+        stream: Stream,
+        mut pick: impl FnMut(&Event) -> Option<T>,
+    ) -> Option<T> {
+        unique_by_id(events)
+            .into_iter()
+            .filter(|event| event.stream == stream)
+            .filter_map(|event| {
+                pick(&event).map(|value| (event.clock, event.device, event.id, value))
+            })
+            .max_by_key(|(clock, device, id, _)| (*clock, *device, *id))
+            .map(|(_, _, _, value)| value)
+    }
+
+    fn love_from_list(events: &[Event], stream: Stream, item: ItemRef) -> bool {
+        latest_from_list(events, stream, |event| match &event.body {
+            Body::Love(loved) if *loved == item => Some(true),
+            Body::Unlove(unloved) if *unloved == item => Some(false),
+            _ => None,
+        }) == Some(true)
+    }
+
+    fn setting_from_list(
+        events: &[Event],
+        stream: Stream,
+        scope: SettingScope,
+        key: &SettingKey,
+    ) -> Option<SettingValue> {
+        latest_from_list(events, stream, |event| match &event.body {
+            Body::Setting(setting) if setting.scope == scope && setting.key == *key => {
+                Some(setting.value.clone())
+            }
+            _ => None,
+        })
+    }
+
+    fn position_from_list(events: &[Event], stream: Stream, item: ContentId) -> Option<Place> {
+        latest_from_list(events, stream, |event| match &event.body {
+            Body::Position(position) if position.item == item => Some(position.place),
+            _ => None,
+        })
+    }
+
     proptest! {
         /// Merging is commutative, associative and idempotent over event
         /// sets, so replicas that exchange events in any order agree.
@@ -580,8 +675,9 @@ mod tests {
             prop_assert_eq!(a.merge(&a), a.clone());
         }
 
-        /// The derived values depend only on which events arrived, not on
-        /// their order.
+        /// The derived values match an independent oracle over the raw
+        /// list (latest `(clock, device, id)` after de-duplicating by ID),
+        /// so they cannot pass merely because two equal sets agree.
         #[test]
         fn derived_values_do_not_depend_on_arrival_order(
             events in vec(strategies::event(), 0..12),
@@ -591,24 +687,38 @@ mod tests {
             key in strategies::setting_key(),
         ) {
             let forwards = set_of(events.clone());
-            let backwards = set_of(events.into_iter().rev().collect());
+            let backwards = set_of(events.iter().rev().cloned().collect());
             prop_assert_eq!(&forwards, &backwards);
+            prop_assert_eq!(derive_counts(&forwards, stream), counts_from_list(&events, stream));
             prop_assert_eq!(
-                derive_counts(&forwards, stream),
-                derive_counts(&backwards, stream)
+                derive_counts(&backwards, stream),
+                counts_from_list(&events, stream)
             );
             let loved = ItemRef::Content(item);
             prop_assert_eq!(
                 current_love(&forwards, stream, loved),
-                current_love(&backwards, stream, loved)
+                love_from_list(&events, stream, loved)
             );
             prop_assert_eq!(
-                current_setting(&forwards, stream, scope, &key),
-                current_setting(&backwards, stream, scope, &key)
+                current_love(&backwards, stream, loved),
+                love_from_list(&events, stream, loved)
+            );
+            let setting = setting_from_list(&events, stream, scope, &key);
+            prop_assert_eq!(
+                current_setting(&forwards, stream, scope, &key).cloned(),
+                setting.clone()
+            );
+            prop_assert_eq!(
+                current_setting(&backwards, stream, scope, &key).cloned(),
+                setting
             );
             prop_assert_eq!(
                 current_position(&forwards, stream, item),
-                current_position(&backwards, stream, item)
+                position_from_list(&events, stream, item)
+            );
+            prop_assert_eq!(
+                current_position(&backwards, stream, item),
+                position_from_list(&events, stream, item)
             );
         }
     }

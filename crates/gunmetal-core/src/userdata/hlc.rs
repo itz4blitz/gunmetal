@@ -78,7 +78,9 @@ impl Hlc {
     /// # Errors
     ///
     /// Returns [`ClockError::Ahead`] when `remote` is more than
-    /// [`MAX_SKEW_MS`] ahead of `now_ms`; `self` is then unchanged, and the
+    /// [`MAX_SKEW_MS`] ahead of `now_ms`, or when adopting `remote` would
+    /// move this node's clock past that bound (a full counter at the bound
+    /// carries one millisecond on); `self` is then unchanged, and the
     /// event is refused. Returns [`ClockError::Exhausted`] only when the
     /// later of the two clocks is the last clock there is.
     pub fn receive(self, remote: Self, now_ms: u64) -> Result<Self, ClockError> {
@@ -89,7 +91,17 @@ impl Hlc {
                 bound_ms,
             });
         }
-        self.max(remote).advance(now_ms)
+        let next = self.max(remote).advance(now_ms)?;
+        // When the remote clock is the one adopted, a full counter at the
+        // bound carries one millisecond past it. Refuse that as Ahead: the
+        // server's clock must stay at or before the bound on a client's word.
+        if remote >= self && next.wall_ms > bound_ms {
+            return Err(ClockError::Ahead {
+                wall_ms: remote.wall_ms,
+                bound_ms,
+            });
+        }
+        Ok(next)
     }
 
     /// The next clock after `self` at wall time `now_ms`: `now_ms` with a
@@ -266,6 +278,21 @@ mod tests {
         assert_eq!(Hlc::ZERO.receive(remote, now), Ok(Hlc::new(1_300_000, 1)));
     }
 
+    /// A remote clock at the bound with a full counter would carry one
+    /// millisecond past it. The bound is on the clock the server would
+    /// adopt, not only on the remote wall time.
+    #[test]
+    fn receive_refuses_a_full_counter_that_would_carry_past_the_skew_bound() {
+        let now = 1_000_000;
+        assert_eq!(
+            Hlc::ZERO.receive(Hlc::new(1_300_000, u32::MAX), now),
+            Err(ClockError::Ahead {
+                wall_ms: 1_300_000,
+                bound_ms: 1_300_000
+            })
+        );
+    }
+
     #[test]
     fn receive_refuses_a_clock_past_the_skew_bound() {
         let now = 1_000_000;
@@ -351,10 +378,15 @@ mod tests {
         ) {
             let bound_ms = now.saturating_add(MAX_SKEW_MS);
             match local.receive(remote, now) {
-                Ok(next) => prop_assert!(
-                    next > local && next > remote && next.wall_ms() >= now
-                        && remote.wall_ms() <= bound_ms
-                ),
+                Ok(next) => {
+                    prop_assert!(
+                        next > local && next > remote && next.wall_ms() >= now
+                            && remote.wall_ms() <= bound_ms
+                    );
+                    if remote >= local {
+                        prop_assert!(next.wall_ms() <= bound_ms);
+                    }
+                }
                 Err(error) => prop_assert_eq!(
                     error,
                     ClockError::Ahead { wall_ms: remote.wall_ms(), bound_ms }

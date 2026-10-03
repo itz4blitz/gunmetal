@@ -7,10 +7,12 @@
 //! later append against the ledger, so an erased event never comes back,
 //! whatever order events arrive in.
 //!
-//! [`Selector::covers`] is the match on one event's envelope. One rule
-//! needs the order of appends, which an event does not carry, so it stays
-//! with the writer: a range or up-to selector covers an imported listen
-//! only when the listen's batch record was appended before the selector.
+//! [`Selector::covers`] is the match on one event's envelope. [`Ledger`]
+//! records selectors and refuses a later append they cover, so a removal
+//! hides a play whatever the arrival order. One rule needs the order of
+//! appends, which an event does not carry, so it stays with the writer: a
+//! range or up-to selector covers an imported listen only when the listen's
+//! batch record was appended before the selector.
 
 use super::event::{DeviceId, Event, EventId, Stream};
 use super::hlc::Hlc;
@@ -69,6 +71,47 @@ impl Selector {
 /// Removes from `events` every event `selector` covers.
 pub fn erase(events: &mut EventSet, selector: &Selector) {
     events.retain(|event| !selector.covers(event));
+}
+
+/// The selectors a writer has already applied, so an erased event never
+/// comes back, whatever order events arrive in (ADR 3, section 8).
+///
+/// [`EventSet::merge`] is a plain union and does not consult a ledger:
+/// merging a replica that has erased with one that has not brings the
+/// play back unless this type is applied. The imported-listen exception
+/// (a range or up-to selector covers an imported listen only when the
+/// listen's batch record was appended before the selector) stays with
+/// the writer; it needs the order of appends, which an event does not
+/// carry.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ledger {
+    /// Selectors already applied, in the order they were recorded.
+    selectors: Vec<Selector>,
+}
+
+impl Ledger {
+    /// An empty ledger: every event is still admitted.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records `selector` so later appends it covers are refused.
+    pub fn record(&mut self, selector: Selector) {
+        self.selectors.push(selector);
+    }
+
+    /// Whether `event` may still be appended: no recorded selector covers it.
+    #[must_use]
+    pub fn admits(&self, event: &Event) -> bool {
+        !self.selectors.iter().any(|selector| selector.covers(event))
+    }
+
+    /// Removes every event `selector` covers and records it.
+    pub fn apply(&mut self, events: &mut EventSet, selector: Selector) {
+        erase(events, &selector);
+        self.record(selector);
+    }
 }
 
 #[cfg(test)]
@@ -221,23 +264,45 @@ mod tests {
         }
     }
 
-    /// The events a writer holds after `steps`, applying each as it comes:
-    /// an append is dropped when a selector already in the ledger covers
-    /// it, and an erasure removes what it covers and joins the ledger.
+    #[test]
+    fn an_empty_ledger_admits_every_event() {
+        assert_eq!(Ledger::new(), Ledger::default());
+        assert!(Ledger::new().admits(&play(1, 10)));
+    }
+
+    #[test]
+    fn a_recorded_selector_refuses_what_it_covers() {
+        let mut ledger = Ledger::new();
+        ledger.record(alice(Scope::Event(EventId::new([1; 16]))));
+        assert!(!ledger.admits(&play(1, 10)));
+        assert!(ledger.admits(&play(2, 20)));
+    }
+
+    #[test]
+    fn apply_removes_covered_events_and_records_the_selector() {
+        let mut held: EventSet = [play(1, 10), play(2, 20)].into_iter().collect();
+        let mut ledger = Ledger::new();
+        ledger.apply(&mut held, alice(Scope::Event(EventId::new([1; 16]))));
+        let expected: EventSet = [play(2, 20)].into_iter().collect();
+        assert_eq!(held, expected);
+        assert!(!ledger.admits(&play(1, 10)));
+        assert!(ledger.admits(&play(2, 20)));
+    }
+
+    /// The events a writer holds after `steps`, applying each as it comes
+    /// through [`Ledger`]: an append is dropped when the ledger refuses
+    /// it, and an erasure applies the selector to the held set.
     fn replay(steps: &[Step]) -> EventSet {
         let mut held = EventSet::new();
-        let mut ledger: Vec<Selector> = Vec::new();
+        let mut ledger = Ledger::new();
         for step in steps {
             match step {
                 Step::Append(event) => {
-                    if !ledger.iter().any(|selector| selector.covers(event)) {
+                    if ledger.admits(event) {
                         held.insert(event.clone());
                     }
                 }
-                Step::Erase(selector) => {
-                    erase(&mut held, selector);
-                    ledger.push(*selector);
-                }
+                Step::Erase(selector) => ledger.apply(&mut held, *selector),
             }
         }
         held

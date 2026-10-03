@@ -548,6 +548,207 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    use serde::Serialize;
+
+    /// Postcard's encoding of `value`, written into a buffer large enough
+    /// for every sample and every generated event this module draws.
+    fn postcard_bytes<T: Serialize>(value: &T) -> Vec<u8> {
+        let mut buf = [0_u8; 16_384];
+        postcard::to_slice(value, &mut buf)
+            .expect("mirror fits the buffer")
+            .to_vec()
+    }
+
+    /// A test-only postcard mirror of the envelope: IDs as raw octets, the
+    /// stream as a two-variant enum, the body type as `u32, u32, bool`, and
+    /// the body as a length-prefixed byte sequence. Independent of
+    /// [`encode`]; if the hand-written layout drifted from postcard, the
+    /// bytes would differ.
+    #[derive(Serialize)]
+    struct EnvelopeMirror {
+        id: [u8; 16],
+        wall_ms: u64,
+        logical: u32,
+        device: [u8; 16],
+        stream: StreamMirror,
+        tag: u32,
+        version: u32,
+        skippable: bool,
+        body: Vec<u8>,
+    }
+
+    #[derive(Serialize)]
+    enum StreamMirror {
+        Profile([u8; 16]),
+        Household,
+    }
+
+    #[derive(Serialize)]
+    struct PlayMirror {
+        item: [u8; 32],
+        position_ms: u64,
+        completed: bool,
+    }
+
+    #[derive(Serialize)]
+    struct SkipMirror {
+        item: [u8; 32],
+        position_ms: u64,
+    }
+
+    #[derive(Serialize)]
+    enum ItemMirror {
+        Content([u8; 32]),
+        Document([u8; 16]),
+    }
+
+    #[derive(Serialize)]
+    enum ScopeMirror {
+        Person,
+        Device([u8; 16]),
+    }
+
+    #[derive(Serialize)]
+    struct SettingMirror {
+        scope: ScopeMirror,
+        key: String,
+        value: Vec<u8>,
+    }
+
+    #[derive(Serialize)]
+    enum KindMirror {
+        Queue,
+        Playlist,
+        HomeLayout,
+        RuleTree,
+    }
+
+    #[derive(Serialize)]
+    struct DocumentMirror {
+        kind: KindMirror,
+        id: [u8; 16],
+    }
+
+    #[derive(Serialize)]
+    struct DocumentOpMirror {
+        document: DocumentMirror,
+        based_on: u64,
+        payload: Vec<u8>,
+    }
+
+    #[derive(Serialize)]
+    struct DocumentSnapshotMirror {
+        document: DocumentMirror,
+        version: u64,
+        payload: Vec<u8>,
+    }
+
+    #[derive(Serialize)]
+    enum PlaceMirror {
+        Time { offset_ms: u64 },
+        Text { resource: u32, progression: u32 },
+        Page { page: u32, total: u32 },
+        Percent(u16),
+    }
+
+    #[derive(Serialize)]
+    struct PositionMirror {
+        item: [u8; 32],
+        place: PlaceMirror,
+    }
+
+    fn item_mirror(item: ItemRef) -> ItemMirror {
+        match item {
+            ItemRef::Content(content) => ItemMirror::Content(content.digest()),
+            ItemRef::Document(document) => ItemMirror::Document(document.bytes()),
+        }
+    }
+
+    fn document_mirror(document: DocumentRef) -> DocumentMirror {
+        DocumentMirror {
+            kind: match document.kind {
+                DocumentKind::Queue => KindMirror::Queue,
+                DocumentKind::Playlist => KindMirror::Playlist,
+                DocumentKind::HomeLayout => KindMirror::HomeLayout,
+                DocumentKind::RuleTree => KindMirror::RuleTree,
+            },
+            id: document.id.bytes(),
+        }
+    }
+
+    fn place_mirror(place: Place) -> PlaceMirror {
+        match place {
+            Place::Time { offset_ms } => PlaceMirror::Time { offset_ms },
+            Place::Text(locator) => PlaceMirror::Text {
+                resource: locator.resource(),
+                progression: locator.progression(),
+            },
+            Place::Page(page) => PlaceMirror::Page {
+                page: page.page(),
+                total: page.total(),
+            },
+            Place::Percent(percent) => PlaceMirror::Percent(percent.basis_points()),
+        }
+    }
+
+    /// The body's octets as postcard would write one of the known body
+    /// mirrors, or the unknown body's octets as they stand.
+    fn body_octets(body: &Body) -> Vec<u8> {
+        match body {
+            Body::Play(play) => postcard_bytes(&PlayMirror {
+                item: play.item.digest(),
+                position_ms: play.position_ms,
+                completed: play.completed,
+            }),
+            Body::Skip(skip) => postcard_bytes(&SkipMirror {
+                item: skip.item.digest(),
+                position_ms: skip.position_ms,
+            }),
+            Body::Love(item) | Body::Unlove(item) => postcard_bytes(&item_mirror(*item)),
+            Body::Setting(setting) => postcard_bytes(&SettingMirror {
+                scope: match setting.scope {
+                    SettingScope::Person => ScopeMirror::Person,
+                    SettingScope::Device(device) => ScopeMirror::Device(device.bytes()),
+                },
+                key: setting.key.as_str().to_owned(),
+                value: setting.value.as_bytes().to_vec(),
+            }),
+            Body::DocumentOp(op) => postcard_bytes(&DocumentOpMirror {
+                document: document_mirror(op.document),
+                based_on: op.based_on,
+                payload: op.payload.clone(),
+            }),
+            Body::DocumentSnapshot(snapshot) => postcard_bytes(&DocumentSnapshotMirror {
+                document: document_mirror(snapshot.document),
+                version: snapshot.version,
+                payload: snapshot.payload.clone(),
+            }),
+            Body::Position(position) => postcard_bytes(&PositionMirror {
+                item: position.item.digest(),
+                place: place_mirror(position.place),
+            }),
+            Body::Unknown(unknown) => unknown.octets().to_vec(),
+        }
+    }
+
+    /// Postcard's serialisation of the envelope mirror of `event`.
+    fn postcard_of(event: &Event) -> Vec<u8> {
+        let body_type = event.body.body_type();
+        postcard_bytes(&EnvelopeMirror {
+            id: event.id.bytes(),
+            wall_ms: event.clock.wall_ms(),
+            logical: event.clock.logical(),
+            device: event.device.bytes(),
+            stream: match event.stream {
+                Stream::Profile(profile) => StreamMirror::Profile(profile.bytes()),
+                Stream::Household => StreamMirror::Household,
+            },
+            tag: body_type.tag,
+            version: body_type.version,
+            skippable: body_type.skippable,
+            body: body_octets(&event.body),
+        })
+    }
 
     /// The parts of an encoding, joined.
     fn join(parts: &[&[u8]]) -> Vec<u8> {
@@ -1182,6 +1383,30 @@ mod tests {
         assert_eq!(envelope + 1, BODY_START);
     }
 
+    /// [`encode`] writes the same octets postcard writes for the envelope
+    /// mirror and each known-body mirror, so the hand-written layout is
+    /// postcard's, not a second spelling derived from this module's tables.
+    #[test]
+    fn encode_matches_postcard_on_every_sample() {
+        let household = {
+            let mut event = played();
+            event.stream = Stream::Household;
+            event
+        };
+        let mut latest = played();
+        latest.clock = Hlc::new(u64::MAX, u32::MAX);
+        let mut earliest = played();
+        earliest.clock = Hlc::ZERO;
+        let large = setting(SettingScope::Person, &[0x5a; 4_096]);
+        let extra = [household, latest, earliest, large];
+        for (event, _, _, _) in samples() {
+            assert_eq!(encode(&event), postcard_of(&event));
+        }
+        for event in extra {
+            assert_eq!(encode(&event), postcard_of(&event));
+        }
+    }
+
     /// Input cut anywhere in the envelope is truncated at the field the
     /// cut is in, and input cut in the body at the body's start.
     #[test]
@@ -1665,6 +1890,11 @@ mod tests {
         fn every_event_reads_back_as_itself(event in strategies::event()) {
             let bytes = encode(&event);
             prop_assert_eq!(read(&bytes), Ok(event));
+        }
+
+        #[test]
+        fn encode_matches_postcard_for_any_event(event in strategies::event()) {
+            prop_assert_eq!(encode(&event), postcard_of(&event));
         }
 
         /// Verifies: SEC-MED-001, SEC-MED-007
