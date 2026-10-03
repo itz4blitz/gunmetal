@@ -248,10 +248,11 @@ fn replays_one_item_of_each_type_after_a_header() {
 }
 
 /// Four binary items whose second value puts `TAG` 128 octets from the end
-/// of the file: the file then truly ends with an `ID3v1` tag, so no APE
-/// footer stands before it, and the harness checks nothing it built.
+/// of the file. `find_v1` reports that slot; `parse_ape` still finds the
+/// tag that ends the file, because no footer sits immediately before it.
+/// The harness does not check the `ID3v1` fields: none were built.
 ///
-/// Verifies: SEC-MED-028
+/// Verifies: SEC-MED-001, SEC-MED-028
 #[test]
 fn replays_a_value_that_poses_as_an_id3v1_tag() {
     let keys: [&[u8]; 4] = [b"Ab", b"Cd", b"Ef", b"Gh"];
@@ -274,7 +275,16 @@ fn replays_a_value_that_poses_as_an_id3v1_tag() {
         &Outcome {
             file,
             ape_range: 0..200,
-            ape: Ok(None),
+            ape: Ok(Some(tag(
+                0..200,
+                vec![
+                    item("Ab", ApeValue::Binary(11..42)),
+                    item("Cd", ApeValue::Binary(53..84)),
+                    item("Ef", ApeValue::Binary(95..126)),
+                    item("Gh", ApeValue::Binary(137..168)),
+                ],
+                vec![],
+            ))),
             v1: Ok(Some(Id3v1Tag {
                 range: 72..200,
                 // The rest of the second value, up to the first zero of
