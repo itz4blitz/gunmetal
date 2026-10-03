@@ -24,7 +24,7 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
     let mut budget = Budget::for_input(0, 0, u64::MAX);
     let parsed =
         webauthn::attestation_object(data, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
-    let spent = u64::MAX - budget.remaining();
+    let spent = u64::MAX.saturating_sub(budget.remaining());
     assert!(
         spent <= octets.saturating_add(1),
         "{spent} steps for {octets} octets"
