@@ -1,0 +1,44 @@
+name: Settings drift
+
+# Compares live repository protections with the expected state (SEC-SUP-001
+# to SEC-SUP-007). The job needs a fine-grained token with administration
+# read on this repository and organisation read for the 2FA setting; store
+# it as SETTINGS_READER_TOKEN. GITHUB_TOKEN cannot read rulesets.
+on:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - name: Fetch live settings
+        run: |
+          mkdir -p target/settings
+          gh api "orgs/${GITHUB_REPOSITORY_OWNER}" > target/settings/org.json
+          gh api "repos/$GITHUB_REPOSITORY" > target/settings/repo.json
+          gh api "repos/$GITHUB_REPOSITORY/rulesets" > target/settings/rulesets.json
+          gh api "repos/$GITHUB_REPOSITORY/private-vulnerability-reporting" \
+            > target/settings/private-vulnerability-reporting.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/permissions" \
+            > target/settings/actions-permissions.json
+          gh api "repos/$GITHUB_REPOSITORY/rulesets" --jq ".[].id" | while read -r ident; do
+            gh api "repos/$GITHUB_REPOSITORY/rulesets/$ident" \
+              > "target/settings/ruleset-$ident.json"
+          done
+      - run: cargo run --locked --quiet -p xtask -- repo settings target/settings

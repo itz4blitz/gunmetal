@@ -1,8 +1,8 @@
 name: Scorecard
 
 # OpenSSF Scorecard, weekly and on every push to main (SEC-SUP-019). The
-# results are kept as a workflow artifact. Failing CI on low scores needs
-# the threshold check that SEC-SUP-019 describes, which is not written yet.
+# results are kept as a workflow artifact. xtask repo scorecard fails the
+# job when a required check is below its threshold.
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ permissions: {}
 jobs:
   analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     # Read access Scorecard needs on a private repository. Publishing would
     # also need id-token: write, and code scanning upload security-events:
     # write; neither is used while the repository is private (see below).
@@ -30,19 +30,19 @@ jobs:
           persist-credentials: false
       - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
-          results_file: results.sarif
-          results_format: sarif
+          results_file: results.json
+          results_format: json
           # The repository is private. Scorecard publishes results only for
           # public repositories, and the action switches publishing off for
           # a private one anyway. When the repository goes public, set this
           # to true and grant id-token: write to this job.
           publish_results: false
-      # Code scanning needs GitHub Code Security on a private repository,
-      # and it is off, so the SARIF file is kept as an artifact instead.
-      # When the repository is public or Code Security is on, upload it with
-      # github/codeql-action/upload-sarif and grant security-events: write.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - run: cargo run --locked --quiet -p xtask -- repo scorecard results.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scorecard-results
-          path: results.sarif
+          path: results.json
           retention-days: 30

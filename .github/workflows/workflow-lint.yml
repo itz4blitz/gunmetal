@@ -1,0 +1,95 @@
+name: Workflow lint
+
+# zizmor, actionlint and REUSE on every pull request and every push to main
+# or a wave branch (SEC-SUP-010 to SEC-SUP-015, SEC-SUP-018, SEC-SUP-030,
+# SEC-HIS-058). High-severity findings fail the job. A canary step proves
+# zizmor fails on a deliberately unpinned action in a scratch directory.
+on:
+  pull_request:
+  push:
+    branches: [main, "wave-*"]
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      # crates.io checksums the crate; --locked uses zizmor's own lockfile
+      # (SEC-SUP-011).
+      - run: cargo install zizmor --version 1.30.1 --locked
+      - name: zizmor on the repository
+        run: zizmor --offline --min-severity high .github
+      - name: zizmor fails on an unpinned action
+        run: |
+          mkdir -p scratch/.github/workflows
+          printf '%s\n' \
+            'name: unpinned' \
+            'on: push' \
+            'permissions: {}' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - uses: actions/checkout@v4' \
+            > scratch/.github/workflows/unpinned.yml
+          if zizmor --offline --min-severity high scratch/.github/workflows/unpinned.yml; then
+            echo "::error::zizmor passed on an unpinned action"
+            exit 1
+          fi
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: actionlint@1.7.12
+          fallback: none
+      - run: actionlint
+
+  reuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Docker action pinned by commit SHA. The image is the action's own
+      # Dockerfile at that commit (SEC-SUP-010, SEC-SUP-030).
+      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+
+  js-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - run: cargo run --locked --quiet -p xtask -- js-deps
