@@ -56,5 +56,5 @@ jobs:
               --body "Still failing: $RUN_URL"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
-              --body "The scheduled cargo-deny check failed: $RUN_URL. Remediation deadlines run from today (SEC-SUP-023)."
+              --body "The scheduled cargo-deny check failed: $RUN_URL. Remediation deadlines run from today (SEC-SUP-023): a fixed release within 7 days for a critical or high advisory reachable from shipped code, 30 days for medium, 90 days for low, and 180 days to replace, fork or justify an unmaintained crate."
           fi
