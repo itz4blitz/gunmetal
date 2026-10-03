@@ -1,0 +1,3 @@
+# Direct JavaScript dependencies of every package.json, each with a written
+# reason (SEC-SUP-035). One sorted `name = "reason"` line per package. Empty
+# until the web client adds a direct dependency.

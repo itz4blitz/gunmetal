@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5dc08b08ce275cee85c8d49c5cbc449ba2df8c4490180d5e3e25b9db2005e820 # shrinks to index = 0, below = false, distance = 1
+cc 7de901bf62cc5a427ba3b86d845385cee353d0bb9a2ae6ff6f7ab163e3991a8f # shrinks to s = Schedule { security_event_days: 0, address_coarsen_days: 0, address_remove_days: 0, diagnostic_log_days: 0, diagnostic_log_bytes: 0, access_log_days: 0, diagnostic_bundle_hours: 0, backup_days: 0, expired_invitation_days: 0, history: UntilDeleted }, age_ms = 6864399946064852745
+cc 12c22fbaa47f8f10b587389dbe0c1604e55e109f6fa2af80f66f3b0fa05b1c29 # shrinks to s = Schedule { security_event_days: 0, address_coarsen_days: 0, address_remove_days: 0, diagnostic_log_days: 0, diagnostic_log_bytes: 0, access_log_days: 0, diagnostic_bundle_hours: 0, backup_days: 0, expired_invitation_days: 0, history: UntilDeleted }, class = DiagnosticLog, fraction = 0.3053342696403724
