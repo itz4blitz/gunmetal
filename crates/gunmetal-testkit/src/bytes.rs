@@ -121,9 +121,92 @@ fn low_seven_bits(value: u32) -> u8 {
     low & 0x7F
 }
 
+/// Fields packed most significant bit first, as FLAC and MPEG audio pack
+/// their headers.
+///
+/// ```
+/// use gunmetal_testkit::bytes::Bits;
+///
+/// let mut header = Bits::new();
+/// header.put(14, 0x3FFE).put(1, 0).put(1, 0);
+/// assert_eq!(header.into_vec(), [0xFF, 0xF8]);
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Bits {
+    /// Every octet whose eight bits are written.
+    whole: Vec<u8>,
+    /// The bits written after the last whole octet, in the low bits.
+    partial: u8,
+    /// How many bits `partial` holds, from 0 to 7.
+    used: u8,
+}
+
+impl Bits {
+    /// No fields yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends the low `width` bits of `value`, most significant first.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `width` is over 64 or `value` does not fit in `width`
+    /// bits.
+    pub fn put(&mut self, width: u32, value: u64) -> &mut Self {
+        assert!(width <= 64, "a field is at most 64 bits wide, not {width}");
+        assert!(
+            value.checked_shr(width).is_none_or(|rest| rest == 0),
+            "{value} does not fit in {width} bits"
+        );
+        for shift in (0..width).rev() {
+            self.push_bit((value >> shift) & 1 == 1);
+        }
+        self
+    }
+
+    /// Appends zero bits up to the next octet boundary, if not already on
+    /// one.
+    pub fn pad_to_byte(&mut self) -> &mut Self {
+        while self.used != 0 {
+            self.push_bit(false);
+        }
+        self
+    }
+
+    /// The packed octets.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the fields do not end on an octet boundary; call
+    /// [`Bits::pad_to_byte`] first where the format pads with zero bits.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<u8> {
+        assert!(
+            self.used == 0,
+            "the fields end {} bits into an octet; pad them first",
+            self.used
+        );
+        self.whole
+    }
+
+    fn push_bit(&mut self, bit: bool) {
+        self.partial = (self.partial << 1) + u8::from(bit);
+        self.used += 1;
+        if self.used == 8 {
+            self.whole.push(self.partial);
+            self.partial = 0;
+            self.used = 0;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::collection::vec;
+    use proptest::prelude::*;
 
     #[test]
     fn starts_empty() {
@@ -221,5 +304,150 @@ mod tests {
     #[should_panic(expected = "268435456 does not fit in a 28-bit syncsafe integer")]
     fn refuses_a_syncsafe_value_that_does_not_fit() {
         Bytes::new().syncsafe32(0x1000_0000);
+    }
+
+    #[test]
+    fn packs_a_real_flac_streaminfo_block() {
+        // The STREAMINFO body libFLAC 1.5.0 wrote for 64 frames of 16-bit
+        // mono silence at 8 kHz, encoded with `flac -b 64`.
+        let mut fields = Bits::new();
+        fields
+            .put(16, 64) // minimum block size
+            .put(16, 64) // maximum block size
+            .put(24, 12) // minimum frame size
+            .put(24, 12) // maximum frame size
+            .put(20, 8_000) // sample rate
+            .put(3, 0) // channels minus one
+            .put(5, 15) // bits per sample minus one
+            .put(36, 64) // total samples
+            .put(64, 0xF09F_35A5_6378_3945) // MD5 of the samples, first half
+            .put(64, 0x8E46_2E63_50EC_BCE4); // and second half
+        assert_eq!(
+            fields.into_vec(),
+            vec![
+                0x00, 0x40, 0x00, 0x40, // block sizes
+                0x00, 0x00, 0x0C, 0x00, 0x00, 0x0C, // frame sizes
+                0x01, 0xF4, 0x00, 0xF0, 0x00, 0x00, 0x00, 0x40, // rate to total samples
+                0xF0, 0x9F, 0x35, 0xA5, 0x63, 0x78, 0x39, 0x45, // MD5
+                0x8E, 0x46, 0x2E, 0x63, 0x50, 0xEC, 0xBC, 0xE4,
+            ]
+        );
+    }
+
+    #[test]
+    fn packs_a_real_mpeg_audio_frame_header() {
+        // The first frame header LAME wrote for 128 kbit/s joint stereo at
+        // 44.1 kHz.
+        let mut fields = Bits::new();
+        fields
+            .put(11, 0x7FF) // frame sync
+            .put(2, 0b11) // MPEG-1
+            .put(2, 0b01) // Layer III
+            .put(1, 1) // no CRC
+            .put(4, 0b1001) // 128 kbit/s
+            .put(2, 0b00) // 44.1 kHz
+            .put(1, 0) // no padding
+            .put(1, 0) // private bit
+            .put(2, 0b01) // joint stereo
+            .put(2, 0b10) // mid/side stereo on, intensity stereo off
+            .put(1, 0) // not copyrighted
+            .put(1, 1) // original
+            .put(2, 0b00); // no emphasis
+        assert_eq!(fields.into_vec(), vec![0xFF, 0xFB, 0x90, 0x64]);
+    }
+
+    #[test]
+    fn writes_nothing_for_a_field_of_no_bits() {
+        let mut fields = Bits::new();
+        fields.put(0, 0);
+        assert_eq!(fields.into_vec(), Vec::<u8>::new());
+        assert_eq!(Bits::default().into_vec(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn writes_a_full_64_bit_field() {
+        let mut fields = Bits::new();
+        fields.put(1, 1).put(64, u64::MAX).put(7, 0);
+        let mut expected = vec![0xFF; 8];
+        expected.push(0x80);
+        assert_eq!(fields.into_vec(), expected);
+    }
+
+    #[test]
+    fn pads_the_last_octet_with_zero_bits() {
+        let mut fields = Bits::new();
+        fields
+            .put(3, 0b101)
+            .pad_to_byte()
+            .put(4, 0b1111)
+            .pad_to_byte();
+        assert_eq!(fields.into_vec(), vec![0b1010_0000, 0b1111_0000]);
+    }
+
+    #[test]
+    fn padding_an_aligned_field_adds_nothing() {
+        let mut fields = Bits::new();
+        fields.pad_to_byte().put(8, 0x5A).pad_to_byte();
+        assert_eq!(fields.into_vec(), vec![0x5A]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a field is at most 64 bits wide, not 65")]
+    fn refuses_a_field_wider_than_64_bits() {
+        Bits::new().put(65, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "8 does not fit in 3 bits")]
+    fn refuses_a_value_wider_than_its_field() {
+        Bits::new().put(3, 8);
+    }
+
+    #[test]
+    #[should_panic(expected = "the fields end 5 bits into an octet; pad them first")]
+    fn refuses_to_finish_part_way_through_an_octet() {
+        let mut fields = Bits::new();
+        fields.put(13, 0);
+        let _ = fields.into_vec();
+    }
+
+    /// Reads `width` bits from `bytes` starting at bit `start`, most
+    /// significant first. A reference reader written only for these tests.
+    fn read_bits(bytes: &[u8], start: usize, width: usize) -> u64 {
+        (start..start + width).fold(0, |value, bit| {
+            let octet = u64::from(bytes[bit / 8]);
+            (value << 1) | ((octet >> (7 - bit % 8)) & 1)
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn reads_back_every_field_it_packed(
+            fields in vec((0_usize..=64, any::<u64>()), 0..24),
+        ) {
+            // Keep only the bits each field has room for.
+            let fields: Vec<(usize, u64)> = fields
+                .into_iter()
+                .map(|(width, raw)| {
+                    let value = if width == 64 { raw } else { raw % (1 << width) };
+                    (width, value)
+                })
+                .collect();
+            let mut packed = Bits::new();
+            for &(width, value) in &fields {
+                packed.put(u32::try_from(width).unwrap(), value);
+            }
+            packed.pad_to_byte();
+            let bytes = packed.into_vec();
+
+            let total: usize = fields.iter().map(|&(width, _)| width).sum();
+            prop_assert_eq!(bytes.len(), total.div_ceil(8));
+            let mut start = 0;
+            for &(width, value) in &fields {
+                prop_assert_eq!(read_bits(&bytes, start, width), value);
+                start += width;
+            }
+            prop_assert_eq!(read_bits(&bytes, start, bytes.len() * 8 - start), 0);
+        }
     }
 }
