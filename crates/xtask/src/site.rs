@@ -27,13 +27,18 @@
 //!   function, server configuration or other dynamic endpoint
 //!   (SEC-HIS-061).
 //!
-//! The page scanner is small and fails closed: an unterminated tag, quoted
-//! value or comment is a finding, a comment that a browser ends before its
-//! `-->` (one that starts `<!-->` or `<!--->`, or holds `--!>`) is one, an
-//! attribute value with a character
-//! reference (which it does not decode) is one, and an attribute value that
-//! only looks like another origin's address is one too. It reads addresses
-//! as a browser does, ignoring tabs and line breaks and taking `\` as `/`.
+//! The page scanner is small and fails closed. It reads tags, comments and
+//! declarations as a browser's tokenizer does, and each of these is a
+//! finding: an unterminated tag, quoted value, comment or declaration; a
+//! comment that a browser ends before its `-->` (one that starts `<!-->` or
+//! `<!--->`, or holds `--!>`); a `<` inside a tag, comment or declaration,
+//! where markup could hide from the scanner and still run in a browser that
+//! reads the text around it differently (in `<title>`, say); an attribute
+//! with no name; an attribute value with a character reference, which the
+//! scanner does not decode; and an attribute value that only looks like
+//! another origin's address or holds `javascript:` anywhere. It reads
+//! addresses as a browser does, ignoring tabs and line breaks and taking
+//! `\` as `/`.
 
 use crate::tree::Tree;
 
@@ -147,7 +152,9 @@ pub enum Finding {
         /// The value.
         value: String,
     },
-    /// A page with an unterminated tag, quoted value or comment.
+    /// A page with an unterminated tag, quoted value, comment or
+    /// declaration, an attribute with no name, or a `<` inside a tag,
+    /// comment or declaration.
     Unparsable {
         /// The page.
         path: String,
@@ -160,7 +167,8 @@ pub enum Finding {
         /// The element.
         element: String,
     },
-    /// A page with an event handler or a `javascript:` address.
+    /// A page with an event handler, or with `javascript:` in an attribute
+    /// value.
     Script {
         /// The page.
         path: String,
@@ -510,7 +518,7 @@ fn page(path: &str, html: &str) -> Vec<Finding> {
         }
         for (attribute, value) in &tag.attributes {
             let address = as_address(value);
-            if attribute.starts_with("on") || address.starts_with("javascript:") {
+            if attribute.starts_with("on") || address.contains("javascript:") {
                 findings.push(Finding::Script {
                     path: path.to_owned(),
                     element: tag.name.clone(),
@@ -593,43 +601,68 @@ impl Tag {
     }
 }
 
-/// The start tags in `html`, skipping comments, end tags and declarations;
-/// `None` when a tag, quoted value or comment is not terminated, or when a
-/// browser would end a comment before its `-->` and read what follows as
-/// tags.
+/// The start tags in `html`, read as a browser's tokenizer reads them;
+/// `None` when a tag, quoted value, comment or declaration is not
+/// terminated, when a browser would end a comment before its `-->`, when
+/// an attribute has no name, or when a tag, comment or declaration holds a
+/// `<`. So every `<` of the page is read as the start of something, and
+/// markup cannot hide in a comment or a quoted value from a browser that
+/// reads it as text there (in `<title>`, say) and ends that text early.
 fn start_tags(html: &str) -> Option<Vec<Tag>> {
     let mut tags = Vec::new();
     let mut rest = html;
     while let Some((_, after)) = rest.split_once('<') {
-        rest = if let Some(comment) = after.strip_prefix("!--") {
-            let (body, after) = comment.split_once("-->")?;
-            let early = body.starts_with('>') || body.starts_with("->") || body.contains("--!>");
-            (!early).then_some(after)?
-        } else {
-            let (tag, after) = tag(after)?;
-            tags.extend(tag);
-            after
-        };
+        let (tag, next) = markup(after)?;
+        if after[..after.len() - next.len()].contains('<') {
+            return None;
+        }
+        tags.extend(tag);
+        rest = next;
     }
     Some(tags)
 }
 
-/// The tag that `text`, which follows a `<`, starts, and the text after
-/// its `>`. An end tag or declaration has no name, so it gives no tag.
-fn tag(text: &str) -> Option<(Option<Tag>, &str)> {
-    let (name, mut rest) = split_at_first(text, |c| !(c.is_ascii_alphanumeric() || c == '-'));
-    let mut attributes = Vec::new();
-    loop {
+/// What `text`, which follows a `<`, starts: its start tag, if it is one,
+/// and the text after it. A comment runs to its `-->`; a tag starts with a
+/// letter, after a `/` for an end tag; any other declaration, processing
+/// instruction or end tag runs to the first `>`, whatever quotes it holds;
+/// and after anything else the `<` was text.
+fn markup(text: &str) -> Option<(Option<Tag>, &str)> {
+    let end_tag = text.strip_prefix('/');
+    let named = end_tag.unwrap_or(text);
+    if let Some(comment) = text.strip_prefix("!--") {
+        let (body, after) = comment.split_once("-->")?;
+        let early = body.starts_with('>') || body.starts_with("->") || body.contains("--!>");
+        (!early).then_some((None, after))
+    } else if named.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        let (tag, after) = tag(named)?;
+        Some((end_tag.is_none().then_some(tag), after))
+    } else if text.starts_with(['!', '?', '/']) {
+        let (_, after) = text.split_once('>')?;
+        Some((None, after))
+    } else {
+        Some((None, text))
+    }
+}
+
+/// The tag whose name `text` starts with, and the text after its `>`;
+/// `None` when it has no `>` or an attribute of it has no name (it starts
+/// with `=`, which a browser reads as part of the name). Each attribute and
+/// the `>` take at least one byte, so the loop needs no more turns than
+/// `text` has bytes.
+fn tag(text: &str) -> Option<(Tag, &str)> {
+    let (name, mut rest) =
+        split_at_first(text, |c| c.is_ascii_whitespace() || c == '>' || c == '/');
+    let mut attributes: Vec<(String, String)> = Vec::new();
+    for _ in 0..text.len() {
         rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace() || c == '/');
         if let Some(after) = rest.strip_prefix('>') {
-            let tag = (!name.is_empty()).then(|| Tag {
+            let named = attributes.iter().all(|(name, _)| !name.is_empty());
+            let tag = Tag {
                 name: name.to_ascii_lowercase(),
                 attributes,
-            });
-            return Some((tag, after));
-        }
-        if rest.is_empty() {
-            return None;
+            };
+            return named.then_some((tag, after));
         }
         let (attribute, after) = split_at_first(rest, |c| {
             c.is_ascii_whitespace() || c == '=' || c == '>' || c == '/'
@@ -638,6 +671,7 @@ fn tag(text: &str) -> Option<(Option<Tag>, &str)> {
         attributes.push((attribute.to_ascii_lowercase(), value.to_owned()));
         rest = after;
     }
+    None
 }
 
 /// The value of the attribute whose name `text` follows, and the text
@@ -707,7 +741,7 @@ Hiring: anything else is ignored
 ";
 
     /// A page that links to the privacy notice and to another site.
-    const PAGE: &str = "<!doctype html>\n<html lang=\"en\"><!-- <script> in a comment never runs -->\n<a href=\"/privacy/\">Privacy</a> <a href='https://github.com/PremierStudio/gunmetal'>Source</a></html>\n";
+    const PAGE: &str = "<!doctype html>\n<html lang=\"en\"><!-- A comment. -->\n<a href=\"/privacy/\">Privacy</a> <a href='https://github.com/PremierStudio/gunmetal'>Source</a></html>\n";
 
     /// A site with every required file, each passing every check, with the
     /// files in `overrides` added or replaced.
@@ -1145,6 +1179,28 @@ Preferred-Languages: en,
         );
     }
 
+    /// Cloudflare Pages removes a header from a path with a `! Name` line;
+    /// the check reads no such line, so no path can drop a header.
+    ///
+    /// Verifies: SEC-STD-016
+    #[test]
+    fn a_line_that_removes_a_header_from_a_path_is_refused() {
+        let text = format!("{HEADERS}  ! Strict-Transport-Security\n");
+        assert_eq!(headers(&text), [malformed("site/_headers", 9)]);
+    }
+
+    #[test]
+    fn a_blank_line_or_comment_between_headers_keeps_their_path() {
+        let text = "\
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+# A comment that is not a path.
+  Content-Security-Policy: default-src 'none'
+";
+        assert_eq!(headers(text), []);
+    }
+
     #[test]
     fn headers_follow_a_path_and_have_a_name_and_a_value() {
         let text = format!("  Referrer-Policy: no-referrer\n{HEADERS}  no colon here\n");
@@ -1171,7 +1227,9 @@ Preferred-Languages: en,
 <a href=\" JavaScript:send(location.hash)\">Go</a>
 <a href=\"java\tscript:send(location.hash)\">Go</a>
 <a href=\"\njava\nscript\r:send(location.hash)\">Go</a>
-<iframe srcdoc=\"<script>send(parent.location.hash)</script>\"></iframe>
+<iframe src=/frame.html></iframe>
+<set to=\"/a;javascript:send(location.hash)\">
+<a_=\" onclick=send(location.hash) x=y\">
 <frame src=/frame.html>
 <object data=/movie.html></object>
 <embed src=/movie.html>
@@ -1196,6 +1254,8 @@ Preferred-Languages: en,
                 script("a", "href"),
                 script("a", "href"),
                 code("iframe"),
+                script("set", "to"),
+                script("a_=\"", "onclick"),
                 code("frame"),
                 code("object"),
                 code("embed"),
@@ -1211,6 +1271,7 @@ Preferred-Languages: en,
 <a href=\"https://github.com/PremierStudio/gunmetal\">Links may leave the site</a>
 <link rel=canonical href=https://gunmetal.tv>
 <img src=\"https://gunmetal.tv/icon.png\" alt=\"\">
+<img src=\" https://gunmetal.tv/icon.png\">
 <img src=\"https://analytics.example/pixel.gif\">
 <img src=//cdn.example/a.png>
 <link rel=stylesheet href='HTTPS://fonts.example/css'>
@@ -1306,6 +1367,21 @@ Preferred-Languages: en,
             "<!--><script>send(location.hash)</script><!-- -->",
             "<!---><script>send(location.hash)</script><!-- -->",
             "<!-- a --!><script>send(location.hash)</script><!-- -->",
+            "<a =\"><script>send(location.hash)</script>\">",
+            "<a =x>",
+            "</a =x>",
+            "<iframe srcdoc=\"<script>send(parent.location.hash)</script>\"></iframe>",
+            "<p title=\"a < b\">",
+            "</p title=\"a < b\">",
+            "<p <b>",
+            "<!-- <b> -->",
+            "<title><!--</title><script>send(location.hash)</script>--></title>",
+            "<title><a x=\"</title><script>send(location.hash)</script>\"></title>",
+            "<svg><![CDATA[ > <!-- ]]><script>send(location.hash)</script><!-- --></svg>",
+            "<!doctype html",
+            "<?xml",
+            "</",
+            "<! a <b>",
         ] {
             assert_eq!(
                 invite(&format!("<a href=/privacy/>Privacy</a>{tail}")),
@@ -1316,9 +1392,37 @@ Preferred-Languages: en,
         }
     }
 
+    /// A browser ends a declaration, a processing instruction and an end
+    /// tag with no name at the first `>`, whatever quotes they hold, and
+    /// reads a `<` that no name follows as text; the scanner reads the
+    /// markup after them as the browser does.
+    #[test]
+    fn markup_after_what_only_looks_like_a_tag_is_still_read() {
+        for head in [
+            "< a=\">",
+            "<! a=\">",
+            "<!doctype html a=\">",
+            "<? a=\">",
+            "</ a=\">",
+            "<3 a=\">",
+            "<",
+            "</p a=\">\">",
+        ] {
+            assert_eq!(
+                invite(&format!(
+                    "<a href=/privacy/>Privacy</a>{head}<script>send(location.hash)</script>\">"
+                )),
+                [Finding::Code {
+                    path: "site/invite/index.html".to_owned(),
+                    element: "script".to_owned()
+                }]
+            );
+        }
+    }
+
     #[test]
     fn start_tags_reads_names_and_attributes_in_every_form() {
-        let html = "<!DOCTYPE html><P>text</p><!-- <b> --><!----><!-- -> > --><x-card Data-A=\"1 > 2\" b='single' c=plain d = \"spaced\" e/><br/><>< img><a =x><a\nhref=/privacy/>";
+        let html = "<!DOCTYPE html><P>text</p><!-- b --><!----><!-- -> > --><x-card Data-A=\"1 > 2\" b='single' c=plain d = \"spaced\" e/><br/><>< img></><!a=\"><?b='></P CLASS=\"x > y\"><a:B_c\"d x=y><a\nhref=/privacy/>";
         assert_eq!(
             start_tags(html),
             Some(vec![
@@ -1334,7 +1438,7 @@ Preferred-Languages: en,
                     ]
                 ),
                 tag("br", &[]),
-                tag("a", &[("", "x")]),
+                tag("a:b_c\"d", &[("x", "y")]),
                 tag("a", &[("href", "/privacy/")]),
             ])
         );
