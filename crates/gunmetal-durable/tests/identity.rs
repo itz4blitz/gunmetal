@@ -976,6 +976,54 @@ fn reads_a_setting_from_the_format_it_was_added_in() {
     );
 }
 
+#[test]
+fn a_migration_whose_checks_cannot_run_rolls_back() {
+    let data = data();
+    released(&data.root, &[ACCOUNTS], &[]);
+    let before = file_bytes(&data.root, &IDENTITY);
+    let keep = |_: &Db| -> Result<(), DbError> { Ok(()) };
+    let kept = [Migration(&keep)];
+    // SQLITE_ERROR: no such table.
+    let no_such_table = Err(IdentityError::Db {
+        step: Step::Migrate,
+        error: DbError::Sqlite { code: 1 },
+    });
+    // A setting of the old format that cannot be read before the migration.
+    let unreadable = Setting { since: 0, ..LOCK };
+    assert_eq!(
+        outcome(
+            &data.root,
+            &Spec {
+                settings: &[unreadable],
+                ..spec(&[ACCOUNTS], &kept)
+            }
+        ),
+        no_such_table
+    );
+    // A setting of the new format the migration did not create.
+    assert_eq!(
+        outcome(
+            &data.root,
+            &Spec {
+                settings: &[LOCK],
+                ..spec(&[ACCOUNTS], &kept)
+            }
+        ),
+        no_such_table
+    );
+    // A migration that removes the store's own record.
+    let unrecorded = |db: &Db| db.execute_batch("DROP TABLE store_meta;");
+    assert_eq!(
+        outcome(&data.root, &spec(&[ACCOUNTS], &[Migration(&unrecorded)])),
+        no_such_table
+    );
+    assert_eq!(file_bytes(&data.root, &IDENTITY), before);
+    assert_eq!(
+        outcome(&data.root, &spec(&[ACCOUNTS], &[])),
+        Ok(Outcome::Current)
+    );
+}
+
 /// Verifies: SEC-OPS-048
 #[test]
 fn a_snapshot_that_cannot_be_written_stops_the_migration() {
