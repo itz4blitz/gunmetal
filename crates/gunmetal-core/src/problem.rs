@@ -71,6 +71,12 @@ macro_rules! problems {
 problems! {
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// A folder offered as a library root, or as an approved link target, is the filesystem root (SEC-MED-037).
+    LibraryRootFilesystemRoot = ("library_root_filesystem_root", Some(400), "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media."),
+    /// A folder offered as a library root, or as an approved link target, equals, contains or lies inside one of Gunmetal's own data, cache, configuration or log directories (SEC-MED-037).
+    LibraryRootOwnData = ("library_root_own_data", Some(400), "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder."),
+    /// A folder offered as a library root, or as an approved link target, is a system directory or lies inside one (SEC-MED-037).
+    LibraryRootSystemFolder = ("library_root_system_folder", Some(400), "This is a system folder, not a media folder. Choose the folder that holds your media."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
 }
@@ -108,11 +114,26 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 5] = [
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
+        ),
+        (
+            "library_root_filesystem_root",
+            Some(400),
+            "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media.",
+        ),
+        (
+            "library_root_own_data",
+            Some(400),
+            "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder.",
+        ),
+        (
+            "library_root_system_folder",
+            Some(400),
+            "This is a system folder, not a media folder. Choose the folder that holds your media.",
         ),
         (
             "not_found",
