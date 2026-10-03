@@ -507,6 +507,20 @@ mod tests {
     use proptest::collection::vec;
     use proptest::prelude::*;
 
+    /// The stack size SEC-MED-001 names, in octets.
+    const SMALL_STACK: usize = 262_144;
+
+    /// Runs `work` on a 256 KiB stack so a recursive probe fails its test
+    /// instead of passing on the runner's larger stack (SEC-MED-001).
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(work)
+            .expect("the test thread starts")
+            .join()
+            .expect("the code under test returned instead of panicking")
+    }
+
     /// Probes `file` under `limits` with `budget`, serving its requests
     /// from memory.
     fn run(
@@ -1278,7 +1292,7 @@ mod tests {
             pieces in vec(prop_oneof![header(), vec(any::<u8>(), 0..24)], 0..24),
         ) {
             let file: Vec<u8> = pieces.concat();
-            let result = crate::parse::small_stack::on_small_stack(move || {
+            let result = on_small_stack(move || {
                 let budget = enough(&file);
                 run(&file, &Limits::DEFAULT, budget).map(Result::err)
             });

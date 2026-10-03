@@ -303,6 +303,20 @@ mod tests {
     use super::*;
     use gunmetal_testkit::mp4::{large_box, mp4_box, open_box};
 
+    /// The stack size SEC-MED-001 names, in octets.
+    const SMALL_STACK: usize = 262_144;
+
+    /// Runs `work` on a 256 KiB stack so a recursive walk fails its test
+    /// instead of passing on the runner's larger stack (SEC-MED-001).
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(work)
+            .expect("the test thread starts")
+            .join()
+            .expect("the code under test returned instead of panicking")
+    }
+
     fn truncated(offset: u64, needed: u64, available: u64) -> Mp4Error {
         Mp4Error::Fault(ParseFault::Truncated {
             offset,
@@ -1232,7 +1246,7 @@ mod tests {
             expect(&file, &children, 8, &mut vec![FourCc(*b"moov")], 1, &mut wanted);
             wanted.push((vec![], Event::Leave(root(&file))));
             let run = file.clone();
-            let got = crate::parse::small_stack::on_small_stack(move || {
+            let got = on_small_stack(move || {
                 let (result, seen) = walk_all(root(&run), &Limits::DEFAULT, &mut Budget::for_input(u64::MAX, 0, u64::MAX), go_on);
                 (result, format!("{seen:?}"))
             });
@@ -1245,7 +1259,7 @@ mod tests {
             body in vec(any::<u8>(), 0..200),
         ) {
             let len = body.len();
-            let count = crate::parse::small_stack::on_small_stack(move || {
+            let count = on_small_stack(move || {
                 let file = [b"\x00\x00\x00\x00moov".to_vec(), body].concat();
                 let (_, seen) = walk_all(root(&file), &Limits::DEFAULT, &mut Budget::for_input(u64::MAX, 0, u64::MAX), go_on);
                 seen.len()
