@@ -262,9 +262,10 @@ const LONG_BATCH: i64 = 5_000;
 /// The stated bound on a reader's latency while a long batch commits.
 const READ_LATENCY: Duration = Duration::from_secs(5);
 
-/// How many reads the load test makes at most while waiting for the batch
-/// to become visible.
-const MAX_READS: usize = 1_000_000;
+/// How long the load test keeps reading while it waits for the committed
+/// batch to become visible. A batch that never does fails the test then,
+/// well inside the time the mutation run allows a test binary.
+const VISIBLE_WITHIN: Duration = Duration::from_secs(5);
 
 /// A short load test: while one long batch commits, readers keep answering
 /// within [`READ_LATENCY`], and each sees either none of the batch or all
@@ -298,7 +299,8 @@ fn readers_answer_quickly_while_a_long_batch_commits() {
     // Before the commit, a reader sees none of the batch.
     let mut seen = vec![count()];
     commit.send(()).expect("the batch is waiting to commit");
-    for _ in 0..MAX_READS {
+    let deadline = Instant::now() + VISIBLE_WITHIN;
+    while Instant::now() < deadline {
         let rows = count();
         let done = rows == all;
         seen.push(rows);
