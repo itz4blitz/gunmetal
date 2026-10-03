@@ -188,6 +188,8 @@ fields! {
     TrackAvailability = (139, Track, "availability", Code),
     /// When a track was added.
     TrackAdded = (140, Track, "added", Timestamp),
+    /// Where a track's lyrics were found.
+    TrackLyricsOrigin = (141, Track, "lyrics_origin", Code),
     /// An album's identifier.
     AlbumId = (200, Album, "id", Id),
     /// An album's library.
@@ -266,7 +268,7 @@ mod tests {
     /// The whole field table, written out independently of the declaration
     /// above, in order. Each row names its variant, so a declaration that
     /// gives a variant another field's code, name or type fails here.
-    const TABLE: [Row; 70] = [
+    const TABLE: [Row; 71] = [
         (F::TrackId, 100, Track, "id", Id),
         (F::TrackKind, 101, Track, "kind", Code),
         (F::TrackLibrary, 102, Track, "library", Id),
@@ -308,6 +310,7 @@ mod tests {
         (F::TrackLyricsTiming, 138, Track, "lyrics_timing", Code),
         (F::TrackAvailability, 139, Track, "availability", Code),
         (F::TrackAdded, 140, Track, "added", Timestamp),
+        (F::TrackLyricsOrigin, 141, Track, "lyrics_origin", Code),
         (F::AlbumId, 200, Album, "id", Id),
         (F::AlbumLibrary, 201, Album, "library", Id),
         (F::AlbumTitle, 202, Album, "title", Text),
@@ -361,7 +364,7 @@ mod tests {
 
     #[test]
     fn codes_outside_the_table_read_as_none() {
-        let unknown: Vec<Option<CatalogField>> = [0, 99, 141, 199, 220, 299, 309, u16::MAX]
+        let unknown: Vec<Option<CatalogField>> = [0, 99, 142, 199, 220, 299, 309, u16::MAX]
             .into_iter()
             .map(CatalogField::from_code)
             .collect();
