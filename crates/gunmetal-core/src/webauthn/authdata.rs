@@ -183,7 +183,7 @@ fn read_extensions<'a>(
     let value = cbor::decode_from(cursor, limits, budget, depth)?;
     match value {
         Cbor::Map(_) => Ok(value),
-        _ => Err(WebauthnError::CoseField { offset, label: 0 }),
+        _ => Err(WebauthnError::NotMap { offset }),
     }
 }
 
@@ -400,22 +400,10 @@ mod tests {
     fn refuses_extension_data_that_is_not_a_map() {
         let mut bytes = prefix(ED, 0);
         bytes.push(0x00);
-        assert_eq!(
-            parse(&bytes),
-            Err(WebauthnError::CoseField {
-                offset: 37,
-                label: 0,
-            })
-        );
+        assert_eq!(parse(&bytes), Err(WebauthnError::NotMap { offset: 37 }));
         let mut array = prefix(ED, 0);
         array.push(0x80);
-        assert_eq!(
-            parse(&array),
-            Err(WebauthnError::CoseField {
-                offset: 37,
-                label: 0,
-            })
-        );
+        assert_eq!(parse(&array), Err(WebauthnError::NotMap { offset: 37 }));
     }
 
     #[test]

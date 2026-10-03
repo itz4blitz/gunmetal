@@ -73,7 +73,7 @@ problems! {
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
-    /// Passkey authenticator data, a COSE key or the CBOR that carries them could not be read (SEC-IAM-018).
+    /// Passkey authenticator data, a COSE key or the CBOR that carries them could not be read (SEC-MED-001).
     WebauthnDataUnreadable = ("webauthn_data_unreadable", None, "That passkey data could not be read."),
 }
 

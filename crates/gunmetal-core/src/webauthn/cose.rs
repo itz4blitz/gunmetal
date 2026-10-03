@@ -81,7 +81,7 @@ pub(super) fn cose_key_from(
     let offset = cursor.offset();
     let value = cbor::decode_from(cursor, limits, budget, depth)?;
     let Cbor::Map(entries) = value else {
-        return Err(WebauthnError::CoseField { offset, label: 0 });
+        return Err(WebauthnError::NotMap { offset });
     };
     parse_map(offset, &entries)
 }
@@ -471,20 +471,8 @@ mod tests {
                 label: -2,
             })
         );
-        assert_eq!(
-            parse(&[0x00]),
-            Err(WebauthnError::CoseField {
-                offset: 0,
-                label: 0,
-            })
-        );
-        assert_eq!(
-            parse(&[0x80]),
-            Err(WebauthnError::CoseField {
-                offset: 0,
-                label: 0,
-            })
-        );
+        assert_eq!(parse(&[0x00]), Err(WebauthnError::NotMap { offset: 0 }));
+        assert_eq!(parse(&[0x80]), Err(WebauthnError::NotMap { offset: 0 }));
     }
 
     #[test]

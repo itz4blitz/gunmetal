@@ -116,6 +116,12 @@ pub enum WebauthnError {
         /// How many extra octets remain.
         remaining: u64,
     },
+    /// A COSE key or authenticator-data extensions that are not a CBOR
+    /// map.
+    NotMap {
+        /// Where the item starts.
+        offset: u64,
+    },
     /// A COSE map field that is missing, the wrong type, or the wrong
     /// length. `label` is the COSE label: 1 (`kty`), 3 (`alg`), -1
     /// (`crv`), -2 (`x`) or -3 (`y`).
@@ -197,6 +203,7 @@ impl WebauthnError {
             | Self::DuplicateKey { offset }
             | Self::Text { offset }
             | Self::Trailing { offset, .. }
+            | Self::NotMap { offset }
             | Self::CoseField { offset, .. }
             | Self::Algorithm { offset, .. }
             | Self::Attestation { offset, .. }
@@ -1250,7 +1257,7 @@ mod tests {
     /// Verifies: SEC-API-072
     #[test]
     fn describes_every_variant_as_the_passkey_problem() {
-        let errors: [(WebauthnError, u64); 15] = [
+        let errors: [(WebauthnError, u64); 16] = [
             (truncated(1, 2, 0), 1),
             (
                 WebauthnError::Indefinite {
@@ -1323,6 +1330,7 @@ mod tests {
                 14,
             ),
             (WebauthnError::MissingCredential { offset: 15 }, 15),
+            (WebauthnError::NotMap { offset: 16 }, 16),
         ];
         for (error, offset) in errors {
             assert_eq!(error.offset(), offset);
