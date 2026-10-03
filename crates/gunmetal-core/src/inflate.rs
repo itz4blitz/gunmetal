@@ -291,10 +291,6 @@ fn widen(count: usize) -> u64 {
     clippy::arithmetic_side_effects,
     reason = "test oracles and generators work with small, bounded values"
 )]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tests build their own fixed, test-sized inputs; the allocation rule is for code that reads input (SEC-MED-003)"
-)]
 mod tests {
     use super::*;
     use proptest::collection::vec;
@@ -347,7 +343,7 @@ mod tests {
                 left -= 1;
             }
             let whole = usize::try_from(left / 8).unwrap();
-            self.bytes.extend(std::iter::repeat_n(0, whole));
+            self.bytes.extend((0..whole).map(|_| 0));
             for _ in 0..left % 8 {
                 self.bit(0);
             }
@@ -496,6 +492,12 @@ mod tests {
         (u32::try_from(len % 65_521).unwrap() << 16) | 1
     }
 
+    /// `len` copies of `byte`, built without the reservation methods the
+    /// core's Clippy configuration bans (SEC-MED-003).
+    fn filled(byte: u8, len: usize) -> Vec<u8> {
+        (0..len).map(|_| byte).collect()
+    }
+
     // -----------------------------------------------------------------------
     // Helpers for calling the helper.
     // -----------------------------------------------------------------------
@@ -554,7 +556,7 @@ mod tests {
         assert_eq!(adler32(b"Wikipedia"), 0x11E6_0398);
         assert_eq!(adler32(b""), 1);
         assert_eq!(adler32(&[0; 10]), adler32_of_zeros(10));
-        assert_eq!(adler32(&vec![0; 70_000]), adler32_of_zeros(70_000));
+        assert_eq!(adler32(&filled(0, 70_000)), adler32_of_zeros(70_000));
     }
 
     #[test]
@@ -610,17 +612,22 @@ mod tests {
 
     #[test]
     fn inflates_stored_fixed_and_dynamic_blocks_from_the_reference_encoder() {
-        let text = b"Gunmetal, gunmetal, gunmetal!".repeat(40);
+        let text: Vec<u8> = b"Gunmetal, gunmetal, gunmetal!"
+            .iter()
+            .copied()
+            .cycle()
+            .take(29 * 40)
+            .collect();
         for deflate in [stored(&text, 100), fixed(&text)] {
             assert_eq!(inflated(&deflate, Framing::Deflate), Ok(text.clone()));
             let wrapped = zlib(&deflate, adler32(&text));
             assert_eq!(inflated(&wrapped, Framing::Zlib), Ok(text.clone()));
         }
         // A run long enough for several 258-octet back-references.
-        let run = [vec![7; 1_000], vec![9; 5]].concat();
+        let run = [filled(7, 1_000), filled(9, 5)].concat();
         assert_eq!(inflated(&fixed(&run), Framing::Deflate), Ok(run.clone()));
         // Three matches: 1 + 3 × 258 zero octets.
-        let zeros = vec![0; 775];
+        let zeros = filled(0, 775);
         assert_eq!(inflated(&bomb(3), Framing::Deflate), Ok(zeros.clone()));
         let wrapped = zlib(&bomb(3), adler32_of_zeros(775));
         assert_eq!(inflated(&wrapped, Framing::Zlib), Ok(zeros));
@@ -653,7 +660,7 @@ mod tests {
         let trailing = [deflate.clone(), b"after".to_vec()].concat();
         let (result, out) = run(&trailing, Framing::Deflate, KIB, None);
         assert_eq!((result, out.as_slice()), (Ok(12), &data[..]));
-        let wrapped = [zlib(&deflate, adler32(data)), vec![0xEE; 3]].concat();
+        let wrapped = [zlib(&deflate, adler32(data)), filled(0xEE, 3)].concat();
         let (result, out) = run(&wrapped, Framing::Zlib, KIB, None);
         assert_eq!((result, out.as_slice()), (Ok(18), &data[..]));
     }
@@ -720,7 +727,7 @@ mod tests {
     /// Verifies: SEC-MED-009
     #[test]
     fn output_of_exactly_the_cap_is_accepted() {
-        let data = vec![5; 300];
+        let data = filled(5, 300);
         let deflate = fixed(&data);
         let (result, out) = run(&deflate, Framing::Deflate, 300, None);
         assert_eq!(
@@ -737,7 +744,7 @@ mod tests {
     /// Verifies: SEC-MED-009
     #[test]
     fn one_octet_past_the_limit_is_refused_and_the_buffer_stops_at_the_limit() {
-        let data = vec![5; 301];
+        let data = filled(5, 301);
         let (result, out) = run(&fixed(&data), Framing::Deflate, 300, None);
         assert_eq!(
             result,
@@ -806,7 +813,7 @@ mod tests {
     #[test]
     fn the_window_is_deflates_32_kib() {
         assert_eq!(WINDOW, 32_768);
-        assert_eq!(fresh_window(), vec![0; 32_768]);
+        assert_eq!(fresh_window(), filled(0, 32_768));
     }
 
     /// A 1 KiB zlib bomb inflates to about a mebibyte; with the picture
@@ -835,7 +842,7 @@ mod tests {
                 offset: 0,
             }))
         );
-        assert_eq!(out.as_slice(), vec![0; 65_536]);
+        assert_eq!(out.as_slice(), filled(0, 65_536));
         assert_eq!(out.capacity(), 65_536);
         assert!(out.capacity() + WORKING_OCTETS <= 65_536 + 65_536);
     }
@@ -880,7 +887,7 @@ mod tests {
         let mut out = BoundedBuf::new(&Limits::DEFAULT, Target::Picture, Some(u64::MAX));
         let result = inflate(&input, Framing::Deflate, &mut ample(&input, MIB), &mut out);
         assert_eq!(result, Ok(15));
-        assert_eq!(out.as_slice(), vec![0; 775]);
+        assert_eq!(out.as_slice(), filled(0, 775));
         assert_eq!(out.capacity(), 15 * 1_032);
     }
 
@@ -1142,7 +1149,7 @@ mod tests {
         ) {
             let data: Vec<u8> = runs
                 .iter()
-                .flat_map(|&(byte, len)| std::iter::repeat_n(byte, len))
+                .flat_map(|&(byte, len)| filled(byte, len))
                 .chain(data)
                 .collect();
             for deflate in [stored(&data, block), fixed(&data)] {
