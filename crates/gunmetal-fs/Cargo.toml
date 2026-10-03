@@ -1,0 +1,20 @@
+[package]
+name = "gunmetal-fs"
+description = "Gunmetal's filesystem door: the data-root handle and the one SQLite connection opener"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+cap-std.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
