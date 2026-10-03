@@ -1183,7 +1183,12 @@ proptest! {
         all.extend(kind.map(|kind| ("content-type", kind)));
         all.extend(credential);
         let response = client.send(request(method, &format!("{target}{query}"), &all, &body));
-        if response.status >= 400 && method != "HEAD" {
+        if method == "HEAD" {
+            // No route may declare HEAD, so it is always refused, and axum
+            // answers it without the body it was given, as HTTP requires.
+            prop_assert!([400, 404, 405, 421].contains(&response.status));
+            prop_assert_eq!(response.body, Vec::<u8>::new());
+        } else if response.status >= 400 {
             let fields: BTreeMap<String, serde_json::Value> =
                 serde_json::from_slice(&response.body).unwrap();
             let text = |name: &str| fields.get(name).and_then(|v| v.as_str()).unwrap_or("");
@@ -1196,7 +1201,7 @@ proptest! {
             prop_assert!(CATALOGUE.contains(&(text("type"), response.status, text("title"))));
             prop_assert_eq!(text("request"), "00000000000000000000000000000000");
         } else {
-            prop_assert!([200, 204, 405].contains(&response.status));
+            prop_assert!([200, 204].contains(&response.status));
         }
     }
 }

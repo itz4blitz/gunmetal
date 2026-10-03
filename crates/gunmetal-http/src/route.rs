@@ -392,14 +392,6 @@ pub enum RateClass {
 mod tests {
     use super::*;
 
-    const fn admin(effect: AdminEffect, target: Target) -> Access {
-        Access::Admin {
-            capability: Capability::new("accounts.manage"),
-            effect,
-            target,
-        }
-    }
-
     /// One access of every class and effect, with what each must answer:
     /// its class, whether it mutates and whether it may name principals.
     const CASES: [(Access, AccessClass, bool, bool); 10] = [
@@ -474,13 +466,21 @@ mod tests {
             false,
         ),
         (
-            admin(AdminEffect::Reads, Target::OtherPrincipals),
+            Access::Admin {
+                capability: Capability::new("accounts.manage"),
+                effect: AdminEffect::Reads,
+                target: Target::OtherPrincipals,
+            },
             AccessClass::Admin,
             false,
             true,
         ),
         (
-            admin(AdminEffect::Mutates(EventName::AuthzFail), Target::Caller),
+            Access::Admin {
+                capability: Capability::new("accounts.manage"),
+                effect: AdminEffect::Mutates(EventName::AuthzFail),
+                target: Target::Caller,
+            },
             AccessClass::Admin,
             true,
             false,
@@ -515,7 +515,6 @@ mod tests {
         assert!(!spec(CASES[0].0).mutates());
     }
 
-    /// Verifies: SEC-API-008
     #[test]
     fn only_the_five_declarable_methods_have_names() {
         let named: Vec<Option<Method>> = [

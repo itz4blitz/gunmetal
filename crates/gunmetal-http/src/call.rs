@@ -99,6 +99,18 @@ fn invalid() -> ApiError {
 /// let row = AccountRow { id: 1, library_root: "/srv/music".to_owned() };
 /// let _ = Reply::json(&row);
 /// ```
+///
+/// A type that says it is a response body compiles:
+///
+/// ```
+/// use gunmetal_http::call::{Reply, ResponseBody};
+/// #[derive(serde::Serialize)]
+/// struct AccountSummary {
+///     id: u64,
+/// }
+/// impl ResponseBody for AccountSummary {}
+/// assert!(Reply::json(&AccountSummary { id: 1 }).is_ok());
+/// ```
 pub trait ResponseBody: Serialize {}
 
 /// A handler's answer.

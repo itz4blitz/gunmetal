@@ -200,13 +200,21 @@ mod tests {
             Some(403),
             "You don't have permission to do that.",
         ),
-        ("internal_error", Some(500), "Something went wrong on the server. Try again later."),
+        (
+            "internal_error",
+            Some(500),
+            "Something went wrong on the server. Try again later.",
+        ),
         (
             "invalid_code",
             Some(400),
             "That code is not valid. Check it and try again.",
         ),
-        ("invalid_request", Some(400), "The request wasn't in the expected form."),
+        (
+            "invalid_request",
+            Some(400),
+            "The request wasn't in the expected form.",
+        ),
         (
             "library_root_filesystem_root",
             Some(400),
@@ -227,7 +235,11 @@ mod tests {
             Some(401),
             "This media link has expired. Refresh it and try again.",
         ),
-        ("method_not_allowed", Some(405), "That action isn't available here."),
+        (
+            "method_not_allowed",
+            Some(405),
+            "That action isn't available here.",
+        ),
         (
             "not_found",
             Some(404),
@@ -258,8 +270,16 @@ mod tests {
             Some(403),
             "Confirm it's you with your passkey, then try again.",
         ),
-        ("unknown_host", Some(421), "This server doesn't answer to that name."),
-        ("unsupported_body", Some(415), "The request body must be JSON, sent without compression."),
+        (
+            "unknown_host",
+            Some(421),
+            "This server doesn't answer to that name.",
+        ),
+        (
+            "unsupported_body",
+            Some(415),
+            "The request body must be JSON, sent without compression.",
+        ),
         (
             "vorbis_header_unreadable",
             None,

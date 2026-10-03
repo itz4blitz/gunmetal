@@ -72,7 +72,7 @@ impl TestClient {
 
 /// Runs a future to its end on this thread. Nothing in the pipeline waits
 /// on I/O, so a future that is not ready is simply polled again.
-fn block_on<F: Future>(future: F) -> F::Output {
+pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let mut context = Context::from_waker(Waker::noop());
     loop {

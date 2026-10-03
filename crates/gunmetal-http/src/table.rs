@@ -227,7 +227,11 @@ fn bind(segments: &[Segment], parts: &[&str]) -> Option<Vec<(&'static str, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::block_on;
     use crate::route::{Access, BodyRule, Effect, RateClass, RouteTag};
+    use axum::body::Bytes;
+    use axum::http::Extensions;
+    use gunmetal_core::problem::ProblemCode;
 
     const fn spec(method: Method, path: &'static str, effect: Effect) -> RouteSpec {
         RouteSpec {
@@ -241,13 +245,19 @@ mod tests {
         }
     }
 
+    /// The handler every route in these tests has: it answers with nothing
+    /// when it was called with an `id` parameter, and `not_found` otherwise.
+    async fn handler(call: Call) -> Result<Reply, ApiError> {
+        call.param("id").map(|_| Reply::empty())
+    }
+
     fn entry(method: Method, path: &'static str) -> RouteEntry {
         let effect = if method == Method::Get {
             Effect::Reads
         } else {
             Effect::Mutates
         };
-        RouteEntry::new(spec(method, path, effect), |_| async { Ok(Reply::empty()) })
+        RouteEntry::new(spec(method, path, effect), handler)
     }
 
     fn table(routes: &[(Method, &'static str)]) -> Result<Table, TableError> {
@@ -357,7 +367,7 @@ mod tests {
     fn refuses_a_get_route_that_mutates() {
         let entries = vec![RouteEntry::new(
             spec(Method::Get, "/api/v1/a", Effect::Mutates),
-            |_| async { Ok(Reply::empty()) },
+            handler,
         )];
         assert_eq!(
             Table::new(entries).map(|_| ()),
@@ -365,7 +375,7 @@ mod tests {
         );
         let entries = vec![RouteEntry::new(
             spec(Method::Post, "/api/v1/a", Effect::Reads),
-            |_| async { Ok(Reply::empty()) },
+            handler,
         )];
         assert!(Table::new(entries).is_ok());
     }
@@ -417,6 +427,25 @@ mod tests {
         ] {
             assert_eq!(paths(table.lookup(variant)), None);
         }
+    }
+
+    #[test]
+    fn an_entry_calls_its_handler_with_the_call() {
+        let entry = entry(Method::Get, "/api/v1/a/{id}");
+        let call = |params| Call {
+            params,
+            query: Vec::new(),
+            body: Bytes::new(),
+            grant: Arc::new(Extensions::new()),
+        };
+        assert_eq!(
+            block_on(entry.call(call(vec![("id", "a_1".to_owned())]))),
+            Ok(Reply::empty())
+        );
+        assert_eq!(
+            block_on(entry.call(call(Vec::new()))),
+            Err(ApiError::new(ProblemCode::NotFound))
+        );
     }
 
     #[test]
