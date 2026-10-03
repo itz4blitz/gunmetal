@@ -421,6 +421,11 @@ fn line_of(text: &str, offset: usize) -> usize {
         + 1
 }
 
+/// The line a TOML syntax error names, or 1 when the reader gave no span.
+fn syntax_line(text: &str, span: Option<std::ops::Range<usize>>) -> usize {
+    span.map_or(1, |span| line_of(text, span.start))
+}
+
 /// Reads the configuration file's `text` and lays the environment over it:
 /// a variable wins over the file's key for the same setting.
 ///
@@ -430,7 +435,7 @@ fn line_of(text: &str, offset: usize) -> usize {
 /// not have, or gives a key a value it cannot take.
 pub fn load_config(text: &str, env: &Env) -> Result<Config, ConfigError> {
     let table = DeTable::parse(text).map_err(|error| ConfigError::Syntax {
-        line: error.span().map_or(1, |span| line_of(text, span.start)),
+        line: syntax_line(text, error.span()),
         message: error.message().to_owned(),
     })?;
     let mut file = FileSettings::default();
@@ -658,6 +663,9 @@ mod tests {
                 })
             );
         }
+        assert_eq!(refused_at("log.hook"), "log.hook");
+        assert_eq!(refused_at("server"), "server");
+        assert_eq!(refused_at("log"), "log");
     }
 
     /// Verifies: SEC-OPS-029
@@ -718,6 +726,8 @@ mod tests {
         let text = "a\nbc\n\nd";
         let lines: Vec<usize> = (0..=text.len()).map(|at| line_of(text, at)).collect();
         assert_eq!(lines, [1, 1, 2, 2, 2, 3, 4, 4]);
+        assert_eq!(syntax_line(text, None), 1);
+        assert_eq!(syntax_line(text, Some(5..6)), 3);
     }
 
     // ----- The environment.

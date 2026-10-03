@@ -16,18 +16,22 @@ impl Clock for SystemClock {
     }
 }
 
+/// Whole milliseconds, or `None` when the count does not fit in an `i64`.
+fn i64_millis(ms: u128) -> Option<i64> {
+    i64::try_from(ms).ok()
+}
+
 /// `time` as a timestamp, in whole milliseconds towards the epoch. A time
 /// outside the range a timestamp holds becomes the nearest end of it.
 fn timestamp(time: SystemTime) -> Timestamp {
     let (ms, limit) = match time.duration_since(UNIX_EPOCH) {
-        Ok(after) => (i64::try_from(after.as_millis()), Timestamp::MAX),
+        Ok(after) => (i64_millis(after.as_millis()), Timestamp::MAX),
         Err(before) => (
-            i64::try_from(before.duration().as_millis()).map(i64::wrapping_neg),
+            i64_millis(before.duration().as_millis()).map(i64::wrapping_neg),
             Timestamp::MIN,
         ),
     };
-    ms.ok()
-        .and_then(|ms| Timestamp::from_millis(ms).ok())
+    ms.and_then(|ms| Timestamp::from_millis(ms).ok())
         .unwrap_or(limit)
 }
 
@@ -84,6 +88,8 @@ mod tests {
             timestamp(before(Duration::from_secs(62_167_219_200))),
             Timestamp::MIN
         );
+        assert_eq!(i64_millis(0), Some(0));
+        assert_eq!(i64_millis(u128::from(u64::MAX)), None);
     }
 
     #[test]

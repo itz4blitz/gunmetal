@@ -268,12 +268,13 @@ fn capped(text: &str) -> Cow<'_, str> {
     if text.len() <= MAX_FIELD_BYTES {
         return Cow::Borrowed(text);
     }
-    let end = text
-        .char_indices()
-        .map(|(at, _)| at)
-        .take_while(|at| *at <= MAX_FIELD_BYTES)
-        .last()
-        .unwrap_or(0);
+    let mut end = 0;
+    for (at, _) in text.char_indices() {
+        if at > MAX_FIELD_BYTES {
+            break;
+        }
+        end = at;
+    }
     Cow::Owned(format!("{}…", &text[..end]))
 }
 
@@ -365,6 +366,13 @@ struct State {
     debug_until: Option<Timestamp>,
 }
 
+/// The value inside the lock, even if a previous holder panicked. Writing
+/// a line cannot leave the logger half-updated, so the next event can
+/// still be written.
+fn recover<T>(result: Result<T, PoisonError<T>>) -> T {
+    result.unwrap_or_else(PoisonError::into_inner)
+}
+
 /// The server's one logger.
 pub struct Logger {
     clock: Arc<dyn Clock + Send + Sync>,
@@ -394,24 +402,21 @@ impl Logger {
     /// Sets the configured level, once the configuration has been read. A
     /// debug window that is open stays open until its time is up.
     pub fn set_base(&self, base: Level) {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .base = base;
+        recover(self.state.lock()).base = base;
     }
 
     /// The level the logger is at now. Reading it when debug level's time
     /// is up switches debug level off and logs that it did.
     pub fn level(&self) -> Level {
         let now = self.clock.now();
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = recover(self.state.lock());
         Self::settle(&mut state, now)
     }
 
     /// Logs `event` if its level is at or above the logger's.
     pub fn log(&self, event: &LogEvent) {
         let now = self.clock.now();
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = recover(self.state.lock());
         let level = Self::settle(&mut state, now);
         Self::write(&mut state, now, level, event);
     }
@@ -437,7 +442,7 @@ impl Logger {
             .unwrap_or(MAX_DEBUG_MS)
             .min(MAX_DEBUG_MS);
         let until = Timestamp::from_millis(now.millis() + ms).unwrap_or(Timestamp::MAX);
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = recover(self.state.lock());
         state.debug_until = Some(until);
         Self::write(
             &mut state,
@@ -684,6 +689,27 @@ mod tests {
         assert_eq!(
             capped(&format!("{straddling}z")),
             Cow::<str>::Owned(format!("{}…", "a".repeat(MAX_FIELD_BYTES - 1)))
+        );
+    }
+
+    #[test]
+    fn the_test_reader_reads_a_number_field() {
+        let written = line(
+            Level::Info,
+            &[Field {
+                key: "n",
+                class: DataClass::Public,
+                value: Value::Number(7),
+            }],
+        );
+        assert_eq!(
+            read_line(&written),
+            pairs(&[
+                ("ts", "2026-10-03T12:00:00.000Z"),
+                ("level", "info"),
+                ("event", "gm_test"),
+                ("n", "7"),
+            ])
         );
     }
 
@@ -1148,5 +1174,50 @@ mod tests {
     fn the_test_reader_reads_every_escape() {
         let mut chars = r#""\"\\\/\n\r\t\b\féx""#.chars().peekable();
         assert_eq!(read_string(&mut chars), "\"\\/\n\r\t\u{8}\u{c}éx");
+    }
+
+    struct Boom;
+    impl Write for Boom {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            panic!("writer");
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_poisoned_logger_still_writes() {
+        let lock = std::sync::Mutex::new(Level::Info);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.lock().expect("first lock");
+            panic!("poison");
+        });
+        assert_eq!(*recover(lock.lock()), Level::Info);
+        assert_eq!(Boom.flush().ok(), Some(()));
+        let (clock, _) = testing::clock();
+        let log = Logger::new(clock, Level::Info, Box::new(Boom));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            log.log(&LogEvent::DebugLoggingEnded);
+        }));
+        assert_eq!(log.level(), Level::Info);
+    }
+
+    #[test]
+    fn a_line_that_cannot_be_written_is_lost() {
+        struct Full;
+        impl Write for Full {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::WriteZero))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(Full.flush().ok(), Some(()));
+        let (clock, _) = testing::clock();
+        let log = Logger::new(clock, Level::Info, Box::new(Full));
+        log.log(&LogEvent::DebugLoggingEnded);
+        assert_eq!(log.level(), Level::Info);
     }
 }

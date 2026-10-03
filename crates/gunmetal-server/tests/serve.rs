@@ -194,6 +194,28 @@ fn serve_refuses_a_secret_in_the_environment_before_it_opens_anything() {
 }
 
 #[test]
+fn help_and_an_unbuilt_subcommand_use_the_library_entry() {
+    assert_eq!(gunmetal(&["--help"], &[]).0, Exit::Ok);
+    assert_eq!(gunmetal(&["doctor"], &[]).0, Exit::Unavailable);
+    let bus = gunmetal_server::bus::Bus::default();
+    bus.security.subscribe(|_| Ok(()));
+    assert_eq!(
+        gunmetal_core::audit_event::SecuritySink::record(
+            &bus,
+            gunmetal_core::audit_event::SecurityEvent::GmDebugLoggingEnabled { account: None }
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        gunmetal_core::audit_event::SecuritySink::record(
+            &gunmetal_server::bus::Bus::default(),
+            gunmetal_core::audit_event::SecurityEvent::GmDebugLoggingEnabled { account: None }
+        ),
+        Err(gunmetal_core::audit_event::AuditUnavailable)
+    );
+}
+
+#[test]
 fn serve_refuses_a_configuration_file_with_an_unknown_key() {
     let dir = TempDir::new("serve-config").expect("scratch");
     DataRoot::open(dir.path(), &facts(&dir), Policy::DEFAULT)

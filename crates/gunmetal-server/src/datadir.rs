@@ -72,14 +72,9 @@ fn absent_is_empty(opened: Result<File, DataRootError>) -> Result<Option<File>, 
     }
 }
 
-/// Reads the configuration file; a missing file reads as empty.
-///
-/// # Errors
-///
-/// A [`ConfigFileError`] when the file cannot be opened or read, is too
-/// long, or is not UTF-8.
-pub fn read_config(root: &DataRoot) -> Result<String, ConfigFileError> {
-    let Some(file) = absent_is_empty(root.open_read(&CONFIG_FILE))? else {
+/// Reads an already-opened configuration file; a missing file reads as empty.
+fn read_file(opened: Result<File, DataRootError>) -> Result<String, ConfigFileError> {
+    let Some(file) = absent_is_empty(opened)? else {
         return Ok(String::new());
     };
     let mut bytes = Vec::new();
@@ -90,6 +85,16 @@ pub fn read_config(root: &DataRoot) -> Result<String, ConfigFileError> {
         return Err(ConfigFileError::TooLarge);
     }
     String::from_utf8(bytes).map_err(|_| ConfigFileError::NotUtf8)
+}
+
+/// Reads the configuration file; a missing file reads as empty.
+///
+/// # Errors
+///
+/// A [`ConfigFileError`] when the file cannot be opened or read, is too
+/// long, or is not UTF-8.
+pub fn read_config(root: &DataRoot) -> Result<String, ConfigFileError> {
+    read_file(root.open_read(&CONFIG_FILE))
 }
 
 /// The data directory: the one the command line names, else the one the
@@ -504,8 +509,12 @@ mod tests {
             kind: io::ErrorKind::PermissionDenied,
         };
         assert_eq!(
-            absent_is_empty(Err(denied.clone())).map(|file| file.is_some()),
-            Err(ConfigFileError::Open(denied))
+            absent_is_empty(Err(denied.clone())).err(),
+            Some(ConfigFileError::Open(denied.clone()))
+        );
+        assert_eq!(
+            read_file(Err(denied.clone())).err(),
+            Some(ConfigFileError::Open(denied))
         );
     }
 

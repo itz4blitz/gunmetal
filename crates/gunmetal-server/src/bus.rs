@@ -34,14 +34,18 @@ impl<E, R> Default for Topic<E, R> {
     }
 }
 
+/// The value inside a lock, even if a previous holder panicked. The
+/// subscribers themselves do not keep the lock, so a panic cannot have
+/// left the list half-updated.
+fn recover<T>(result: Result<T, PoisonError<T>>) -> T {
+    result.unwrap_or_else(PoisonError::into_inner)
+}
+
 impl<E, R> Topic<E, R> {
     /// Adds a subscriber, which receives every event published from now on.
     /// A subscriber must not subscribe to the topic it is called from.
     pub fn subscribe(&self, subscriber: impl Fn(&E) -> Result<(), R> + Send + Sync + 'static) {
-        self.subscribers
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Box::new(subscriber));
+        recover(self.subscribers.write()).push(Box::new(subscriber));
     }
 
     /// Hands `event` to each subscriber in turn and returns how many took
@@ -52,10 +56,7 @@ impl<E, R> Topic<E, R> {
     /// The first refusal. Subscribers after the one that refused do not
     /// receive the event.
     pub fn publish(&self, event: &E) -> Result<usize, R> {
-        let subscribers = self
-            .subscribers
-            .read()
-            .unwrap_or_else(PoisonError::into_inner);
+        let subscribers = recover(self.subscribers.read());
         subscribers
             .iter()
             .try_for_each(|subscriber| subscriber(event))
@@ -123,15 +124,26 @@ mod tests {
         assert_eq!(seen(&log), [("first", 1), ("first", 2), ("second", 2)]);
     }
 
+    /// The subscriber contract is `Result`, including a successful take.
+    #[expect(clippy::unnecessary_wraps, reason = "the subscriber returns Result")]
+    fn accept() -> Result<(), &'static str> {
+        Ok(())
+    }
+
+    fn refuse() -> Result<(), &'static str> {
+        Err("full")
+    }
+
     #[test]
     fn stops_at_the_first_subscriber_that_refuses() {
         let topic: Topic<u8, &'static str> = Topic::default();
         let log = Seen::default();
-        topic.subscribe(recorder(&log, "first", || Ok(())));
-        topic.subscribe(recorder(&log, "second", || Err("full")));
-        topic.subscribe(recorder(&log, "third", || Ok(())));
+        topic.subscribe(recorder(&log, "first", accept));
+        topic.subscribe(recorder(&log, "second", refuse));
+        topic.subscribe(recorder(&log, "third", accept));
         assert_eq!(topic.publish(&9), Err("full"));
         assert_eq!(seen(&log), [("first", 9), ("second", 9)]);
+        assert_eq!(accept(), Ok(()));
     }
 
     fn event() -> SecurityEvent {
@@ -141,6 +153,17 @@ mod tests {
     #[test]
     fn a_security_event_nobody_stores_is_not_recorded() {
         assert_eq!(Bus::default().record(event()), Err(AuditUnavailable));
+    }
+
+    #[test]
+    fn a_poisoned_lock_still_gives_up_its_value() {
+        let lock = std::sync::RwLock::new(1_u8);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.write().expect("first lock");
+            panic!("poison");
+        });
+        assert_eq!(*recover(lock.write()), 1);
+        assert_eq!(*recover(lock.read()), 1);
     }
 
     #[test]

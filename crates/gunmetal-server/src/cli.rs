@@ -339,15 +339,13 @@ fn serve(
     let from_env = env.as_ref().ok().and_then(|env| env.data_dir.as_ref());
     let dir = datadir::choose(command.data_dir.as_ref(), from_env);
     let started = env.map_err(StartError::Config).and_then(|env| {
-        host::disable_core_dumps()
-            .and_then(|()| Privileges::probe())
-            .map_err(StartError::Os)
-            .and_then(|privileges| {
-                HostFacts::probe(&dir)
-                    .map(|facts| Host { privileges, facts })
-                    .map_err(StartError::DataDir)
-            })
-            .and_then(|host| AppState::start(&dir, &host, &env, Arc::new(SystemClock), out))
+        start_from_probes(
+            host::disable_core_dumps().and_then(|()| Privileges::probe()),
+            HostFacts::probe(&dir),
+            &dir,
+            &env,
+            out,
+        )
     });
     match started {
         Ok(_) => Exit::Ok,
@@ -356,6 +354,22 @@ fn serve(
             Exit::of(&error)
         }
     }
+}
+
+/// Starts from already-probed privileges and host facts, so a refused
+/// probe is tested without forcing this process to fail its own syscalls.
+fn start_from_probes(
+    privileges: Result<Privileges, rustix::io::Errno>,
+    facts: Result<HostFacts, gunmetal_fs::dataroot::DataRootError>,
+    dir: &std::path::Path,
+    env: &Env,
+    out: Box<dyn Write + Send>,
+) -> Result<AppState, StartError> {
+    let host = Host {
+        privileges: privileges.map_err(StartError::Os)?,
+        facts: facts.map_err(StartError::DataDir)?,
+    };
+    AppState::start(dir, &host, env, Arc::new(SystemClock), out)
 }
 
 #[cfg(test)]
@@ -668,6 +682,33 @@ mod tests {
     }
 
     #[test]
+    fn a_console_that_cannot_be_written_does_not_change_the_result() {
+        struct Full;
+        impl Write for Full {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::WriteZero))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(Full.flush().ok(), Some(()));
+        assert_eq!(
+            run(&args(&["--help"]), Vec::new(), Box::new(Full), &mut Full),
+            Exit::Ok
+        );
+        assert_eq!(
+            run(
+                &args(&["serve", "--token"]),
+                Vec::new(),
+                Box::new(Full),
+                &mut Full
+            ),
+            Exit::Usage
+        );
+    }
+
+    #[test]
     fn a_refused_command_line_exits_with_the_usage_code_and_says_why() {
         assert_eq!(
             ran(&["serve", "--token", "canary-value"]),
@@ -677,6 +718,61 @@ mod tests {
                 "gunmetal: \"--token\" is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n".to_owned()
             )
         );
+    }
+
+    #[test]
+    fn serve_on_a_scratch_directory_starts_and_a_missing_one_is_refused() {
+        let dir = gunmetal_testkit::tempdir::TempDir::new("cli-serve").expect("scratch");
+        let path = dir.path().to_str().expect("UTF-8");
+        let (exit, out, err) = ran(&["serve", "--data-dir", path]);
+        assert_eq!((exit, err.as_str()), (Exit::Ok, ""));
+        assert!(out.contains("\"event\":\"sys_startup\""));
+        let missing = format!("{path}/gone");
+        assert_eq!(ran(&["serve", "--data-dir", &missing]).0, Exit::DataDir);
+    }
+
+    #[test]
+    fn a_failed_privilege_or_host_probe_keeps_its_exit() {
+        let dir = gunmetal_testkit::tempdir::TempDir::new("cli-probe").expect("scratch");
+        let env = Env::default();
+        let out = Capture::default();
+        let os = start_from_probes(
+            Err(Errno::PERM),
+            HostFacts::probe(dir.path()),
+            dir.path(),
+            &env,
+            Box::new(out.clone()),
+        );
+        assert_eq!(os.err().map(|error| Exit::of(&error)), Some(Exit::Os));
+        assert_eq!(out.text(), "");
+        let facts = Err(DataRootError::NetworkFilesystem(NetworkFs::Nfs));
+        let data = start_from_probes(
+            Ok(Privileges {
+                euid: 1000,
+                effective: 0,
+                permitted: 0,
+            }),
+            facts,
+            dir.path(),
+            &env,
+            Box::new(Capture::default()),
+        );
+        assert_eq!(
+            data.err().map(|error| Exit::of(&error)),
+            Some(Exit::DataDir)
+        );
+        let started = start_from_probes(
+            Ok(Privileges {
+                euid: 1000,
+                effective: 0,
+                permitted: 0,
+            }),
+            HostFacts::probe(dir.path()),
+            dir.path(),
+            &env,
+            Box::new(Capture::default()),
+        );
+        assert!(started.is_ok());
     }
 
     #[test]
