@@ -304,11 +304,19 @@ fn pairing_symbol(byte: u8) -> u8 {
 
 /// Inserts a hyphen every `width` symbols.
 fn group(symbols: &[u8], width: usize) -> String {
-    symbols
-        .chunks(width)
-        .map(|chunk| chunk.iter().copied().map(char::from).collect::<String>())
-        .collect::<Vec<String>>()
-        .join("-")
+    let mut text = String::new();
+    let mut first = true;
+    for chunk in symbols.chunks(width) {
+        if first {
+            first = false;
+        } else {
+            text.push('-');
+        }
+        for &symbol in chunk {
+            text.push(char::from(symbol));
+        }
+    }
+    text
 }
 
 /// Reads 27 compact claim symbols, after folding, into 16 bytes.
@@ -609,6 +617,16 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-IAM-007, SEC-IAM-056, SEC-IAM-089
+    #[test]
+    fn grouping_hyphens_every_width_including_short_tails() {
+        assert_eq!(group(b"", 5), "");
+        assert_eq!(group(b"A", 5), "A");
+        assert_eq!(group(b"ABCDE", 5), "ABCDE");
+        assert_eq!(group(b"ABCDEF", 5), "ABCDE-F");
+        assert_eq!(group(b"ABCDEFGH", 4), "ABCD-EFGH");
+    }
+
     /// Verifies: SEC-IAM-007
     #[test]
     fn a_wrong_checksum_is_refused() {
@@ -706,6 +724,10 @@ mod tests {
         assert_eq!(
             parse_code("U0000-00000-00000-00000-00000-00", CodeKind::Claim),
             Err(malformed(CodeKind::Claim))
+        );
+        assert_eq!(
+            parse_code("U000-0000-0000-0000-0", CodeKind::Recovery),
+            Err(malformed(CodeKind::Recovery))
         );
         assert_eq!(
             parse_code("*0000-00000-00000-00000-00000-00", CodeKind::Claim),
