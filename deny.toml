@@ -5,7 +5,17 @@
 # https://embarkstudios.github.io/cargo-deny/checks/cfg.html
 
 [graph]
-# Check the graph as it is built on every platform, with default features.
+# Check the graph as it is built, with default features, for every target
+# Gunmetal ships or tests: the R1 servers (Linux on x86-64 and ARM64,
+# decision D-09), the 32-bit job that runs the core's tests (SEC-MED-004) and
+# the web client's WebAssembly build (WP-088). Add a target here before
+# building for it.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "i686-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
 all-features = false
 
 # SEC-SUP-021: vulnerabilities always fail (cargo-deny no longer lets them be
@@ -58,19 +68,33 @@ unused-allowed-license = "allow"
 wildcards = "deny"
 multiple-versions = "warn"
 
+# Every crate named here is refused anywhere in the graph: normal, build and
+# dev dependencies alike. A crate with `wrappers` may appear only as a direct
+# dependency of the crates listed. Lifting a ban needs code-owner review
+# (SEC-SUP-005) and, where the reason says so, an architecture record.
 deny = [
-    # SEC-TM-006, SEC-NET-030, SEC-HIS-052: the server never asks a router to
-    # open ports. UPnP IGD, NAT-PMP, PCP and SSDP clients.
-    { crate = "igd", reason = "UPnP IGD port mapping (SEC-TM-006)" },
-    { crate = "igd-next", reason = "UPnP IGD port mapping (SEC-TM-006)" },
-    { crate = "rupnp", reason = "UPnP control point (SEC-TM-006)" },
-    { crate = "easy-upnp", reason = "UPnP port mapping (SEC-TM-006)" },
-    { crate = "upnp-client", reason = "UPnP client (SEC-TM-006)" },
-    { crate = "ssdp-client", reason = "UPnP SSDP discovery (SEC-TM-006, SEC-NET-059)" },
-    { crate = "natpmp", reason = "NAT-PMP port mapping (SEC-TM-006)" },
-    { crate = "crab_nat", reason = "NAT-PMP and PCP port mapping (SEC-TM-006)" },
-    { crate = "pcp-client", reason = "PCP port mapping (SEC-TM-006)" },
-    { crate = "portmapper", reason = "UPnP, NAT-PMP and PCP port mapping (SEC-TM-006, SEC-OPS-040)" },
+    # SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039: the server never asks
+    # a router to open ports. UPnP IGD, NAT-PMP and PCP clients. SEC-NET-059:
+    # the server implements no SSDP, UPnP or DLNA service and does not
+    # announce itself to discovery protocols.
+    { crate = "igd", reason = "UPnP IGD port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "igd-next", reason = "UPnP IGD port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "easy-upnp", reason = "UPnP port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "natpmp", reason = "NAT-PMP port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "crab_nat", reason = "NAT-PMP and PCP port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "pcp-client", reason = "PCP port mapping (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039)" },
+    { crate = "portmapper", reason = "iroh's UPnP, NAT-PMP and PCP port mapper (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039, SEC-OPS-040)" },
+    { crate = "rupnp", reason = "UPnP control point and SSDP discovery (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039, SEC-NET-059)" },
+    { crate = "upnp-client", reason = "UPnP control point and SSDP discovery (SEC-TM-006, SEC-HIS-052, SEC-NET-030, SEC-OPS-039, SEC-NET-059)" },
+    { crate = "ssdp", reason = "SSDP discovery (SEC-TM-006, SEC-NET-059)" },
+    { crate = "ssdp-client", reason = "SSDP discovery (SEC-TM-006, SEC-NET-059)" },
+
+    # SEC-NET-054, SEC-OPS-040: built-in remote access is R2. Until WP-221
+    # lifts these bans and tests the real endpoint, there is no iroh endpoint,
+    # relay or port mapper to cap or configure, which is how R1 meets both.
+    { crate = "iroh", reason = "iroh endpoint, not before R2 (SEC-NET-054, SEC-OPS-040)" },
+    { crate = "iroh-net", reason = "iroh endpoint under its old name, not before R2 (SEC-NET-054, SEC-OPS-040)" },
+    { crate = "iroh-relay", reason = "iroh relay client and server, not before R2 (SEC-NET-054, SEC-OPS-040)" },
 
     # SEC-STD-011: regular expressions over untrusted input run only in the
     # linear-time `regex` crate. Backtracking engines are banned.
@@ -159,18 +183,172 @@ deny = [
     { crate = "sha1", reason = "SHA-1 outside the non-security digest type (SEC-STD-019)" },
     { crate = "sha1_smol", reason = "SHA-1 outside the non-security digest type (SEC-STD-019)" },
 
-    # SEC-EXT-001: only the egress crate may construct an HTTP client. When
+    # SEC-STD-018: cryptography lives in two named modules (clippy.toml). The
+    # TLS providers' own primitives may be reached only through rustls, which
+    # takes its provider from the secrets crate's crypto module. When rustls
+    # arrives with the provider record 9 chooses, add `wrappers = ["rustls",
+    # "rustls-webpki"]` to that provider's entry, so no crate of ours can
+    # depend on it directly.
+    { crate = "ring", reason = "cryptography outside the two crypto modules; only rustls may use it (SEC-STD-018, SEC-STD-019)" },
+    { crate = "aws-lc-rs", reason = "cryptography outside the two crypto modules; only rustls may use it (SEC-STD-018, SEC-STD-019)" },
+
+    # SEC-EXT-001, SEC-API-076: only the egress crate may construct an HTTP client. When
     # that crate exists (for example `gunmetal-egress`), add it as the only
     # wrapper of the one client it uses, so no other crate can pull one in.
-    { crate = "reqwest", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "ureq", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "isahc", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "attohttpc", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "surf", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "minreq", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "ehttp", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
-    { crate = "curl", reason = "HTTP client outside the egress crate (SEC-EXT-001)" },
+    { crate = "reqwest", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "ureq", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "isahc", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "attohttpc", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "surf", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "minreq", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "ehttp", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+    { crate = "curl", reason = "HTTP client outside the egress crate (SEC-EXT-001, SEC-API-076)" },
+
+    # SEC-EXT-018, SEC-HIS-056: the server loads no plugin or other
+    # third-party code: no dynamic libraries, no WebAssembly runtime and no
+    # script interpreter, until the plugin requirements are met.
+    { crate = "libloading", reason = "dynamic library loading (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "dlopen", reason = "dynamic library loading (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "dlopen2", reason = "dynamic library loading (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "sharedlib", reason = "dynamic library loading (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "abi_stable", reason = "dynamic library loading (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "wasmtime", reason = "WebAssembly runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "wasmer", reason = "WebAssembly runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "wasmi", reason = "WebAssembly runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "wasm3", reason = "WebAssembly runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "extism", reason = "WebAssembly plugin runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "mlua", reason = "Lua interpreter (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "rlua", reason = "Lua interpreter (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "pyo3", reason = "Python interpreter (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "deno_core", reason = "JavaScript runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "deno_runtime", reason = "JavaScript runtime (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "v8", reason = "JavaScript engine (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "rquickjs", reason = "JavaScript engine (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "boa_engine", reason = "JavaScript engine (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "rhai", reason = "script interpreter (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "rune", reason = "script interpreter (SEC-EXT-018, SEC-HIS-056)" },
+    { crate = "gluon", reason = "script interpreter (SEC-EXT-018, SEC-HIS-056)" },
+
+    # SEC-TM-038, SEC-HIS-034: R1 parses no XML. A later release admits one
+    # reviewed parser, with DTDs refused and no entity expansion, through an
+    # architecture record that lifts its ban.
+    { crate = "libxml", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "minidom", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "quick-xml", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "roxmltree", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "rxml", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "serde-xml-rs", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "sxd-document", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xml", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xml-rs", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xml5ever", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xmlparser", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xmltree", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "xot", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+    { crate = "yaserde", reason = "XML parser; R1 parses no XML (SEC-TM-038, SEC-HIS-034)" },
+
+    # SEC-HIS-019: no archive received from outside is extracted until an
+    # architecture record allows it; backups use their own small format.
+    { crate = "async-tar", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "async_zip", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "cab", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "compress-tools", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "rc-zip", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "sevenz-rust", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "sevenz-rust2", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "tar", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "tokio-tar", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "unrar", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "zip", reason = "archive extraction (SEC-HIS-019)" },
+    { crate = "zip-extract", reason = "archive extraction (SEC-HIS-019)" },
+
+    # SEC-HIS-035: no format that can construct arbitrary types or run code.
+    # Persisted and received data use schema-bound formats; configuration is
+    # TOML.
+    { crate = "serde-pickle", reason = "Python pickle (SEC-HIS-035)" },
+    { crate = "jaded", reason = "Java object deserialisation (SEC-HIS-035)" },
+    { crate = "serde_yaml", reason = "YAML with type tags (SEC-HIS-035)" },
+    { crate = "serde_yml", reason = "YAML with type tags (SEC-HIS-035)" },
+
+    # SEC-PRV-009: no telemetry, analytics, advertising or automatic crash
+    # reports, and none of their SDKs.
+    { crate = "amplitude", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "bugsnag", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "datadog-tracing", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "honeybadger", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "newrelic", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "opentelemetry", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "opentelemetry-otlp", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "opentelemetry_sdk", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "posthog-rs", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "rollbar", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "segment", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "sentry", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+    { crate = "sentry-core", reason = "telemetry, analytics or crash reporting (SEC-PRV-009)" },
+
+    # SEC-MED-025, SEC-TM-034: no C or C++ media, image, font or subtitle
+    # library is linked into the server or the worker. Such code may only run
+    # as an external program inside the sandbox.
+    { crate = "ffmpeg-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "ffmpeg-sys", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "ffmpeg-sys-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "rsmpeg", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "rusty_ffmpeg", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libwebp", reason = "libwebp binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libwebp-sys", reason = "libwebp binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "webp", reason = "libwebp binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libpng-sys", reason = "libpng binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "mozjpeg", reason = "libjpeg-turbo binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "mozjpeg-sys", reason = "libjpeg-turbo binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "turbojpeg", reason = "libjpeg-turbo binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "turbojpeg-sys", reason = "libjpeg-turbo binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libtiff-sys", reason = "libtiff binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libheif-rs", reason = "libheif binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libheif-sys", reason = "libheif binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "dav1d", reason = "dav1d binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "dav1d-sys", reason = "dav1d binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "magick_rust", reason = "ImageMagick binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "graphicsmagick", reason = "GraphicsMagick binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "graphicsmagick-sys", reason = "GraphicsMagick binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "librsvg", reason = "librsvg, which links cairo and pango (SEC-MED-025, SEC-TM-034)" },
+    { crate = "gstreamer", reason = "GStreamer binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "gstreamer-sys", reason = "GStreamer binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "taglib", reason = "TagLib binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "taglib-sys", reason = "TagLib binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "freetype", reason = "FreeType binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "freetype-rs", reason = "FreeType binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "freetype-sys", reason = "FreeType binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "harfbuzz", reason = "HarfBuzz binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "harfbuzz-sys", reason = "HarfBuzz binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "harfbuzz_rs", reason = "HarfBuzz binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libass", reason = "libass binding (SEC-MED-025, SEC-TM-034)" },
+    { crate = "libass-sys", reason = "libass binding (SEC-MED-025, SEC-TM-034)" },
 ]
+
+# SEC-SUP-026: only reviewed crates may run a build script, no dependency may
+# ship a native executable or an executable script, and the workspace has no
+# build script of its own (the gate checks that). A crate joins the list in
+# the same step as its root Cargo.toml line and its cargo-vet entry.
+[bans.build]
+executables = "deny"
+interpreted = "deny"
+include-dependencies = true
+include-workspace = true
+include-archives = true
+allow-build-scripts = [
+    "getrandom",
+    "libc",
+    "num-traits",
+    "rustix",
+    "zerocopy",
+]
+
+# Reviewed 2026-10-03, for this version only: zerocopy's build script runs
+# nothing but `rustc --version`. The shell scripts it ships are its own CI
+# tools, which nothing in the build runs.
+[[bans.build.bypass]]
+crate = "zerocopy@0.8.59"
+allow-globs = ["cargo.sh", "ci/*.sh"]
 
 # SEC-STD-022: rand's small_rng feature is a non-cryptographic generator.
 [[bans.features]]
