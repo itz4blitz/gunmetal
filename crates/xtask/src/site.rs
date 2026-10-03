@@ -10,10 +10,12 @@
 //!   future and less than a year ahead (SEC-SUP-008).
 //! - `site/_headers`, which Cloudflare Pages and Netlify both read, sends
 //!   every page `Strict-Transport-Security` with a `max-age` of at least
-//!   two years, `includeSubDomains` and `preload`, each once (SEC-STD-016), and a
-//!   `Content-Security-Policy` of `default-src 'none'` whose sources are
-//!   only `'none'` and `'self'`, so a browser loads nothing from another
-//!   origin. No path may send a weaker value of either.
+//!   two years, `includeSubDomains` and `preload`, each once
+//!   (SEC-STD-016), and a `Content-Security-Policy` of `default-src 'none'`
+//!   whose sources are only `'none'` and `'self'`, so a browser loads
+//!   nothing from another origin. No path may send a weaker value of
+//!   either, and no other header's value may name another origin
+//!   (SEC-PRV-054).
 //! - Every page links to the privacy notice at `/privacy/`, and no page
 //!   loads anything from another origin: only an `<a href>` may name one
 //!   (SEC-PRV-054).
@@ -147,6 +149,15 @@ pub enum Finding {
     WeakHeader {
         /// The header.
         header: &'static str,
+        /// The path pattern it is sent for.
+        path: String,
+        /// The value.
+        value: String,
+    },
+    /// A path's header whose value names another origin.
+    ForeignHeader {
+        /// The header, as written.
+        header: String,
         /// The path pattern it is sent for.
         path: String,
         /// The value.
@@ -423,7 +434,10 @@ const RULES: [Header; 2] = [
 
 /// The findings for `_headers`, whose text is `text`. A line that does
 /// not start with whitespace is a path pattern; an indented line is a
-/// header for the pattern above it.
+/// header for the pattern above it. A header with a rule is held to it;
+/// any other header's value may not name another origin, read as a page's
+/// addresses are, because `Link` and `Refresh` make a browser fetch what
+/// they name.
 fn headers(text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut path = None;
@@ -444,9 +458,13 @@ fn headers(text: &str) -> Vec<Finding> {
             });
             continue;
         };
-        let value = value.trim();
-        for (rule, sent) in RULES.iter().zip(&mut everywhere) {
-            if name.trim().eq_ignore_ascii_case(rule.name) {
+        let (name, value) = (name.trim(), value.trim());
+        let rule = RULES
+            .iter()
+            .zip(&mut everywhere)
+            .find(|(rule, _)| name.eq_ignore_ascii_case(rule.name));
+        match rule {
+            Some((rule, sent)) => {
                 *sent |= path == EVERY_PAGE;
                 if !(rule.strong)(value) {
                     findings.push(Finding::WeakHeader {
@@ -456,6 +474,14 @@ fn headers(text: &str) -> Vec<Finding> {
                     });
                 }
             }
+            None if names_another_origin(&as_address(value)) => {
+                findings.push(Finding::ForeignHeader {
+                    header: name.to_owned(),
+                    path: path.to_owned(),
+                    value: value.to_owned(),
+                });
+            }
+            None => {}
         }
     }
     findings.extend(
@@ -1180,6 +1206,33 @@ Preferred-Languages: en,
                 [weak("Content-Security-Policy", "/*", value)]
             );
         }
+    }
+
+    /// A response header can make a browser fetch from another origin
+    /// with no markup at all (`Link`, `Refresh`), so no header's value may
+    /// name one.
+    ///
+    /// Verifies: SEC-PRV-054
+    #[test]
+    fn no_header_names_another_origin() {
+        let text = format!(
+            "{HEADERS}  Link: </privacy/>; rel=help\n  Access-Control-Allow-Origin: https://gunmetal.tv\n  Link: <https://tracker.example/pixel.gif>; rel=preload; as=image\n  refresh: 0; url=/\\evil.example/\n"
+        );
+        let foreign = |header: &str, value: &str| Finding::ForeignHeader {
+            header: header.to_owned(),
+            path: "/invite/*".to_owned(),
+            value: value.to_owned(),
+        };
+        assert_eq!(
+            headers(&text),
+            [
+                foreign(
+                    "Link",
+                    "<https://tracker.example/pixel.gif>; rel=preload; as=image"
+                ),
+                foreign("refresh", "0; url=/\\evil.example/"),
+            ]
+        );
     }
 
     /// Verifies: SEC-STD-016
