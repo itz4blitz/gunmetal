@@ -663,14 +663,19 @@ mod tests {
         }
 
         /// Whatever text parses names an instant that formats and parses
-        /// back to itself.
+        /// back to itself. Function items, not closures, keep every test
+        /// run's coverage the same.
         #[test]
         fn whatever_parses_round_trips(
-            text in "[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{0,10})?([Zz]|[+-][0-9]{2}:[0-9]{2})?",
+            text in prop_oneof![
+                "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])[Tt]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?([Zz]|[+-]([01][0-9]|2[0-3]):[0-5][0-9])",
+                "[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{0,10})?([Zz]|[+-][0-9]{2}:[0-9]{2})?",
+                ".{0,40}",
+            ],
         ) {
-            if let Ok(time) = parse_rfc3339(&text) {
-                prop_assert_eq!(parse_rfc3339(&format_rfc3339(time)), Ok(time));
-            }
+            let parsed = parse_rfc3339(&text).ok();
+            let again = parsed.map(format_rfc3339).as_deref().map(parse_rfc3339);
+            prop_assert_eq!(again, parsed.map(Ok));
         }
     }
 }
