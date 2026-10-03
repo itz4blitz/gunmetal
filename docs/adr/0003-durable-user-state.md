@@ -70,7 +70,7 @@ Everything else is derived, and may be thrown away and recomputed.
 |---|---|---|---|---|---|
 | **Identity store** | `durable/identity.db` | Who exists and what each may do; server settings; the public-ID mapping (section 2) | SQLite, WAL, `synchronous=FULL` | Transactions; schema parts before R1, numbered migrations after | Yes, without volatile rows |
 | **User log** | `durable/log/<stream>/<yyyy-mm>.seg` | What people and the household authored (sections 3 to 5) | Append-only segments of framed, checksummed records | Appends; erasure is the only rewrite | Yes |
-| **Erasure ledger** | `durable/erasure/` | Selectors of everything erased, by ID only (section 8) | Framed records, as the log | Appends | No; a restore never replaces it |
+| **Erasure ledger** | `durable/erasure/` | Selectors of everything erased: IDs and clock values, never content (section 8) | Framed records, as the log | Appends, by the log's writer task | No; a restore never replaces it |
 | **Uploads** | `durable/uploads/` | Images people uploaded, as the server's re-encoded copies named by content hash | Files | Create and delete | Yes |
 | **Staged imports** | `durable/staged/` | History an administrator imported for another person, until that person accepts or declines (API-SET-11) | As the log | Appends; erased on decline, or on the retention schedule if never answered | No |
 | **Audit log** | `durable/audit/` | Security events, in the format of [operations section 3](../security/operations-and-incident-response.md#3-the-audit-log) (WP-069) | JSON lines, hash-chained, signed checkpoints | Appends; retention prunes with signed checkpoints | Yes, with the latest checkpoint |
@@ -244,13 +244,28 @@ sets out, each with its merge rule from [the conflict table](../plan/api-needs.m
      so the point release that ships ratings needs no format change);
      dismiss and its undo (hide and snooze join as new types in R2,
      API-LOG-05).
+   - A typed position (LAT-006): a place in one item, held as a time
+     offset in milliseconds, a text locator in the Readium style (the
+     resource and the progression within it, never the text around it),
+     a page of a total, or a percentage. Beyond the profile, the item and
+     the place, it carries only the device and the time. It is Activity
+     data and merges by the latest clock per item and version, the
+     conflict table's rule for resume points. R1 defines the type in the
+     first log version and writes none: music resumes from the queue
+     document's position (below). The first media that resume outside a
+     queue (video resume points in R2, then books) write it with no
+     format change.
    - Imported listens (ADM-042) are play events whose device ID is the
      import batch's ID, and the batch's own record (service, date, counts)
-     sits in the same stream. The person sees where they came from,
-     scrobblers never send them back, and removing the import is an
-     erasure of that batch (section 8). Unmatched lines of an import are a
-     separate record type, not history events, kept with the evidence the
-     matcher needs until they match or the batch is removed.
+     sits in the same stream, appended before the batch's first play or
+     line. The person sees where they came from, scrobblers never send
+     them back, and removing the import is an erasure of that batch
+     (section 8). Unmatched lines of an import are a separate record type,
+     not history events, because they keep the titles and artists the
+     matcher needs until they match or the batch is removed. Each line's
+     envelope clock is the listen time it carries, so every history
+     selector and the retention purge remove it as they remove a play
+     (section 8).
    - In the household stream: the curation entries of section 3, each
      naming the administrator who made it, which only admin views show
      (LIB-178's rule).
@@ -285,9 +300,32 @@ locations or free text in a history event (SEC-PRV-002); search terms
   credential (SEC-API-013), resolves every public ID through the mapping to
   a content identity, refuses the whole write if any item is not visible
   to the profile (SEC-API-012), and then encodes the record itself.
-- **Idempotency.** The key is (stream, event ID). The same ID with the
-  same body succeeds without a second record; the same ID with a
-  different body is refused as a conflict, so a retry can never overwrite.
+- **The erasure ledger first.** Before appending, the writer checks every
+  incoming event against the erasure ledger (section 8), which it holds
+  in memory: every selector of the event's stream, by event ID, by clock
+  range or up-to clock, and by import batch. An event a selector covers
+  is acknowledged as a success and not stored, so the device dequeues it
+  and an erased record never comes back, whether it is a retry whose
+  first acknowledgement was lost or a play queued offline inside an
+  erased range (CLI-093). This is how "the erasure
+  removes the play whatever order events arrive in" holds
+  ([the conflict table](../plan/api-needs.md#how-conflicts-resolve)). A
+  range or up-to selector covers an imported listen only when the
+  listen's batch record was appended before the selector, because an
+  import accepted after an erasure is history the person chose to add;
+  the same comparison applies when the ledger is applied again after a
+  restore, so the same data always gives the same state. The ledger is
+  appended by the same writer task, so no event slips between a
+  selector's append and the check. A device whose clock runs behind can
+  lose a play it made just after an erasure; the rule errs on the side of
+  the erasure. WP-068 makes this check, and its tests include a retry of
+  an erased event and a play from an erased range arriving after the
+  erasure, each acknowledged and leaving no record in the segments or the
+  cache.
+- **Idempotency.** For an event no selector covers, the key is (stream,
+  event ID). The same ID with the same body succeeds without a second
+  record; the same ID with a different body is refused as a conflict, so a
+  retry can never overwrite.
 - **Clocks.** The server refuses a client event whose wall time is ahead
   of its own clock by more than a fixed skew bound, so a device cannot win
   every "latest wins" by lying about the time, and never advances its own
@@ -311,15 +349,21 @@ locations or free text in a history event (SEC-PRV-002); search terms
 
 - **Readers take a `Permit`.** Every reader that returns a person's
   records takes a `Permit` for that stream (SEC-TM-024, SEC-API-010;
-  WP-068). The rebuild replay, which only feeds projection builders and
-  returns nothing a handler can serve, is the one exception, on WP-065's
-  written list.
-- **One replay.** One replay function serves the cache's projections, the
-  rebuild, export and import. A document starts from its latest snapshot;
+  WP-068). The one exception is the `Permit`-free replay
+  (`replay_into`), which yields records only into the projection builders
+  modules register and returns nothing a handler can serve. Only the
+  startup module calls it, for the rebuild and the projections' catch-up
+  (WP-095), and it is on WP-065's written list.
+- **One set of rules, not one reader.** The cache's projections, the
+  rebuild, export and import share WP-034's merge functions and the
+  projection code, so they agree on what a stream means. They do not
+  share a reader: export reads a stream only through the `Permit`-taking
+  reader, with a `Permit` for that stream, and import writes only through
+  the writer (section 6). A document starts from its latest snapshot;
   events merge by WP-034's rules, which are commutative, associative and
-  idempotent (plays are a union by event ID; loves, ratings, dismissals and
-  settings take the latest clock, with ties broken by device ID and then
-  event ID).
+  idempotent (plays are a union by event ID; loves, ratings, dismissals,
+  positions and settings take the latest clock, with ties broken by
+  device ID and then event ID).
 - **Projections catch up.** The cache records, per stream, the last
   sequence number each projection applied, in the same transaction as the
   projection's change. At startup every projection catches up from there,
@@ -336,30 +380,54 @@ The log is append-only except for erasure, which is the only operation
 that removes or rewrites acknowledged records.
 
 **Selectors.** An erasure names what it removes without holding any of
-it, so the same selector goes into the ledger and travels to devices as a
-tombstone (SEC-PRV-052):
+it. The selector goes into the ledger and stays on the server. Devices
+receive only the IDs of the events it removed (step 2), so a tombstone
+identifies erased events only by ID, as SEC-PRV-052 requires.
 
 | Selector | Removes |
 |---|---|
-| (stream, event ID) | One history event |
+| (stream, event ID) | One history record |
 | (stream, from clock, to clock) | A person's history in a time range |
 | (stream, up to clock) | All of a person's history so far |
-| (stream, import batch ID) | One import, with its unmatched lines |
+| (stream, import batch ID) | One import: its plays, its unmatched lines and its batch record |
 | (stream) | A whole profile, after an account's deletion grace period (SEC-PRV-051) |
 
-History means play and skip events. Loves, ratings, playlists and other
-documents are not history; they leave with the whole profile. A person's
-history-retention choice (MUS-234, DIS-187) runs through the same
-pipeline: the daily purge job erases history older than the chosen
-period with a range selector (WP-138, WP-133).
+**History** is what the event, range and up-to selectors remove, matched
+by each record's envelope clock: play and skip events; typed positions
+(LAT-006), because a place in an item says what the person read, watched
+or heard, and when; and unmatched import lines, whose clock is the listen
+time they carry (section 5). Everything else (loves, ratings, dismissals,
+settings, and documents, the queue and its position included) is not
+history; it leaves with the whole profile. When an erasure leaves an import batch with no plays and no
+unmatched lines, the job also erases its batch record with the batch's
+selector. A person's history-retention choice (MUS-234, DIS-187) runs
+through the same pipeline: the daily purge job erases history older
+than the chosen period with a range selector (WP-138, WP-133), so it
+removes unmatched lines and positions as well as plays.
+
+There is no removal event: D-05 rules out a masking one, so the "remove
+play" body in WP-034's list is not a log type. The property its merge
+test proved, that a removal wins whatever order events arrive in, is now
+kept by the writer's ledger check (section 6). The selector type and its
+match against an envelope are pure core code beside WP-034's merge rules,
+so a core property test can prove that any interleaving of appends and
+erasures ends in the state of the filtered log.
 
 **Steps** ([privacy section 10](../security/privacy-and-data-protection.md#10-deletion-and-erasure);
 WP-068, WP-133):
 
-1. Append the selector to the erasure ledger and sync it. From here the
-   erasure is promised.
-2. Drop the erased records from the cache's projections at once, so they
-   leave every view before the job finishes.
+1. In the writer task, append the selector to the erasure ledger and sync
+   it. From here the erasure is promised, and the writer drops every
+   incoming event the selector covers (section 6).
+2. In one cache transaction, drop the erased records from the
+   projections, so they leave every view before the job finishes, and
+   append to the profile's sync feed tombstones listing the erased event
+   IDs, in chunks that fit the sync frame cap. Every device purges them on
+   its next sync (API-SYNC-10, SEC-PRV-052). Because both happen in one
+   transaction, a crash cannot lose the IDs before step 3 removes them
+   from the log. A whole profile gets no tombstone: its devices were
+   revoked when the account was disabled, and a revoked device deletes
+   its copy (SEC-CLI-009).
 3. In the writer task, rewrite each affected segment without the erased
    records: write a new file beside it, sync it, rename it over the old
    one and sync the directory (the data-root handle's atomic replace). For
@@ -369,18 +437,37 @@ WP-068, WP-133):
    `secure_delete`, then checkpoint and truncate the WAL (SEC-PRV-050), and
    recompute derived values from the filtered log; an incremental erasure
    and a rebuild from the filtered log give the same state (SEC-PRV-049).
-5. Append a tombstone carrying only the selector to the profile's sync
-   feed, so every device purges on its next sync (API-SYNC-10).
+5. For a whole profile, delete its staged imports in `durable/staged/`,
+   and each upload it referenced that no other row still references.
+   Uploads are named by content hash, so two profiles can share one. In
+   R1 the only references are profile pictures in the identity store
+   (API-USR-01); a release that adds others (playlist images, R2) counts
+   them too.
 6. For a whole profile, delete the account's identity-store rows under
-   `secure_delete`. The audit log keeps only its own tombstone for the
-   account, under its own rules ([operations section 3](../security/operations-and-incident-response.md#3-the-audit-log)).
+   `secure_delete`, then run `PRAGMA wal_checkpoint(TRUNCATE)` on the
+   identity store, so no earlier WAL frame keeps the profile's name, its
+   devices' names or its recovery holds (SEC-PRV-050). The audit log keeps
+   only its own tombstone for the account, under its own rules ([operations section 3](../security/operations-and-incident-response.md#3-the-audit-log)).
 
 Every step is idempotent, and the job resumes from the ledger after a
 crash and finishes within the deadline of SEC-PRV-049.
 
+**What the erasure tests show** (WP-068 for the log, WP-133 for the
+job): a retry of an erased event and an offline play inside an erased
+range are both acknowledged and leave no record; a range, an up-to
+erasure and the retention purge each remove unmatched import lines and
+positions as well as plays; an import accepted after an erasure keeps its
+plays; a tombstone, compared with a literal encoding, holds only event
+IDs; and after a whole profile's erasure a raw-byte scan of the data
+directory, `identity.db` and its `-wal` file included, finds neither the
+profile's name nor a device's name, its picture and staged imports are
+gone, and a picture another profile shares stays.
+
 **The ledger** holds only stream, event and batch IDs and clock values,
-never content. It is not in backups and a restore never replaces it;
-after any restore every entry is applied again before the server serves
+each entry's own clock included, never content. The writer reads it on
+every append (section 6). It is not in backups and a restore never
+replaces it; after any restore every entry is applied again before the
+server serves
 (SEC-PRV-049). It is kept for the life of the data directory, so a
 restore of any older backup, including a copy kept off the host, is
 covered. Backups taken before an erasure still hold the data until they
@@ -412,7 +499,7 @@ owner asks (API-LIB-06, `gunmetal rebuild`), and after a restore. In order
 (WP-095):
 
 1. The rebuild never touches the identity store, the user log, the
-   ledger, uploads or the audit log (SEC-IAM-004).
+   ledger, uploads, staged imports or the audit log (SEC-IAM-004).
 2. The new cache gets a new generation ID, so a device holding a cursor
    from the old one is told to take a fresh snapshot (WP-066).
 3. The household stream is replayed first, so every curation override,
@@ -458,26 +545,32 @@ Restore (WP-109) treats a backup as untrusted input. It verifies the
 signature and the format versions before changing anything (SEC-TM-052),
 opens the archive and every SQLite file in it read-only in the jailed
 worker (SEC-STD-031; record 10 for SEC-HIS-019), and lets data reach the
-server only as typed rows and records. It replaces the identity store and
-the log as a whole, applies the ledger again, rotates every key and holds
-restored devices and credentials for review (SEC-OPS-044; no session
-survives, because none was in the backup), then rebuilds the cache
-(section 10).
+server only as typed rows and records. It replaces the identity store,
+the log and the uploads as a whole, each upload decoded and re-encoded in
+the worker as a new upload is (API-USR-01). It then applies the ledger
+again, rotates every key and holds restored devices and credentials for
+review (SEC-OPS-044; no session survives, because none was in the
+backup), and rebuilds the cache (section 10).
 
 ### 13. One export path
 
-Export uses the same replay as the rebuild ([privacy section 9](../security/privacy-and-data-protection.md#9-export)):
+Export reads a stream only through the `Permit`-taking reader, with a
+`Permit` for that stream, never through the rebuild's `Permit`-free
+replay. It builds its documents with the same merge functions and
+projection code as the rebuild (section 7; SEC-TM-024, SEC-API-010;
+[privacy section 9](../security/privacy-and-data-protection.md#9-export)):
 
-- **A person's export** (API-USR-05; SEC-PRV-047, SEC-PRV-048) is the
-  replay of their own stream into the documented formats, plus their own
-  identity-store rows and their own audit records, and nothing about
-  anyone else.
+- **A person's export** (API-USR-05; SEC-PRV-047, SEC-PRV-048) is their
+  own stream, read with a `Permit` for it, in the documented formats,
+  plus their own identity-store rows and their own audit records, and
+  nothing about anyone else.
 - **The owner's server export** (ADM-074) holds settings without secrets,
   library roots, the household stream and household data, and the owner's
-  own data; never another adult's stream (SEC-PRV-025).
+  own data, each stream read with the owner's `Permit` for it; never
+  another adult's stream (SEC-PRV-025).
 - Importing a native export into a fresh server appends the same events
-  with the same event IDs, so a repeated import changes nothing and the
-  round trip of SEC-PRV-047 holds.
+  with the same event IDs through the writer (section 6), so a repeated
+  import changes nothing and the round trip of SEC-PRV-047 holds.
 
 ### 14. Content identity and public IDs
 
@@ -522,6 +615,17 @@ The integration tests that prove them belong to WP-046 and WP-095. This
 record names them without a `Verifies:` line, so that the traceability
 check cannot count a design review as their proof.
 
+**Revised the same day** after the package review. The writer now checks
+every append against the erasure ledger, so an erased play cannot return
+by a retry or a late offline upload (section 6). Unmatched import lines
+and typed positions (LAT-006) are history for erasure and retention
+(sections 5 and 8). A whole profile's erasure now truncates the identity
+store's WAL and removes its uploads and staged imports, and a restore
+replaces uploads (sections 8 and 12). Tombstones list event IDs only, as
+SEC-PRV-052 is written; clock ranges stay in the server's ledger
+(section 8). Export reads through the `Permit`-taking reader, never the
+rebuild's replay (sections 7 and 13).
+
 | Capabilities | Where their data lives |
 |---|---|
 | API-SYS-01 to API-SYS-09 | Nothing stored. The startup page, the emergency page and the public facts read the stores' state. |
@@ -532,12 +636,12 @@ check cannot count a design review as their proof.
 | API-AUTH-07 | Not user state: the limiter's counters are WP-064's; failures go to the audit log. |
 | API-AUTH-08 to API-AUTH-10 | Identity store, volatile rows: sessions, epochs, elevation. |
 | API-AUTH-11, API-AUTH-12, API-AUTH-15 | Identity store: recovery links as hashes, recovery holds, recovery-code hashes; events in the audit log. |
-| API-USR-01 | Identity store (the profile's name; the picture's reference); `durable/uploads/` (the re-encoded picture). |
+| API-USR-01 | Identity store (the profile's name; the picture's reference); `durable/uploads/` (the re-encoded picture, removed with the profile once no other row references it, section 8). |
 | API-USR-02 | The profile's stream (preferences with person or device scope); identity store (the privacy choices the server enforces). |
 | API-USR-03 | Identity store. |
 | API-USR-04 | Audit log. |
 | API-USR-05 | Reads both stores through the one export path (section 13); the archive is a single-use scratch file. |
-| API-USR-06 | The profile's stream: imported plays under their batch ID, the batch record and unmatched lines (section 5). |
+| API-USR-06 | The profile's stream: imported plays under their batch ID, the batch record and unmatched lines (section 5). Unmatched lines are history for erasure: each carries its listen time as its clock, so a range or up-to erasure and the retention purge remove them as they remove plays (section 8). |
 | API-USR-07 | Identity store, volatile: the private flag on the session. Nothing reaches the log. |
 | API-USR-09 | Nothing stored. |
 | API-USR-10 | Identity store (pending deletion), then the erasure of a whole profile (section 8). |
@@ -548,7 +652,7 @@ check cannot count a design review as their proof.
 | API-SYNC-04 | The profile's stream, through its projections. |
 | API-SYNC-05 | Derived: the generated sizes in the bounded derivative cache, with their metadata in the derived-data store (ADM-141). Nothing anyone authored. |
 | API-SYNC-06, API-SYNC-07 | Derived; cache. |
-| API-SYNC-10 | Erasure ledger (durable); tombstones in the cache's change log. A device that resnapshots after a rebuild receives a copy without the erased events. |
+| API-SYNC-10 | Erasure ledger (durable, on the server only); tombstones listing the erased event IDs in the cache's change log. A device that resnapshots after a rebuild receives a copy without the erased events. |
 | API-SYNC-11 | Nothing stored. |
 | API-LIB-01, API-LIB-03 to API-LIB-05, API-LIB-07 | Identity store: libraries, roots, root settings, grants, artist-splitting rules. A changed location keeps history because the log is keyed by content identity. |
 | API-LIB-02 | Nothing stored. |
@@ -613,4 +717,9 @@ check cannot count a design review as their proof.
 - The log grows without compaction in R1. Superseded queue and playlist
   operations stay until their profile is erased.
 - The erasure ledger keeps IDs and clock values, never content, for the
-  life of the data directory.
+  life of the data directory. The writer holds it in memory and checks
+  every append against it, and it grows by one entry per erasure,
+  including each daily retention purge.
+- Erasing a large range sends devices one event ID per erased record, in
+  chunks, rather than one short range; that is the price of tombstones
+  that hold only IDs.
