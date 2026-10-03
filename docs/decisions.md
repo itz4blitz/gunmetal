@@ -82,7 +82,7 @@ on D-07, D-10 and remote access in R1, as those rows record.
 | DCO sign-off (answered 2026-10-03) | Agent commits carry no `Signed-off-by`. The owner's merge commit for each wave into `main` carries the owner's sign-off, covering the wave. |
 | Erasure ledger (answered 2026-10-03) | Kept for the life of the data directory, holding only IDs and clock values, so erased history cannot return from any older backup. |
 | Building order (answered 2026-10-03) | Each wave starts on top of the previous wave branch while the owner reviews it; review changes are folded in by the next wave's integrator. |
-| Web player (answered 2026-10-03) | Start the web player now. It is planned and built in parallel with the server waves, against a small fake server, so there is a real screen within days, and it moves to the real server as server waves 2 to 4 land. The owner chose this over a throwaway thin slice and over finishing the server first. The plan is [client-packages.md](plan/client-packages.md), and its technical choices are [record 12](adr/0012-web-client-toolchain-and-contracts.md). |
+| Web player (answered 2026-10-03) | Start the web player now. It is planned and built in parallel with the server waves, against a small fake server, so there is a real screen within days, and it moves to the real server as the server waves land. The owner chose this over a throwaway thin slice and over finishing the server first. |
 
 ### Technical answers to wave 0's package questions, 2026-10-03
 
@@ -105,6 +105,19 @@ The owner delegated purely technical choices to the recommended defaults (D-02 a
   - Record 1 gains a one-line pointer to record 3, as its Scope section already points to record 2.
   - SEC-TM-050 adopts SEC-PRV-001's data-class names.
   - Erasure selectors may use clock ranges within one stream.
+
+### Technical answers to the client plan's questions, 2026-10-03
+
+The owner delegated purely technical choices to the recommended defaults (D-02). These settle the questions the web player's plan raised, and [record 12](adr/0012-web-client-toolchain-and-contracts.md) holds the reasoning. The plan itself ([client-packages.md](plan/client-packages.md)) and record 12 are proposed, for the owner's review.
+
+- **`unsafe` in the WASM facade (WP 34).** The core keeps `unsafe_code = "forbid"` with no exception. The facade crate alone may carry the narrowest lint exception that `wasm-bindgen`'s generated code needs; hand-written `unsafe` stays refused there by an xtask check, and the exception is on the xtask exception list. WP-235 must prove the `wasm32` build under that lint, exporting WP-005's link filter, before any other facade slice is written.
+- **The facade is built in slices by the backend plan.** WP-235 (wave 1) creates `crates/gunmetal-wasm`; WP-236 and WP-237 (wave 2) export the wave 1 modules; WP-088 (wave 3) keeps the rest. Client packages own no Rust.
+- **Types cross from Rust to TypeScript by generation.** Mirror types in the facade with exhaustive conversions, declarations generated with `tsify` and `serde-wasm-bindgen`, committed and drift-checked in the gate. Both crates are dependency requests that still need the owner's approval; neither is a dependency of the core.
+- **JavaScript supply-chain choices (D-65).** pnpm, as recommended, on Node 24. Every tool is pinned to its newest release at least seven days old. ESLint 10 is used, because ESLint 9 is past its end of life; the two `eslint-plugin-react` rules the baseline names are written as the project's own rules.
+- **Branches.** There are no client wave branches. Client packages merge into the open server wave branch through that wave's integrator, and the owner still merges one pull request per wave into `main` (D-01).
+- **Inbound links.** Only the core parses them (SEC-CLI-025). The client's router matches fixed, secret-free paths; the backend plan is asked to split the parser out of WP-089 so it can land in wave 1.
+
+D-73 (player shortcuts), D-74 (the style policy fallback) and the default answer to "Is this your own device?" stay the owner's. The client plan proceeds on its recommended defaults for the first and the last, which the owner may change.
 
 ## Decide first
 
