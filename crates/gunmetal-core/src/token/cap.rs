@@ -459,6 +459,7 @@ mod tests {
         0x10,
     ];
     const HANDLE: [u8; 8] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22];
+    const URL_SAFE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
     struct RecordingMac {
         kid: u8,
@@ -588,7 +589,6 @@ mod tests {
         let mac = RecordingMac::new(1, &[1], RFC4231_CASE1);
         let token = sign(&fields, &mac).unwrap();
         assert_eq!(token.len(), 71);
-        const URL_SAFE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         assert!(
             token.bytes().all(|octet| URL_SAFE.contains(&octet)),
             "{token}"
