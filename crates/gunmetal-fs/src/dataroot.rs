@@ -21,7 +21,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, OpenOptions, OpenOptionsExt};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
@@ -219,6 +219,7 @@ pub(crate) fn io_error(item: Item, op: Op) -> impl FnOnce(io::Error) -> DataRoot
 #[derive(Debug)]
 pub struct DataRoot {
     dir: Dir,
+    path: PathBuf,
 }
 
 /// An opened data root and the repairs that opening it made.
@@ -467,6 +468,8 @@ impl DataRoot {
         settler: &mut Settler,
     ) -> Result<Self, DataRootError> {
         check_filesystem(settler.host.filesystem, network)?;
+        // Resolving once gives SQLite a path with no symlinks in it, which
+        // its no-follow open then insists on (see `sqlite_path`).
         let path = std::fs::canonicalize(path).map_err(io_error(Item::Root, Op::Resolve))?;
         let dir = rustix::fs::open(&path, ROOT_FLAGS, Mode::empty())
             .map(|fd| Dir::from_std_file(File::from(fd)))
@@ -480,7 +483,7 @@ impl DataRoot {
                     .map_err(io_error(secrets.clone(), Op::List))
             })
             .and_then(|found| settler.walk(&found, &secrets))
-            .map(|()| Self { dir })
+            .map(|()| Self { dir, path })
     }
 
     /// Creates the file at `path` with mode 0600, failing if it exists.
@@ -600,6 +603,12 @@ impl DataRoot {
             .open_with(rel, options)
             .map(cap_std::fs::File::into_std)
             .map_err(io_error(item, op))
+    }
+
+    /// The one sanctioned way to give SQLite a path: the resolved data
+    /// directory joined with a path built from constants.
+    pub(crate) fn sqlite_path(&self, path: &DataPath) -> PathBuf {
+        self.path.join(path.beneath())
     }
 }
 
@@ -786,7 +795,7 @@ mod tests {
     /// A directory under the system's temporary directory, removed on drop.
     /// The integration tests have a fuller helper; these unit tests need
     /// only this.
-    struct Scratch(std::path::PathBuf);
+    struct Scratch(PathBuf);
 
     impl Scratch {
         fn new(tag: &str) -> Self {

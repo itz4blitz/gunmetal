@@ -9,3 +9,4 @@
 pub mod dataroot;
 pub mod host;
 pub mod path;
+pub mod sqlite;
