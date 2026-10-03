@@ -153,3 +153,8 @@ failures first.
 Contributions are accepted under the Developer Certificate of Origin. Add a
 `Signed-off-by` line to each commit with `git commit -s`. There is no
 contributor licence agreement, and the project will not be relicensed.
+
+Coding agents cannot certify the DCO for anyone, so their commits carry no
+`Signed-off-by`. When the owner merges a wave branch into `main`, the merge
+commit carries the owner's `Signed-off-by`, which covers that wave's
+agent-written commits ([decision register](docs/decisions.md#owner-answers-2026-10-02)).

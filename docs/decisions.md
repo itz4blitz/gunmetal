@@ -78,6 +78,32 @@ on D-07, D-10 and remote access in R1, as those rows record.
 | Security contact | GitHub only for now; no security@ mailbox yet. |
 | GPUI | Not used for the main apps; revisit for a native desktop app later ([record 11](adr/0011-gpui-not-adopted.md)). |
 | D-83 to D-88 (answered 2026-10-03) | Every recommendation accepted: a minimal read-only details view in R1 with the full sheet in R1.1; nothing merges silently before the review queue; the rule format and its limits ship in R1.1 work, with the editor and smart playlists in R1.3; R1's web app needs the server reachable to load; speed budgets are enforced by tests in the R1 gate, with published numbers in R1.1; R1 browses by genre, with mood and label in R1.1. |
+| FUSE library folders (answered 2026-10-03) | Allowed, read-only, with the same path and symlink checks as any other folder; the library's health page shows the filesystem type. Unraid's `/mnt/user` is FUSE, so refusing it would break most Unraid installs. This changes the default WP-126 shipped in wave 0. |
+| DCO sign-off (answered 2026-10-03) | Agent commits carry no `Signed-off-by`. The owner's merge commit for each wave into `main` carries the owner's sign-off, covering the wave. |
+| Erasure ledger (answered 2026-10-03) | Kept for the life of the data directory, holding only IDs and clock values, so erased history cannot return from any older backup. |
+| Building order (answered 2026-10-03) | Each wave starts on top of the previous wave branch while the owner reviews it; review changes are folded in by the next wave's integrator. |
+
+### Technical answers to wave 0's package questions, 2026-10-03
+
+The owner delegated purely technical choices to the recommended defaults (D-02 and the "Tech choices" answer). These settle the questions wave 0's packages raised:
+
+- **Dependencies.** The `[workspace.dependencies]` pins stand. Each crate joins `supply-chain/core-allowlist.toml`, with its whole tree, when its first user adds it; acceptance under D-02 is not a review. XML parsers, YAML and OpenTelemetry stay banned for R1. cargo-deny checks only the shipped and tested targets, and each native client's target is added before it is built. `libc` 0.2.190 is accepted as is, a dev-only crate that passes the seven-day rule on 2026-10-09. The `dependency-age-override` label relies on the code-owner review that `Cargo.lock` already needs.
+- **Core values and parsing.**
+  - The typed-value ranges WP-005 built stand.
+  - Links with non-ASCII hosts stay plain text.
+  - The egress client refuses NAT64, 6to4 and Teredo destinations.
+  - The ceiling rule stands: limits whose value a requirement states cannot be raised, and others may be raised to four times their default.
+  - SEC-MED-003 is proved by exact capacity assertions; there is no `unsafe` counting allocator, not even in test code.
+  - There is one structure-aware fuzz harness per container family. WP-005's entry points get harnesses in wave 1.
+  - Session and credential ID kinds are added when first needed.
+- **Workers and records.**
+  - Packaging limits come from measurement, with 512 MiB as the default until then.
+  - Third-party decoders follow SEC-MED-024 as written.
+  - Record 5 is accepted for the scan worker only.
+  - Records 7 to 10 are accepted once a wave 1 follow-up fixes the two inconsistencies review found: record 9 diverges from the baseline's key table, and records 9 and 10 disagree on version bytes.
+  - Record 1 gains a one-line pointer to record 3, as its Scope section already points to record 2.
+  - SEC-TM-050 adopts SEC-PRV-001's data-class names.
+  - Erasure selectors may use clock ranges within one stream.
 
 ## Decide first
 
