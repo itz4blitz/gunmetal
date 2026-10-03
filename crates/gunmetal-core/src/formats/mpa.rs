@@ -2023,23 +2023,77 @@ mod tests {
         // A small frame, then two of the stranger's: the small one is not
         // confirmed, and the stream starts with the stranger, which is
         // refused when it is Layer II.
-        let starts = [
-            Ok(Ok(24)),
+        let file = |stranger: build::Frame| {
+            let mut file = build::stream(&[small()]);
+            file.extend(build::stream(&[stranger; 2]));
+            file
+        };
+        assert_eq!(
+            parse(&file(build::Frame::layer3(
+                build::Version::Mpeg1,
+                1,
+                1,
+                build::Mode::Mono,
+            ))),
+            Ok(Ok(plain(
+                24,
+                FrameHeader {
+                    version: Version::Mpeg1,
+                    layer: Layer::III,
+                    crc: false,
+                    bitrate: 32,
+                    sample_rate: hz(48_000),
+                    padding: false,
+                    mode: ChannelMode::Mono,
+                    samples: 1_152,
+                    len: 96,
+                },
+                2,
+                216,
+                SeekIndex {
+                    points: vec![point(0, 24), point(1_152, 120)],
+                    stride: 1,
+                },
+            )))
+        );
+        assert_eq!(
+            parse(&file(build::Frame {
+                layer: build::Layer::II,
+                ..small()
+            })),
             Ok(Err(MpaError::UnsupportedLayer {
                 offset: 24,
                 layer: Layer::II,
-            })),
-            Ok(Ok(24)),
-        ];
-        for ((stranger, field), start) in strangers().into_iter().zip(starts) {
-            let mut file = build::stream(&[small()]);
-            file.extend(build::stream(&[stranger; 2]));
-            assert_eq!(
-                parse(&file).map(|parsed| parsed.map(|stream| stream.start)),
-                start,
-                "{field}"
-            );
-        }
+            }))
+        );
+        assert_eq!(
+            parse(&file(build::Frame::layer3(
+                build::Version::Mpeg2,
+                1,
+                0,
+                build::Mode::Mono,
+            ))),
+            Ok(Ok(plain(
+                24,
+                FrameHeader {
+                    version: Version::Mpeg2,
+                    layer: Layer::III,
+                    crc: false,
+                    bitrate: 8,
+                    sample_rate: hz(22_050),
+                    padding: false,
+                    mode: ChannelMode::Mono,
+                    samples: 576,
+                    len: 26,
+                },
+                2,
+                76,
+                SeekIndex {
+                    points: vec![point(0, 24), point(576, 50)],
+                    stride: 1,
+                },
+            )))
+        );
     }
 
     #[test]
@@ -2357,6 +2411,60 @@ mod tests {
                 "{frame:?}"
             );
         }
+    }
+
+    #[test]
+    fn finds_xing_at_the_lame_offset_when_the_frame_declares_a_crc() {
+        // LAME overwrites the CRC slot: Xing starts at 4 + side_info_len
+        // even when the protection bit is clear (`lame --protect`).
+        let frame = build::Frame {
+            crc: true,
+            ..roomy()
+        };
+        let header = FrameHeader {
+            crc: true,
+            ..roomy_header()
+        };
+        let mut file = build::xing_frame(&frame, &info(), Some(&lame()));
+        file.extend(build::stream(&[small(); 100]));
+        assert_eq!(
+            parse(&file),
+            Ok(Ok(MpegStream {
+                start: 0,
+                header,
+                xing: Some(Ok(info_read())),
+                lame: Some(Ok(lame_read())),
+                vbri: None,
+                frames: 100,
+                end: 2_560,
+                seek: SeekIndex {
+                    points: (0..100)
+                        .map(|entry| point(576 * entry, 10 * entry))
+                        .collect(),
+                    stride: 1,
+                },
+            }))
+        );
+        // The ISO offset for a protected MPEG-2 mono frame is two CRC
+        // octets plus nine of side information. A Xing written there is
+        // not the encoder header LAME writes.
+        let mut body = repeated(0, 11);
+        body.extend(info().write());
+        let mut iso = frame.write(&body);
+        iso.extend(build::stream(&[small(); 2]));
+        assert_eq!(
+            parse(&iso),
+            Ok(Ok(plain(
+                0,
+                header,
+                3,
+                240,
+                SeekIndex {
+                    points: vec![point(0, 0), point(576, 192), point(1_152, 216)],
+                    stride: 1,
+                },
+            )))
+        );
     }
 
     #[test]
@@ -2927,7 +3035,7 @@ mod tests {
             .unwrap()
     }
 
-    /// Verifies: SEC-MED-005, SEC-MED-008
+    /// Verifies: SEC-MED-001, SEC-MED-008
     #[test]
     fn walks_long_runs_of_tags_and_frames_without_recursing() {
         // MPEG audio does not nest; a thousand tags and four thousand
