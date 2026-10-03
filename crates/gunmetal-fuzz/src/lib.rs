@@ -17,8 +17,11 @@
 //! `tests/<name>_corpus.rs`, `fuzz/fuzz_targets/<name>.rs` and
 //! `fuzz/seeds/<name>/`.
 
+pub mod ape;
 pub mod base64;
 pub mod ebml;
+pub mod id3_structure;
+pub mod id3v1;
 pub mod link;
 pub mod net;
 pub mod registry;

@@ -50,8 +50,11 @@ macro_rules! harnesses {
 }
 
 harnesses! {
+    ape,
     base64,
     ebml,
+    id3_structure,
+    id3v1,
     link,
     net,
     text,

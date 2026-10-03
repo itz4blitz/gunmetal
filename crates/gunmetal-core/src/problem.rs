@@ -69,8 +69,12 @@ macro_rules! problems {
 }
 
 problems! {
+    /// One item of an APE tag was skipped, or reading its items stopped early; the tag's other items and the rest of the file were kept (SEC-MED-017).
+    ApeItemSkipped = ("ape_item_skipped", None, "We skipped a damaged field in this file's APE tag."),
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// An `ID3v1` or APE tag at the end of a file could not be read and was skipped; the rest of the file was kept (SEC-MED-017).
+    EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
 }
@@ -108,11 +112,21 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 4] = [
+        (
+            "ape_item_skipped",
+            None,
+            "We skipped a damaged field in this file's APE tag.",
+        ),
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
+        ),
+        (
+            "end_tag_skipped",
+            None,
+            "We couldn't read a tag at the end of this file, so we skipped it.",
         ),
         (
             "not_found",
