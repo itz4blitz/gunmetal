@@ -82,11 +82,7 @@ pub trait HasLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::IdKind;
-
-    pub(crate) fn library(n: u8) -> PublicId {
-        PublicId::parse(&format!("lib_{n:026}"), IdKind::Library).unwrap()
-    }
+    use crate::authz::fixtures::library;
 
     struct Row(PublicId);
 
