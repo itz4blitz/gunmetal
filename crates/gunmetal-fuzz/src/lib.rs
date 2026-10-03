@@ -25,6 +25,7 @@ pub mod registry;
 pub mod text;
 pub mod time;
 pub mod values;
+pub mod webauthn_attestation;
 pub mod webauthn_authdata;
 pub mod webauthn_cbor;
 pub mod webauthn_cose;

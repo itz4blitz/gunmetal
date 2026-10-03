@@ -68,7 +68,7 @@ fn replays_the_empty_input() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-IAM-018, SEC-IAM-020
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_user_present_prefix() {
     replay(
@@ -94,7 +94,7 @@ fn replays_user_present_prefix() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-IAM-021
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_backup_state_without_eligible() {
     replay(

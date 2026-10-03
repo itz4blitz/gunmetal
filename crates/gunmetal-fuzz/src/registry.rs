@@ -57,6 +57,7 @@ harnesses! {
     text,
     time,
     values,
+    webauthn_attestation,
     webauthn_authdata,
     webauthn_cbor,
     webauthn_cose,

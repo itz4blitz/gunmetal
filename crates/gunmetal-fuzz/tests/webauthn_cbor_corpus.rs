@@ -67,7 +67,7 @@ fn replays_the_empty_input() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-001
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_an_unsigned_zero() {
     replay(
@@ -82,7 +82,7 @@ fn replays_an_unsigned_zero() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-001
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_indefinite_bytes() {
     replay(
@@ -97,7 +97,7 @@ fn replays_indefinite_bytes() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-001
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_duplicate_map_keys() {
     replay(

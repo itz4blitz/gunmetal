@@ -70,7 +70,7 @@ fn replays_the_empty_input() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-001
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_an_es256_key() {
     replay(
@@ -85,7 +85,7 @@ fn replays_an_es256_key() {
     );
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-001
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_an_rs256_key() {
     replay(

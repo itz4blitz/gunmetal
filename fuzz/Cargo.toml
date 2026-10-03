@@ -109,6 +109,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "webauthn_attestation"
+path = "fuzz_targets/webauthn_attestation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "webauthn_authdata"
 path = "fuzz_targets/webauthn_authdata.rs"
 test = false
