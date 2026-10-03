@@ -362,7 +362,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-036, SEC-CLI-007
+    /// Verifies: SEC-API-036
     #[test]
     fn refuses_a_get_route_that_mutates() {
         let entries = vec![RouteEntry::new(

@@ -43,6 +43,41 @@ use gunmetal_core::audit_event::EventName;
 /// };
 /// ```
 ///
+/// A signed-in user or admin route without the capability it requires
+/// does not compile.
+/// Verifies: SEC-API-019
+///
+/// ```compile_fail,E0063
+/// use gunmetal_http::route::*;
+/// const SPEC: RouteSpec = RouteSpec {
+///     method: Method::Get,
+///     path: "/api/v1/library",
+///     access: Access::User {
+///         effect: Effect::Reads,
+///     },
+///     tag: RouteTag::None,
+///     body: BodyRule::None,
+///     ids: &[],
+///     rate: RateClass::Read,
+/// };
+/// ```
+///
+/// ```compile_fail,E0063
+/// use gunmetal_http::route::*;
+/// const SPEC: RouteSpec = RouteSpec {
+///     method: Method::Get,
+///     path: "/api/v1/admin/users",
+///     access: Access::Admin {
+///         effect: AdminEffect::Reads,
+///         target: Target::Caller,
+///     },
+///     tag: RouteTag::None,
+///     body: BodyRule::None,
+///     ids: &[],
+///     rate: RateClass::Read,
+/// };
+/// ```
+///
 /// A mutating admin route without the audit event it emits does not
 /// compile (the route-table clause of SEC-OPS-020).
 ///

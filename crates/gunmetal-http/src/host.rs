@@ -1,4 +1,4 @@
-//! The `Host` allow-list (SEC-API-007, SEC-IAM-010, SEC-NET-014).
+//! The `Host` allow-list (SEC-API-007, SEC-IAM-010, SEC-NET-014, SEC-TM-009).
 //!
 //! A request is answered only when its `Host` names one of the hosts the
 //! server was configured with: its public hostnames, its interface
@@ -241,7 +241,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-007, SEC-IAM-010, SEC-NET-014
+    /// Verifies: SEC-API-007, SEC-IAM-010, SEC-NET-014, SEC-TM-009
     #[test]
     fn admits_only_configured_hosts() {
         let list =

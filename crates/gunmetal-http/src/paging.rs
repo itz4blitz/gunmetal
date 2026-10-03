@@ -1,11 +1,10 @@
 //! The one list convention (INT-007): a page size capped at 500 unless the
-//! route declares more (SEC-API-063, SEC-HIS-037), and an opaque cursor
-//! (SEC-API-025).
+//! route declares more (SEC-API-063, SEC-HIS-037).
 //!
-//! A list route takes a [`PageQuery`] and answers a [`Page`]. The cursor is
-//! a handle the store issues and looks up again: a client cannot read
-//! anything from it, and nothing in it is trusted for an authorisation
-//! decision.
+//! A list route takes a [`PageQuery`] and answers a [`Page`]. A cursor here
+//! is 1 to [`CURSOR_MAX`] characters from the URL-safe alphabet; a list
+//! route looks the whole string up. Tamper and cross-principal rejection
+//! belong to that route, not this crate.
 
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
@@ -117,7 +116,7 @@ mod tests {
         serde_json::from_value(value).ok()
     }
 
-    /// Verifies: SEC-HIS-037
+    /// Verifies: SEC-API-063, SEC-HIS-037
     #[test]
     fn page_sizes_run_from_one_to_the_cap() {
         let limit = |text: &str| query::<PAGE_CAP>(json!({ "limit": text })).map(|q| q.limit);
@@ -130,6 +129,7 @@ mod tests {
         assert_eq!(query::<PAGE_CAP>(json!({ "limit": 5 })), None);
     }
 
+    /// Verifies: SEC-API-063
     #[test]
     fn a_route_may_declare_a_larger_cap() {
         let limit = |text: &str| query::<2000>(json!({ "limit": text })).map(|q| q.limit);

@@ -241,7 +241,7 @@ fn lists_the_routes_that_need_no_session() {
     assert_eq!(Table::new(more).unwrap().anonymous(), longer);
 }
 
-/// Verifies: SEC-API-007, SEC-IAM-010, SEC-NET-014
+/// Verifies: SEC-API-007, SEC-IAM-010, SEC-NET-014, SEC-TM-009
 #[test]
 fn refuses_hosts_off_the_allow_list_with_421() {
     let (client, seen) = client();
