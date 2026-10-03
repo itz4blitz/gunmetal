@@ -28,13 +28,14 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 7] = [
+const SEEDS: [&str; 8] = [
     "empty",
     "sixty-five-frames",
     "v22-unsynchronised-with-the-footer-bit",
     "v23-plain",
     "v23-unsynchronised",
     "v24-every-kind",
+    "v24-footer-only",
     "v24-frame-flags",
 ];
 
@@ -254,6 +255,25 @@ fn replays_a_2_3_tag_stored_as_written() {
         problems: vec![],
     };
     replay("v23-plain", &recipe, tag, read);
+}
+
+/// A 2.4 recipe with only the footer bit set writes a footer and no
+/// unsynchronisation flag.
+///
+/// Verifies: SEC-MED-028, SEC-MED-031
+#[test]
+fn replays_a_2_4_footer_without_unsynchronisation() {
+    replay(
+        "v24-footer-only",
+        &[0x20],
+        Tag::new(Version::V24).footer().build(),
+        Id3v2Tag {
+            header: header(4, 0x10, 0, 20),
+            extended: None,
+            frames: vec![],
+            problems: vec![],
+        },
+    );
 }
 
 /// Every frame flag 2.4 acts on, with the tag's unsynchronisation and a
