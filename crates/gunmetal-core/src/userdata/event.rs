@@ -557,8 +557,9 @@ impl Percent {
 /// exactly as they were read, so it is kept and written back unchanged
 /// (ADR 3, section 7).
 ///
-/// Only the codec makes one, from a type that is not one of the
-/// [`BodyType`] constants, so a known body is never held as unknown.
+/// It is made only from a type that is not one of the [`BodyType`]
+/// constants, by the codec or by [`UnknownBody::opaque`], so a known body is
+/// never held as unknown.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UnknownBody {
     /// The body's type, version and skippable flag.
@@ -572,6 +573,24 @@ impl UnknownBody {
     /// a type that none of the [`BodyType`] constants is.
     pub(crate) const fn new(body_type: BodyType, octets: Vec<u8>) -> Self {
         Self { body_type, octets }
+    }
+
+    /// A body of `body_type` holding `octets`, as an import rebuilds an
+    /// opaque record from an export, or `None` when `body_type` is one this
+    /// version knows, whose body must be read as that type instead.
+    #[must_use]
+    pub fn opaque(body_type: BodyType, octets: Vec<u8>) -> Option<Self> {
+        let known = [
+            BodyType::PLAY,
+            BodyType::SKIP,
+            BodyType::LOVE,
+            BodyType::UNLOVE,
+            BodyType::SETTING,
+            BodyType::DOCUMENT_OP,
+            BodyType::DOCUMENT_SNAPSHOT,
+            BodyType::POSITION,
+        ];
+        (!known.contains(&body_type)).then(|| Self::new(body_type, octets))
     }
 
     /// The body's octets.
@@ -739,6 +758,55 @@ mod tests {
             skippable: false,
         };
         assert_eq!(UnknownBody::new(kind, vec![1, 2, 3]).octets(), [1, 2, 3]);
+    }
+
+    /// An import of an export rebuilds the opaque records it holds, but
+    /// never holds a known body as unknown.
+    #[test]
+    fn an_opaque_body_is_only_of_a_type_this_version_does_not_know() {
+        let kept = |tag, version, skippable| {
+            let body_type = BodyType {
+                tag,
+                version,
+                skippable,
+            };
+            UnknownBody::opaque(body_type, vec![9, 8]).map(|body| {
+                (
+                    Body::Unknown(body.clone()).body_type(),
+                    body.octets().to_vec(),
+                )
+            })
+        };
+        let known = [
+            (1, 1, true),
+            (2, 1, true),
+            (3, 1, true),
+            (4, 1, true),
+            (5, 1, true),
+            (6, 1, false),
+            (7, 1, false),
+            (8, 1, true),
+        ];
+        for (tag, version, skippable) in known {
+            assert_eq!(kept(tag, version, skippable), None);
+        }
+        let unknown = [
+            (0, 1, true),
+            (9, 1, true),
+            (40, 1, false),
+            (1, 2, true),
+            (1, 1, false),
+            (6, 1, true),
+            (8, 0, true),
+        ];
+        for (tag, version, skippable) in unknown {
+            let body_type = BodyType {
+                tag,
+                version,
+                skippable,
+            };
+            assert_eq!(kept(tag, version, skippable), Some((body_type, vec![9, 8])));
+        }
     }
 
     #[test]

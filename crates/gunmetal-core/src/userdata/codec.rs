@@ -1,8 +1,10 @@
 //! The bytes of an event: the payload of one user-log record (ADR 3,
 //! section 4).
 //!
-//! The layout follows postcard's wire conventions, written by hand so the
-//! core needs no serialisation crate for it: unsigned integers as LEB128
+//! The layout follows postcard's wire conventions. It is written by hand
+//! rather than derived, so that the reader charges the step budget, reports
+//! the offset of the field that is wrong and refuses every second spelling
+//! of a value: unsigned integers as LEB128
 //! varints in their shortest form, IDs and digests as their raw octets,
 //! flags as one octet `0` or `1`, enum variants as a varint tag before
 //! their fields, and octet strings as a varint length before the octets.
@@ -1196,7 +1198,8 @@ mod tests {
                         .unwrap();
                     shape.truncated(*start, cut)
                 } else {
-                    Shape::Fixed(u64::try_from(body.len()).unwrap()).truncated(BODY_START, cut)
+                    // The body is taken whole, as an unknown body's octets are.
+                    Shape::Rest(u64::try_from(body.len()).unwrap()).truncated(BODY_START, cut)
                 };
                 let len = usize::try_from(cut).unwrap();
                 assert_eq!(read(&bytes[..len]), Err(EventError::Fault(expected)));
@@ -1667,7 +1670,11 @@ mod tests {
         /// Verifies: SEC-MED-001, SEC-MED-007
         #[test]
         fn any_input_has_one_reading_within_the_budget(
-            bytes in prop_oneof![vec(any::<u8>(), 0..128), damaged()],
+            bytes in prop_oneof![
+                vec(any::<u8>(), 0..128),
+                damaged(),
+                strategies::event().prop_map(|event| encode(&event)),
+            ],
         ) {
             prop_assert!(one_reading(bytes));
         }

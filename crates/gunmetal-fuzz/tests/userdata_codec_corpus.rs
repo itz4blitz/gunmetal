@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use gunmetal_core::parse::ParseFault;
 use gunmetal_core::userdata::codec::{EventError, Field};
 use gunmetal_core::userdata::event::{
-    Body, ContentId, DeviceId, DocumentId, Event, EventId, ItemRef, Play, ProfileId, Stream,
+    Body, BodyType, ContentId, DeviceId, DocumentId, Event, EventId, ItemRef, Play, ProfileId,
+    Stream, UnknownBody,
 };
 use gunmetal_core::userdata::hlc::Hlc;
 use gunmetal_fuzz::userdata_codec::{Outcome, run};
@@ -40,8 +41,8 @@ const SEEDS: [&str; 6] = [
 /// the harness reports `expected` for it.
 fn replay(name: &str, bytes: &[u8], expected: Result<Event, EventError>) {
     let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
-    assert_eq!(file, bytes, "seed {name} holds different bytes");
-    assert_eq!(run(&file), Outcome { event: expected }, "seed {name}");
+    assert_eq!(file, bytes);
+    assert_eq!(run(&file), Outcome { event: expected });
 }
 
 /// The envelope every seed shares: event ID `11…`, clock
@@ -132,15 +133,13 @@ fn replays_an_unlove_of_a_playlist() {
 #[test]
 fn replays_a_body_of_an_unknown_type() {
     let bytes = [&envelope()[..], &[0x28, 0x01, 0x00, 3, 0xde, 0xad, 0x00]].concat();
-    let Ok(Event {
-        body: Body::Unknown(unknown),
-        ..
-    }) = run(&bytes).event
-    else {
-        panic!("an unknown body");
+    let body_type = BodyType {
+        tag: 40,
+        version: 1,
+        skippable: false,
     };
-    assert_eq!(unknown.octets(), [0xde, 0xad, 0x00]);
-    replay("unknown-type", &bytes, Ok(event(Body::Unknown(unknown))));
+    let kept = UnknownBody::opaque(body_type, vec![0xde, 0xad, 0x00]).expect("type 40 is unknown");
+    replay("unknown-type", &bytes, Ok(event(Body::Unknown(kept))));
 }
 
 /// Verifies: SEC-MED-028
