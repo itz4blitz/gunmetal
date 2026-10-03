@@ -24,7 +24,10 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The full mutation run over wave 0 (1,084 mutants) took 15 minutes on
+    # a 24-core workstation; hosted runners are slower. Shard it with
+    # cargo-mutants --shard before this limit is reached again.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
