@@ -5037,7 +5037,7 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 - **Owns** `crates/gunmetal-server/src/meta/`.
 - **Serves** ADM-128, INT-001, INT-005, INT-013, ADM-090, ADM-001;
   API-SYS-01, API-SYS-03, API-SYS-04, API-SYS-06, API-SYS-09, API-SET-09,
-  API-TOK-03 (the parser). (A custom server name, ADM-140, and deep links
+  API-TOK-03 (resolution / R1's links). (A custom server name, ADM-140, and deep links
   into the app, CLI-034 and INT-147, are R1.2, WP-159, which extends the
   parser's route set; published footprint numbers, ADM-010, are R1.2
   documentation from WP-115's measurements; old native clients, CLI-032,
@@ -6696,7 +6696,7 @@ outline below.
 | API-SET-13 rotate server secrets | WP-106 (ADM-144) |
 | API-SHR-01 to SHR-03 music share links | R1.2: WP-134; video share links R2 |
 | API-TOK-01, TOK-02 tokens and tool change feed | R2: WP-091 (API keys are R2; baseline owner decision 8) |
-| API-TOK-03 deep links | WP-089 (the parser and R1's links); the app's deep links R1.2: WP-159 |
+| API-TOK-03 deep links | WP-239 (the parser); WP-089 (resolution / R1's links); the app's deep links R1.2: WP-159 |
 
 The security baseline added R1 surfaces that api-needs.md now carries as
 capabilities and this table maps above: browser pairing (API-AUTH-13,
