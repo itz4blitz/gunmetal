@@ -1,6 +1,10 @@
-//! The structure-aware harness for the ID3 family (SEC-MED-031). It covers
-//! the tags at the end of a file so far: an APE tag and the `ID3v1` tag
-//! after it.
+//! The structure-aware harness for the ID3 family (SEC-MED-031). It holds
+//! two generators that read the same input as two different recipes:
+//! [`run`] for the tags at the end of a file, an APE tag and the `ID3v1` tag
+//! after it, and [`id3v2`] for an `ID3v2` tag. The fuzz target feeds every
+//! input to both.
+//!
+//! # The tags at the end of a file
 //!
 //! The fuzzer's octets are a recipe, not a file. The harness builds a file
 //! from them whose framing is sound, an APE tag whose header, footer, size
@@ -16,11 +20,30 @@
 //! the item count (0 to 8), then each item's flags (0 to 7), key length (0
 //! to 11) and key, and value length (0 to 31) and value, then the `ID3v1`
 //! tag's 125 octets after `TAG`.
+//!
+//! # `ID3v2` tags
+//!
+//! Random octets rarely make a tag whose frames line up, so [`id3v2`] also
+//! reads its input as a recipe and writes a tag with valid framing around
+//! octets the fuzzer chooses:
+//!
+//! - The first octet picks the version (2.2, 2.3 or 2.4 by its value
+//!   modulo 3), sets the tag's unsynchronisation flag with bit `0x10`, and
+//!   in 2.4 adds a footer with bit `0x20`.
+//! - Every three octets after it describe one frame, up to
+//!   [`MAX_FRAMES`]: which identifier it has from [`IDS`] or [`IDS_V22`],
+//!   its flags, and how many of the octets that follow are its body.
+//!
+//! It then reads the tag back and checks that every frame it wrote was
+//! found where it wrote it, or recorded as skipped there.
 
 use std::ops::Range;
 
 use gunmetal_core::formats::ape::{self, ApeError, ApeTag, ApeValue, ItemProblem};
 use gunmetal_core::formats::id3v1::{self, Id3v1Error, Id3v1Tag};
+use gunmetal_core::formats::id3v2::{
+    self, BUDGET_FIXED, BUDGET_PER_OCTET, FrameId, Id3v2Error, Id3v2Tag, TagProblem,
+};
 use gunmetal_core::parse::{Budget, Limits, Window};
 
 /// The tag flags of a footer whose tag has a header: bit 31.
@@ -277,14 +300,6 @@ fn allowed(key: &[u8]) -> bool {
             .any(|forbidden| key.eq_ignore_ascii_case(forbidden.as_bytes()))
 }
 
-/// Structure-aware `ID3v2` tags.
-///
-/// APE and `ID3v1` recipes stay in [`run`].
-use gunmetal_core::formats::id3v2::{
-    self, BUDGET_FIXED, BUDGET_PER_OCTET, FrameId, Id3v2Error, Id3v2Tag, TagProblem,
-};
-use gunmetal_core::parse::{Budget, Limits};
-
 /// The most frames one recipe writes, well under the tag-field limit.
 pub const MAX_FRAMES: usize = 64;
 
@@ -488,14 +503,14 @@ mod tests {
     /// Verifies: SEC-MED-031
     #[test]
     fn unsynchronises_a_2_4_frame_only_when_the_frame_or_tag_says_so() {
-        let with_flag = run(&[0x02, 11, 0x02, 2, 0xFF, 0x00]);
+        let with_flag = id3v2(&[0x02, 11, 0x02, 2, 0xFF, 0x00]);
         assert_eq!(
             with_flag.tag,
             Tag::new(Version::V24)
                 .frame(b"PRIV", 0x0002, b"\xFF\x00\x00")
                 .build()
         );
-        let without = run(&[0x02, 11, 0x00, 2, 0xFF, 0x00]);
+        let without = id3v2(&[0x02, 11, 0x00, 2, 0xFF, 0x00]);
         assert_eq!(
             without.tag,
             Tag::new(Version::V24)
@@ -503,7 +518,7 @@ mod tests {
                 .build()
         );
         // 0x11: 2.4, tag unsynchronised, no footer.
-        let tag_flag = run(&[0x11, 11, 0x00, 2, 0xFF, 0x00]);
+        let tag_flag = id3v2(&[0x11, 11, 0x00, 2, 0xFF, 0x00]);
         assert_eq!(
             tag_flag.tag,
             Tag::new(Version::V24)
@@ -520,9 +535,9 @@ mod tests {
     /// Verifies: SEC-MED-031
     #[test]
     fn writes_a_2_4_footer_without_unsynchronising() {
-        assert_eq!(run(&[0x20]).tag, Tag::new(Version::V24).footer().build());
+        assert_eq!(id3v2(&[0x20]).tag, Tag::new(Version::V24).footer().build());
         assert_eq!(
-            run(&[0x32]).tag,
+            id3v2(&[0x32]).tag,
             Tag::new(Version::V24).unsynchronised().footer().build()
         );
     }
