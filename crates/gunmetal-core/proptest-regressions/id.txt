@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8850f2c54d31f47d45fa9bfa277effee2987d9f71cf37f56f3e6d428f06402bf # shrinks to (kind, _) = (Track, "trk_"), bytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+cc 528ca06e0e729dfc36ca22f14f51d347f41b1866db38baf12b7978faa154e85d # shrinks to (kind, prefix) = (Track, "trk_"), symbols = "0amj0a0aama0pjjpv00mm0pvpv"
+cc 27fe1e7c5038d30d1608893c351d5d10e691635da4e14084f73b7b40afbfc5fc # shrinks to (kind, prefix) = (Track, "trk_"), bytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
