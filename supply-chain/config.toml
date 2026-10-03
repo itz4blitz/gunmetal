@@ -238,6 +238,11 @@ version = "1.0.229"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire codec (WP-039, owner decision D-02); serde_core names it under cfg(any()) to pin its version, and the core's tests derive with it. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.serde_spanned]]
+version = "1.1.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-043 for gunmetal-server's configuration file (toml, owner decision 23). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.sha2]]
 version = "0.11.0"
 criteria = "safe-to-deploy"
@@ -272,6 +277,21 @@ notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire co
 version = "1.13.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with unicode-normalization for search folding and natural sort (WP-036, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.toml]]
+version = "1.1.6+spec-1.1.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-043 for gunmetal-server's configuration file (owner decision 23). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.toml_datetime]]
+version = "1.1.1+spec-1.1.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-043 for gunmetal-server's configuration file (toml, owner decision 23). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.toml_parser]]
+version = "1.1.3+spec-1.1.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-043 for gunmetal-server's configuration file (toml, owner decision 23). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.typenum]]
 version = "1.20.1"
@@ -397,6 +417,11 @@ notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlit
 version = "0.53.1"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.winnow]]
+version = "1.0.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-043 for gunmetal-server's configuration file (toml, owner decision 23). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.winx]]
 version = "0.36.4"

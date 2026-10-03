@@ -1,0 +1,27 @@
+[package]
+name = "gunmetal-server"
+description = "The Gunmetal server: the gunmetal binary, its command line, configuration, logger and application state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "gunmetal"
+path = "src/main.rs"
+
+[dependencies]
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+gunmetal-fs = { path = "../gunmetal-fs", version = "0.0.0" }
+rustix = { workspace = true, features = ["process", "std", "thread"] }
+toml = { workspace = true, features = ["parse"] }
+
+[dev-dependencies]
+gunmetal-secrets = { path = "../gunmetal-secrets", version = "0.0.0" }
+gunmetal-testkit.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

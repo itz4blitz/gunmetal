@@ -1,0 +1,707 @@
+//! The `gunmetal` command line: its subcommands, parsed by hand, and the
+//! table that sends each to the module that runs it.
+//!
+//! - **No secret is an argument.** Arguments are visible to every user of
+//!   the host, in the process list and the shell history. [`FLAGS`] lists
+//!   every flag the parser accepts, none takes a secret, and anything else
+//!   is refused by name (SEC-OPS-014). No flag turns authentication off
+//!   either (SEC-HIS-004).
+//! - **Exit codes are documented.** [`Exit`] gives each kind of refusal its
+//!   own code, from `sysexits.h`, so a service manager or a script can tell
+//!   a privileged start from a bad configuration (SEC-OPS-053).
+//!
+//! This file is a registry. [`SUBCOMMANDS`] names every subcommand of the
+//! binary, including those later packages build, so the command line is
+//! parsed in one place; a package that builds one replaces its line in
+//! [`dispatch`] with a call into its own module.
+
+use std::ffi::OsString;
+use std::io::Write;
+use std::sync::Arc;
+
+use gunmetal_fs::host::HostFacts;
+
+use crate::app::{AppState, Host, StartError, VERSION};
+use crate::clock::SystemClock;
+use crate::config::Env;
+use crate::datadir;
+use crate::host::{self, Privileges};
+
+/// What the binary was asked to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// `serve`: run the server.
+    Serve,
+    /// `doctor`: check the installation (WP-116).
+    Doctor,
+    /// `admin recover`: recover administrator access (WP-106).
+    AdminRecover,
+    /// `migrate`: migrate the durable state (WP-095).
+    Migrate,
+    /// `rebuild`: rebuild the cache (WP-095).
+    Rebuild,
+    /// `snapshot restore`: go back to a snapshot (WP-095).
+    SnapshotRestore,
+    /// `restore`: restore a backup (WP-109).
+    Restore,
+    /// `service`: install or remove the service (WP-121).
+    Service,
+    /// `audit verify`: verify the audit log (WP-069).
+    AuditVerify,
+    /// `keys rotate`: rotate the keys (WP-106).
+    KeysRotate,
+    /// `worker`: the scan worker's entry, which the server starts and the
+    /// help does not list (WP-061).
+    Worker,
+    /// `--help`.
+    Help,
+    /// `--version`.
+    Version,
+}
+
+/// Every subcommand, by the words that name it.
+pub const SUBCOMMANDS: [(&[&str], Action); 11] = [
+    (&["serve"], Action::Serve),
+    (&["doctor"], Action::Doctor),
+    (&["admin", "recover"], Action::AdminRecover),
+    (&["migrate"], Action::Migrate),
+    (&["rebuild"], Action::Rebuild),
+    (&["snapshot", "restore"], Action::SnapshotRestore),
+    (&["restore"], Action::Restore),
+    (&["service"], Action::Service),
+    (&["audit", "verify"], Action::AuditVerify),
+    (&["keys", "rotate"], Action::KeysRotate),
+    (&["worker"], Action::Worker),
+];
+
+/// The flag that names the data directory.
+const DATA_DIR: &str = "--data-dir";
+
+/// Every flag the parser accepts. `--data-dir` takes the next argument as
+/// its value; the others take none.
+pub const FLAGS: [&str; 5] = [DATA_DIR, "--help", "-h", "--version", "-V"];
+
+/// A parsed command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    /// What to do.
+    pub action: Action,
+    /// The data directory `--data-dir` names, if it was given.
+    pub data_dir: Option<OsString>,
+}
+
+/// Why the command line was refused. Arguments are quoted in lossy UTF-8.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UsageError {
+    /// No subcommand was given.
+    NoCommand,
+    /// The words name no subcommand.
+    UnknownCommand(String),
+    /// The words are the start of a subcommand that needs another word.
+    IncompleteCommand(String),
+    /// A subcommand was followed by an argument it does not take.
+    UnexpectedArgument(String),
+    /// The flag is not one of [`FLAGS`].
+    UnknownFlag(String),
+    /// `--data-dir` was the last argument, or its value was empty.
+    MissingValue,
+    /// `--data-dir` was given twice.
+    RepeatedFlag,
+}
+
+impl UsageError {
+    /// What to tell the person who typed the command.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::NoCommand => "No command given.".to_owned(),
+            Self::UnknownCommand(words) => format!("{words:?} is not a gunmetal command."),
+            Self::IncompleteCommand(words) => {
+                format!("{words:?} is not a whole command; it needs another word.")
+            }
+            Self::UnexpectedArgument(argument) => {
+                format!("Unexpected argument {argument:?}.")
+            }
+            Self::UnknownFlag(flag) => format!(
+                "{flag:?} is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets)."
+            ),
+            Self::MissingValue => "--data-dir needs a directory after it.".to_owned(),
+            Self::RepeatedFlag => "--data-dir was given twice.".to_owned(),
+        }
+    }
+}
+
+/// The subcommand `words` name.
+fn action(words: &[&str]) -> Result<Action, UsageError> {
+    let exact = SUBCOMMANDS.iter().find(|(path, _)| *path == words);
+    let extra = SUBCOMMANDS
+        .iter()
+        .find_map(|(path, _)| words.strip_prefix(*path).and_then(<[&str]>::first));
+    let partial = SUBCOMMANDS.iter().any(|(path, _)| path.starts_with(words));
+    match (exact, extra) {
+        (Some((_, action)), _) => Ok(*action),
+        (None, Some(argument)) => Err(UsageError::UnexpectedArgument((*argument).to_owned())),
+        (None, None) if words.is_empty() => Err(UsageError::NoCommand),
+        (None, None) if partial => Err(UsageError::IncompleteCommand(words.join(" "))),
+        (None, None) => Err(UsageError::UnknownCommand(words.join(" "))),
+    }
+}
+
+/// Parses the arguments after the program's name.
+///
+/// # Errors
+///
+/// A [`UsageError`] for anything that is not a subcommand with the flags
+/// in [`FLAGS`].
+pub fn parse_args(args: &[OsString]) -> Result<Command, UsageError> {
+    let mut words = Vec::new();
+    let mut data_dir = None;
+    let mut help = false;
+    let mut version = false;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let text = arg.to_string_lossy();
+        match &*text {
+            "--help" | "-h" => help = true,
+            "--version" | "-V" => version = true,
+            DATA_DIR => {
+                let value = rest
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(UsageError::MissingValue)?;
+                if data_dir.replace(value.clone()).is_some() {
+                    return Err(UsageError::RepeatedFlag);
+                }
+            }
+            flag if flag.starts_with('-') => {
+                return Err(UsageError::UnknownFlag(flag.to_owned()));
+            }
+            _ => words.push(text),
+        }
+    }
+    let words: Vec<&str> = words.iter().map(|word| &**word).collect();
+    let action = match (help, version) {
+        (true, _) => Action::Help,
+        (false, true) => Action::Version,
+        (false, false) => action(&words)?,
+    };
+    Ok(Command { action, data_dir })
+}
+
+/// How the binary ended, as its exit code says. The codes are those of
+/// `sysexits.h`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    /// The command did what it was asked.
+    Ok,
+    /// The command line was refused.
+    Usage,
+    /// The subcommand is not in this build.
+    Unavailable,
+    /// The process could not read its own privileges or switch core dumps
+    /// off.
+    Os,
+    /// The data directory was refused or could not be used.
+    DataDir,
+    /// The process is root or holds a capability.
+    Privileged,
+    /// The configuration file or the environment was refused.
+    Config,
+}
+
+impl Exit {
+    /// The exit code.
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::Ok => 0,
+            Self::Usage => 64,
+            Self::Unavailable => 69,
+            Self::Os => 71,
+            Self::DataDir => 74,
+            Self::Privileged => 77,
+            Self::Config => 78,
+        }
+    }
+
+    /// The code a start-up refusal ends with.
+    #[must_use]
+    pub const fn of(error: &StartError) -> Self {
+        match error {
+            StartError::Os(_) => Self::Os,
+            StartError::Privileged(_) => Self::Privileged,
+            StartError::DataDir(_) => Self::DataDir,
+            StartError::ConfigFile(_) | StartError::Config(_) => Self::Config,
+        }
+    }
+}
+
+/// What `--help` prints. The worker's entry is left out on purpose.
+pub const HELP: &str = "\
+Usage: gunmetal [--data-dir DIR] <command>
+
+Commands:
+  serve             Run the server
+  doctor            Check the installation
+  admin recover     Recover administrator access
+  migrate           Migrate the durable state
+  rebuild           Rebuild the cache from the library and the user log
+  snapshot restore  Go back to a snapshot taken before a migration
+  restore           Restore a backup
+  service           Install or remove the system service
+  audit verify      Verify the audit log
+  keys rotate       Rotate the server's keys
+
+Options:
+  --data-dir DIR    The data directory (default: GUNMETAL_DATA_DIR, then
+                    /var/lib/gunmetal)
+  -h, --help        Print this help
+  -V, --version     Print the version
+
+No option takes a secret. Secrets are read from files.
+";
+
+/// Writes `text` and a newline to the console. A console that cannot be
+/// written to changes nothing about the command's result.
+fn say(console: &mut dyn Write, text: &str) {
+    let _ = writeln!(console, "{text}");
+}
+
+/// Runs the binary: `args` are the arguments after the program's name and
+/// `vars` the process environment. Help, the version and log lines go to
+/// `out`; messages for the person at the console go to `err`.
+pub fn run(
+    args: &[OsString],
+    vars: Vec<(OsString, OsString)>,
+    out: Box<dyn Write + Send>,
+    err: &mut dyn Write,
+) -> Exit {
+    match parse_args(args) {
+        Ok(command) => dispatch(&command, vars, out, err),
+        Err(error) => {
+            say(err, &format!("gunmetal: {}", error.message()));
+            say(err, "Run gunmetal --help for the commands and options.");
+            Exit::Usage
+        }
+    }
+}
+
+/// Sends `command` to the module that runs it.
+fn dispatch(
+    command: &Command,
+    vars: Vec<(OsString, OsString)>,
+    mut out: Box<dyn Write + Send>,
+    err: &mut dyn Write,
+) -> Exit {
+    match command.action {
+        Action::Help => print(&mut *out, HELP.trim_end()),
+        Action::Version => print(&mut *out, &format!("gunmetal {VERSION}")),
+        Action::Serve => serve(command, vars, out, err),
+        // One line per subcommand. The package that builds a subcommand
+        // replaces its line with a call into its own module.
+        Action::Doctor => not_built(err, "doctor"),
+        Action::AdminRecover => not_built(err, "admin recover"),
+        Action::Migrate => not_built(err, "migrate"),
+        Action::Rebuild => not_built(err, "rebuild"),
+        Action::SnapshotRestore => not_built(err, "snapshot restore"),
+        Action::Restore => not_built(err, "restore"),
+        Action::Service => not_built(err, "service"),
+        Action::AuditVerify => not_built(err, "audit verify"),
+        Action::KeysRotate => not_built(err, "keys rotate"),
+        Action::Worker => not_built(err, "worker"),
+    }
+}
+
+/// Prints `text` for a command that only prints.
+fn print(out: &mut dyn Write, text: &str) -> Exit {
+    say(out, text);
+    Exit::Ok
+}
+
+/// Refuses a subcommand whose module is not built yet.
+fn not_built(err: &mut dyn Write, name: &str) -> Exit {
+    say(
+        err,
+        &format!("gunmetal: {name} is not part of this build yet."),
+    );
+    Exit::Unavailable
+}
+
+/// Runs `serve`: switches core dumps off, probes the host, and starts the
+/// application state. The listener (WP-118) takes the state from here.
+fn serve(
+    command: &Command,
+    vars: Vec<(OsString, OsString)>,
+    out: Box<dyn Write + Send>,
+    err: &mut dyn Write,
+) -> Exit {
+    let env = Env::read(vars);
+    let from_env = env.as_ref().ok().and_then(|env| env.data_dir.as_ref());
+    let dir = datadir::choose(command.data_dir.as_ref(), from_env);
+    let started = env.map_err(StartError::Config).and_then(|env| {
+        host::disable_core_dumps()
+            .and_then(|()| Privileges::probe())
+            .map_err(StartError::Os)
+            .and_then(|privileges| {
+                HostFacts::probe(&dir)
+                    .map(|facts| Host { privileges, facts })
+                    .map_err(StartError::DataDir)
+            })
+            .and_then(|host| AppState::start(&dir, &host, &env, Arc::new(SystemClock), out))
+    });
+    match started {
+        Ok(_) => Exit::Ok,
+        Err(error) => {
+            say(err, &format!("gunmetal: {}", error.message(&dir)));
+            Exit::of(&error)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ConfigError;
+    use crate::datadir::ConfigFileError;
+    use crate::host::PrivilegeError;
+    use crate::testing::Capture;
+    use gunmetal_fs::dataroot::DataRootError;
+    use gunmetal_fs::host::NetworkFs;
+    use proptest::prelude::*;
+    use rustix::io::Errno;
+
+    fn args(list: &[&str]) -> Vec<OsString> {
+        list.iter().map(OsString::from).collect()
+    }
+
+    fn parse(list: &[&str]) -> Result<Command, UsageError> {
+        parse_args(&args(list))
+    }
+
+    fn plain(action: Action) -> Command {
+        Command {
+            action,
+            data_dir: None,
+        }
+    }
+
+    /// Runs the binary with no environment and returns its exit, what it
+    /// printed and what it told the console.
+    fn ran(list: &[&str]) -> (Exit, String, String) {
+        let out = Capture::default();
+        let mut err = Capture::default();
+        let exit = run(&args(list), Vec::new(), Box::new(out.clone()), &mut err);
+        (exit, out.text(), err.text())
+    }
+
+    #[test]
+    fn parses_every_subcommand() {
+        let cases: [(&[&str], Action); 11] = [
+            (&["serve"], Action::Serve),
+            (&["doctor"], Action::Doctor),
+            (&["admin", "recover"], Action::AdminRecover),
+            (&["migrate"], Action::Migrate),
+            (&["rebuild"], Action::Rebuild),
+            (&["snapshot", "restore"], Action::SnapshotRestore),
+            (&["restore"], Action::Restore),
+            (&["service"], Action::Service),
+            (&["audit", "verify"], Action::AuditVerify),
+            (&["keys", "rotate"], Action::KeysRotate),
+            (&["worker"], Action::Worker),
+        ];
+        for (words, action) in cases {
+            assert_eq!(parse(words), Ok(plain(action)));
+        }
+        assert_eq!(SUBCOMMANDS, cases);
+    }
+
+    #[test]
+    fn takes_the_data_directory_before_between_or_after_the_words() {
+        let expected = Ok(Command {
+            action: Action::AdminRecover,
+            data_dir: Some(OsString::from("/srv/gunmetal")),
+        });
+        for list in [
+            ["--data-dir", "/srv/gunmetal", "admin", "recover"],
+            ["admin", "--data-dir", "/srv/gunmetal", "recover"],
+            ["admin", "recover", "--data-dir", "/srv/gunmetal"],
+        ] {
+            assert_eq!(parse(&list), expected);
+        }
+        // The value is taken as it is, even when it looks like a flag or a
+        // command.
+        assert_eq!(
+            parse(&["serve", "--data-dir", "--help"]),
+            Ok(Command {
+                action: Action::Serve,
+                data_dir: Some(OsString::from("--help")),
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_a_data_directory_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = OsString::from_vec(vec![b'/', 0xff]);
+        assert_eq!(
+            parse_args(&[
+                OsString::from("serve"),
+                OsString::from("--data-dir"),
+                dir.clone()
+            ]),
+            Ok(Command {
+                action: Action::Serve,
+                data_dir: Some(dir),
+            })
+        );
+    }
+
+    #[test]
+    fn help_and_version_need_no_command_and_help_wins() {
+        for flag in ["--help", "-h"] {
+            assert_eq!(parse(&[flag]), Ok(plain(Action::Help)));
+            assert_eq!(parse(&["serve", flag]), Ok(plain(Action::Help)));
+            assert_eq!(parse(&["--version", flag]), Ok(plain(Action::Help)));
+            assert_eq!(
+                parse(&["no", "such", "command", flag]),
+                Ok(plain(Action::Help))
+            );
+        }
+        for flag in ["--version", "-V"] {
+            assert_eq!(parse(&[flag]), Ok(plain(Action::Version)));
+            assert_eq!(parse(&[flag, "doctor"]), Ok(plain(Action::Version)));
+        }
+    }
+
+    #[test]
+    fn refuses_every_malformed_command_line() {
+        let cases: [(&[&str], UsageError); 14] = [
+            (&[], UsageError::NoCommand),
+            (&["--data-dir", "/d"], UsageError::NoCommand),
+            (&["run"], UsageError::UnknownCommand("run".to_owned())),
+            (
+                &["admin", "reset"],
+                UsageError::UnknownCommand("admin reset".to_owned()),
+            ),
+            (&["Serve"], UsageError::UnknownCommand("Serve".to_owned())),
+            (&[""], UsageError::UnknownCommand(String::new())),
+            (
+                &["admin"],
+                UsageError::IncompleteCommand("admin".to_owned()),
+            ),
+            (
+                &["snapshot"],
+                UsageError::IncompleteCommand("snapshot".to_owned()),
+            ),
+            (
+                &["serve", "now"],
+                UsageError::UnexpectedArgument("now".to_owned()),
+            ),
+            (
+                &["snapshot", "restore", "2026-10-01", "x"],
+                UsageError::UnexpectedArgument("2026-10-01".to_owned()),
+            ),
+            (&["serve", "--data-dir"], UsageError::MissingValue),
+            (&["serve", "--data-dir", ""], UsageError::MissingValue),
+            (
+                &["--data-dir", "/a", "serve", "--data-dir", "/b"],
+                UsageError::RepeatedFlag,
+            ),
+            (
+                &["serve", "--data-dir=/srv"],
+                UsageError::UnknownFlag("--data-dir=/srv".to_owned()),
+            ),
+        ];
+        for (list, error) in cases {
+            assert_eq!(parse(list), Err(error));
+        }
+    }
+
+    /// Verifies: SEC-OPS-014, SEC-HIS-004
+    #[test]
+    fn the_flags_are_exactly_these_and_none_takes_a_secret() {
+        // A change here is a change to what can be typed on a command line
+        // that every user of the host can read. Before updating this list,
+        // check the new flag: it must not carry a secret, and it must not
+        // turn authentication off or weaken it.
+        assert_eq!(FLAGS, ["--data-dir", "--help", "-h", "--version", "-V"]);
+        for flag in [
+            "--root-key",
+            "--root-secret",
+            "--token",
+            "--api-key",
+            "--password",
+            "--recovery-code",
+            "--oidc-client-secret",
+            "--no-auth",
+            "--disable-auth",
+            "--insecure",
+            "-p",
+            "-",
+            "--",
+        ] {
+            assert_eq!(
+                parse(&["serve", flag, "canary-value"]),
+                Err(UsageError::UnknownFlag(flag.to_owned()))
+            );
+        }
+    }
+
+    proptest! {
+        /// Verifies: SEC-OPS-014, SEC-HIS-004
+        #[test]
+        fn a_flag_that_is_not_listed_is_refused_by_name(
+            flag in "-{1,2}[a-zA-Z=-]{0,16}",
+            at in 0_usize..3,
+        ) {
+            prop_assume!(!["--data-dir", "--help", "-h", "--version", "-V"].contains(&flag.as_str()));
+            let mut list = vec!["admin", "recover"];
+            list.insert(at, &flag);
+            prop_assert_eq!(parse(&list), Err(UsageError::UnknownFlag(flag.clone())));
+        }
+    }
+
+    #[test]
+    fn says_what_is_wrong_with_the_command_line() {
+        let messages: Vec<String> = [
+            UsageError::NoCommand,
+            UsageError::UnknownCommand("run\u{1b}[31m".to_owned()),
+            UsageError::IncompleteCommand("admin".to_owned()),
+            UsageError::UnexpectedArgument("now".to_owned()),
+            UsageError::UnknownFlag("--token".to_owned()),
+            UsageError::MissingValue,
+            UsageError::RepeatedFlag,
+        ]
+        .iter()
+        .map(UsageError::message)
+        .collect();
+        assert_eq!(
+            messages,
+            [
+                "No command given.",
+                "\"run\\u{1b}[31m\" is not a gunmetal command.",
+                "\"admin\" is not a whole command; it needs another word.",
+                "Unexpected argument \"now\".",
+                "\"--token\" is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).",
+                "--data-dir needs a directory after it.",
+                "--data-dir was given twice.",
+            ]
+        );
+    }
+
+    /// Verifies: SEC-OPS-053
+    #[test]
+    fn every_refusal_has_its_documented_exit_code() {
+        let codes = [
+            Exit::Ok,
+            Exit::Usage,
+            Exit::Unavailable,
+            Exit::Os,
+            Exit::DataDir,
+            Exit::Privileged,
+            Exit::Config,
+        ]
+        .map(Exit::code);
+        assert_eq!(codes, [0, 64, 69, 71, 74, 77, 78]);
+        let exits = [
+            StartError::Os(Errno::PERM),
+            StartError::Privileged(PrivilegeError::Root),
+            StartError::Privileged(PrivilegeError::Capabilities {
+                effective: 1,
+                permitted: 1,
+            }),
+            StartError::DataDir(DataRootError::NetworkFilesystem(NetworkFs::Nfs)),
+            StartError::ConfigFile(ConfigFileError::NotUtf8),
+            StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
+        ]
+        .map(|error| Exit::of(&error));
+        assert_eq!(
+            exits,
+            [
+                Exit::Os,
+                Exit::Privileged,
+                Exit::Privileged,
+                Exit::DataDir,
+                Exit::Config,
+                Exit::Config
+            ]
+        );
+    }
+
+    #[test]
+    fn prints_the_help_without_the_worker_entry() {
+        let (exit, out, err) = ran(&["--help"]);
+        assert_eq!((exit, err.as_str()), (Exit::Ok, ""));
+        assert_eq!(
+            out,
+            "Usage: gunmetal [--data-dir DIR] <command>\n\
+             \n\
+             Commands:\n\
+             \x20 serve             Run the server\n\
+             \x20 doctor            Check the installation\n\
+             \x20 admin recover     Recover administrator access\n\
+             \x20 migrate           Migrate the durable state\n\
+             \x20 rebuild           Rebuild the cache from the library and the user log\n\
+             \x20 snapshot restore  Go back to a snapshot taken before a migration\n\
+             \x20 restore           Restore a backup\n\
+             \x20 service           Install or remove the system service\n\
+             \x20 audit verify      Verify the audit log\n\
+             \x20 keys rotate       Rotate the server's keys\n\
+             \n\
+             Options:\n\
+             \x20 --data-dir DIR    The data directory (default: GUNMETAL_DATA_DIR, then\n\
+             \x20                   /var/lib/gunmetal)\n\
+             \x20 -h, --help        Print this help\n\
+             \x20 -V, --version     Print the version\n\
+             \n\
+             No option takes a secret. Secrets are read from files.\n"
+        );
+    }
+
+    #[test]
+    fn prints_the_version() {
+        assert_eq!(
+            ran(&["--version"]),
+            (Exit::Ok, "gunmetal 0.0.0\n".to_owned(), String::new())
+        );
+    }
+
+    #[test]
+    fn a_refused_command_line_exits_with_the_usage_code_and_says_why() {
+        assert_eq!(
+            ran(&["serve", "--token", "canary-value"]),
+            (
+                Exit::Usage,
+                String::new(),
+                "gunmetal: \"--token\" is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_subcommand_another_package_builds_says_so_and_exits_unavailable() {
+        let cases: [(&[&str], &str); 10] = [
+            (&["doctor"], "doctor"),
+            (&["admin", "recover"], "admin recover"),
+            (&["migrate"], "migrate"),
+            (&["rebuild"], "rebuild"),
+            (&["snapshot", "restore"], "snapshot restore"),
+            (&["restore"], "restore"),
+            (&["service"], "service"),
+            (&["audit", "verify"], "audit verify"),
+            (&["keys", "rotate"], "keys rotate"),
+            (&["worker"], "worker"),
+        ];
+        for (words, name) in cases {
+            assert_eq!(
+                ran(words),
+                (
+                    Exit::Unavailable,
+                    String::new(),
+                    format!("gunmetal: {name} is not part of this build yet.\n")
+                )
+            );
+        }
+    }
+}
