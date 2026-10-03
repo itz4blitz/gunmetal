@@ -54,6 +54,7 @@ harnesses! {
     ebml,
     link,
     net,
+    otp,
     text,
     time,
     values,

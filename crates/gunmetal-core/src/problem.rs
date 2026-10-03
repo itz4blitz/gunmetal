@@ -71,6 +71,8 @@ macro_rules! problems {
 problems! {
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
+    InvalidCode = ("invalid_code", Some(400), "That code is not valid. Check it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
 }
@@ -108,11 +110,16 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 3] = [
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
+        ),
+        (
+            "invalid_code",
+            Some(400),
+            "That code is not valid. Check it and try again.",
         ),
         (
             "not_found",

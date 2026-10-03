@@ -21,6 +21,7 @@ pub mod base64;
 pub mod ebml;
 pub mod link;
 pub mod net;
+pub mod otp;
 pub mod registry;
 pub mod text;
 pub mod time;

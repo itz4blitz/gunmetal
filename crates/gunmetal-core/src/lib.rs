@@ -11,6 +11,7 @@ pub mod ebml;
 pub mod id;
 pub mod link;
 pub mod net;
+pub mod otp;
 pub mod parse;
 pub mod problem;
 pub mod schema;
