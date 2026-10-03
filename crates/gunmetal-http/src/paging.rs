@@ -164,7 +164,6 @@ mod tests {
         assert_eq!(Cursor::new(&"a".repeat(CURSOR_MAX + 1)), None);
     }
 
-    /// Verifies: SEC-API-025
     #[test]
     fn decodes_and_refuses_cursors_in_queries() {
         assert_eq!(
