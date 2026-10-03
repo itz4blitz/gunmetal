@@ -23,10 +23,30 @@ version = "2.13.2"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.block-buffer]]
+version = "0.12.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through digest. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.cfg-if]]
 version = "1.0.5"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02; raised to safe-to-deploy on 2026-10-03 because sha2 (WP-122) makes it a runtime dependency of gunmetal-core. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cpufeatures]]
+version = "0.3.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); sha2 uses it to detect SHA CPU extensions. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.crypto-common]]
+version = "0.2.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through digest. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.digest]]
+version = "0.11.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); the trait crate sha2 implements. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.errno]]
 version = "0.3.14"
@@ -48,10 +68,15 @@ version = "0.4.3"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.hybrid-array]]
+version = "0.4.15"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through block-buffer and crypto-common. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.libc]]
 version = "0.2.190"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02; raised to safe-to-deploy on 2026-10-03 because sha2 (WP-122) makes it a runtime dependency of gunmetal-core on AArch64 Linux and Android, through cpufeatures. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.linux-raw-sys]]
 version = "0.12.1"
@@ -118,10 +143,20 @@ version = "0.3.1"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.sha2]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 for gunmetal-core's crypto module, its only user in the core (WP-122, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.syn]]
 version = "2.0.119"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.typenum]]
+version = "1.20.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through hybrid-array. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.unicode-ident]]
 version = "1.0.26"
