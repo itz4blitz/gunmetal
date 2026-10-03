@@ -1072,10 +1072,22 @@ fn sarif_path(result: &Value) -> String {
         .to_owned()
 }
 
-/// Published-advisory objects from a list, `{ "advisories": [...] }`, or one object.
+/// Published-advisory objects from a list, a list of pages (`gh api
+/// --paginate --slurp`), `{ "advisories": [...] }`, or one object.
 fn advisory_items(text: &str) -> Option<Vec<Value>> {
     let value = json::parse(text)?;
     match &value {
+        Value::Array(pages)
+            if pages
+                .first()
+                .is_some_and(|page| matches!(page, Value::Array(_))) =>
+        {
+            let mut items = Vec::new();
+            for page in pages {
+                items.extend(page.as_array()?.iter().cloned());
+            }
+            Some(items)
+        }
         Value::Array(items) => Some(items.clone()),
         Value::Object(_) => {
             if let Some(Value::Array(items)) = value.get("advisories") {
@@ -2151,6 +2163,30 @@ path = [\"fuzz/seeds/**\"]
             "fn ghsa_aaaa_bbbb_cccc_rejects() {}\n",
         );
         assert_eq!(advisories(&tree, json), []);
+    }
+
+    /// Verifies: SEC-TM-003
+    #[test]
+    fn advisories_on_every_page_of_a_slurped_listing_are_checked() {
+        let pages = r#"[[{"ghsa_id":"GHSA-aaaa-bbbb-cccc","state":"published"}],[],[{"ghsa_id":"GHSA-dddd-eeee-ffff","state":"published"}]]"#;
+        assert_eq!(
+            advisories(&passing(), pages),
+            [
+                Finding::UnmappedAdvisory {
+                    id: "GHSA-aaaa-bbbb-cccc".to_owned(),
+                },
+                Finding::UnmappedAdvisory {
+                    id: "GHSA-dddd-eeee-ffff".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(advisories(&passing(), "[[],[]]"), []);
+        assert_eq!(
+            advisories(&passing(), r#"[[],{"ghsa_id":"GHSA-aaaa-bbbb-cccc"}]"#),
+            [Finding::Unreadable {
+                path: "advisories".to_owned(),
+            }]
+        );
     }
 
     /// Verifies: SEC-TM-003

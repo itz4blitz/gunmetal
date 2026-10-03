@@ -1,9 +1,13 @@
 name: Settings drift
 
-# Compares live repository protections with the expected state (SEC-SUP-001
-# to SEC-SUP-007). The job needs a fine-grained token with administration
-# read on this repository and organisation read for the 2FA setting; store
-# it as SETTINGS_READER_TOKEN. GITHUB_TOKEN cannot read rulesets.
+# Compares live repository protections with the expected state (SEC-SUP-001,
+# SEC-SUP-003, SEC-SUP-005 to SEC-SUP-007, SEC-SUP-010, SEC-SUP-018), and
+# checks that every published security advisory has a regression test named
+# after it (SEC-TM-003). The fetch step needs a fine-grained token stored as
+# SETTINGS_READER_TOKEN with read access to this repository's
+# administration, contents and repository security advisories, and
+# organisation administration read for the 2FA setting. GITHUB_TOKEN cannot
+# read rulesets. Only the fetch step sees the token (SEC-SUP-012).
 on:
   schedule:
     - cron: "41 6 * * *"
@@ -18,8 +22,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    env:
-      GH_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -27,18 +29,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
-      - name: Fetch live settings
+      # An endpoint for a feature that is off answers 404 with a JSON body;
+      # that body is kept, and xtask reports it as drift or unreadable.
+      - name: Fetch live settings and advisories
+        env:
+          GH_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
         run: |
-          mkdir -p target/settings
-          gh api "orgs/${GITHUB_REPOSITORY_OWNER}" > target/settings/org.json
-          gh api "repos/$GITHUB_REPOSITORY" > target/settings/repo.json
-          gh api "repos/$GITHUB_REPOSITORY/rulesets" > target/settings/rulesets.json
+          set -eu
+          dir=target/settings
+          mkdir -p "$dir"
+          gh api "orgs/${GITHUB_REPOSITORY_OWNER}" > "$dir/org.json"
+          gh api "repos/$GITHUB_REPOSITORY" > "$dir/repo.json"
+          gh api "repos/$GITHUB_REPOSITORY/rulesets" > "$dir/rulesets.json"
           gh api "repos/$GITHUB_REPOSITORY/private-vulnerability-reporting" \
-            > target/settings/private-vulnerability-reporting.json
+            > "$dir/private-vulnerability-reporting.json" || true
           gh api "repos/$GITHUB_REPOSITORY/actions/permissions" \
-            > target/settings/actions-permissions.json
+            > "$dir/actions-permissions.json"
+          gh api "repos/$GITHUB_REPOSITORY/immutable-releases" \
+            > "$dir/immutable-releases.json" || true
           gh api "repos/$GITHUB_REPOSITORY/rulesets" --jq ".[].id" | while read -r ident; do
             gh api "repos/$GITHUB_REPOSITORY/rulesets/$ident" \
-              > "target/settings/ruleset-$ident.json"
+              > "$dir/ruleset-$ident.json"
           done
-      - run: cargo run --locked --quiet -p xtask -- repo settings target/settings
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/security-advisories?per_page=100" \
+            > target/advisories.json || true
+      - name: Settings match the policy
+        run: cargo run --locked --quiet -p xtask -- repo settings target/settings
+      - name: Every published advisory has a regression test
+        if: always()
+        run: cargo run --locked --quiet -p xtask -- repo advisories target/advisories.json
