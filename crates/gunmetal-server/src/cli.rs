@@ -101,7 +101,9 @@ pub enum UsageError {
     IncompleteCommand(String),
     /// A subcommand was followed by an argument it does not take.
     UnexpectedArgument(String),
-    /// The flag is not one of [`FLAGS`].
+    /// The flag is not one of [`FLAGS`]. The string is the flag name
+    /// only: the text before `=`, so a value after `=` is never stored
+    /// or printed (SEC-OPS-014).
     UnknownFlag(String),
     /// `--data-dir` was the last argument, or its value was empty.
     MissingValue,
@@ -147,6 +149,15 @@ fn action(words: &[&str]) -> Result<Action, UsageError> {
     }
 }
 
+/// The flag name in `token`: the text before the first `=`, so a value
+/// after `=` is never stored or printed (SEC-OPS-014).
+fn flag_name(token: &str) -> &str {
+    match token.split_once('=') {
+        Some((name, _)) => name,
+        None => token,
+    }
+}
+
 /// Parses the arguments after the program's name.
 ///
 /// # Errors
@@ -174,7 +185,7 @@ pub fn parse_args(args: &[OsString]) -> Result<Command, UsageError> {
                 }
             }
             flag if flag.starts_with('-') => {
-                return Err(UsageError::UnknownFlag(flag.to_owned()));
+                return Err(UsageError::UnknownFlag(flag_name(flag).to_owned()));
             }
             _ => words.push(text),
         }
@@ -524,7 +535,7 @@ mod tests {
             ),
             (
                 &["serve", "--data-dir=/srv"],
-                UsageError::UnknownFlag("--data-dir=/srv".to_owned()),
+                UsageError::UnknownFlag("--data-dir".to_owned()),
             ),
         ];
         for (list, error) in cases {
@@ -562,6 +573,36 @@ mod tests {
         }
     }
 
+    /// Verifies: SEC-OPS-014
+    #[test]
+    fn an_equals_form_unknown_flag_never_repeats_the_value() {
+        let cases = [
+            ("--password=SECRET-canary-9f2a", "--password"),
+            ("--token=canary-token-7b1e", "--token"),
+            (
+                "--oidc-client-secret=canary-oidc-4c8d",
+                "--oidc-client-secret",
+            ),
+            ("-p=SECRET-canary-9f2a", "-p"),
+            ("--password=SE=CRET-canary-9f2a", "--password"),
+        ];
+        for (arg, name) in cases {
+            assert_eq!(
+                parse(&["serve", arg]),
+                Err(UsageError::UnknownFlag(name.to_owned()))
+            );
+            let (exit, out, err) = ran(&["serve", arg]);
+            assert_eq!(exit, Exit::Usage);
+            assert_eq!(out, "");
+            assert_eq!(
+                err,
+                format!(
+                    "gunmetal: {name:?} is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n"
+                )
+            );
+        }
+    }
+
     proptest! {
         /// Verifies: SEC-OPS-014, SEC-HIS-004
         #[test]
@@ -572,7 +613,11 @@ mod tests {
             prop_assume!(!["--data-dir", "--help", "-h", "--version", "-V"].contains(&flag.as_str()));
             let mut list = vec!["admin", "recover"];
             list.insert(at, &flag);
-            prop_assert_eq!(parse(&list), Err(UsageError::UnknownFlag(flag.clone())));
+            let name = match flag.split_once('=') {
+                Some((name, _)) => name,
+                None => flag.as_str(),
+            };
+            prop_assert_eq!(parse(&list), Err(UsageError::UnknownFlag(name.to_owned())));
         }
     }
 
