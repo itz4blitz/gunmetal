@@ -32,6 +32,46 @@ Run everything with:
 scripts/gate.sh
 ```
 
+On a machine without network, `GATE_OFFLINE=1 scripts/gate.sh` runs the
+dependency checks against cached data.
+
+## Security
+
+Read the [secure-coding guide](docs/security/secure-coding.md) before
+writing code. It lists the sinks only one module may touch, how untrusted
+input is handled and how security code is tested. The full baseline is in
+[docs/security](docs/security/README.md), and vulnerabilities are reported
+as [SECURITY.md](SECURITY.md) describes.
+
+### Tests name the requirements they verify
+
+Every security requirement in `docs/security` is proved by a test or a
+recorded review, and the test says which requirement it proves (SEC-STD-004).
+Put one line in the test function's doc comment, starting with `Verifies:`
+and followed by the requirement IDs, separated by commas:
+
+```rust
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_the_empty_input() {
+```
+
+```rust
+proptest! {
+    /// Verifies: SEC-MED-001, SEC-MED-004
+    #[test]
+    fn never_panics_on_any_input(bytes in vec(any::<u8>(), 0..256)) {
+```
+
+- Write the IDs exactly as the requirement tables do (`SEC-` area, number).
+  Cite only live requirements, never withdrawn ones.
+- Name the test after the behaviour, not the ID; the `Verifies:` line is
+  how the traceability check finds it.
+- Add the line only where the test really proves the requirement. A test
+  that merely exercises the code is not proof.
+- The regression test for a fixed vulnerability is also named after its
+  advisory ID (SEC-TM-003).
+
 ## Property tests
 
 Parsers get property tests as well as examples. When random input is unlikely

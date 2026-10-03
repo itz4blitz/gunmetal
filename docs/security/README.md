@@ -37,6 +37,7 @@ feature file, plan and line of code is held to.
 | [supply-chain-and-release.md](supply-chain-and-release.md) | Repository protections, CI, dependencies, releases, update feed, disclosure |
 | [rival-security-history.md](rival-security-history.md) | What went wrong at Plex, Jellyfin, Emby, Navidrome and Immich, and the rules that stop it here |
 | [standards-coverage.md](standards-coverage.md) | Coverage against ASVS, Top 10, API Top 10, MASVS, CWE Top 25 and SSDF, and the SEC-STD requirements that fill the gaps |
+| [secure-coding.md](secure-coding.md) | The short guide for contributors: forbidden sinks, untrusted input, and how security code is tested (SEC-STD-037) |
 
 ## First principles
 
