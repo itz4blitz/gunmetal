@@ -642,7 +642,8 @@ impl Probe {
         if stack.last().is_some_and(|open| open.kind == ILST) {
             found.movie.items.leave(&mut found.movie.problems);
         }
-        if child.kind == MOOV && stack.is_empty() {
+        // A movie is only entered at the top of the file.
+        if child.kind == MOOV {
             found.audio = Some(found.movie.take_audio(child.offset)?);
         }
         self.next_header(child.end, stack, found, file_len)
@@ -845,8 +846,9 @@ impl Probe {
         let parent = stack.last().map(|open| open.kind);
         let in_mdia = parent == Some(MDIA);
         let in_stbl = parent == Some(STBL);
-        let in_item =
-            parent.is_some_and(|kind| stack.iter().any(|open| open.kind == ILST) && kind != ILST);
+        // Children of `ilst` are entered as items, so a leaf under `ilst`
+        // is inside one of them.
+        let in_item = stack.iter().any(|open| open.kind == ILST);
         if in_mdia && (kind.0 == *b"mdhd" || kind == HDLR) {
             let extra = found.movie.audio.is_some();
             if extra && kind.0 == *b"mdhd" {
@@ -1029,8 +1031,8 @@ mod tests {
     use crate::text::Text;
     use crate::values::{BitDepth, Channels, SampleRate};
     use gunmetal_testkit::mp4::{
-        self as kit, SampleEntry, data, freeform, ftyp, full_box, large_box, mp4_box, open_box,
-        stsd, trak, udta,
+        self as kit, SampleEntry, data, freeform, ftyp, full_box, hdlr, large_box, mp4_box,
+        open_box, stsd, trak, udta,
     };
     use proptest::collection::vec;
     use proptest::prelude::*;
@@ -1151,6 +1153,19 @@ mod tests {
     /// A track of 292 octets with `handler` and the standard tables.
     fn track(handler: [u8; 4], timescale: u32) -> Vec<u8> {
         trak(handler, &kit::mdhd(timescale, 441_000), &tables())
+    }
+
+    /// The `mdia` box of the standard audio track.
+    fn audio_mdia() -> Vec<u8> {
+        mp4_box(
+            *b"mdia",
+            &[
+                kit::mdhd(44_100, 441_000),
+                hdlr(*b"soun"),
+                mp4_box(*b"minf", &mp4_box(*b"stbl", &tables())),
+            ]
+            .concat(),
+        )
     }
 
     /// The standard item list: a title, a freeform item and artwork.
@@ -1888,6 +1903,185 @@ mod tests {
                 max: 0,
                 offset: 514,
             }))]
+        );
+    }
+
+    #[test]
+    fn keeps_the_outer_track_when_a_trak_is_nested_inside_it() {
+        // An empty trak as the first child of the audio track: starting a
+        // new TrackParts on every trak, or ending a track that is not a
+        // child of moov, would drop the outer offset.
+        let inner = mp4_box(*b"trak", &[]);
+        let inner_len = inner.len() as u64;
+        let audio_trak = mp4_box(*b"trak", &[inner, audio_mdia()].concat());
+        let file = [
+            brand(),
+            mp4_box(*b"moov", &[audio_trak, udta(false, &items())].concat()),
+        ]
+        .concat();
+        let mut wanted = expected(28, Some(brand_read()));
+        let t = 36;
+        wanted.track.entry.config = CodecConfig::Esds(Esds {
+            object_type: 0x40,
+            max_bitrate: 128_000,
+            avg_bitrate: 96_000,
+            specific: Some(Specific {
+                range: t + 97 + 95 + inner_len..t + 97 + 97 + inner_len,
+                audio: Some(AudioSpecificConfig {
+                    object_type: 2,
+                    sample_rate: SampleRate::new(44_100).ok(),
+                    channel_config: 2,
+                    extension: None,
+                }),
+            }),
+        });
+        wanted.sample_tables = SampleTableRanges {
+            stts: Some(t + 208 + inner_len..t + 224 + inner_len),
+            stsc: Some(t + 232 + inner_len..t + 252 + inner_len),
+            sizes: Some(SampleSizes::Stsz(t + 260 + inner_len..t + 272 + inner_len)),
+            offsets: Some(ChunkOffsets::Stco(t + 280 + inner_len..t + 292 + inner_len)),
+        };
+        wanted.items[2].values[0] = ItemValue::Picture(PictureRef {
+            type_code: 13,
+            offset: t + 292 + inner_len + 186,
+            len: 2,
+        });
+        assert_eq!(probe(&file), Ok(wanted));
+    }
+
+    #[test]
+    fn does_not_count_a_trak_inside_user_data_as_an_extra_audio_track() {
+        let meta = full_box(
+            *b"meta",
+            0,
+            0,
+            &[hdlr(*b"mdir"), mp4_box(*b"ilst", &items())].concat(),
+        );
+        let user = mp4_box(*b"udta", &[meta, track(*b"soun", 8_000)].concat());
+        let file = [
+            brand(),
+            mp4_box(*b"moov", &[track(*b"soun", 44_100), user].concat()),
+        ]
+        .concat();
+        assert_eq!(probe(&file), Ok(expected(28, Some(brand_read()))));
+    }
+
+    #[test]
+    fn ignores_a_handler_box_outside_the_media_box() {
+        let extra = hdlr(*b"vide");
+        let extra_len = extra.len() as u64;
+        let audio_trak = mp4_box(*b"trak", &[audio_mdia(), extra].concat());
+        let file = [
+            brand(),
+            mp4_box(*b"moov", &[audio_trak, udta(false, &items())].concat()),
+        ]
+        .concat();
+        let mut wanted = expected(28, Some(brand_read()));
+        wanted.items[2].values[0] = ItemValue::Picture(PictureRef {
+            type_code: 13,
+            offset: 28 + 8 + 292 + extra_len + 186,
+            len: 2,
+        });
+        assert_eq!(probe(&file), Ok(wanted));
+    }
+
+    #[test]
+    fn keeps_every_picture_in_a_cover_item() {
+        let jpeg = [0xFF, 0xD8, 0xAA];
+        let png = [0x89, 0x50, 0xBB];
+        let cover = mp4_box(*b"covr", &[data(13, &jpeg), data(14, &png)].concat());
+        let items = [mp4_box(*b"\xA9nam", &data(1, b"Song")), cover].concat();
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), udta(false, &items)].concat(),
+            ),
+        ]
+        .concat();
+        let audio = probe(&file).expect("the track is kept");
+        let jpeg_at = u64::try_from(
+            file.windows(jpeg.len())
+                .position(|window| window == jpeg)
+                .expect("the JPEG octets are in the file"),
+        )
+        .expect("the offset fits");
+        let png_at = u64::try_from(
+            file.windows(png.len())
+                .position(|window| window == png)
+                .expect("the PNG octets are in the file"),
+        )
+        .expect("the offset fits");
+        assert_eq!(
+            audio.items,
+            vec![
+                IlstItem {
+                    key: ItemKey::Atom(FourCc(*b"\xA9nam")),
+                    values: vec![ItemValue::Text(text("Song"))],
+                },
+                IlstItem {
+                    key: ItemKey::Atom(FourCc(*b"covr")),
+                    values: vec![
+                        ItemValue::Picture(PictureRef {
+                            type_code: 13,
+                            offset: jpeg_at,
+                            len: 3,
+                        }),
+                        ItemValue::Picture(PictureRef {
+                            type_code: 14,
+                            offset: png_at,
+                            len: 3,
+                        }),
+                    ],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_read_a_data_box_that_is_not_inside_an_item() {
+        let junk = mp4_box(*b"data", &[0xAA; 300]);
+        let junk_len = junk.len() as u64;
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), junk, udta(false, &items())].concat(),
+            ),
+        ]
+        .concat();
+        let junk_at = 28 + 8 + 292;
+        let mut wanted = expected(28, Some(brand_read()));
+        wanted.items[2].values[0] = ItemValue::Picture(PictureRef {
+            type_code: 13,
+            offset: junk_at + junk_len + 186,
+            len: 2,
+        });
+        let mut probe = Probe::new(Limits::DEFAULT, enough(&file));
+        let mut window = Window::start(file.len() as u64);
+        let mut asked = Vec::new();
+        let result = loop {
+            match probe.resume(window) {
+                Step::Done(result) => break result,
+                Step::Need(request) => {
+                    asked.push(request);
+                    let start = usize::try_from(request.offset).expect("the offset fits");
+                    window = Window {
+                        offset: request.offset,
+                        bytes: &file[start..start + request.len as usize],
+                        file_len: file.len() as u64,
+                    };
+                }
+            }
+        };
+        assert_eq!(result, Ok(wanted));
+        assert!(
+            asked.iter().all(|request| {
+                request.offset + u64::from(request.len) <= junk_at
+                    || (request.offset == junk_at && request.len <= 32)
+                    || request.offset >= junk_at + junk_len
+            }),
+            "{asked:?}"
         );
     }
 
