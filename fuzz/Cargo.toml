@@ -11,6 +11,13 @@
 # ignored by git) and only reads the committed seeds. A crash lands in
 # fuzz/artifacts/ebml; minimise it, then commit it to seeds/ebml with a
 # replay test and a fix, test first (SEC-MED-030).
+#
+# This file is a registry: a package that adds a harness adds one [[bin]]
+# block for it, in sorted position, named after the harness.
+# `xtask check-harnesses` fails when a registered harness has no block or a
+# block names no registered harness. Targets named canary_* are not
+# harnesses: each carries a planted bug that the fuzz workflow's canary job
+# must find (SEC-MED-029).
 
 [package]
 name = "gunmetal-fuzz-targets"
@@ -28,6 +35,27 @@ cargo-fuzz = true
 [dependencies]
 gunmetal-fuzz = { path = "../crates/gunmetal-fuzz", version = "0.0.0" }
 libfuzzer-sys = "0.4.13"
+
+[[bin]]
+name = "canary_crash"
+path = "fuzz_targets/canary_crash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "canary_oom"
+path = "fuzz_targets/canary_oom.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "canary_timeout"
+path = "fuzz_targets/canary_timeout.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "ebml"
