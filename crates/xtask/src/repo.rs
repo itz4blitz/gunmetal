@@ -1658,6 +1658,13 @@ path = [\"fuzz/seeds/**\"]
                 command: "gunmetal extra".to_owned(),
             })
         );
+        let wrong = ["wrong", "wrong", "wrong", "wrong", "wrong", "wrong"];
+        assert_eq!(
+            execute(&wrong, &mut Vec::new()).first(),
+            Some(&Finding::MissingRunbookCommand {
+                command: "gunmetal audit verify".to_owned(),
+            })
+        );
     }
 
     /// Verifies: SEC-SUP-032
@@ -1752,6 +1759,7 @@ path = [\"fuzz/seeds/**\"]
         );
         assert_eq!(uses_spec("# uses: actions/checkout@v4"), None);
         assert_eq!(comment("# whole"), "");
+        assert_eq!(comment("  # indented"), "");
         assert_eq!(comment("uses: x # c"), "uses: x ");
         assert!(has_ecosystem(DEPENDABOT, "cargo"));
         assert!(!has_ecosystem(DEPENDABOT, "npm"));
@@ -2236,6 +2244,58 @@ updates:
         let tree = passing().with(".github/dependabot.yml", cargo_only);
         assert!(check(&tree, REVIEWED).contains(&Finding::MissingEcosystem {
             name: "github-actions".to_owned(),
+        }));
+    }
+
+    #[test]
+    fn missing_gated_scorecard_checks_are_below_and_ruleset_conjunctions_hold() {
+        let license_only = r#"{"checks":[{"name":"License","score":10}]}"#;
+        let findings = scorecard(license_only);
+        assert!(findings.contains(&Finding::ScoreBelow {
+            check: "Binary-Artifacts".to_owned(),
+            score: -1,
+            required: 10,
+        }));
+        assert!(findings.contains(&Finding::ScoreBelow {
+            check: "SBOM".to_owned(),
+            score: -1,
+            required: -1,
+        }));
+        let tree = live_ok().with("live/ruleset-note.txt", "not a ruleset");
+        assert_eq!(settings(&tree, "live"), []);
+        let tree = live_ok().with(
+            "live/ruleset-1.json",
+            r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"}]}"#,
+        );
+        let findings = settings(&tree, "live");
+        assert!(findings.contains(&Finding::Drift {
+            setting: "ruleset.main.non_fast_forward".to_owned(),
+        }));
+        assert!(findings.contains(&Finding::Drift {
+            setting: "ruleset.main.require_code_owner_review".to_owned(),
+        }));
+        assert!(findings.contains(&Finding::Drift {
+            setting: "ruleset.main.required_status_checks.gate".to_owned(),
+        }));
+        let tree = live_ok().with(
+            "live/ruleset-1.json",
+            r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":false}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"gate"}]}}]}"#,
+        );
+        assert!(settings(&tree, "live").contains(&Finding::Drift {
+            setting: "ruleset.main.require_code_owner_review".to_owned(),
+        }));
+        let tree = live_ok().with(
+            "live/ruleset-1.json",
+            r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"}]}}]}"#,
+        );
+        assert!(settings(&tree, "live").contains(&Finding::Drift {
+            setting: "ruleset.main.required_status_checks.gate".to_owned(),
+        }));
+        let text = SECURITY.replace("Last reviewed: 2026-10-03.", "Last reviewed: 2026-10/03.");
+        let tree = passing().with("SECURITY.md", &text);
+        assert!(check(&tree, REVIEWED).contains(&Finding::MissingSection {
+            path: "SECURITY.md".to_owned(),
+            section: "Last reviewed".to_owned(),
         }));
     }
 }

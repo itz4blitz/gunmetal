@@ -133,7 +133,7 @@ fn listed(list: &str) -> BTreeMap<String, String> {
 /// The `name = "reason"` pair `line` holds.
 fn entry(line: &str) -> Option<(&str, &str)> {
     let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
+    if line.starts_with('#') {
         return None;
     }
     let (name, rest) = line.split_once('=')?;
