@@ -27,8 +27,10 @@ The build plan proposed a layout, a dependency direction and a list of
 external crates ([work-packages.md](../plan/work-packages.md#crate-layout)).
 This record writes down what the owner accepted, with the owner's other
 answers applied: no project name service in R1 (D-07), R1 servers on Linux
-only with media processed in a jailed worker (D-09), and records
-[4](0004-audio-packager.md) and [5](0005-audio-decoders-in-the-scan-worker.md).
+only with media processed in a jailed worker (D-09), record
+[4](0004-audio-packager.md), and record
+[5](0005-audio-decoders-in-the-scan-worker.md), which still awaits the
+owner's confirmation.
 
 ## Decisions
 
@@ -72,7 +74,8 @@ only with media processed in a jailed worker (D-09), and records
    one purpose only, on `gunmetal-worker`: SEC-MED-026 requires Gunmetal's
    wrappers around third-party decoders (the artwork job's image decoder,
    WP-079, and the audio decoder of record 5) to be fuzzed, and those
-   wrappers live in the worker. `xtask` may depend on any workspace crate.
+   wrappers live in the worker, which exports them for that purpose only
+   (decision 11). `xtask` may depend on any workspace crate.
    Nothing depends on `gunmetal-fuzz`, `gunmetal-testkit` or `xtask` except
    as a dev-dependency, and there are no cycles.
 5. **External crates.** The table lists every crate the owner approved and
@@ -106,7 +109,7 @@ only with media processed in a jailed worker (D-09), and records
    | `notify` | fs | File-change notification for library roots |
    | `toml` | server | The configuration file is TOML |
    | `image` (JPEG, PNG, WebP and GIF only) | worker only (the artwork job) | Artwork decoding and re-encoding with `image::Limits`, after the review SEC-MED-026 requires (WP-079) |
-   | `symphonia` (FLAC, MP3, AAC-LC and Vorbis only) | worker only (the loudness job) | Decoding for loudness measurement, on the conditions of record 5 |
+   | `symphonia` (FLAC, MP3, AAC-LC and Vorbis only) | worker only (the loudness job), and only once record 5 is accepted | Decoding for loudness measurement, on the conditions of record 5 |
    | `wasm-bindgen` | wasm | The web client calls the core through it |
 
    The owner's answer to D-08 settles the cryptographic choices that
@@ -163,14 +166,30 @@ only with media processed in a jailed worker (D-09), and records
    | Building a `Minted` public-ID value | The minting function in `gunmetal-secrets` | SEC-HIS-012 |
    | Reading a client address (`ConnectInfo`, `peer_addr`, forwarding headers) | `gunmetal-server/src/listener.rs` and the core's `http/forwarded.rs` | SEC-OPS-037, SEC-NET-016 |
    | Pre-sizing a buffer, in the core | The core's one bounded-capacity helper (WP-004) | SEC-MED-003 |
+   | Inflating compressed data with the inflate crate's decompression entry points | `gunmetal-core/src/inflate.rs` (WP-128), added when the crate lands | SEC-MED-009 |
+   | Decoding an image with `image`'s decode and reader entry points (its encoders stay usable, so tests can build images) | `gunmetal-worker/src/jobs/artwork.rs` (WP-079), added when the crate lands | SEC-MED-018, SEC-MED-026 |
    | Calling an audio decoder crate | `gunmetal-worker/src/jobs/loudness.rs`, added when the crate lands (record 5) | SEC-MED-018, SEC-MED-026 |
 
-   Record 4 adds one more door that is not a third-party API: production
-   code calls the core's audio packager only from
-   `gunmetal-worker/src/jobs/package.rs`, and a check in the gate fails if
-   the server crate calls it (SEC-MED-018). The core's own tests and fuzz
-   harness still call it, so that check looks at the server crate rather
-   than banning the functions everywhere.
+   Some doors are not third-party APIs, and the code that owns them, the
+   fuzz harnesses and their own tests still call them, so a check in the
+   gate guards them in the server crate rather than banning them
+   everywhere. This server-crate call check (WP-001's dependency check)
+   fails if any module of `gunmetal-server` names one of the following,
+   under any path, re-exports included:
+
+   - the core's audio packager (`gunmetal_core::package`), which
+     production code calls only from `gunmetal-worker/src/jobs/package.rs`
+     (record 4);
+   - every job entry point under `gunmetal_worker::jobs` and the host
+     loop's dispatch, which decision 11 already keeps private to the
+     worker crate;
+   - the wrappers around third-party decoders that the worker exports for
+     their fuzz harnesses: the artwork job's image wrapper (WP-079) and
+     the loudness job's decoder wrapper (record 5).
+
+   The server crate reaches the job side only through the pool, which
+   sends a job to a worker process, and the hidden worker entry, which
+   confines the process before it reads a job (SEC-MED-018).
 
    A later package that needs one of these operations calls the module
    that owns it. It never adds an exception; a change to the list is its
@@ -187,7 +206,46 @@ only with media processed in a jailed worker (D-09), and records
     The core also builds for `wasm32` for the web client, and its tests run
     on `i686` in CI (SEC-MED-004). 32-bit ARM server builds (ADM-004,
     R1.3) report reduced isolation and are not called supported until the
-    seccomp answer for them is recorded (SEC-MED-024).
+    seccomp answer for them is recorded (SEC-MED-024). `seccompiler`
+    cannot filter 32-bit ARM, so those builds never reach the whole Linux
+    sandbox: audio packaging (record 4) and loudness measurement (record
+    5) are off there, and the health page and `doctor` say why.
+11. **Only a confined worker reaches a job.** The worker is the server's
+    own binary (decision 3), so every job's code is linked into the
+    server process too. Three locks keep it from running there:
+    - **Visibility.** `gunmetal-worker` declares its job modules
+      `pub(crate)`, and each job's entry point is `pub(crate)`. Other
+      crates reach the job side only through the pool, which sends a job
+      to a worker process, and the hidden worker entry, which confines the
+      process before it reads a job. Of the job code itself, the only
+      items exported are the wrappers around third-party decoders that
+      SEC-MED-026 requires to be fuzzed, for their harnesses in
+      `gunmetal-fuzz`. Those wrappers are pure functions: validated
+      parameters and bytes in, typed values or a typed error out, with no
+      descriptor and no file.
+    - **A proof of confinement.** The host loop's dispatch (WP-061,
+      WP-079) is the only caller of the job entry points. It takes a
+      `Confined` value and passes it on, and each entry point takes
+      `&Confined` as well, so code inside the worker crate cannot run a
+      job without one either. Only the sandbox entry (`sandbox::confine`,
+      WP-045) creates one: the type has a private field and no public
+      constructor, and implements neither `Default`, `Clone` nor
+      `Deserialize`, so it cannot be built, copied or received over the
+      socket pair. `confine` returns it only after it has applied to the
+      calling process every layer of SEC-MED-022 the host supports, never
+      less than the floor of SEC-MED-024 (rlimits and `no_new_privs`),
+      and the value records which layers took effect. Code that holds a
+      `Confined` is therefore running in a process that has confined
+      itself. A job that needs the whole Linux sandbox (packaging, record
+      4; loudness, record 5) is refused by the dispatch, with a typed
+      reason, unless the proof shows rlimits, `no_new_privs`, Landlock and
+      seccomp all in force. The worker crate's own unit tests may build
+      one through a `#[cfg(test)]` constructor. No cargo feature exposes
+      a constructor, because Cargo can unify a feature that one crate
+      turns on into the server's build.
+    - **The server-crate call check** of decision 8 fails if
+      `gunmetal-server` names a job entry point, the dispatch, the
+      packager or an exported decoder wrapper.
 
 ## Security review record
 
@@ -198,20 +256,34 @@ This record is the design review that WP-003 owes for the workspace. It
 was drafted by a coding agent on 2026-10-03 and becomes the review record
 when a maintainer approves the pull request that adds it (AGENTS.md).
 
-Verifies: SEC-MED-018, SEC-MED-024, SEC-MED-026
+Verifies: SEC-MED-018, SEC-MED-024
+
+Design for: SEC-MED-026
 
 - **SEC-MED-018.** Untrusted media is parsed by the core's sans-I/O code
-  and by the reviewed decoders, and only inside a worker: every decoding
-  dependency belongs to `gunmetal-worker` alone (decisions 2, 5 and 8).
-  The server crate links the core but has no sanctioned call to the
-  packager or a decoder.
+  and by the reviewed decoders, and only inside a confined worker: every
+  decoding dependency belongs to `gunmetal-worker` alone (decisions 2, 5
+  and 8), each decoder crate's entry points are banned outside the one
+  job that wraps them (decision 8), the job modules are private to the
+  worker crate, and a job runs only through the host loop's dispatch with
+  a `Confined` proof that only the sandbox entry can create (decision
+  11). The server crate links the core and the worker, but the gate's
+  server-crate call check fails if it names the packager, a job entry
+  point, the dispatch or an exported decoder wrapper (decision 8).
 - **SEC-MED-024.** The sandbox launcher, the confinement and the tier
   table live in one crate, `gunmetal-worker`, so there is one
-  implementation of the tiers to test (decision 2).
-- **SEC-MED-026.** The only third-party crates that decode media, `image`
-  and `symphonia`, are listed with that review as their condition, only in
-  the worker, and their wrappers' fuzz harnesses have a home in
-  `gunmetal-fuzz` (decisions 4 and 5).
+  implementation of the tiers to test (decision 2). The `Confined` proof
+  carries the tier into the dispatch, which refuses packaging and
+  loudness below the whole Linux sandbox (decisions 10 and 11).
+- **SEC-MED-026, design only.** The only third-party crates that decode
+  media, `image` and `symphonia`, are listed with that review as their
+  condition, only in the worker, with their entry points confined to one
+  wrapper each (decision 8), and their wrappers' fuzz harnesses have a
+  home in `gunmetal-fuzz` (decisions 4 and 5). This record reviews no
+  crate, so it names SEC-MED-026 under "Design for", which the
+  traceability check (SEC-STD-004, WP-127) does not count as proof. The
+  review records in the pull requests that add `image` (WP-079) and the
+  first audio decoder (WP-114) carry the `Verifies` line.
 
 ## Consequences
 
@@ -223,4 +295,11 @@ Verifies: SEC-MED-018, SEC-MED-024, SEC-MED-026
   gate on each wave branch's pull request into `main`).
 - A crate not in the table needs a dependency request and a new record
   that amends this one.
+- Decision 11 changes three interface sketches in the plan, which is not
+  edited here: WP-045's `confine` returns a `Confined` that carries the
+  tier instead of a bare `Tier`; WP-079's job entry point becomes
+  `pub(crate)` and takes `&Confined`; and WP-061's host loop dispatches
+  only with that proof. The `clippy.toml` entries for the inflate crate,
+  `image` and the audio decoder are requests to the integrator, made by
+  WP-128, WP-079 and WP-114 when each crate lands.
 - Record 1 is not edited (AGENTS.md); this record extends it.

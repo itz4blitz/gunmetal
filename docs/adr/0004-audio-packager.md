@@ -76,20 +76,32 @@ re-headed FLAC slice, which is packaging too.
    segment, the rule SEC-MED-074 sets for the remuxer. Every segment it
    writes parses back to the frames that went in, and the writer is fuzzed
    from arbitrary typed models (SEC-MED-032).
-7. **The isolation tier of memory-safe parsing, failing closed.** Packaging
-   runs at the tier SEC-MED-024 gives memory-safe parsing: process
-   separation, rlimits and `no_new_privs` at the floor, seccomp, Landlock
-   and namespaces added wherever the host has them, and a "reduced
-   isolation" notice when any of those is missing. If the floor itself is
-   not met, packaging is off and the player falls back to the original
-   file where the browser can play it. Nothing ever falls back to
-   packaging in the server process.
+7. **The whole Linux sandbox, or no packaging.** Packaging runs only in a
+   worker that has applied the whole Linux sandbox of SEC-MED-022:
+   rlimits, `no_new_privs`, a Landlock ruleset that denies all filesystem
+   access, and the seccomp allowlist, with Landlock's network restrictions
+   and scopes wherever the kernel's ABI has them. That is stricter than
+   the floor SEC-MED-024 sets for memory-safe parsing, and it is how this
+   record reads the owner's answer to D-09, which puts remuxing in a
+   jailed worker; it also follows first principle 12, "fail closed,
+   visibly". If the self-test (WP-045) finds any of those layers missing,
+   as on a kernel without Landlock or on a 32-bit ARM build, which
+   `seccompiler` cannot filter ([record 6](0006-workspace-and-dependencies.md)
+   decision 10), packaging is off, the health page and `doctor` say why,
+   and the player falls back to the original file where the browser can
+   play it. Nothing ever falls back to packaging at a lower tier or in the
+   server process, and no setting changes that.
 8. **The server crate cannot call the packager.** The one production call
    to the packager's entry points is in
-   `gunmetal-worker/src/jobs/package.rs` (WP-105). A check in the gate
-   fails if any module of the server crate calls them (WP-001's dependency
-   check, record 6). The core's own tests and fuzz harness still call
-   them.
+   `gunmetal-worker/src/jobs/package.rs` (WP-105). That job's entry point
+   is private to the worker crate and runs only through the host loop's
+   dispatch, which takes a `Confined` proof that only the sandbox entry
+   can create and refuses the job unless the proof shows the whole Linux
+   sandbox of decision 7 (record 6 decision 11). A check in the gate
+   (WP-001's dependency check, record 6 decision 8) fails if any module of
+   the server crate calls the packager's entry points, the packaging
+   job's entry point or the dispatch. The core's own tests and fuzz
+   harness still call the packager.
 9. **Every remuxer runs in a worker.** The same rule binds the R2 video
    remuxer (SEC-MED-081). Record 1 decision 2 still holds: the remuxer's
    code lives in the core and is compiled into the one server binary. What
@@ -113,22 +125,30 @@ drafted by a coding agent on 2026-10-03 and becomes the review record when
 a maintainer approves the pull request that adds it (AGENTS.md). The code
 that proves each requirement is named beside it.
 
-Verifies: SEC-MED-018, SEC-MED-024, SEC-MED-026
+Verifies: SEC-MED-018, SEC-MED-024
+
+Design for: SEC-MED-026
 
 - **SEC-MED-018.** Packaging is parsing of media. Decisions 2, 7 and 8
-  keep it out of the server process, and decision 4 limits a crash, hang
-  or memory blow-up to one stream. WP-105's hostile-input tests prove it
-  in code: a packaging worker that panics, one that loops past its
-  watchdog and one that passes its memory cap each end one stream while a
-  second stream keeps serving.
-- **SEC-MED-024.** Decision 7 applies the table's row for memory-safe
-  parsing. The packager is Gunmetal's own safe Rust and links no native
-  code, so it never needs the full jail. WP-045's tier tests and WP-105's
-  fallback test prove it in code.
-- **SEC-MED-026.** The packager uses no third-party crate that parses or
-  decodes media: it is core code under the full gate, with its own fuzz
-  harness (WP-056). Adding such a crate to it needs the review SEC-MED-026
-  requires and a new record.
+  keep it out of the server process: the packaging job is reachable only
+  through the dispatch, with a proof that the process has confined
+  itself, and the gate's server-crate check fails on any call from the
+  server crate. Decision 4 limits a crash, hang or memory blow-up to one
+  stream. WP-105's hostile-input tests prove it in code: a packaging
+  worker that panics, one that loops past its watchdog and one that
+  passes its memory cap each end one stream while a second stream keeps
+  serving.
+- **SEC-MED-024.** Decision 7 goes beyond the table's row for
+  memory-safe parsing: packaging needs the whole Linux sandbox and is
+  otherwise off, with the reason shown, and never runs at a lower tier.
+  WP-045's tier tests and WP-105's fallback test prove it in code, with
+  each layer's probe forced to fail in turn.
+- **SEC-MED-026, design only.** The packager uses no third-party crate
+  that parses or decodes media: it is core code under the full gate,
+  with its own fuzz harness (WP-056). Adding such a crate to it needs the
+  review SEC-MED-026 requires and a new record. This record reviews no
+  crate, so it names SEC-MED-026 under "Design for", which the
+  traceability check (SEC-STD-004, WP-127) does not count as proof.
 
 SEC-MED-081, SEC-MED-032 and SEC-MED-074 are R2 in the baseline although
 the packager ships in R1. Until the security lead moves them to R1 or adds
@@ -142,6 +162,14 @@ an R1 row (D-80), WP-056 and WP-105 verify them as if they were R1.
   `CueSlice` job (WP-213).
 - If the browsers in the R1 test set accept a codec natively, WP-056 may
   carry fewer codecs. The rules here do not change.
+- On a host without the whole Linux sandbox, browser gapless (MUS-067) is
+  unavailable and the browser plays the original file. WP-105's scope
+  still says packaging runs at the memory-safe floor; decision 7 tightens
+  it, and the plan is not edited here.
+- Decision 7 reads "jailed" strictly for the packager only. Whether the
+  owner's answer to D-09 also lifts the scan's own parsing and the
+  artwork job's image decoding above the floor SEC-MED-024 gives them is
+  not decided by this record.
 - Records 1 and 2 are not edited (AGENTS.md); this record is the
   amendment. The root README's diagram still shows "Remux in-process" and
   needs a matching edit by its owner.
