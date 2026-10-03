@@ -27,6 +27,7 @@ pub mod http_range;
 pub mod id3_structure;
 pub mod id3v1;
 pub mod link;
+pub mod lyrics;
 pub mod mp4_probe;
 pub mod mp4_structure;
 pub mod mpa;

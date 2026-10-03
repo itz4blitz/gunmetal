@@ -130,6 +130,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "lyrics"
+path = "fuzz_targets/lyrics.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "mp4_probe"
 path = "fuzz_targets/mp4_probe.rs"
 test = false

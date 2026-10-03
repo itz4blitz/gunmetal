@@ -12,6 +12,7 @@ pub mod formats;
 pub mod http;
 pub mod id;
 pub mod link;
+pub mod lyrics;
 pub mod net;
 pub mod parse;
 pub mod problem;
