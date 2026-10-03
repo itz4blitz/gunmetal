@@ -603,7 +603,7 @@ facade packages bring their types to TypeScript:
 | Public IDs, the problem catalogue | WP-006 | 0 | WP-235 (wave 2) |
 | Text normalisation, typed values, the link filter | WP-005 | 0 | WP-235 |
 | Catalogue records: track, album, artist | WP-040 | 1 | WP-235 |
-| Lyrics: the timed-line model | WP-021 | 1 | WP-236 (wave 3) |
+| Lyrics: the timed-line model | WP-021 | 1 | WP-236 (wave 2) |
 | The queue document and its operations | WP-025 | 1 | WP-236 |
 | Shuffle modes | WP-026 | 1 | WP-236 |
 | The gain decision | WP-028 | 1 | WP-236 |
@@ -724,7 +724,7 @@ plan's answer is that nothing stands in for the core except the core.
   | Package | Wave | What it exports | Needs |
   |---|---|---|---|
   | WP-235 | 2 | Creates the crate. The type mechanism above, the lint exception below, the link filter and text normalisation, IDs and problem codes, and the catalogue record types. | WP-005, WP-006, WP-008 (wave 0); WP-040 (wave 1) |
-  | WP-236 | 3 | The queue, shuffle, gain with its factor, the player state and lyrics. | WP-235; WP-021, WP-025, WP-026, WP-028, WP-030 (wave 1) |
+  | WP-236 | 2 | The queue, shuffle, gain with its factor, the player state and lyrics. | WP-235; WP-021, WP-025, WP-026, WP-028, WP-030 (wave 1) |
   | WP-237 | 3 | Conversion only, for rules that core packages own: the event builder and sink (WP-240), receiving a clock (WP-034), the inbound-link parser (WP-239), the tint rule (WP-238), the QR matrix (WP-242). | WP-235; WP-034 (wave 1); WP-238, WP-239, WP-240, WP-242 (wave 2) |
   | WP-241 | 3 | The audit-head extension check, in the core, with its own export. | WP-235; WP-035, WP-069 |
   | WP-088 | 3 | What is left: sync frames into the in-memory library, loading it from records, its reads, search, the decision and track details, Home rows, response decoding, and the size check. | As before, plus WP-235 |
@@ -732,9 +732,10 @@ plan's answer is that nothing stands in for the core except the core.
   Each export is a direct call into the core with conversion only, which
   is what WP-088 always specified. The backend plan carries these
   entries; this pull request adds them there. WP-235 was first placed in
-  wave 1. Wave 1 was closing, so it is in wave 2, and the two slices
-  that depend on it are in wave 3, because the backend plan puts a package
-  one wave after what it depends on.
+  wave 1. Wave 1 was closing, so it is in wave 2. WP-236 is also wave 2:
+  it may start as soon as WP-235 has merged, and it merges into `wave-2`
+  after WP-235 (same-wave, sequential). WP-237 and WP-241 stay wave 3,
+  one wave after the wave 2 packages they depend on.
 - **`unsafe` (owner decision 34 of the backend plan), settled as a
   technical answer.** The core keeps `unsafe_code = "forbid"` with no
   exception. A `forbid` set by the workspace cannot be lowered by an
@@ -771,13 +772,10 @@ plan's answer is that nothing stands in for the core except the core.
   deletes the fixture core.
 
 The risk is schedule, not rework. C1's first clickable milestone needs
-WP-236, which is a wave 3 package: it may start as soon as WP-235 and
-five wave 1 packages have merged, but it merges into `wave-3`, so the
-first clickable build lands with server wave 3. If the integrator lets
-WP-236 merge into `wave-2` once WP-235 is there, the build lands a wave
-earlier; that is the integrator's call, not this plan's. If a package
-slips, the milestone waits; the plan does not fill the gap with
-TypeScript.
+WP-236, a wave 2 package: it may start as soon as WP-235 and five wave 1
+packages have merged, and it merges into `wave-2` after WP-235, so the
+first clickable build lands with server wave 2. If a package slips, the
+milestone waits; the plan does not fill the gap with TypeScript.
 
 ## Playback on the web in R1
 
@@ -864,7 +862,8 @@ wave into `main` (D-01). Client packages follow that exactly:
   goes into `wave-1`. `wave-2` exists (created from `wave-1` at 55864f3
   on 2026-10-03). C0 needs `main` and WP-235, so it merges into
   `wave-2`. The first clickable milestone needs WP-236, so its packages
-  merge into `wave-3`, as do the packages that need WP-237 or WP-088.
+  also merge into `wave-2`, after WP-235. Packages that need WP-237 or
+  WP-088 merge into `wave-3`.
   Each wave branch starts on top of the one before (the register's
   "Building order" answer), so a later branch always holds the earlier
   client work and the facade crate.
@@ -938,14 +937,14 @@ into" is the earliest server wave branch that holds what the wave needs.
 | Client wave | Merges into | Needs from the backend before it can be built | Leaves the fake when | What the owner can test at the end of the wave, on the demo |
 |---|---|---|---|---|
 | C0 | `wave-2` | Wave 0 on `main` (it is). WP-124 (wave 1) for the dependency list file. WP-235 (wave 2) for the generated types, from CP-005 on. | Not applicable: nothing here talks to a server. | Open the demo in a browser. See the Gunmetal frame: the sidebar with Home, Search and Library, the dark, light, black and high-contrast themes, and the phone layout when the window is narrow. Move through it with the keyboard alone. Nothing plays yet. |
-| C1 | `wave-3` | WP-236 (wave 3), which needs WP-235 and WP-021, WP-025, WP-026, WP-028 and WP-030 (wave 1). | Server wave 3: sync (WP-084), the facade's library (WP-088), streams (WP-082), the queue service (WP-085). Artwork needs wave 4 (WP-103). | **The first clickable player.** Browse the made-up library by artist, album and song. Open an album. Press Play and hear it. Use the bar at the bottom: pause, skip, see what is playing. Open the queue, reorder it, remove a track, turn on shuffle and repeat. Nothing is remembered yet: no hearts, no history. |
+| C1 | `wave-2` | WP-236 (wave 2), which needs WP-235 and WP-021, WP-025, WP-026, WP-028 and WP-030 (wave 1). | Server wave 3: sync (WP-084), the facade's library (WP-088), streams (WP-082), the queue service (WP-085). Artwork needs wave 4 (WP-103). | **The first clickable player.** Browse the made-up library by artist, album and song. Open an album. Press Play and hear it. Use the bar at the bottom: pause, skip, see what is playing. Open the queue, reorder it, remove a track, turn on shuffle and repeat. Nothing is remembered yet: no hearts, no history. |
 | C2 | `wave-3` | WP-237 (wave 3), with WP-238, WP-240 (wave 2), for hearts, plays, history, private listening and tints. WP-088 (wave 3), which needs WP-054, WP-055 and WP-059, for search, Home, track details and the badge. WP-056 (wave 2) for the gapless fixtures. | Server wave 3: listening activity (WP-086), playlists (WP-093), the event channel (WP-083). Wave 4: stream limits (WP-104), the packaging route (WP-105), history deletion (WP-133). | Everything a listener does. Search as you type. A Home page with what you played. Right-click anything for Play next and Add to queue. Love a track. The full-screen player, lyrics that follow the song, what format is playing and why. Make a playlist. See your history and remove a play. Turn on a private session. Use the keyboard's media keys. Albums play without a gap between tracks. |
 | C3 | `wave-3` | WP-237 (wave 3), with WP-239 and WP-242 (wave 2), for the link parser and the QR matrix. | Server wave 3: setup (WP-080), passkeys (WP-081), browser pairing and sign-out (WP-120), accounts and devices (WP-087), invitations (WP-094), recovery codes (WP-063). Wave 4: recovery and step-up (WP-106), data export (WP-108), account deletion (WP-133). | Walk through first-run setup with a made-up setup code. Sign in with a passkey, answer "Is this your own device?", and sign out and see that nothing is left behind. Open an invitation link. Approve another browser. Change the theme and the sound settings. See your devices and remove one. |
 | C4 | The wave branch open when C3 has merged: `wave-3` or later | WP-237 (wave 3) for the QR matrix on the users page. WP-241 (wave 3) for the audit-head check behind the security log. | Server wave 3: library administration (WP-099), activity (WP-100), alerts (WP-097), backups (WP-090), network settings (WP-073, WP-132), updates (WP-074), users (WP-094). Wave 4: HTTPS by ACME (WP-101), the scan (WP-102). Wave 5: health and trash (WP-110, WP-111). Wave 6: the doctor and security summary (WP-116). | The admin screens with made-up data. Add a music folder and watch a pretend scan. Read the health report. Invite someone and choose their libraries. Look at backups, updates, alerts and the security log. |
 | C5 | `wave-3` to `wave-6`, package by package | The route table (WP-118, wave 2), the facade's response decoding (WP-088, wave 3), the routes in waves 3 and 4, and for the full flow tests the whole server, beside WP-117 in wave 6. | This wave is the move. | **The real thing.** Start the Gunmetal server, claim it, add your own music folder, and use every screen above with your own library, served by the server itself. |
 
-**In one line: the frame lands with server wave 2, and the first
-clickable player with server wave 3.**
+**In one line: the frame and the first clickable player land with
+server wave 2.**
 
 The register's answer says the player moves to the real server "as the
 server waves land". For listening that is waves 2 to 4. The admin screens
@@ -977,14 +976,15 @@ From the backend it needs exactly these packages merged:
 - **WP-235** (wave 2), the facade crate with the type mechanism and the
   lint answer proved, and the catalogue types. It needs WP-005, WP-006
   and WP-008 (wave 0, on `main`) and WP-040 (wave 1).
-- **WP-236** (wave 3), the facade's playback slice, and the five wave 1
+- **WP-236** (wave 2), the facade's playback slice, and the five wave 1
   packages it wraps: WP-021 (lyrics), WP-025 (queue), WP-026 (shuffle),
-  WP-028 (gain) and WP-030 (player state).
+  WP-028 (gain) and WP-030 (player state). It merges into `wave-2`
+  after WP-235.
 
-So the first clickable build lands with server wave 3: its client
-packages merge into `wave-3`, and the owner can click it as soon as
-they have, without waiting for that wave's server packages or its pull
-request into `main`.
+So the first clickable build lands with server wave 2: its client
+packages merge into `wave-2` after WP-235, and the owner can click it as
+soon as they have, without waiting for that wave's other server packages
+or its pull request into `main`.
 
 It does not need WP-034 or WP-240 (user events), WP-037 or WP-238
 (palette and tints), WP-039 (the wire codec), WP-237, WP-088 or any
@@ -1388,7 +1388,7 @@ CP-002 has merged. CP-005 also waits for WP-235.
 ### CP-013 The core in the browser
 
 - **Wave** C1 · **Size** S · **Depends on** CP-005; WP-235 (wave 2),
-  WP-236 (wave 3).
+  WP-236 (wave 2).
 - **Owns** `core-wasm/`.
 - **Serves** Record 1, decision 2; MUS-077, MUS-084, MUS-085, MUS-087 to
   MUS-089, MUS-116 to MUS-119, MUS-122, MUS-126, MUS-154, MUS-155 (each
@@ -2668,9 +2668,9 @@ client's part of 11 more. Each now has a package whose tests carry its
 | SEC-HIS-027 | All media text as text; sinks fail the lint | CP-002 (lint), CP-006 |
 | SEC-STD-012 | Untrusted keys in `Map`; no merges | CP-002 (lint), CP-005 |
 
-SEC-CLI-025 (one core parser for every inbound link) is WP-089's in the
-backend plan. Its client half, that no client code parses an address, is
-CP-009's and CP-062's.
+SEC-CLI-025 (one core parser for every inbound link) is WP-239's in the
+backend plan. WP-089 keeps resolution. Its client half, that no client
+code parses an address, is CP-009's and CP-062's.
 
 ## Requests to the backend plan
 
@@ -2682,7 +2682,7 @@ packages took the numbers after the backend plan's highest, WP-234.
 
 | # | Request | Applied as |
 |---|---|---|
-| 1 | The facade is built in slices and has one owner | WP-235 (wave 2) creates `crates/gunmetal-wasm` with the type mechanism, the lint answer and the catalogue types. WP-236 (wave 3) exports the queue, shuffle, gain, the player state and lyrics. WP-237 (wave 3) converts for the rules below. WP-088 (wave 3) keeps the rest and no longer creates the crate. |
+| 1 | The facade is built in slices and has one owner | WP-235 (wave 2) creates `crates/gunmetal-wasm` with the type mechanism, the lint answer and the catalogue types. WP-236 (wave 2) exports the queue, shuffle, gain, the player state and lyrics, merging into `wave-2` after WP-235. WP-237 (wave 3) converts for the rules below. WP-088 (wave 3) keeps the rest and no longer creates the crate. |
 | 2 | Owner decision 34, `unsafe` in the facade | Item 34 of the backend plan and the register carry the answer; WP-235 states its real form and its stop condition. |
 | 3 | Split the inbound-link parser out of WP-089 | WP-239 (wave 2) owns `crates/gunmetal-core/src/deeplink.rs` and SEC-CLI-025's parser; WP-089 depends on it and keeps resolution. |
 | 4 | A core function for artwork tints | WP-238 (wave 2) owns `crates/gunmetal-core/src/tint.rs`. |
@@ -2705,7 +2705,7 @@ the integrator, listed once, in
 [The gate and CI](#the-gate-and-ci-requests-to-the-integrator), together
 with WP-235's own request for the `wasm32` build step.
 
-The backend plan now counts 129 R1 packages: 11, 41, 28, 33, 9, 5 and 2
+The backend plan now counts 129 R1 packages: 11, 41, 29, 32, 9, 5 and 2
 in waves 0 to 6.
 
 ## Where this plan follows the baseline over a UI document
@@ -2857,8 +2857,7 @@ the register's technical answers of 2026-10-03.
     lowered as far as generated code needs, proved on `wasm32` by WP-235
     before any other slice starts.
 12. **No client wave branches.** Client packages merge into the open
-    server wave branch: C0 into `wave-2`, the first clickable build into
-    `wave-3`.
+    server wave branch: C0 and the first clickable build into `wave-2`.
 13. **The contract run compares decoded values under a fixed seed and
     clock**, covers the hand-written demo library as well as the
     recording, and is a step of the gate.
@@ -2901,9 +2900,6 @@ the register's technical answers of 2026-10-03.
 - Whether the core's crypto module already holds the signature check
   the audit-head package (WP-241) needs, and which examples the QR
   standard publishes for WP-242's literal tests.
-- Whether the integrator will let WP-236 merge into `wave-2` once
-  WP-235 is there, which would bring the first clickable build a wave
-  earlier.
 - The exact names of pnpm 12's settings for release age, trust policy,
   exotic sources and build allow-lists, and the output format of its
   licence listing.
@@ -2984,8 +2980,9 @@ medium and eight low. All were right and are applied:
   the lints are all repeated, and files the `wasm32` build step with the
   integrator. "On the xtask exception list" was wrong and is gone.
 - **Waves.** Wave 1 was closing, so WP-235 moved to wave 2 and took the
-  catalogue types; WP-236 and WP-237 moved to wave 3. C0 lands with
-  server wave 2 and the first clickable build with server wave 3.
+  catalogue types. WP-236 is also wave 2: it merges into `wave-2` after
+  WP-235, so C0 and the first clickable build land with server wave 2.
+  WP-237 stays wave 3.
 - **The event builder and sink are the core's** (WP-240). WP-237 only
   converts. Wall time and random bytes come from one browser adapter
   (CP-060).
@@ -3003,3 +3000,10 @@ medium and eight low. All were right and are applied:
 On the same day the owner approved `tsify` and `serde-wasm-bindgen`,
 and the ESLint 10 change with the changed verification of four baseline
 requirements.
+
+A third review, of 132d362, found one medium leftover and two low leftover
+attributions. WP-236 is wave 2 and merges into `wave-2` after WP-235, so
+the first clickable build lands with server wave 2. WP-237 and WP-241
+stay wave 3. SEC-CLI-025's parser is WP-239's; WP-159's interface-change
+names WP-239 and uses its "not recognised" wording. No owner-accepted
+slip is recorded. Wave 1 stays closed.

@@ -134,8 +134,9 @@ land. Three things follow that are architecture and not just planning:
    audit-head check: WP-238 to WP-242). The facade crate has one owner,
    the backend plan, and is built in slices: WP-235 in wave 2 (the
    crate, the mechanism of decision 13, the lint answer of decision 14,
-   the catalogue types), WP-236 and WP-237 in wave 3 (the playback
-   rules, and conversion for the added core packages), and WP-088 in
+   the catalogue types), WP-236 in wave 2 (the playback rules, merging
+   into `wave-2` after WP-235), WP-237 in wave 3 (conversion for the
+   added core packages), and WP-088 in
    wave 3 (sync, the library, search, the decision, Home rows, response
    decoding). Each export is a direct call with conversion only; no rule
    is written in the facade. Until a slice exists, the screens
@@ -298,9 +299,9 @@ land. Three things follow that are architecture and not just planning:
   and takes longer. The Rust and web halves can run as two jobs, and the
   web half has a stated time budget.
 - The first clickable build depends on WP-235 (wave 2) and WP-236
-  (wave 3), so the frame lands with server wave 2 and the first
-  clickable build with server wave 3. If a package is late, the
-  milestone waits; nothing is written in TypeScript to cover for it. It
+  (wave 2, merging into `wave-2` after WP-235), so the frame and the
+  first clickable build land with server wave 2. If a package is late,
+  the milestone waits; nothing is written in TypeScript to cover for it. It
   records no plays and no loves, which arrive with WP-237 and WP-240.
 - Browser adapters are not mutation-tested. That is a stated limit, kept
   small by the lint that allows no logic in them.

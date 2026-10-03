@@ -603,8 +603,8 @@ proposes how the gate itself scales once the workspace grows.
 |---|---|---:|---|
 | 0 | WP-001 to WP-008, WP-122, WP-125, WP-126 | 11 | Lints and merge rules, ADR 3 to 6, the security architecture records, the parse contract, text and typed values, identifiers and the problem catalogue, the testkit, the fuzz harness registry, the schema digest with data classes, the data-root handle (unchanged by the adopted R1) |
 | 1 | WP-009 to WP-021, WP-023 to WP-026, WP-028, WP-030 to WP-047, WP-124, WP-127, WP-128, WP-138, WP-139 | 41 | Every R1 container parser and lyrics, the pure logic of the queue, shuffle, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the project site's security files |
-| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130, WP-235, WP-238 to WP-240, WP-242 | 28 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
-| 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132, WP-236, WP-237, WP-241 | 33 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
+| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130, WP-235, WP-236, WP-238 to WP-240, WP-242 | 29 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits; the WASM facade crate and its playback slice |
+| 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132, WP-237, WP-241 | 32 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the rest of the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
 | 4 | WP-101 to WP-106, WP-108, WP-121, WP-133 | 9 | ACME for the owner's own domain, the scan pipeline and what needs it (artwork serving, the playback registry and stream limits, the packaging route and its worker job, account recovery), each person's data export, release builds and service install, history deletion and retention |
 | 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark and the speed budget tests, release provenance and signing |
 | 6 | WP-116, WP-117 | 2 | Doctor and the security summary, and the R1 flow acceptance tests |
@@ -4988,8 +4988,9 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   rule packages it read, WP-058 and WP-027, left R1) · **Size** M ·
   **Depends on** WP-039, WP-040, WP-054, WP-055, WP-059, WP-235. (On
   2026-10-03 the facade was split at the client plan's request: WP-235
-  creates the crate in wave 2, with the catalogue types, and WP-236 and
-  WP-237 export the wave 1 and wave 2 pure-logic modules in wave 3. This
+  creates the crate in wave 2, with the catalogue types, WP-236 exports
+  the wave 1 playback modules in wave 2 after it, and WP-237 exports the
+  remaining conversions in wave 3. This
   package no longer creates the crate and no longer depends on WP-021,
   WP-025, WP-026, WP-028 or WP-030.)
 - **Owns** In `crates/gunmetal-wasm/src/`, one file per module it
@@ -5729,7 +5730,7 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 
 ### WP-236 WASM facade: queue, shuffle, gain, player state and lyrics (added for the client plan)
 
-- **Wave** 3 · **Size** M · **Depends on** WP-021, WP-025, WP-026,
+- **Wave** 2 · **Size** M · **Depends on** WP-021, WP-025, WP-026,
   WP-028, WP-030, WP-235.
 - **Owns** `crates/gunmetal-wasm/src/queue.rs`, `shuffle.rs`, `gain.rs`,
   `player.rs`, `lyrics.rs`, with their generated declarations under
@@ -5743,8 +5744,9 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   queue operations, the shuffle order, the gain decision with the factor
   to apply, the player state's transition function and the lyric
   position lookup. Each export is a direct call into the core with
-  conversion only. It may start as soon as WP-235 has merged; it is the
-  package the web player's first clickable build waits for.
+  conversion only. It may start as soon as WP-235 has merged, and it
+  merges into `wave-2` after WP-235; it is the package the web player's
+  first clickable build waits for.
 - **Not in scope.** User events, inbound links, tints and the QR matrix
   (WP-237). Sync, the library, search, the decision and Home rows
   (WP-088).
@@ -7809,11 +7811,11 @@ Translations (CLI-146) are client work and need no package here.
 #### WP-159 Household setup steps and deep links (split from WP-080 and WP-089)
 
 - **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
-  **Depends on** WP-080, WP-089, WP-094.
+  **Depends on** WP-080, WP-089, WP-094, WP-239.
 - **Owns**, under the merge protocol's interface-change rule, three steps
   in setup's step list (WP-080's), the server name and welcome message in
   `crates/gunmetal-server/src/meta/` (WP-089's), and the deep-link routes
-  in `crates/gunmetal-core/src/deeplink.rs` (WP-089's).
+  in `crates/gunmetal-core/src/deeplink.rs` (WP-239's).
 - **Serves** ADM-027, ADM-140, CLI-034, INT-147.
 - **Security.** Boundaries TB1, TB4; threats TM-T07, TM-T10. Verifies
   SEC-API-005 and SEC-NET-047 (the server name is never shown to an
@@ -7829,7 +7831,7 @@ Translations (CLI-146) are client work and need no package here.
 - **Tests.** Unauthenticated `GET /api/v1/server` still matches its
   literal schema with a server name set; a welcome message with markup is
   returned as text; each new deep link parses to its typed route, and
-  unrecognised input still maps to "unknown" (property).
+  unrecognised input still maps to "not recognised" (property).
 
 ### R1.3, discovery and analysis
 
