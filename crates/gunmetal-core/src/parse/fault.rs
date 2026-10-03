@@ -29,6 +29,8 @@ pub enum ParseFault {
     },
     /// A structure nested deeper than its limit allows (SEC-MED-005).
     TooDeep {
+        /// Which depth limit it was.
+        limit: LimitKind,
         /// The depth the parser tried to reach.
         depth: u64,
         /// The deepest level the limit allows.
@@ -85,6 +87,7 @@ mod tests {
             },
             ParseFault::BudgetExceeded { offset: 5 },
             ParseFault::TooDeep {
+                limit: LimitKind::ContainerDepth,
                 depth: 33,
                 max: 32,
                 offset: 7,

@@ -6,6 +6,7 @@
 //! Wall-clock deadlines belong to the worker host, not to the core.
 
 use super::fault::ParseFault;
+use super::limits::{LimitKind, Limits};
 
 /// The steps a parse has left (SEC-MED-007).
 ///
@@ -56,35 +57,69 @@ impl Budget {
 
 /// How deeply nested the structure a parser is working on is (SEC-MED-005).
 ///
-/// A parser starts at [`Depth::ROOT`] and calls [`Depth::descend`] every
-/// time it enters a child, whether it recurses or keeps an explicit stack.
+/// A depth counts levels against one depth limit, chosen by the root the
+/// parser starts from: [`Depth::CONTAINER_ROOT`] for binary containers and
+/// [`Depth::EMBEDDED_FRAME_ROOT`] for frames embedded in `ID3v2` `CHAP` and
+/// `CTOC` frames. A structure of one kind inside another, such as an `ID3v2`
+/// tag inside a container, counts from its own root. The parser calls
+/// [`Depth::descend`] every time it enters a child, whether it recurses or
+/// keeps an explicit stack.
+///
+/// The maximum is always read from [`Limits`], which never holds a depth
+/// above its compiled-in ceiling, and a depth can only be made from one of
+/// the two roots, so no caller can count against a number of its own or
+/// against a limit that is not a depth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Depth(u64);
+pub struct Depth {
+    /// Levels below the root.
+    level: u64,
+    /// The depth limit the levels count against.
+    limit: LimitKind,
+}
 
 impl Depth {
-    /// The top level of a file, outside every structure.
-    pub const ROOT: Self = Self(0);
+    /// The top level of a binary container, counted against
+    /// [`LimitKind::ContainerDepth`].
+    pub const CONTAINER_ROOT: Self = Self {
+        level: 0,
+        limit: LimitKind::ContainerDepth,
+    };
 
-    /// The depth one level further in, for a child that starts at `offset`,
-    /// under a limit of `max` levels.
+    /// The top level of an `ID3v2` tag's frames, counted against
+    /// [`LimitKind::EmbeddedFrameDepth`].
+    pub const EMBEDDED_FRAME_ROOT: Self = Self {
+        level: 0,
+        limit: LimitKind::EmbeddedFrameDepth,
+    };
+
+    /// The depth one level further in, for a child that starts at `offset`.
     ///
     /// # Errors
     ///
-    /// Returns [`ParseFault::TooDeep`] when this depth is already `max` or
-    /// deeper.
-    pub const fn descend(self, max: u64, offset: u64) -> Result<Self, ParseFault> {
+    /// Returns [`ParseFault::TooDeep`], naming this depth's limit, when this
+    /// depth is already at that limit's value in `limits` or deeper.
+    pub const fn descend(self, limits: &Limits, offset: u64) -> Result<Self, ParseFault> {
+        let max = limits.get(self.limit);
         // Below `max`, so adding one cannot saturate on the success path.
-        let depth = self.0.saturating_add(1);
-        if self.0 >= max {
-            return Err(ParseFault::TooDeep { depth, max, offset });
+        let level = self.level.saturating_add(1);
+        if self.level >= max {
+            return Err(ParseFault::TooDeep {
+                limit: self.limit,
+                depth: level,
+                max,
+                offset,
+            });
         }
-        Ok(Self(depth))
+        Ok(Self {
+            level,
+            limit: self.limit,
+        })
     }
 
-    /// How many levels below the top this is.
+    /// How many levels below its root this is.
     #[must_use]
     pub const fn get(self) -> u64 {
-        self.0
+        self.level
     }
 }
 
@@ -151,17 +186,38 @@ mod tests {
         );
     }
 
+    /// The depth `level` levels below the root of `limit`, written out
+    /// rather than reached through [`Depth::descend`].
+    const fn at(level: u64, limit: LimitKind) -> Depth {
+        Depth { level, limit }
+    }
+
+    /// Descends from `root` once per offset in `offsets`, stopping at the
+    /// first refusal.
+    fn descend_through(
+        root: Depth,
+        limits: &Limits,
+        offsets: std::ops::RangeInclusive<u64>,
+    ) -> Result<Depth, ParseFault> {
+        offsets
+            .into_iter()
+            .try_fold(root, |depth, offset| depth.descend(limits, offset))
+    }
+
     /// Verifies: SEC-MED-005
     #[test]
-    fn descends_to_the_limit_and_refuses_one_level_past_it() {
-        let mut depth = Depth::ROOT;
-        for level in 1..=32 {
-            depth = Depth::descend(depth, 32, level).unwrap_or(depth);
-            assert_eq!(depth.get(), level);
-        }
+    fn a_container_nests_32_levels_and_refuses_the_33rd() {
+        assert_eq!(Depth::CONTAINER_ROOT, at(0, LimitKind::ContainerDepth));
+        assert_eq!(Depth::CONTAINER_ROOT.get(), 0);
+        let one_below = descend_through(Depth::CONTAINER_ROOT, &Limits::DEFAULT, 1..=31);
+        assert_eq!(one_below, Ok(at(31, LimitKind::ContainerDepth)));
+        let at_max = one_below.and_then(|depth| depth.descend(&Limits::DEFAULT, 32));
+        assert_eq!(at_max, Ok(at(32, LimitKind::ContainerDepth)));
+        assert_eq!(at_max.map(Depth::get), Ok(32));
         assert_eq!(
-            depth.descend(32, 100),
+            at_max.and_then(|depth| depth.descend(&Limits::DEFAULT, 100)),
             Err(ParseFault::TooDeep {
+                limit: LimitKind::ContainerDepth,
                 depth: 33,
                 max: 32,
                 offset: 100,
@@ -171,48 +227,84 @@ mod tests {
 
     /// Verifies: SEC-MED-005
     #[test]
-    fn refuses_at_the_limit_and_not_one_below_it() {
-        let below = (0..31).try_fold(Depth::ROOT, |depth, _| depth.descend(32, 0));
-        assert_eq!(below.map(Depth::get), Ok(31));
-        let at = below.and_then(|depth| depth.descend(32, 5));
-        assert_eq!(at.map(Depth::get), Ok(32));
+    fn embedded_frames_nest_4_levels_and_refuse_the_5th() {
         assert_eq!(
-            at.and_then(|depth| depth.descend(32, 6)),
-            Err(ParseFault::TooDeep {
-                depth: 33,
-                max: 32,
-                offset: 6,
-            })
+            Depth::EMBEDDED_FRAME_ROOT,
+            at(0, LimitKind::EmbeddedFrameDepth)
         );
-    }
-
-    /// Verifies: SEC-MED-005
-    #[test]
-    fn a_shallower_limit_refuses_a_structure_already_deeper() {
-        // ID3v2 chapter frames allow 4 levels; a parser already 5 levels
-        // deep in some other structure may not open one.
-        let deep = (0..5).try_fold(Depth::ROOT, |depth, _| depth.descend(32, 0));
+        assert_eq!(Depth::EMBEDDED_FRAME_ROOT.get(), 0);
+        let one_below = descend_through(Depth::EMBEDDED_FRAME_ROOT, &Limits::DEFAULT, 1..=3);
+        assert_eq!(one_below, Ok(at(3, LimitKind::EmbeddedFrameDepth)));
+        let at_max = one_below.and_then(|depth| depth.descend(&Limits::DEFAULT, 4));
+        assert_eq!(at_max, Ok(at(4, LimitKind::EmbeddedFrameDepth)));
+        assert_eq!(at_max.map(Depth::get), Ok(4));
         assert_eq!(
-            deep.and_then(|depth| depth.descend(4, 9)),
+            at_max.and_then(|depth| depth.descend(&Limits::DEFAULT, 200)),
             Err(ParseFault::TooDeep {
-                depth: 6,
+                limit: LimitKind::EmbeddedFrameDepth,
+                depth: 5,
                 max: 4,
-                offset: 9,
+                offset: 200,
             })
         );
     }
 
     /// Verifies: SEC-MED-005
     #[test]
-    fn a_limit_of_zero_allows_no_nesting() {
-        assert_eq!(Depth::ROOT.get(), 0);
+    fn a_tag_deep_inside_a_container_still_nests_its_own_four_levels() {
+        // An ID3v2 tag in the deepest box a container may open counts its
+        // embedded frames from their own root, and the container's count
+        // carries on unchanged beside it.
+        let container = descend_through(Depth::CONTAINER_ROOT, &Limits::DEFAULT, 1..=31);
+        let frames = descend_through(Depth::EMBEDDED_FRAME_ROOT, &Limits::DEFAULT, 40..=43);
+        assert_eq!(frames, Ok(at(4, LimitKind::EmbeddedFrameDepth)));
         assert_eq!(
-            Depth::ROOT.descend(0, 0),
+            frames.and_then(|depth| depth.descend(&Limits::DEFAULT, 44)),
             Err(ParseFault::TooDeep {
+                limit: LimitKind::EmbeddedFrameDepth,
+                depth: 5,
+                max: 4,
+                offset: 44,
+            })
+        );
+        assert_eq!(
+            container.and_then(|depth| depth.descend(&Limits::DEFAULT, 50)),
+            Ok(at(32, LimitKind::ContainerDepth))
+        );
+    }
+
+    /// Verifies: SEC-MED-005
+    #[test]
+    fn reads_each_depth_from_its_own_limit_in_the_limits_given() {
+        // Lowering one depth limit to zero forbids nesting of that kind and
+        // leaves the other kind alone.
+        let no_containers = Limits::DEFAULT.with_override(LimitKind::ContainerDepth, 0);
+        assert_eq!(
+            no_containers.map(|limits| Depth::CONTAINER_ROOT.descend(&limits, 7)),
+            Ok(Err(ParseFault::TooDeep {
+                limit: LimitKind::ContainerDepth,
                 depth: 1,
                 max: 0,
-                offset: 0,
-            })
+                offset: 7,
+            }))
+        );
+        assert_eq!(
+            no_containers.map(|limits| Depth::EMBEDDED_FRAME_ROOT.descend(&limits, 7)),
+            Ok(Ok(at(1, LimitKind::EmbeddedFrameDepth)))
+        );
+        let no_frames = Limits::DEFAULT.with_override(LimitKind::EmbeddedFrameDepth, 0);
+        assert_eq!(
+            no_frames.map(|limits| Depth::EMBEDDED_FRAME_ROOT.descend(&limits, 8)),
+            Ok(Err(ParseFault::TooDeep {
+                limit: LimitKind::EmbeddedFrameDepth,
+                depth: 1,
+                max: 0,
+                offset: 8,
+            }))
+        );
+        assert_eq!(
+            no_frames.map(|limits| Depth::CONTAINER_ROOT.descend(&limits, 8)),
+            Ok(Ok(at(1, LimitKind::ContainerDepth)))
         );
     }
 
@@ -255,21 +347,31 @@ mod tests {
 
         /// Verifies: SEC-MED-005
         #[test]
-        fn allows_exactly_max_levels(max in 0_u64..64, extra in 1_u64..8) {
-            let mut depth = Depth::ROOT;
+        fn allows_exactly_as_many_levels_as_the_limit_holds(
+            // Each depth limit, at any value up to its ceiling.
+            (root, limit, max) in prop_oneof![
+                (0_u64..=32).prop_map(|max| (Depth::CONTAINER_ROOT, LimitKind::ContainerDepth, max)),
+                (0_u64..=4).prop_map(|max| (Depth::EMBEDDED_FRAME_ROOT, LimitKind::EmbeddedFrameDepth, max)),
+            ],
+            extra in 1_u64..8,
+        ) {
+            let limits = Limits::DEFAULT.with_override(limit, max);
+            prop_assert_eq!(limits.map(|limits| limits.get(limit)), Ok(max));
+            let limits = limits.unwrap_or(Limits::DEFAULT);
+            let mut depth = root;
             for level in 1..=max + extra {
-                let next = depth.descend(max, level);
+                let next = depth.descend(&limits, level);
                 if level <= max {
-                    prop_assert_eq!(next, Ok(Depth(level)));
+                    prop_assert_eq!(next, Ok(at(level, limit)));
                 } else {
                     prop_assert_eq!(
                         next,
-                        Err(ParseFault::TooDeep { depth: depth.get() + 1, max, offset: level })
+                        Err(ParseFault::TooDeep { limit, depth: max + 1, max, offset: level })
                     );
                 }
                 depth = next.unwrap_or(depth);
             }
-            prop_assert_eq!(depth.get(), max);
+            prop_assert_eq!(depth, at(max, limit));
         }
     }
 }
