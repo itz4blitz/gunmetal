@@ -35,3 +35,10 @@ path = "fuzz_targets/ebml.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "text"
+path = "fuzz_targets/text.rs"
+test = false
+doc = false
+bench = false
