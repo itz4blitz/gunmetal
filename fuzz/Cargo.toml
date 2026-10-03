@@ -88,6 +88,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ogg"
+path = "fuzz_targets/ogg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ogg_structure"
+path = "fuzz_targets/ogg_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "text"
 path = "fuzz_targets/text.rs"
 test = false

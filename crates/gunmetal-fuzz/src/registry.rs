@@ -54,6 +54,8 @@ harnesses! {
     ebml,
     link,
     net,
+    ogg,
+    ogg_structure,
     text,
     time,
     values,
