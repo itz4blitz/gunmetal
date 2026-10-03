@@ -284,12 +284,24 @@ mod tests {
     #[test]
     fn receive_refuses_a_full_counter_that_would_carry_past_the_skew_bound() {
         let now = 1_000_000;
+        let full = Hlc::new(1_300_000, u32::MAX);
+        let ahead = Err(ClockError::Ahead {
+            wall_ms: 1_300_000,
+            bound_ms: 1_300_000,
+        });
+        assert_eq!(Hlc::ZERO.receive(full, now), ahead);
+        assert_eq!(full.receive(full, now), ahead);
+    }
+
+    #[test]
+    fn receive_of_the_last_clock_is_exhausted() {
         assert_eq!(
-            Hlc::ZERO.receive(Hlc::new(1_300_000, u32::MAX), now),
-            Err(ClockError::Ahead {
-                wall_ms: 1_300_000,
-                bound_ms: 1_300_000
-            })
+            Hlc::ZERO.receive(Hlc::new(u64::MAX, u32::MAX), u64::MAX),
+            Err(ClockError::Exhausted)
+        );
+        assert_eq!(
+            Hlc::new(u64::MAX, u32::MAX).receive(Hlc::ZERO, u64::MAX),
+            Err(ClockError::Exhausted)
         );
     }
 
