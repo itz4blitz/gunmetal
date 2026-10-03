@@ -130,9 +130,16 @@ fn encode_body(body: &Body) -> Vec<u8> {
 }
 
 /// Appends `value` as a LEB128 varint in its shortest form.
+///
+/// The number of continuation octets is `ceil(bits / 7) - 1`, from the
+/// value's bit length, so the loop cannot run away if a comparison is
+/// flipped. A `while rest > 0x7f` hangs on that mutant: a value below
+/// 0x80 keeps shifting zeros.
 fn put_varint(out: &mut Vec<u8>, value: u64) {
+    let bits = u64::BITS.saturating_sub(value.leading_zeros());
+    let continuations = bits.saturating_sub(1) / 7;
     let mut rest = value;
-    while rest > 0x7f {
+    for _ in 0..continuations {
         // The low seven bits, with the bit that says more octets follow.
         out.push(rest.to_le_bytes()[0] | 0x80);
         rest >>= 7;
