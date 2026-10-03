@@ -57,7 +57,8 @@
 //! - An LRC text longer than [`LimitKind::LyricsBytes`] is refused with
 //!   [`ParseFault::LimitExceeded`].
 //! - A line, or a `SYLT` entry, longer than [`LimitKind::LyricsLineBytes`]
-//!   is cut to that length.
+//!   after decoding is cut to that length (SEC-MED-013). Encoded input is
+//!   cut to the same length as a work bound.
 //! - A stamp past [`LimitKind::LyricsTimestampMs`] is dropped. A line left
 //!   with none of its stamps is dropped too; a dropped word stamp's text
 //!   joins the word before it.
@@ -301,7 +302,7 @@ pub fn from_sylt(
             continue;
         }
         let at = time(millis);
-        let text = decode(raw);
+        let text = caps.decode(raw, offset);
         let size = STAMP_OCTETS.saturating_add(octets(text.as_bytes()));
         match lines.last_mut() {
             Some(line) if by_word && !starts_line => {
@@ -528,8 +529,9 @@ impl<'l> Caps<'l> {
         true
     }
 
-    /// `text`, read at `offset`, cut to the line limit, which is noted when
-    /// passed.
+    /// `text`, read at `offset`, cut to the line limit as a work bound,
+    /// which is noted when the encoded length passes it. Stored text is
+    /// capped after decoding.
     fn cut<'a>(&mut self, text: &'a [u8], offset: u64) -> &'a [u8] {
         let max = self.limits.get(LimitKind::LyricsLineBytes);
         if let Err(fault) = self
@@ -540,6 +542,43 @@ impl<'l> Caps<'l> {
         }
         text.get(..usize::try_from(max).unwrap_or(usize::MAX))
             .unwrap_or(text)
+    }
+
+    /// The line-length cap as [`text::decode`] takes it.
+    fn line_cap(&self) -> u32 {
+        u32::try_from(self.limits.get(LimitKind::LyricsLineBytes)).unwrap_or(u32::MAX)
+    }
+
+    /// Notes [`LimitKind::LyricsLineBytes`] when `decoded` was truncated,
+    /// and returns the stored text.
+    fn take_text(&mut self, decoded: text::Text, offset: u64) -> String {
+        if decoded.truncated {
+            let max = self.limits.get(LimitKind::LyricsLineBytes);
+            self.note(ParseFault::LimitExceeded {
+                limit: LimitKind::LyricsLineBytes,
+                value: max.saturating_add(1),
+                max,
+                offset,
+            });
+        }
+        decoded.value
+    }
+
+    /// Decodes `raw`, read at `offset`, keeping at most the line-length cap
+    /// of UTF-8 octets (SEC-MED-013).
+    fn decode(&mut self, raw: &[u8], offset: u64) -> String {
+        self.take_text(
+            text::decode(Untrusted::new(raw), Encoding::Utf8, self.line_cap()),
+            offset,
+        )
+    }
+
+    /// Normalises a tag value the same way, as a single line.
+    fn normalise(&mut self, raw: &[u8], offset: u64) -> String {
+        self.take_text(
+            text::normalise(Untrusted::new(raw), TextLines::Single, self.line_cap()),
+            offset,
+        )
     }
 
     /// A line as it is read: without a carriage return before its line
@@ -576,12 +615,6 @@ fn pieces(body: &[u8], start: u64) -> impl Iterator<Item = (u64, &[u8])> {
 /// The length of `bytes`.
 fn octets(bytes: &[u8]) -> u64 {
     u64::try_from(bytes.len()).unwrap_or(u64::MAX)
-}
-
-/// Decodes text from a lyrics text: UTF-8 with each invalid sequence
-/// replaced, without control characters other than tab (SEC-MED-013).
-fn decode(raw: &[u8]) -> String {
-    text::decode(Untrusted::new(raw), Encoding::Utf8, u32::MAX).value
 }
 
 /// Reads up to `most` ASCII digits from the start of `bytes`: their value,
@@ -819,7 +852,7 @@ impl<'l> Lrc<'l> {
             self.tag(key, value, offset);
             return;
         }
-        let text = decode(line);
+        let text = self.caps.decode(line, offset);
         if text.is_empty() {
             self.stanza_break = !self.plain.is_empty();
             return;
@@ -858,7 +891,7 @@ impl<'l> Lrc<'l> {
     fn untimed(&mut self, line: &[u8], offset: u64) {
         if let Some((key, value)) = tag(line) {
             self.tag(key, value, offset);
-        } else if !decode(line).is_empty() {
+        } else if !self.caps.decode(line, offset).is_empty() {
             self.push_line(self.last_at, &[(None, line)], 0, offset);
         }
     }
@@ -871,7 +904,7 @@ impl<'l> Lrc<'l> {
         let mut size = stamp_octets;
         let mut stamped = false;
         for &(word_stamp, raw) in parts {
-            let text = decode(raw);
+            let text = self.caps.decode(raw, offset);
             size = size.saturating_add(octets(text.as_bytes()));
             match word_stamp.filter(|&millis| self.caps.in_time(millis, offset)) {
                 Some(millis) => {
@@ -900,12 +933,7 @@ impl<'l> Lrc<'l> {
     /// Keeps a tag read at `offset`, if it fits, and applies it when it is
     /// an offset that is a number.
     fn tag(&mut self, key: TagKey, value: &[u8], offset: u64) {
-        let text = text::normalise(
-            Untrusted::new(value.trim_ascii()),
-            TextLines::Single,
-            u32::MAX,
-        )
-        .value;
+        let text = self.caps.normalise(value.trim_ascii(), offset);
         if !self.caps.admit(1, octets(text.as_bytes()), offset) {
             return;
         }
@@ -1572,6 +1600,82 @@ mod tests {
         );
     }
 
+    /// Invalid UTF-8 becomes U+FFFD (three octets), so a line that fits the
+    /// encoded 4 KiB work bound can still exceed it after decoding. The
+    /// length cap is applied to the stored text (SEC-MED-013).
+    ///
+    /// Verifies: SEC-MED-013, SEC-MED-049, SEC-API-090
+    #[test]
+    fn cuts_decoded_invalid_utf8_to_4_kib() {
+        let max = usize::try_from(Limits::DEFAULT.get(LimitKind::LyricsLineBytes)).unwrap();
+        assert_eq!(max, 4_096);
+        // 1,365 × U+FFFD is 4,095 octets, the most that fits; 1,366 would
+        // be 4,098.
+        let kept = run_of('\u{FFFD}', max / 3);
+        assert_eq!(kept.len(), 4_095);
+        let under_encoded: Vec<u8> = (0..1_366).map(|_| 0xFF).collect();
+        assert_eq!(under_encoded.len() * 3, 4_098);
+        let at_encoded: Vec<u8> = (0..4_096).map(|_| 0xFF).collect();
+        let line_over = over(LimitKind::LyricsLineBytes, 4_097, 4_096, 0);
+
+        for raw in [under_encoded.as_slice(), at_encoded.as_slice()] {
+            let parsed = read(raw).unwrap();
+            assert_well_formed(&parsed, &Limits::DEFAULT);
+            assert_eq!(parsed, limited(plain(&[&kept]), &[line_over]));
+        }
+
+        let mut timed = b"[00:01.00]".to_vec();
+        timed.extend(&under_encoded);
+        let parsed = read(&timed).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(parsed, limited(lines(&[(1_000, &kept)]), &[line_over]));
+
+        let mut tagged_line = b"[ti:".to_vec();
+        tagged_line.extend(&under_encoded);
+        tagged_line.push(b']');
+        let parsed = read(&tagged_line).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(
+            parsed,
+            Parsed {
+                over_limit: vec![line_over],
+                ..tagged(plain(&[]), &[(TagKey::Title, kept.as_str())], 0)
+            }
+        );
+
+        let mut words_line = b"[00:01.00]<00:01.00>".to_vec();
+        words_line.extend(&under_encoded);
+        let parsed = read(&words_line).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(
+            parsed,
+            limited(words(&[(1_000, &[(1_000, &kept)])]), &[line_over])
+        );
+
+        let sylt_under = run_of('\u{FFFD}', 1_366);
+        assert_eq!(sylt_under.len(), 4_098);
+        let parsed = sylt(&[(0, &sylt_under)]).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(
+            parsed,
+            synced(
+                lines(&[(0, &kept)]),
+                &[over(LimitKind::LyricsLineBytes, 4_098, 4_096, 0)]
+            )
+        );
+        let sylt_long = run_of('\u{FFFD}', 4_096);
+        assert_eq!(sylt_long.len(), 12_288);
+        let parsed = sylt(&[(0, &sylt_long)]).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(
+            parsed,
+            synced(
+                lines(&[(0, &kept)]),
+                &[over(LimitKind::LyricsLineBytes, 12_288, 4_096, 0)]
+            )
+        );
+    }
+
     /// The lines of a timed file in which line `i` is `x` at `i` × 10 ms,
     /// each 12 octets long.
     fn numbered_lines(count: u32) -> String {
@@ -2180,6 +2284,11 @@ mod tests {
         assert!(lines <= limits.get(LimitKind::LyricsLines), "{parsed:?}");
         let octets: usize = texts.iter().map(|text| text.len()).sum();
         assert!(u64::try_from(octets).unwrap() <= limits.get(LimitKind::LyricsBytes));
+        let max_line = usize::try_from(limits.get(LimitKind::LyricsLineBytes)).unwrap();
+        assert!(
+            texts.iter().all(|text| text.len() <= max_line),
+            "{parsed:?}"
+        );
         assert!(
             texts
                 .iter()

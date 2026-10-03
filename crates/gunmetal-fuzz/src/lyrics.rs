@@ -74,13 +74,16 @@ pub fn run(data: &[u8]) -> Outcome {
         let shape = shape(parsed);
         let max_lines = usize::try_from(Limits::DEFAULT.get(LimitKind::LyricsLines)).unwrap();
         let max_octets = usize::try_from(Limits::DEFAULT.get(LimitKind::LyricsBytes)).unwrap();
+        let max_line = usize::try_from(Limits::DEFAULT.get(LimitKind::LyricsLineBytes)).unwrap();
         let max_at = u32::try_from(Limits::DEFAULT.get(LimitKind::LyricsTimestampMs)).unwrap();
         assert!(
             shape.lines <= max_lines
                 && shape.texts.iter().map(|text| text.len()).sum::<usize>() <= max_octets
                 && shape.texts.iter().all(|text| {
-                    text.chars()
-                        .all(|c| !c.is_control() || c == '\t' || c == '\n')
+                    text.len() <= max_line
+                        && text
+                            .chars()
+                            .all(|c| !c.is_control() || c == '\t' || c == '\n')
                 })
                 && shape.times.iter().map(|(at, _)| at).is_sorted()
                 && shape.times.iter().all(|(at, words)| {
