@@ -5,4 +5,5 @@
 
 pub mod ebml;
 pub mod text;
+pub mod time;
 pub mod untrusted;
