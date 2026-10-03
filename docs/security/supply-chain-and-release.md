@@ -273,7 +273,7 @@ first like any other code (step 6).
 |---|---|---|---|
 | `ci.yml` | `pull_request`, push to `main` | `contents: read` | The gate |
 | `supply-chain.yml` | `pull_request`, push to `main`, daily | `contents: read`; `issues: write` only on the scheduled job | cargo-deny, cargo-vet, exceptions check, lockfile age check, zizmor, actionlint, `reuse lint`, DCO, licence checks |
-| `codeql.yml` | `pull_request`, push to `main`, weekly | `security-events: write` on the analysis job | Rust, JS/TS, Actions |
+| `codeql.yml` | `pull_request`, push to `main`, weekly | `contents: read`, `actions: read`, `security-events: read` on the analysis job; SARIF is not uploaded while the repository is private | Rust, JS/TS, Actions |
 | `scorecard.yml` | push to `main`, weekly | `security-events: write`, `id-token: write` on that job | Scorecard with published results |
 | `settings-drift.yml` | daily | `contents: read`, `issues: write` | Compares live settings with the policy file |
 | `release.yml` | push of a `v*` tag | `{}` at top; per job below | Orchestrates the release |
