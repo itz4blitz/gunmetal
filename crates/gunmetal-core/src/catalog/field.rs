@@ -254,11 +254,11 @@ fields! {
 mod tests {
     use super::*;
 
+    use CatalogField as F;
     use FieldType::{
         Boolean, Code, CodeList, Date, Decimal, Duration, Id, IdList, Integer, Mbid, Text,
         TextList, Timestamp,
     };
-    use CatalogField as F;
     use RecordKind::{Album, Artist, Track};
 
     /// One row of the literal table: the variant callers name, then its
@@ -320,7 +320,13 @@ mod tests {
         (F::AlbumDate, 206, Album, "date", Date),
         (F::AlbumOriginalDate, 207, Album, "original_date", Date),
         (F::AlbumPrimaryType, 208, Album, "primary_type", Code),
-        (F::AlbumSecondaryTypes, 209, Album, "secondary_types", CodeList),
+        (
+            F::AlbumSecondaryTypes,
+            209,
+            Album,
+            "secondary_types",
+            CodeList,
+        ),
         (F::AlbumCompilation, 210, Album, "compilation", Boolean),
         (F::AlbumGenres, 211, Album, "genres", TextList),
         (F::AlbumLabels, 212, Album, "labels", TextList),
@@ -329,7 +335,13 @@ mod tests {
         (F::AlbumDuration, 215, Album, "duration", Duration),
         (F::AlbumHasArtwork, 216, Album, "has_artwork", Boolean),
         (F::AlbumReleaseMbid, 217, Album, "release_mbid", Mbid),
-        (F::AlbumReleaseGroupMbid, 218, Album, "release_group_mbid", Mbid),
+        (
+            F::AlbumReleaseGroupMbid,
+            218,
+            Album,
+            "release_group_mbid",
+            Mbid,
+        ),
         (F::AlbumAdded, 219, Album, "added", Timestamp),
         (F::ArtistId, 300, Artist, "id", Id),
         (F::ArtistLibrary, 301, Artist, "library", Id),
