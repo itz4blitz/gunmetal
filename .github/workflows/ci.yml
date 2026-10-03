@@ -4,9 +4,13 @@ name: CI
 # secrets. Never use pull_request_target or workflow_run here (SEC-SUP-013).
 #
 # Decision D-01: a pull request into a wave branch (wave-0, wave-1, ...) runs
-# the gate with mutation testing limited to the code it changes. A pull
-# request into main, every push to main or a wave branch, and the nightly run
-# on main run the full gate.
+# the gate with mutation testing limited to the code it changes, in the one
+# `checks` job. A pull request into main, every push to main or a wave branch,
+# and the nightly run on main run the full gate: `checks` runs every step
+# except mutation testing, and the `mutants` jobs split the whole workspace's
+# mutants between them, so none is skipped. Either way the job named `gate`
+# is the one required check, and it fails unless every other job ended as
+# that kind of run needs.
 on:
   push:
     branches: [main, "wave-*"]
@@ -22,11 +26,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gate:
+  # Every step of scripts/gate.sh except, in a full run, mutation testing.
+  checks:
     runs-on: ubuntu-latest
-    # The full mutation run over wave 0 (1,084 mutants) took 15 minutes on
-    # a 24-core workstation; hosted runners are slower. Shard it with
-    # cargo-mutants --shard before this limit is reached again.
+    # A diff-scoped run mutation-tests only what one pull request changes;
+    # a full run leaves mutation testing to the `mutants` jobs.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -58,10 +62,53 @@ jobs:
       - run: cargo install cargo-vet --version 0.10.2 --locked
       - run: scripts/gate.sh
         env:
-          # Set only for a pull request into a wave branch (D-01). Event data
-          # reaches the script through env, never through ${{ }} in run
+          # The base branch, only for a pull request into a wave branch
+          # (D-01); every other run sets GATE_SKIP_MUTANTS instead. Event
+          # data reaches the script through env, never through ${{ }} in run
           # (SEC-SUP-014).
           GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}
+          GATE_SKIP_MUTANTS: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && '0' || '1' }}
+
+  # The full mutation run, one shard per job. Not run for a pull request into
+  # a wave branch, whose `checks` job mutation-tests its diff.
+  mutants:
+    if: ${{ !(github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-')) }}
+    runs-on: ubuntu-latest
+    # Wave 0's 1,084 mutants took 45 minutes in one hosted job, about 2.5
+    # seconds each. Wave 1 has 5,104 when this is written, about 3.5 hours
+    # in one job and so about 21 minutes for each of ten shards, plus a few
+    # minutes to install tools and build and test the unmutated tree. 75
+    # minutes leaves room for the workspace to triple before a shard times
+    # out. A timed-out shard fails `gate`; raise the shard count here and
+    # in GATE_MUTANTS_SHARD when shards pass 45 minutes.
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    strategy:
+      # A missed mutant in one shard must not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      # The shards share one cache; only the first saves it.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ matrix.shard == 0 }}
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+      - run: scripts/gate.sh
+        env:
+          # Mutant i belongs to shard i mod 10, so the ten jobs test every
+          # mutant exactly once.
+          GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10
 
   # SEC-MED-004: the core's tests, property tests included, on a target where
   # usize is 32 bits wide, so a length that only fits in 64 bits is caught.
@@ -110,3 +157,65 @@ jobs:
           fi
           cat gate.log
           grep -F "because --locked was passed to prevent this" gate.log
+
+  # The gate's switches refuse a value they cannot read and any combination,
+  # before anything runs, so no mistyped job passes by testing nothing.
+  gate-switches-self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The gate refuses unreadable and combined switches
+        run: |
+          refused() {
+            status=0
+            env "$@" scripts/gate.sh > gate.log 2>&1 || status=$?
+            cat gate.log
+            if ((status != 2)) || [[ "$(wc -l < gate.log)" != 1 ]] || ! grep -q '^gate: GATE_' gate.log; then
+              echo "::error::the gate did not refuse $*"
+              exit 1
+            fi
+          }
+          refused GATE_SKIP_MUTANTS=yes
+          refused GATE_MUTANTS_SHARD=3
+          refused GATE_MUTANTS_SHARD=a/b
+          refused GATE_MUTANTS_SHARD=01/10
+          refused GATE_MUTANTS_SHARD=1/0
+          refused GATE_MUTANTS_SHARD=10/10
+          refused GATE_MUTANTS_SHARD=0/10000
+          refused GATE_MUTANTS_SHARD=0/10 GATE_MUTANTS_DIFF=origin/main
+          refused GATE_MUTANTS_SHARD=0/10 GATE_SKIP_MUTANTS=1
+          refused GATE_MUTANTS_DIFF=origin/main GATE_SKIP_MUTANTS=1
+
+  # The one check main's ruleset requires. It waits for every other job and
+  # runs even when one failed or was cancelled, because a skipped required
+  # check counts as passed. Each job must have succeeded, except that the
+  # `mutants` jobs must have been skipped in a diff-scoped run and must all
+  # have succeeded in a full one: a missed or timed-out mutant in any shard
+  # fails this job.
+  gate:
+    if: ${{ always() }}
+    needs: [checks, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job ended as this run needs
+        env:
+          DIFF_SCOPED: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          mutants=success
+          if [[ "$DIFF_SCOPED" == true ]]; then
+            mutants=skipped
+          fi
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          wrong=$(jq -r --arg mutants "$mutants" '[to_entries[] | select(.value.result != (if .key == "mutants" then $mutants else "success" end)) | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")
+          if [[ -n "$wrong" ]]; then
+            echo "::error::the gate fails: $wrong"
+            exit 1
+          fi

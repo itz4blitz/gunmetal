@@ -9,8 +9,48 @@
 # since the merge base with that ref, as pull requests into a wave branch do
 # (decision D-01). Every other step always covers the whole workspace, and so
 # does mutation testing without it.
+#
+# GATE_SKIP_MUTANTS=1 runs every step except mutation testing.
+#
+# GATE_MUTANTS_SHARD=k/n runs only mutation testing, and only shard k of n
+# of the whole workspace's mutants; k counts from 0. Mutant i of the list
+# belongs to shard i mod n, so the n shards together test every mutant
+# exactly once. CI's full gate is one job with GATE_SKIP_MUTANTS=1 and one
+# job per shard, because a single job cannot finish the full mutation run
+# within its time limit.
+#
+# At most one of the three may be set, since each chooses which mutants the
+# run tests. With none of them the script runs every step over the whole
+# workspace, which is the definition of done.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Refuse switches that cannot be read or do not combine before anything
+# runs, so that a mistyped run never passes by testing nothing.
+usage() {
+  printf 'gate: %s\n' "$1" >&2
+  exit 2
+}
+mutants_diff="${GATE_MUTANTS_DIFF:-}"
+mutants_shard="${GATE_MUTANTS_SHARD:-}"
+skip_mutants="${GATE_SKIP_MUTANTS:-0}"
+case "$skip_mutants" in
+  0 | 1) ;;
+  *) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;
+esac
+if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then
+  usage "GATE_MUTANTS_SHARD must be k/n with 0 <= k < n <= 9999, not '$mutants_shard'"
+fi
+if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then
+  usage "GATE_MUTANTS_SHARD must be k/n with 0 <= k < n <= 9999, not '$mutants_shard'"
+fi
+switches=()
+if [[ -n "$mutants_diff" ]]; then switches+=(GATE_MUTANTS_DIFF); fi
+if [[ -n "$mutants_shard" ]]; then switches+=(GATE_MUTANTS_SHARD); fi
+if [[ "$skip_mutants" == 1 ]]; then switches+=(GATE_SKIP_MUTANTS); fi
+if ((${#switches[@]} > 1)); then
+  usage "${switches[*]} cannot be combined: each one chooses which mutants this run tests"
+fi
 
 # A distro-packaged Rust has no rustup llvm-tools component, so point
 # cargo-llvm-cov at the system LLVM instead.
@@ -31,79 +71,98 @@ if [[ "${GATE_OFFLINE:-0}" == 1 ]]; then
   vet_offline=(--frozen)
 fi
 
-echo "==> format"
-cargo fmt --all -- --check
+# Every step except mutation testing.
+checks() {
+  echo "==> format"
+  cargo fmt --all -- --check
 
-echo "==> lint configuration"
-# Clippy reads the clippy.toml nearest to each crate and ignores the rest, so
-# a crate with a file of its own would switch the workspace's bans off for
-# itself. Only the workspace's file and the core's may exist; the core's
-# tests check that the core's repeats every workspace rule.
-clippy_configs=$(git ls-files --cached --others --exclude-standard -- '*clippy.toml' | LC_ALL=C sort)
-if [[ "$clippy_configs" != $'clippy.toml\ncrates/gunmetal-core/clippy.toml' ]]; then
-  printf 'only clippy.toml and crates/gunmetal-core/clippy.toml may exist; found:\n%s\n' "$clippy_configs" >&2
-  exit 1
+  echo "==> lint configuration"
+  # Clippy reads the clippy.toml nearest to each crate and ignores the rest, so
+  # a crate with a file of its own would switch the workspace's bans off for
+  # itself. Only the workspace's file and the core's may exist; the core's
+  # tests check that the core's repeats every workspace rule.
+  clippy_configs=$(git ls-files --cached --others --exclude-standard -- '*clippy.toml' | LC_ALL=C sort)
+  if [[ "$clippy_configs" != $'clippy.toml\ncrates/gunmetal-core/clippy.toml' ]]; then
+    printf 'only clippy.toml and crates/gunmetal-core/clippy.toml may exist; found:\n%s\n' "$clippy_configs" >&2
+    exit 1
+  fi
+
+  echo "==> lint"
+  cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  echo "==> doors Clippy cannot see"
+  # SEC-OPS-037: only the listener and the core's forwarding-header parser read
+  # forwarding headers; everything else takes the ClientContext they produce.
+  # Tests may send the headers, to prove they are ignored.
+  status=0
+  git grep --untracked -n -i -E '"(forwarded|x-forwarded-[a-z-]+|x-real-ip|x-client-ip|true-client-ip|cf-connecting-ip)"|header::FORWARDED' -- 'crates/*.rs' ':!crates/*/tests/*' ':!crates/gunmetal-server/src/listener.rs' ':!crates/gunmetal-core/src/http/forwarded.rs' || status=$?
+  if ((status == 0)); then
+    echo "forwarding headers are read outside the listener (SEC-OPS-037)" >&2
+    exit 1
+  elif ((status != 1)); then
+    echo "the forwarding-header search failed (exit $status)" >&2
+    exit 1
+  fi
+  # SEC-SUP-026: the workspace has no build script. The first one that is
+  # needed comes with a check that it reads no test fixture and touches no
+  # network.
+  if git ls-files --cached --others --exclude-standard -- 'build.rs' '*/build.rs' | grep .; then
+    echo "a workspace build script needs a reviewed exception (SEC-SUP-026)" >&2
+    exit 1
+  fi
+
+  echo "==> dependency policy: advisories, bans, licences, sources"
+  cargo deny "$locked" check
+
+  echo "==> dependency audits"
+  cargo vet --locked "${vet_offline[@]}"
+
+  echo "==> the core's dependencies are reviewed"
+  # SEC-SUP-025: every crate the core uses at run time, on any target, through
+  # any other crate and with any of its features on, is on the reviewed
+  # allowlist, and the allowlist names no crate the core does not use. The
+  # core's tests read its manifest; xtask core-deps compares what cargo
+  # resolves from it with supply-chain/core-allowlist.toml. --all-features
+  # matters: another member can turn on an optional dependency of the core
+  # through one of the core's features.
+  mkdir -p target
+  cargo tree "$locked" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt
+  cargo run "$locked" -q -p xtask -- core-deps target/core-deps.txt
+
+  echo "==> tests with 100% coverage"
+  cargo llvm-cov --locked --workspace \
+    --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
+
+  echo "==> documentation tests"
+  # cargo llvm-cov does not run doctests. Some of them are compile-fail tests
+  # that prove a door cannot be opened at all (SEC-HIS-012, SEC-PRV-050,
+  # SEC-API-066), so they run here on their own.
+  cargo test --locked --workspace --doc
+}
+
+# Mutation testing: the whole workspace, the code changed since a ref, or
+# one shard of the whole workspace.
+mutants() {
+  echo "==> mutation testing, zero survivors"
+  scope=()
+  if [[ -n "$mutants_diff" ]]; then
+    diff_file=$(mktemp)
+    trap 'rm -f "$diff_file"' EXIT
+    git diff --no-ext-diff "${mutants_diff}...HEAD" >"$diff_file"
+    echo "only mutants in code changed since ${mutants_diff}"
+    scope=(--in-diff "$diff_file")
+  elif [[ -n "$mutants_shard" ]]; then
+    echo "only shard ${mutants_shard} of the workspace's mutants"
+    scope=(--shard "$mutants_shard" --sharding round-robin)
+  fi
+  cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
+}
+
+if [[ -z "$mutants_shard" ]]; then
+  checks
 fi
-
-echo "==> lint"
-cargo clippy --locked --workspace --all-targets -- -D warnings
-
-echo "==> doors Clippy cannot see"
-# SEC-OPS-037: only the listener and the core's forwarding-header parser read
-# forwarding headers; everything else takes the ClientContext they produce.
-# Tests may send the headers, to prove they are ignored.
-status=0
-git grep --untracked -n -i -E '"(forwarded|x-forwarded-[a-z-]+|x-real-ip|x-client-ip|true-client-ip|cf-connecting-ip)"|header::FORWARDED' -- 'crates/*.rs' ':!crates/*/tests/*' ':!crates/gunmetal-server/src/listener.rs' ':!crates/gunmetal-core/src/http/forwarded.rs' || status=$?
-if ((status == 0)); then
-  echo "forwarding headers are read outside the listener (SEC-OPS-037)" >&2
-  exit 1
-elif ((status != 1)); then
-  echo "the forwarding-header search failed (exit $status)" >&2
-  exit 1
+if [[ "$skip_mutants" == 1 ]]; then
+  echo "==> mutation testing skipped (GATE_SKIP_MUTANTS=1)"
+else
+  mutants
 fi
-# SEC-SUP-026: the workspace has no build script. The first one that is
-# needed comes with a check that it reads no test fixture and touches no
-# network.
-if git ls-files --cached --others --exclude-standard -- 'build.rs' '*/build.rs' | grep .; then
-  echo "a workspace build script needs a reviewed exception (SEC-SUP-026)" >&2
-  exit 1
-fi
-
-echo "==> dependency policy: advisories, bans, licences, sources"
-cargo deny "$locked" check
-
-echo "==> dependency audits"
-cargo vet --locked "${vet_offline[@]}"
-
-echo "==> the core's dependencies are reviewed"
-# SEC-SUP-025: every crate the core uses at run time, on any target, through
-# any other crate and with any of its features on, is on the reviewed
-# allowlist, and the allowlist names no crate the core does not use. The
-# core's tests read its manifest; xtask core-deps compares what cargo
-# resolves from it with supply-chain/core-allowlist.toml. --all-features
-# matters: another member can turn on an optional dependency of the core
-# through one of the core's features.
-mkdir -p target
-cargo tree "$locked" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt
-cargo run "$locked" -q -p xtask -- core-deps target/core-deps.txt
-
-echo "==> tests with 100% coverage"
-cargo llvm-cov --locked --workspace \
-  --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
-
-echo "==> documentation tests"
-# cargo llvm-cov does not run doctests. Some of them are compile-fail tests
-# that prove a door cannot be opened at all (SEC-HIS-012, SEC-PRV-050,
-# SEC-API-066), so they run here on their own.
-cargo test --locked --workspace --doc
-
-echo "==> mutation testing, zero survivors"
-scope=()
-if [[ -n "${GATE_MUTANTS_DIFF:-}" ]]; then
-  diff_file=$(mktemp)
-  trap 'rm -f "$diff_file"' EXIT
-  git diff --no-ext-diff "${GATE_MUTANTS_DIFF}...HEAD" >"$diff_file"
-  echo "only mutants in code changed since ${GATE_MUTANTS_DIFF}"
-  scope=(--in-diff "$diff_file")
-fi
-cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked

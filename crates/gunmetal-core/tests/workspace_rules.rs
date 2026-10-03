@@ -534,6 +534,35 @@ fn workflow_toolchains(workflow: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The names of a workflow's jobs, in file order: the keys indented two
+/// spaces under `jobs:`.
+fn workflow_jobs(workflow: &str) -> Vec<&str> {
+    workflow
+        .lines()
+        .skip_while(|line| *line != "jobs:")
+        .filter_map(|line| line.strip_prefix("  ")?.strip_suffix(':'))
+        .filter(|name| !name.starts_with([' ', '#']))
+        .collect()
+}
+
+/// The trimmed lines of one job of a workflow, up to the next job.
+fn workflow_job<'a>(workflow: &'a str, job: &str) -> Vec<&'a str> {
+    let opening = format!("  {job}:");
+    workflow
+        .lines()
+        .skip_while(|line| *line != opening)
+        .skip(1)
+        .take_while(|line| !is_job_opening(line))
+        .map(str::trim)
+        .collect()
+}
+
+/// Whether `line` opens a job: a key indented exactly two spaces.
+fn is_job_opening(line: &str) -> bool {
+    line.strip_prefix("  ")
+        .is_some_and(|rest| !rest.starts_with([' ', '#']) && rest.ends_with(':'))
+}
+
 /// The commands in a shell script that run cargo, one per line.
 fn cargo_commands(script: &str) -> Vec<&str> {
     script
@@ -1864,6 +1893,98 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
     ));
 }
 
+/// The full mutation run is split across jobs and loses no mutant: the
+/// gate's switches cannot be combined into a run that tests nothing, the
+/// shards partition one list, and the one required check fails unless every
+/// job it waits for ended as it should.
+#[test]
+fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
+    // The script refuses a switch it cannot read and any two together.
+    for line in [
+        r#"*) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;"#,
+        r#"if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then"#,
+        r#"if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then"#,
+        r#"if ((${#switches[@]} > 1)); then"#,
+        r#"usage "${switches[*]} cannot be combined: each one chooses which mutants this run tests""#,
+        // A shard is one slice of the same list the unscoped run tests.
+        r#"scope=(--shard "$mutants_shard" --sharding round-robin)"#,
+        r#"cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked"#,
+    ] {
+        assert!(has_line(GATE, line), "{line}");
+    }
+
+    assert_eq!(
+        workflow_jobs(CI),
+        [
+            "checks",
+            "mutants",
+            "core-32-bit",
+            "locked-self-test",
+            "gate-switches-self-test",
+            "gate",
+        ]
+    );
+    let diff_scoped = "github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-')";
+
+    // Without a diff scope, the checks job leaves mutation testing to the
+    // shards. With one, it is the whole gate and the shards do not run.
+    let checks = workflow_job(CI, "checks");
+    for line in [
+        format!(
+            "GATE_MUTANTS_DIFF: ${{{{ {diff_scoped} && format('origin/{{0}}', github.base_ref) || '' }}}}"
+        ),
+        format!("GATE_SKIP_MUTANTS: ${{{{ {diff_scoped} && '0' || '1' }}}}"),
+        "- run: scripts/gate.sh".to_owned(),
+    ] {
+        assert!(checks.contains(&line.as_str()), "{line}");
+    }
+
+    // Shards 0 to 9 of 10: each index once, and a failed shard does not
+    // cancel the others, so one run reports every missed mutant.
+    let mutants = workflow_job(CI, "mutants");
+    for line in [
+        format!("if: ${{{{ !({diff_scoped}) }}}}"),
+        "fail-fast: false".to_owned(),
+        "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]".to_owned(),
+        "GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10".to_owned(),
+        "- run: scripts/gate.sh".to_owned(),
+    ] {
+        assert!(mutants.contains(&line.as_str()), "{line}");
+    }
+
+    // The required check waits for every other job, runs even when one of
+    // them failed or was cancelled (a skipped job would count as passed),
+    // and compares each result with the one this kind of run must have.
+    let gate = workflow_job(CI, "gate");
+    let others: Vec<&str> = workflow_jobs(CI)
+        .into_iter()
+        .filter(|job| *job != "gate")
+        .collect();
+    assert!(gate.contains(&"if: ${{ always() }}"));
+    assert!(gate.contains(&format!("needs: [{}]", others.join(", ")).as_str()));
+    for line in [
+        format!("DIFF_SCOPED: ${{{{ {diff_scoped} }}}}"),
+        "NEEDS: ${{ toJSON(needs) }}".to_owned(),
+        "mutants=success".to_owned(),
+        "if [[ \"$DIFF_SCOPED\" == true ]]; then".to_owned(),
+        "mutants=skipped".to_owned(),
+        r#"wrong=$(jq -r --arg mutants "$mutants" '[to_entries[] | select(.value.result != (if .key == "mutants" then $mutants else "success" end)) | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")"#.to_owned(),
+        "if [[ -n \"$wrong\" ]]; then".to_owned(),
+        "exit 1".to_owned(),
+    ] {
+        assert!(gate.contains(&line.as_str()), "{line}");
+    }
+
+    // No job can hang: each has a limit.
+    for job in workflow_jobs(CI) {
+        let limits = workflow_job(CI, job)
+            .into_iter()
+            .filter(|line| line.starts_with("timeout-minutes: "))
+            .count();
+        assert_eq!(limits, 1, "{job}");
+    }
+}
+
 /// Verifies: SEC-SUP-021
 #[test]
 fn the_dependency_policy_runs_on_every_change_and_every_day() {
@@ -2033,7 +2154,7 @@ fn every_build_uses_one_exact_toolchain_release() {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
         "{channel} is not an exact release"
     );
-    assert_eq!(workflow_toolchains(CI), [channel, channel, channel]);
+    assert_eq!(workflow_toolchains(CI), [channel; 4]);
     assert_eq!(workflow_toolchains(DAILY_DENY), [channel]);
 }
 
