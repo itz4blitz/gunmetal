@@ -210,7 +210,7 @@ pub fn header(segment: &[u8], budget: &mut Budget) -> Result<SegmentHeader, Head
 ///
 /// [`ParseFault::BudgetExceeded`] when the step budget is spent.
 #[must_use]
-pub fn records(segment: &[u8], budget: &mut Budget) -> Records<'_, '_> {
+pub fn records<'a, 'b>(segment: &'a [u8], budget: &'b mut Budget) -> Records<'a, 'b> {
     Records {
         segment,
         pos: 0,
@@ -282,11 +282,11 @@ impl<'a> Iterator for Records<'a, '_> {
 }
 
 /// A whole record starting at `pos`, and the octet after it.
-fn record_at(
-    segment: &[u8],
+fn record_at<'a>(
+    segment: &'a [u8],
     pos: usize,
     budget: &mut Budget,
-) -> Result<Option<(Record<'_>, usize)>, ParseFault> {
+) -> Result<Option<(Record<'a>, usize)>, ParseFault> {
     let Some(rest) = segment.get(pos..) else {
         return Ok(None);
     };
