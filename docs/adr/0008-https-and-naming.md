@@ -1,13 +1,19 @@
 # 8. HTTPS and naming
 
 Date: 2026-10-03
-Status: accepted. The owner answered register decision D-07 on 2026-10-02,
-and the answer differs from the register's recommendation: R1 gets HTTPS
-through the owner's own domain (automatic certificates), a tailnet, or the
-same machine; the project-run per-server name service is not in R1 and
-moves to a later release. Remote access in R1 is the owner's own reverse
-proxy or a tailnet; built-in remote access over iroh arrives in R2
-([decisions](../decisions.md#owner-answers-2026-10-02)).
+Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
+is the owner's answer to register decision D-07 on 2026-10-02, which
+differs from the register's recommendation: R1 gets HTTPS through the
+owner's own domain (automatic certificates), a tailnet, or the same
+machine; the project-run per-server name service is not in R1 and moves
+to a later release. Remote access in R1 is the owner's own reverse proxy
+or a tailnet; built-in remote access over iroh arrives in R2
+([decisions](../decisions.md#owner-answers-2026-10-02)). That answer
+settles the direction, not this text. The owner accepts or edits the
+record when reviewing the wave-0 pull request into `main` (D-01), and this
+line then says so, with the date. Two parts wait for answers the owner has
+not given: the outbound exception before the claim proposed in decision 4,
+and the release of the name service in decision 8.
 
 ## Context
 
@@ -64,25 +70,59 @@ The owner's first passkey is bound to the relying-party ID fixed at the
 claim ([record 7](0007-identity-and-sessions.md), SEC-IAM-018), so the
 install chooses its origin in the host-side configuration before the
 claim. A passkey made on localhost works only on localhost: when a public
-name is configured, the claim page sends the owner there before enrolment,
-and it says plainly that the chosen name is permanent for passkeys
-(SEC-NET-072).
+name is configured and already serves a valid certificate, the claim page
+sends the owner there before enrolment, and it says plainly that the
+chosen name is permanent for passkeys (SEC-NET-072). Under decision 4, an
+install that relies on built-in ACME has no certificate yet at the claim.
 
 ### 4. Outbound traffic before the claim
 
-Before the claim the server contacts nothing, except that an install
-configured for built-in ACME on its own domain may reach the configured
-certificate authority and publish the DNS-01 challenge (the egress
-inventory's ACME row; SEC-TM-048, SEC-TM-075, SEC-OPS-007). Tailnet,
-supplied-certificate, reverse-proxy and localhost installs contact nothing
-at all before the claim.
+**The R1 rule until the owner answers: no outbound connection at all.**
+The server follows SEC-OPS-007 as written. Before the claim it makes no
+outbound connection in any R1 configuration: own domain, supplied
+certificate, reverse proxy, tailnet or localhost. SEC-OPS-007's one
+exception is the project name service, which R1 does not have (decision
+8). SEC-OPS-007 and the egress inventory's ACME row ("allowed before the
+claim") disagree here, and this record takes the stricter text, as the
+owner's answer to D-03 asks wherever two documents disagree.
 
-The DNS-01 challenge is published by DNS-PERSIST-01 where the configured
-CA offers it, so the server holds no DNS credential, and otherwise through
-one DNS update interface the owner configures, whose credential is a
-replayed secret sealed in the vault (SEC-OPS-017). That update destination
-is not yet a row of the egress inventory. WP-101 proposes the interface,
-and the baseline's owner adds its row before WP-101 ships.
+So an install configured for built-in ACME requests its first
+certificate only after the claim. Its owner claims in one of two ways:
+
+- over HTTPS that already works on the chosen name without the server
+  contacting anything (a certificate the owner obtained and supplies, or
+  the owner's reverse proxy), turning built-in ACME on after the claim;
+  or
+- on the same machine. The first passkey then belongs to localhost
+  (decision 3), and the owner moves to the public name afterwards under
+  decision 9.
+
+**Proposed, pending the owner's answer: an exception for built-in ACME.**
+An install configured for built-in ACME on its own domain could, before
+the claim, reach the configured certificate authority and publish the
+DNS-01 challenge, and nothing else. Tailnet, supplied-certificate,
+reverse-proxy and localhost installs would still contact nothing. Then the
+claim page could send the owner to the public name before enrolment, as
+decision 3 describes. This exception takes effect only when all three of
+these hold:
+
+1. the owner confirms it;
+2. SEC-OPS-007 is amended to allow it, so that its egress test and the
+   inventory's ACME row agree (SEC-TM-075); and
+3. the DNS update destination described below has its own row in the
+   egress inventory, or the install uses DNS-PERSIST-01 and contacts
+   only the CA.
+
+**Publishing the DNS-01 challenge, before or after the claim.** The
+challenge is published by DNS-PERSIST-01 where the configured CA offers
+it, so the server holds no DNS credential and contacts only the CA.
+Otherwise it goes through one DNS update interface the owner configures,
+whose credential is a replayed secret sealed in the vault (SEC-OPS-017).
+That update destination is not yet a row of the egress inventory. Until
+the baseline's owner adds one, the server makes no connection to it,
+either before or after the claim (SEC-TM-048, SEC-TM-075). WP-101
+proposes the interface, and it cannot ship that path until the row
+exists.
 
 ### 5. Certificates and their keys
 
@@ -90,13 +130,19 @@ Renewal is automatic, follows ACME Renewal Information when the CA offers
 it and otherwise happens by two-thirds of the certificate's lifetime, works
 for lifetimes from 6 to 398 days, and keeps serving the current
 certificate until its replacement validates (SEC-NET-004, SEC-TM-010). The
-owner is alerted 30 and 7 days before expiry (SEC-NET-072). The TLS key
-and the ACME account key are generated on the server from the CSPRNG,
-kept as 0600 files under `secrets/tls/`, never logged and never sent to
-anyone (SEC-NET-006); record 9 lists them in the cryptographic inventory.
-HTTPS responses under a hostname carry `Strict-Transport-Security` of at
-least one year, with `includeSubDomains` only when the owner confirms they
-control every subdomain (SEC-API-038).
+owner is alerted 30 and 7 days before expiry (SEC-NET-072). With
+built-in ACME, the TLS key (ECDSA P-256) and the ACME account key are
+generated on the server from the CSPRNG. A supplied certificate comes
+with the owner's key, which may be ECDSA P-256 or P-384, or RSA of at
+least 2048 bits; any other key type is refused when the files are loaded.
+These are the key types public CAs issue and browsers accept, so ACC-098
+still takes any certificate that validates against the public roots. All
+of these keys are kept as 0600 files under `secrets/tls/`, never logged
+and never sent to anyone (SEC-NET-006). Record 9 lists them in the
+cryptographic inventory. HTTPS responses under a hostname carry
+`Strict-Transport-Security` of at least one year, with
+`includeSubDomains` only when the owner confirms they control every
+subdomain (SEC-API-038).
 
 ### 6. Hosts and links
 
@@ -125,8 +171,8 @@ API (SEC-NET-058, SEC-IAM-014). There is no project-hosted web app.
 
 R1 ships no part of the name service: no label registration, no naming or
 Certificate Transparency monitoring purpose in the egress client, no
-project zone. Before it is built, in whatever release the owner chooses,
-it needs a record of its own that:
+project zone. Its release is pending the owner's answer; this record
+names none. Before it is built, it needs a record of its own that:
 
 - amends record 1's decisions 7 (no central account) and 9 (Cloudflare
   hosts only the docs and the landing page), because it is a project
@@ -160,7 +206,8 @@ a second name; R1 does not require it.
   native apps, which reach the server over iroh and pin its key rather
   than relying on a certificate.
 - No project service exists in R1, and a fresh install contacts nothing
-  unless its owner configured built-in ACME.
+  before the claim. That changes for built-in ACME only if the owner
+  confirms decision 4's proposed exception.
 - WP-129 (the name service) and WP-135 (the naming client and CT
   monitoring) leave R1. WP-073, WP-080, WP-101 and WP-132 build to this
   record, and WP-101 drops its name-service branch.
@@ -178,19 +225,28 @@ a second name; R1 does not require it.
     and the waves table.
 - SEC-OPS-007 names the name service as the only outbound contact allowed
   before the claim, and its verification expects none at all with
-  own-domain naming, while the egress inventory, which owns egress
-  defaults (SEC-TM-075), allows ACME before the claim for own-domain
-  installs. Decision 4 follows the inventory, limited to an owner-configured
-  CA and DNS update. The baseline's owner reconciles the two texts.
+  own-domain naming. The egress inventory, which owns egress defaults
+  (SEC-TM-075), allows ACME before the claim for own-domain installs.
+  Decision 4 follows SEC-OPS-007 for now and leaves the looser reading as
+  a proposal. The baseline's owner reconciles the two texts: the
+  inventory's ACME row loses "allowed before the claim" for own-domain
+  installs, unless the owner confirms the exception and SEC-OPS-007 is
+  amended instead.
+- Under the strict rule, an own-domain install that relies on built-in
+  ACME claims through a supplied certificate or a reverse proxy, or on
+  localhost and then moves origin (decision 4). WP-080's claim flow and
+  WP-101's recipes describe those steps until the owner answers.
 
 ## Requirement check
 
-Review record, dated 2026-10-03. Written by the record's author, a coding
-agent working on WP-125, and confirmed by the human review of its pull
-request (AGENTS.md). This record is the "HTTPS and naming" record of the
-baseline's "add to the repository now" item 17; it does not by itself
-verify a requirement, so this table checks that it agrees with the ones it
-relies on.
+Review record, dated 2026-10-03. This is the author's check, written by
+the coding agent working on WP-125; no person has reviewed it yet. The
+package's pull request merges into `wave-0` through the integrator agent
+once the gate passes, with no human review (D-01). The owner's review of
+the wave-0 pull request into `main` confirms or edits it. This record is
+the "HTTPS and naming" record of the baseline's "add to the repository
+now" item 17; it does not by itself verify a requirement, so this table
+checks that it agrees with the ones it relies on.
 
 | Requirement | Agreement |
 |---|---|
@@ -198,7 +254,7 @@ relies on.
 | SEC-NET-002, SEC-NET-003, SEC-NET-004, SEC-NET-006, SEC-TM-010 | Decisions 1, 2 and 5 |
 | SEC-NET-013 | Decision 2 keeps all three paths, with the CI jobs and the manual Tailscale check the requirement names |
 | SEC-IAM-008, SEC-IAM-018 | Decision 3: the claim happens on loopback or a configured HTTPS origin, and the relying-party ID is fixed then |
-| SEC-OPS-007, SEC-TM-048, SEC-TM-075 | Decision 4 follows the egress inventory; the disagreement with SEC-OPS-007's wording is listed under Consequences |
+| SEC-OPS-007, SEC-TM-048, SEC-TM-075 | Decision 4 follows SEC-OPS-007: no outbound connection before the claim in any R1 configuration, so its egress test holds. The pre-claim ACME exception is only a proposal, which needs the owner's answer, an amended SEC-OPS-007 and an inventory row for any DNS update destination. No destination without an inventory row is ever contacted. The disagreement between SEC-OPS-007 and the inventory's ACME row is listed under Consequences |
 | SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071 | Not applicable in R1, because their surface does not exist; decision 8 carries them into the name service's own record |
 | SEC-NET-014, SEC-NET-015, SEC-NET-058, SEC-API-038 | Decisions 5 and 6 |
 | SEC-NET-019, SEC-NET-024, SEC-NET-027, SEC-NET-030, SEC-NET-045 | Decision 7 |

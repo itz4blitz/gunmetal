@@ -1,12 +1,15 @@
 # 7. Identity and sessions
 
 Date: 2026-10-03
-Status: accepted. The owner answered register decision D-06 on
-2026-10-02: no passwords, TOTP or emailed codes; passkeys, OIDC and
-approval from a signed-in phone, with the recovery ladder; the
-recommendation accepted ([decisions](../decisions.md#owner-answers-2026-10-02)).
-Extends decisions 6 and 7 of [record 1](0001-architecture.md) without
-changing them.
+Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
+is the owner's answer to register decision D-06 on 2026-10-02: no
+passwords, TOTP or emailed codes; passkeys, OIDC and approval from a
+signed-in phone, with the recovery ladder; the recommendation accepted
+([decisions](../decisions.md#owner-answers-2026-10-02)). That answer
+settles the model, not this text. The owner accepts or edits the record
+when reviewing the wave-0 pull request into `main` (D-01), and this line
+then says so, with the date. Extends decisions 6 and 7 of
+[record 1](0001-architecture.md) without changing them.
 
 This is the identity architecture record that SEC-STD-006 requires before
 any server code stores a user.
@@ -215,7 +218,8 @@ SEC-IAM-092, SEC-IAM-106).
    that can only enrol a new passkey. For the owner they are strongly
    prompted but skippable, because host recovery exists (identity OD-12);
    the owner's codes are printed in the recovery kit with the backup key
-   (SEC-PRV-040).
+   and the fingerprint of the server's identity key (SEC-PRV-040,
+   [record 10](0010-backup-archives.md)).
 3. **The identity provider**, for OIDC accounts (R1.2).
 4. **An administrator's recovery link.** Administrators issue them for
    members and guests, the owner for administrators, and nobody for the
@@ -225,8 +229,8 @@ SEC-IAM-092, SEC-IAM-106).
    host talks to the server over a local socket only the service user can
    open, prints an enrolment link valid for 15 minutes, and alerts every
    administrator (SEC-IAM-092, SEC-OPS-009). The command takes the name
-   ADM-034 and the plan's command-line registry already use, which settles
-   register D-33.
+   ADM-034 and the plan's command-line registry already use, which, once
+   the owner accepts this record, settles register D-33.
 
 A passkey enrolled through a recovery code or an administrator's link
 starts the recovery hold: 72 hours by default, 24 to 72 at the owner's
@@ -259,13 +263,15 @@ or a vendor (SEC-IAM-025).
 
 ## Consequences
 
-- The identity store (WP-046) and every package that stores a user may
-  build to this record, together with record 3. WP-062, WP-063, WP-064,
+- Once the owner accepts this record, the identity store (WP-046) and
+  every package that stores a user may build to it, together with record
+  3. Until then SEC-STD-006 keeps them waiting. WP-062, WP-063, WP-064,
   WP-080, WP-081, WP-106 and WP-120 follow it. OIDC (WP-096) and share
   links (WP-134) are R1.2.
 - A person with no passkey-capable device and no phone needs a hardware
-  security key or help from someone in the household. The owner accepted
-  that trade-off.
+  security key or help from someone in the household. D-06's
+  recommendation states that trade-off, and the owner accepted the
+  recommendation.
 - Changing the server's origin breaks every passkey, so members re-enrol
   as record 8 describes (SEC-NET-072).
 - The docs lint (WP-127) fails while SEC-IAM-025 and any live password or
@@ -282,9 +288,12 @@ or a vendor (SEC-IAM-025).
 
 ## Requirement check
 
-Review record, dated 2026-10-03. Written by the record's author, a coding
-agent working on WP-125, and confirmed by the human review of its pull
-request (AGENTS.md).
+Review record, dated 2026-10-03. This is the author's check, written by
+the coding agent working on WP-125; no person has reviewed it yet. The
+package's pull request merges into `wave-0` through the integrator agent
+once the gate passes, with no human review (D-01). The owner's review of
+the wave-0 pull request into `main` confirms or edits this check, and
+only then does it stand as the dated review record for SEC-STD-006.
 
 | Requirement | What it asks | Result |
 |---|---|---|

@@ -1,9 +1,17 @@
 # 9. Cryptography: the allow-list and the inventory
 
 Date: 2026-10-03
-Status: accepted. The owner delegated register decision D-08 on
-2026-10-02 and accepted its recommendation
-([decisions](../decisions.md#owner-answers-2026-10-02)).
+Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
+is register decision D-08, which the owner delegated on 2026-10-02,
+accepting its recommendation
+([decisions](../decisions.md#owner-answers-2026-10-02)): aws-lc-rs if it
+builds cleanly for the R1 targets, otherwise ring; ES256 and EdDSA for
+passkeys; RS256 for OIDC only if the `rsa` crate passes review; `tough`
+if its dependency tree passes cargo-vet. That answer settles those
+choices, not this text. The rest of the allow-list, the inventory and the
+post-quantum plan are the author's. The owner accepts or edits the record
+when reviewing the wave-0 pull request into `main` (D-01), and this line
+then says so, with the date.
 
 ## Context
 
@@ -48,7 +56,10 @@ remaining recommendations).
   P-256 key (SEC-IAM-108) and, where the owner's authenticator supports the
   PRF extension, the wrap of the backup recovery key (SEC-PRV-040): a key
   derived with HKDF-SHA-256 from the PRF output and a fresh random salt,
-  used for exactly one AES-256-GCM encryption.
+  used for exactly one AES-256-GCM encryption. Its plaintext is the
+  recovery key followed by the fingerprint of the server's `identity` key,
+  so a restore that has only the owner's passkey also gets an authentic
+  trust anchor ([record 10](0010-backup-archives.md), decision 6).
 - **Native clients (R2)** are held to the same list; the client security
   record that SEC-STD-039 requires maps it onto each platform's keystore.
 
@@ -61,30 +72,44 @@ with the dependency checklist, cargo-deny and cargo-vet (SEC-SUP-024).
 | Primitive | Implementation | Used for | From |
 |---|---|---|---|
 | Security randomness | `getrandom`, through one function (SEC-STD-022) | Every key, token, salt, nonce and public ID | R1 |
-| SHA-256 | `sha2` (RustCrypto) | The core uses above; inside HMAC and HKDF | R1 |
+| SHA-256 | `sha2` (RustCrypto) | The core uses above; inside HMAC and HKDF; key fingerprints (decision 4) | R1 |
 | HMAC-SHA-256 | `hmac` (RustCrypto) | Capability URLs, keyed hashes of stored secrets, the audit address commitment | R1 |
 | HKDF-SHA-256 | `hkdf` (RustCrypto) | One key per purpose from the root secret (SEC-OPS-015) | R1 |
 | XChaCha20-Poly1305 | `chacha20poly1305` (RustCrypto) | The vault for replayed secrets (SEC-OPS-017) | R1 |
-| Ed25519 | `ed25519-dalek` | Audit checkpoints, backup signatures, the server identity key, the update feed, EdDSA passkeys and (R1.2) EdDSA ID tokens | R1 |
+| Ed25519 | `ed25519-dalek` | Audit checkpoints, backup signatures, the server identity key and its certificates of backup-signing keys, the update feed, EdDSA passkeys and (R1.2) EdDSA ID tokens | R1 |
 | ECDSA P-256 with SHA-256 | `p256` (RustCrypto) | Verifying ES256 passkeys, paired-browser signatures and (R1.2) ES256 ID tokens; signing ACME requests and certificate requests with deterministic nonces | R1 |
 | age v1 (X25519 recipients, ChaCha20-Poly1305) | `age`, or another age v1 implementation that passes the same review, built without its plugin and SSH-key features (which would start programs and add key types; feature names unverified) | Backups ([record 10](0010-backup-archives.md), SEC-OPS-042) | R1 |
-| TLS | `rustls` with one provider (decision 3), `rustls-webpki`, and the bundled `webpki-roots` (SEC-NET-003) | HTTPS listener and outbound TLS | R1 |
+| TLS | `rustls` with one provider (decision 3), `rustls-webpki`, and the bundled `webpki-roots` (SEC-NET-003) | HTTPS listener and outbound TLS, with the algorithms of decision 5's TLS table, RSA included, used only inside the provider | R1 |
 | TUF 1.0 | `tough`, if its dependency tree passes cargo-vet and the checklist; otherwise a minimal client in WP-074 that verifies through the Ed25519 function above | The update and advisory feed (SEC-OPS-019, SEC-SUP-050) | R1 |
 | Argon2id | `argon2` (RustCrypto), at or above 64 MiB, 3 passes and 4 lanes, with the parameters stored beside each hash (SEC-STD-024) | Share-link passwords (R1.2); profile PIN hashes (R2) | R1.2 |
 
-Two conditions in that table:
+Three conditions in that table:
 
 - `tough` verifies signatures itself. If it is admitted, its signature
   backend is counted as an allow-listed implementation and must be the
   same one as the rustls provider, and it is called only from a
   `verify_feed` function in `gunmetal-secrets/src/crypto/`, so the door
   stays in two files.
-- RSA is not on the list. RS256 for ID tokens (R1.2) is added only after a
-  recorded review of the `rsa` crate for verification, including whether
-  its past timing advisory affects verification (unverified); RS256 for
-  passkeys only if that review passes and the household authenticators
-  are found to need it (register D-08, plan decisions 9 and 10). Until
-  then single sign-on works only with providers set to ES256 or EdDSA.
+- RSA is on the list only inside the TLS provider, for TLS. Both
+  candidate providers verify RSA signatures, PKCS#1 v1.5 and PSS, and
+  many WebPKI chains need them: Let's Encrypt's ISRG Root X1 and its R
+  intermediates are RSA keys. That covers every outbound TLS connection
+  and the chain check of the owner's own certificate (SEC-NET-003). The
+  provider also signs TLS handshakes with an RSA key when the owner
+  supplies an RSA certificate. These operations are reachable only
+  through rustls's handshake and certificate verification, which the
+  configurations built in `gunmetal-secrets/src/crypto/` drive. No
+  Gunmetal function calls an RSA operation, and no `rsa` crate is linked.
+- RS256 outside TLS waits for a recorded review, as D-08 asks. That covers
+  ID tokens (R1.2) and passkeys, and the provider's RSA verifier is not
+  used for them before the review. The review covers the `rsa` crate,
+  including whether its past timing advisory affects verification
+  (unverified). It also covers calling the provider's own RSA
+  verification function from the crypto module instead, which links no
+  new implementation. The owner chooses between them. RS256 for passkeys
+  comes only if that review passes and the household authenticators are
+  found to need it (register D-08, plan decisions 9 and 10). Until then
+  single sign-on works only with providers set to ES256 or EdDSA.
 
 Never allowed: MD5 or SHA-1 for any security purpose (a value a format
 carries, such as FLAC's MD5 signature, is opaque bytes in a non-security
@@ -157,6 +182,10 @@ after review or names another bundled root source.
   chooses.
 - **Key sizes.** Every symmetric key has at least 256 bits from the OS
   CSPRNG (SEC-OPS-011).
+- **Fingerprints.** A public key's fingerprint is SHA-256 over the label
+  `gunmetal/v1/fingerprint` followed by the key. It is shown as 64
+  hexadecimal digits in groups of four, and as a QR code where the medium
+  allows. A typed fingerprint is compared in full, never by prefix.
 
 ### 5. The cryptographic inventory
 
@@ -179,11 +208,11 @@ security parameters table owns are cited by its key.
 | `audit_address` | HMAC-SHA-256 | Commitment to an audit record's source address and salt (WP-069) | HKDF from `root` | Derived; a retired key is kept sealed until the addresses committed under it are removed at 90 days | With `root` | Sealed export | R1 | Symmetric |
 | `vault` | XChaCha20-Poly1305, 192-bit random nonces, the record ID as associated data | Replayed third-party secrets (SEC-OPS-017): the DNS update credential (record 8), OIDC client secrets (R1.2), integration secrets (R2) | HKDF from `root` | Derived; ciphertexts in the identity store | With `root`; every sealed value is re-encrypted (SEC-OPS-018) | Ciphertexts, with the identity store | R1 | Symmetric |
 | `audit_signing` | Ed25519 | Audit checkpoints and the signed records of pruning and address coarsening (SEC-OPS-023) | Seed by HKDF from `root` | Derived; the public key of every epoch in `secrets/keys.json` | With `root`; earlier public keys kept to verify earlier checkpoints | Public keys | R1 | Classical signature (decision 6) |
-| `backup_signing` | Ed25519 | Backup headers (record 10, SEC-OPS-043) | Seed by HKDF from `root` | Derived; the public key of every epoch kept | With `root`; earlier public keys kept to verify earlier backups | Public keys | R1 | Classical signature |
+| `backup_signing` | Ed25519 | Backup headers (record 10, SEC-OPS-043) | Seed by HKDF from `root` | Derived; the public key of every epoch kept, each with its certificate from `identity` | With `root`. `identity` certifies each new epoch's public key when the epoch begins, and every backup carries that certificate (record 10, decision 6). Earlier public keys are kept to verify earlier backups | Public keys and certificates | R1 | Classical signature |
 | `backup_recipient` | X25519, as an age recipient | The server's own recipient for every backup (SEC-OPS-042) | HKDF from `root` | Derived | With `root`; retained backups are re-encrypted to the new key | Through `root` | R1 | Classical key agreement (decision 6) |
 | `recovery_recipient` | X25519, as an age recipient | The owner's recipient for every backup (SEC-OPS-042, SEC-PRV-040) | At setup, preferably in the owner's browser (operations OD-4) | Public key in `secrets/recovery.pub`; the private half in the recovery kit, on the server only wrapped by `root` if kept at all, and optionally wrapped in the browser under a passkey PRF key | When the owner makes a new kit | Public key | R1 | Classical key agreement |
-| `identity` | Ed25519 | The server's identity key: shown in pairing QR codes (SEC-IAM-057), and the iroh endpoint key from R2 | First start, OS CSPRNG | `secrets/identity.key`, 0600 | Only after compromise, with a continuity statement signed by the old key (SEC-NET-062, R2) | Sealed export, so clients reconnect without pairing (register D-61) | R1 | Classical signature |
-| `tls` | ECDSA P-256 private key | The HTTPS listener's certificate ([record 8](0008-https-and-naming.md)) | On the server for built-in ACME; the owner's file for a supplied certificate | `secrets/tls/`, 0600 (SEC-NET-006) | A new key at every renewal (built-in ACME); the owner's choice otherwise | No; re-issued | R1 | Classical signature; key exchange is the TLS group |
+| `identity` | Ed25519 | The server's identity key: shown in pairing QR codes (SEC-IAM-057), and the iroh endpoint key from R2. It is also the trust anchor for backups: it certifies each `backup_signing` epoch under the label `gunmetal/v1/backup-signing-key`, and the recovery kit prints its fingerprint (SEC-PRV-040; record 10, decision 6). The label keeps these signatures apart from the handshake signatures the key makes from R2 | First start, OS CSPRNG | `secrets/identity.key`, 0600 | Only after compromise, with a continuity statement signed by the old key (SEC-NET-062, R2). The rotate-every-key action leaves it alone, and a restore brings back the one in the backup. A new key needs a new kit page with its fingerprint | Sealed export, so clients reconnect without pairing (register D-61) | R1 | Classical signature |
+| `tls` | Built-in ACME: ECDSA P-256. A supplied certificate: the owner's key, ECDSA P-256 or P-384, or RSA of at least 2048 bits; any other type is refused at load ([record 8](0008-https-and-naming.md), decision 5) | The HTTPS listener's certificate. The provider signs handshakes with it: ECDSA, or RSA-PSS (and RSA PKCS#1 v1.5 under TLS 1.2) | On the server for built-in ACME; the owner's file for a supplied certificate | `secrets/tls/`, 0600 (SEC-NET-006) | A new key at every renewal (built-in ACME); the owner's choice otherwise | No; re-issued | R1 | Classical signature; key exchange is the TLS group |
 | `acme_account` | ECDSA P-256 (ES256 request signatures) | The ACME account for own-domain certificates (record 8) | On the server, OS CSPRNG | `secrets/tls/`, 0600 (SEC-NET-006) | ACME key rollover, only after compromise | No; a new account is registered | R1 | Classical signature |
 | `claim_code` | 128-bit secret, compared in constant time | Claiming the server (claim_code, SEC-IAM-007) | OS CSPRNG while unclaimed | `secrets/claim-code`, 0600 | Single use; 24 hours | No | R1 | Not a key |
 | `pin_pepper` | 256-bit secret, Argon2id's secret input | The pepper for profile PIN hashes (SEC-IAM-062) | HKDF from `root` | Derived | With `root` | Sealed export | R2 | Symmetric |
@@ -201,10 +230,25 @@ codes (pairing.code), share-link secrets (share_link, R1.2) and public IDs
 |---|---|---|---|---|---|
 | Passkey public keys | ES256 (COSE -7), EdDSA (COSE -8) | The authenticator, at registration | The identity store | The person adds and removes them (SEC-IAM-023) | R1 |
 | Paired-browser keys | ECDSA P-256 with SHA-256 | The browser's Web Crypto, at pairing | The identity store | Revoked or re-paired | R1 |
-| WebPKI roots | As issued | `webpki-roots`, compiled in | The binary | With dependency updates; new roots must arrive before CAs use them | R1 |
+| WebPKI roots | RSA (2048 and 4096 bits, among them Let's Encrypt's ISRG Root X1) and ECDSA P-256 and P-384 (among them ISRG Root X2) | `webpki-roots`, compiled in | The binary | With dependency updates; new roots must arrive before CAs use them | R1 |
+| Certificate chains and TLS handshakes: every outbound peer's, and the owner's own chain (SEC-NET-003) | The provider's verification set: RSA PKCS#1 v1.5 and RSA-PSS with SHA-256, SHA-384 or SHA-512 on 2048- to 8192-bit keys; ECDSA P-256 and P-384 with SHA-256, SHA-384 or SHA-512 (aws-lc-rs; ring verifies these curves with SHA-256 and SHA-384 only); ECDSA P-521 (aws-lc-rs only); Ed25519 | The peer during the handshake, or the owner's certificate file | Memory | The peer's or the CA's | R1 |
 | Update feed root | Ed25519 | The project's key ceremony, compiled in | The binary | Signed TUF root rotation (SEC-OPS-019) | R1 |
 | OIDC provider keys | ES256, EdDSA; RS256 only after the review in decision 2 | The provider's JWKS, through the egress client | Memory | The provider's | R1.2 |
 | Device keys, DPoP proofs | ECDSA P-256 | The device's keystore | The identity store | Revoked or re-enrolled | R2 |
+
+**Algorithms used only inside the TLS provider.** These are rustls
+0.23.45's defaults for each candidate provider. WP-047's dependency
+request confirms them for the version it links, and the secrets crate
+builds its configurations from them without adding any. No other code
+reaches them.
+
+| Use | Algorithms | From |
+|---|---|---|
+| Key exchange | X25519MLKEM768 (aws-lc-rs only, preferred; decision 3), X25519, ECDHE over P-256 and P-384 | R1 |
+| Record protection | AES-256-GCM, AES-128-GCM and ChaCha20-Poly1305, under TLS 1.3, or under TLS 1.2 with ECDHE and an ECDSA or RSA server key | R1 |
+| Key schedule and handshake hashes | SHA-256 and SHA-384, in HKDF (TLS 1.3) and the PRF (TLS 1.2) | R1 |
+| Signature verification | The chain and handshake row of the table above, RSA included | R1 |
+| Signing | The `tls` key: ECDSA P-256 or P-384; RSA-PSS, or RSA PKCS#1 v1.5 under TLS 1.2 | R1 |
 
 **Project keys, held off every server.**
 
@@ -229,9 +273,10 @@ Gunmetal relies on.
 |---|---|---|---|
 | TLS key exchange | X25519, plus X25519MLKEM768 if the provider is aws-lc-rs | Traffic recorded now and decrypted later | The hybrid group in R1 with aws-lc-rs, otherwise in R2 (SEC-NET-065) |
 | Backups that leave the host | age with X25519 recipients | A copied backup decrypted later | Move both recipients to a hybrid ML-KEM recipient type once the age implementation on this list supports one and passes review (support unverified); until then the docs say that off-host backups are protected by classical key agreement |
+| TLS server authentication: certificate chains, handshake signatures and the `tls` key | RSA, ECDSA and Ed25519, inside the TLS provider | Forgery needs a quantum computer at connection time; recorded traffic gives nothing | Follow the WebPKI: post-quantum certificates (ML-DSA) once CAs, browsers and the provider support them, through dependency updates and `webpki-roots` |
 | Passkeys, paired-browser keys, device keys | ES256 and EdDSA | Forgery needs a quantum computer at sign-in time; recorded traffic gives nothing | Follow WebAuthn and the platforms when post-quantum COSE algorithms ship |
 | The update feed and release signatures | Ed25519 (TUF) and Sigstore | Forged updates | TUF root rotation can change key types; follow Sigstore's own migration |
-| Audit checkpoints, backup signatures, the identity key | Ed25519 | Forged local evidence or server identity | Add ML-DSA, alone or in a hybrid, when a reviewed pure-Rust implementation exists; the version byte allows the switch |
+| Audit checkpoints, backup signatures, the identity key and its certificates of backup-signing keys | Ed25519 | Forged local evidence or server identity | Add ML-DSA, alone or in a hybrid, when a reviewed pure-Rust implementation exists; the version byte allows the switch |
 | HMAC, HKDF, XChaCha20-Poly1305, SHA-256 | 256-bit keys and outputs | Grover's algorithm halves the margin, which stays sufficient | None |
 
 ## Consequences
@@ -248,13 +293,20 @@ Gunmetal relies on.
   own, needs a record that supersedes this list before it lands.
 - Single sign-on (R1.2) works only with ES256 or EdDSA providers until the
   RSA review is recorded.
+- WP-047 certifies each `backup_signing` epoch with `identity`, and setup
+  (WP-080) prints the `identity` fingerprint in the recovery kit (record
+  10, decision 6).
 
 ## Requirement check
 
-Review record, dated 2026-10-03. Written by the record's author, a coding
-agent working on WP-125, and confirmed by the human review of its pull
-request (AGENTS.md). The CI parts of each requirement are proved by the
-packages named, not by this record.
+Review record, dated 2026-10-03. This is the author's check, written by
+the coding agent working on WP-125; no person has reviewed it yet. The
+package's pull request merges into `wave-0` through the integrator agent
+once the gate passes, with no human review (D-01). The owner's review of
+the wave-0 pull request into `main` confirms or edits this check, and only
+then does it stand as the dated review record for SEC-STD-018,
+SEC-STD-019 and SEC-NET-057. The CI parts of each requirement are proved
+by the packages named, not by this record.
 
 | Requirement | What it asks | Result |
 |---|---|---|
@@ -266,5 +318,5 @@ packages named, not by this record.
 | SEC-STD-019 | AEAD only; no ECB, unauthenticated CBC or CTR, MAC-then-encrypt or RSA PKCS#1 v1.5 encryption | Met by decisions 2 and 4 |
 | SEC-STD-019 | MD5 and SHA-1 only behind a non-security type | Met by decision 2; the compile-fail test is WP-047's |
 | SEC-STD-019 | The same allow-list for native client code | Decision 1, for the web client now and the native clients through SEC-STD-039's record |
-| SEC-NET-057 | Every key, certificate and algorithm on the network paths (TLS keys, the ACME account key, the iroh identity key, name-service registration, edge and relay keys), with where it lives, its lifetime and its rotation | Met by decision 5: `tls`, `acme_account`, `identity`, the relay and edge row; name-service registration does not exist in R1 (record 8). The CI check that every key wrapper type appears in the inventory is WP-047's |
+| SEC-NET-057 | Every key, certificate and algorithm on the network paths (TLS keys, the ACME account key, the iroh identity key, name-service registration, edge and relay keys), with where it lives, its lifetime and its rotation | Met by decision 5: `tls`, with every key type a supplied certificate may use; `acme_account`; `identity`; the WebPKI roots and the chain and handshake row, RSA included; the table of algorithms used only inside the TLS provider; and the relay and edge row. Name-service registration does not exist in R1 (record 8). The CI check that every key wrapper type appears in the inventory is WP-047's |
 | SEC-STD-020, SEC-STD-021, SEC-STD-022, SEC-STD-024 | Nonce strategy, opaque errors, one randomness function, the Argon2id floor | Fixed by decisions 2 and 4; proved by WP-047's tests |
