@@ -8,7 +8,7 @@ full-screen player, the queue, lyrics, the sound path as the listener sees
 it, handing playback to another device and controlling it from there, the
 mini player, and the lock-screen and system integrations. For video it
 covers the on-screen controls, audio and subtitle choices, scrub previews,
-skip controls, up next and autoplay, playback statistics, casting, and how
+skip controls, the next episode and autoplay, playback statistics, casting, and how
 the player behaves on a TV, both under the TV's own remote and when a phone
 drives it. For every surface it lists the controls, the feature rows each
 control serves, the states the surface can be in, and how each control is
@@ -25,6 +25,15 @@ bug. The design choices lean on two research files,
 makes a choice that no feature row settles, it is marked **Proposal**, and
 the proposals that need the project owner are collected at the end under
 [Open questions](#open-questions-for-the-project-owner).
+
+The security baseline in [docs/security](../security/README.md) sits above
+both. Where a feature row or a proposal here would break a security
+requirement, this document follows the requirement, names its ID
+(SEC-*AREA*-*NNN*), and says what changed. The rules that apply to every
+player surface are collected under
+[Security rules for every surface](#security-rules-for-every-surface).
+Changes that touch one of the owner's open security decisions are marked
+"owner to confirm" and listed in the open questions at the end.
 
 Contents:
 
@@ -50,10 +59,24 @@ The release values are the five defined in the feature map README.
 | Release | What the player gains | Where it runs |
 |---|---|---|
 | **R1** (music) | The music player: the bar, the full-screen player, the three-lane queue, lyrics, gapless playback and loudness levelling in the browser, the honest quality badge and unplayable state, browser media controls, private listening, and "continue on this device". | The web client and the installable web app only (CLI-001, CLI-003), in a wide three-pane layout (CLI-060) and a phone-width layout (CLI-149). |
-| **R2** (video) | The video player. Native music modules (background audio, lock screen, interruptions, gapless through libmpv). The device picker, handoff, remote control and casting. The desktop mini player and system media panels. Music on the TV. Lyrics extras, queue undo and history. | Android phones and tablets, Android TV, Google TV and Fire OS, the desktop shell, and the web client. |
+| **R2** (video) | The video player. Native music modules (background audio, lock screen, interruptions, gapless through libmpv). The device picker, handoff, remote control and casting. Offline downloads under device-bound grants. Music on the TV. Lyrics extras, queue undo and history. | Android phones and tablets, Android TV, Google TV and Fire OS, and the web client. |
 | **R3** (live) | Live TV inside the video player (channel keys, mini guide, time-shift, record) and internet radio stations inside the music player. | As R2. |
-| **Later** | Apple platforms ("R2 if the App Store licence decision allows", feature map README open decision 3), watch and listen together, multi-room, headless players, the visualiser, A-B loop, bookmarks, widgets and voice. | |
+| **Later** | Apple platforms ("R2 if the App Store licence decision allows", feature map README open decision 3), the desktop shell with its mini player, system media panels and global hotkeys, watch and listen together, multi-room, headless players, the visualiser, A-B loop, bookmarks, widgets and voice. | |
 | **No** | Listed under [Deliberately not in the player](#deliberately-not-in-the-player). | |
+
+**Desktop shell moved to Later (owner to confirm).** The first draft of
+the feature map put the desktop shell in R2. The security baseline's
+release-scope table, which is the single source for which surfaces exist
+(SEC-TM-074), lists the desktop shell as Later, and the shell's own
+controls (bundled content only, context isolation, no Node in the
+renderer, validated IPC) are SEC-CLI-069, also Later. Shipping the shell in
+R2 would ship it without those controls, so the feature map now places the
+shell and its rows in Later too (CLI-014, CLI-063, CLI-064, CLI-065,
+MUS-081, MUS-082, MUS-102), and so do this document and the other
+interface documents. The mini player window, desktop media panels and
+global hotkeys are Later, and until then desktops use the web client and
+the installable web app. Bringing them back to R2 needs SEC-CLI-069 and the
+desktop player sandbox moved to R2 with them (open question 11).
 
 A feature placed in R1 reaches the native apps when they ship in R2, as the
 feature map README says. This matters most for the player: the R1 web
@@ -83,6 +106,14 @@ every later client inherits them.
    from the first release (MUS-227, VID-140, CLI-135, CLI-136, CLI-138).
 6. **Its own look.** The player takes cues from the best streaming apps but
    copies no assets, colours, shapes or product names (ADR 2, decision 7).
+7. **It keeps the household's secrets.** Media and artwork reach it only
+   through short-lived capability URLs that are re-checked on every request
+   (SEC-API-026 to SEC-API-029); everything a file, a provider or another
+   device says is drawn as text (SEC-API-046); errors tell the person what
+   to do without describing how the server is built (SEC-API-072); and
+   nothing it shows on a shared screen, a lock screen or an admin's
+   session list reveals what someone listened to without their choice
+   (SEC-PRV-022, SEC-PRV-025).
 
 ## What we take from the best players, and what we do differently
 
@@ -124,9 +155,15 @@ owns:
 - **The player state**: what the player is doing right now.
 
 **Proposal.** The player state is a protocol type in the core, like the
-queue, so the bar, the full player, the lock screen, a phone acting as a
-remote and the admin session list (ADM-099) all derive from one value, and
-every transition below is a unit test.
+queue, so the bar, the full player, the lock screen and a phone acting as a
+remote all derive from one value, and every transition below is a unit
+test. The admin session list (ADM-099) does not receive that value. It gets
+its own admin response type built from it, which carries user, device,
+bitrate and playback method, and the title only when that person has opted
+in to showing titles and is not in a private session (SEC-PRV-024,
+SEC-PRV-025, SEC-API-068). The earlier draft fed the admin list the same
+value; that would have put every title in front of administrators (owner
+to confirm, owner decision 5).
 
 ```mermaid
 stateDiagram-v2
@@ -156,7 +193,8 @@ Loading is never visible, because the next item's opening bytes are already
 fetched (MUS-067, MUS-070). Stopped covers the owner ending a session
 (ADM-102) and a device being removed or signed out (ACC-065, ACC-069);
 both cut in-flight responses through the ACC-122 mechanism, so playback
-really ends.
+really ends: the next range request fails and open connections close
+within 5 seconds (SEC-IAM-043, SEC-API-028).
 
 ### One action list
 
@@ -167,7 +205,7 @@ operating system's media handlers and remote-control commands all call
 (DIS-111, CLI-039, CLI-061). Three things follow. The same action has the
 same name everywhere. The keyboard help card (VID-105) is generated from the
 list rather than written by hand. Remote-control commands are a closed set
-with no free-text payloads, which the security research requires
+with no free-text payloads, which the security baseline requires
 (SEC-HIS-014 in
 [rival-security-history.md](../security/rival-security-history.md)).
 
@@ -181,7 +219,9 @@ and before-and-after screenshots in the release notes.
 - The now-playing bar's position, and the order of the controls inside it.
 - The scrubber, always visible in the full-screen player.
 - Queue access, lyrics access and the device control, in the same places in
-  the bar and the full player.
+  the bar and the full player. In R1 the device control's place is kept
+  and holds only the "Continue on this device" prompt (CLI-103); the
+  Devices button fills it from R2 (CLI-101).
 - The video transport bar and the order of its action row.
 - On TV, the left navigation rail (CLI-035) and the player's action row.
 
@@ -198,18 +238,137 @@ and before-and-after screenshots in the release notes.
 - No scrolling tickers, no bars that move on scroll, and motion defined as
   tokens with a reduced set (MUS-108, CLI-140).
 
+### Security rules for every surface
+
+These rules come from the security baseline and apply to every surface in
+this document. Later sections repeat a rule where it changes what a
+control does; this subsection is the player's full statement of them.
+
+**Where the player runs.** The web player runs only over HTTPS or on the
+server's own machine at `http://localhost`. Over plain HTTP every other
+peer gets a redirect to the server's HTTPS address when one exists, or
+otherwise a static help page, and never the web client; without a valid
+certificate the server does not serve the client at all (SEC-NET-001,
+SEC-NET-005, SUR-109 in [surfaces.md](surfaces.md)). There is no reduced
+player for an insecure address.
+
+**Stream and artwork URLs.**
+
+- Audio, video, artwork, lyrics files and subtitles come only from
+  capability URLs whose path, never the query string, carries a token bound
+  to the item, the representation and the playing session (SEC-API-026).
+  The web player fetches media this way too, never with its cookie
+  (SEC-API-029).
+- Lifetimes are those of SEC-API-027: a stream URL lives for the item's
+  duration plus 10 minutes and at most 4 hours; an artwork URL lives for
+  1 hour, aligned to a time bucket so a scrolling grid reuses it. The
+  player refreshes an expired URL by itself and resumes at the same
+  position with no visible error, and asks for the URLs of upcoming queue
+  items in the background.
+- Every request re-checks the session and the item grant, so revoking a
+  device, ending a session or withdrawing a library stops playback at the
+  next range request (SEC-API-028, SEC-IAM-046).
+- A capability URL never leaves the player that asked for it. It is not
+  kept by the service worker or Cache Storage (SEC-API-029), not handed to
+  the operating system's media controls (see
+  [Lock screen and system integrations](#lock-screen-and-system-integrations)),
+  not written to a log or a diagnostic report (SEC-IAM-047), and not passed
+  to another device during handoff or remote control: the target asks the
+  server for its own URLs under its own session.
+- Artwork is always a server-made JPEG, PNG or WebP derivative in one of a
+  fixed set of sizes (SEC-CLI-005, SEC-MED-046, SEC-MED-047). The player
+  never asks for an arbitrary size and never shows a file's own image
+  bytes.
+
+**Untrusted text.** Titles, artists, tags, lyrics, chapter names, device
+names, playlist names, an administrator's stop message and anything else
+that came from a file, a provider, a plugin or another person are drawn as
+plain text inside a bidirectional isolate, never as HTML or Markdown
+(SEC-API-046, SEC-CLI-001, SEC-MED-057). Device names are the names devices
+gave themselves and are never presented as verified. A URL from metadata
+becomes a link only if it is `https`, and opens only after a sheet that
+shows the destination host, or as a QR code on a TV (SEC-CLI-002,
+SEC-STD-015). The [design language](design-language.md) sets out how
+these look.
+
+**Errors.** Every error the server returns is a type from a closed
+catalogue with a request identifier, and nothing that describes the server
+(SEC-API-072, SEC-TM-040). The player maps the type to a sentence and an
+action. "Details" shows the type and the request identifier, which the
+owner can look up in the server log; it never shows a file path, server
+address, version or stack trace. File paths and server addresses appear
+only in admin screens, built from admin response types (SEC-API-068).
+
+**Shared screens and lock screens.** A household TV, a family computer and
+a phone's lock screen are seen by other people.
+
+- What is playing now may show on that device's lock screen and media
+  controls, because the person chose to play it there. When the person
+  signs out or is signed out, the player clears its media session with the
+  rest of the account's data, so no title lingers in the system's media
+  panel (SEC-CLI-009). After playback ends, a last-played card stays only
+  where the profile opted in to media resumption (SEC-CLI-061).
+- Nothing else shows titles on a lock screen: notifications other than
+  active media controls say only that something happened (SEC-CLI-062), and
+  push payloads carry an opaque ID (SEC-PRV-056).
+- Publishing to system-wide surfaces (Android TV's Play Next row, Top
+  Shelf, Spotlight, assistant suggestions, and media resumption after
+  playback ends) is off unless the profile opts in. On a TV it is asked
+  once at pairing and is on by default only when the TV has a single
+  profile; restricted and PIN-protected profiles never publish
+  (SEC-CLI-061). A private session donates nothing (SEC-PRV-058).
+- On a household device (R2), an adult profile's restored queue,
+  "Continue" prompts, history and private playlists stay hidden until a
+  PIN or an approval from that adult's phone unlocks the profile for the
+  session, while browsing and playing stay one tap (SEC-IAM-110). Until
+  then the queue shows only what was queued on that device in that session.
+- Another person's players, and what they play, are never shown
+  (SEC-PRV-022, SEC-API-068). A household TV that someone else is using
+  appears only as "In use".
+- On a computer marked as shared at sign-in, the player keeps the queue
+  copy, plays waiting to upload and artwork in memory only, writes none of
+  them to browser storage, and the session ends after 30 minutes idle
+  (SEC-CLI-010, SEC-PRV-019).
+
+**Private listening.** The private session (ACC-117) is at most two
+interactions away from the full player on every client, from the bar on
+wide layouts, and from the TV player (SEC-PRV-024). While it is on, no
+history, recommendation signal or scrobble is recorded, any session view
+shown to an administrator omits the title, the bar and the full player
+show the private indicator, and nothing is donated to the operating system
+(SEC-PRV-024, SEC-PRV-058). It stays on until the person turns it off or
+until a period without playback that they choose (6 hours by default, as
+the [privacy baseline](../security/privacy-and-data-protection.md) sets
+out in its design guidance), so nobody stays private for weeks by
+accident.
+
+**Downloads (R2).** Downloaded files live only in the app's private
+storage, excluded from cloud backup, device transfer and the system media
+index, and never on shared or removable storage (SEC-CLI-033, SEC-CLI-035,
+SEC-PRV-057); an encrypted format for removable storage is Later
+(SEC-CLI-072). They play offline under a server-signed grant bound to the
+device key, 30 days by default (SEC-CLI-036, SEC-IAM-054). Expiry never
+stops a track or queue already playing, never deletes files, and reads
+"Connect to your server once to keep listening offline", not as an error
+(SEC-CLI-036). When the server reports the device revoked, or the person
+removes the account from the device, the app deletes the credentials, the
+library copy, the artwork cache and every download before it draws any
+other screen (SEC-CLI-037). Each profile's downloads sit in that profile's
+partition (SEC-CLI-063). The grant is honest policy, not DRM: it does not
+stop someone with root access from reading files already on the device.
+
 ### Surfaces and where they ship
 
 | Surface | Purpose | R1 | R2 | Main IDs |
 |---|---|---|---|---|
 | Now-playing bar | Playback visible and controllable on every screen | Web, both layouts | All clients | MUS-108, MUS-109, MUS-099 |
-| Full-screen music player | Artwork, scrubber, transport, lyrics and queue access | Web | Native phone, tablet, desktop; landscape | MUS-110, MUS-112 |
+| Full-screen music player | Artwork, scrubber, transport, lyrics and queue access | Web | Native phone and tablet; landscape (desktop shell Later) | MUS-110, MUS-112 |
 | Queue panel | See and edit what plays next | Web (full height on wide layouts) | All clients | MUS-116 to MUS-129, CLI-060 |
 | Lyrics view | Read along | Web, inside the player | Full-screen lyrics with tap to seek | MUS-154 to MUS-159 |
 | Track info sheet | How the file was read and played | Web | Signal path added | MUS-114, MUS-090, MUS-103 |
-| Device sheet | Move or control playback elsewhere | "Continue here" only | Full picker, remote mode, cast | CLI-103, CLI-101, CLI-102, CLI-106 |
-| Mini player | Small always-on-top window | None | Desktop shell | CLI-065 |
-| System media controls | Lock screen, notification, media keys | Browser Media Session | Native modules, desktop panels, car, watch | CLI-070, CLI-069, CLI-063, CLI-116 |
+| Device sheet | Move or control playback elsewhere | None; the bar's "Continue on this device" prompt only | Full picker, remote mode, cast | CLI-103, CLI-101, CLI-102, CLI-106 |
+| Mini player | Small always-on-top window | None | None; desktop shell, Later (see [Releases](#releases-and-platforms)) | CLI-065 |
+| System media controls | Lock screen, notification, media keys | Browser Media Session | Native modules, car, watch; desktop panels Later | CLI-070, CLI-069, CLI-063, CLI-116 |
 | TV Now Playing | Music on the big screen with ambient mode | None | Android TV family | CLI-041 |
 | Pre-play sheet | Version, tracks, resume and warnings before a film | None | All clients | VID-013, VID-015, VID-024, VID-053 |
 | Video player | On-screen controls over the picture | None | All clients | VID-101 to VID-143 |
@@ -233,10 +392,11 @@ play onwards. It is the persistent player ADR 2 (decision 7) asks for.
 | Transport | Previous, play or pause, next, centred | Play or pause and next, on the right | MUS-108 |
 | Shuffle and repeat | Either side of the transport | In the full player only | MUS-126, MUS-077 |
 | Position | A draggable scrubber with elapsed and total time | A thin progress line along the bar's top edge; scrubbing happens in the full player | MUS-071 |
-| Quality badge | Compact, for example "FLAC 24/96" | Shown only when playback is not the original file played directly | MUS-099 |
+| Quality badge | The compact badge: "Original" when the original file plays directly, "Converted" from R2 when it does not; the full sentence on hover or focus | The same compact badge, at the end of the artist line | MUS-099 |
 | Lyrics and queue toggles | Right-hand group | In the full player only | MUS-158, MUS-119 |
-| Device slot | Right-hand group | A line under the artist | CLI-103 (R1), CLI-101 (R2) |
-| Volume | A slider in the right-hand group | None; the hardware buttons set system volume (whether a web page may set its own volume on iPhone is unverified) | |
+| Options | Right-hand group, before the device slot; opens the player's options menu with Private session first, so private listening is two interactions from the bar | In the full player only (two interactions from there) | ACC-117, SEC-PRV-024 |
+| Device slot | Right-hand group, at the end. R1: the "Continue on this device" prompt when another of the profile's sessions last played the queue, otherwise empty. R2: the Devices button | A line under the artist, with the same R1 and R2 contents | CLI-103 (R1), CLI-101 (R2) |
+| Volume | A slider in the right-hand group, before the device slot | None; the hardware buttons set system volume (whether a web page may set its own volume on iPhone is unverified) | |
 | Indicators | Private session and sleep timer icons beside the title | The same | ACC-117, MUS-076 |
 
 Behaviour:
@@ -248,20 +408,33 @@ Behaviour:
   have one (CLI-142). Swiping up opens the full player.
 - On load, the bar shows the restored queue, paused at its saved position,
   and never starts sound by itself. When the queue was last played on
-  another device, the bar offers to continue (CLI-103), for example
-  "Continue Teardrop, 2:13".
-- When the device's active item is a video (R2), the bar shows it with a
-  resume control, so the bar always reflects what this device is playing.
+  another device, the device slot offers to continue (CLI-103), for
+  example "Continue on this device: Teardrop, 2:13".
+- The bar shows music. A video appears in it only while it plays in
+  listen-only mode (VID-065). Starting a film pauses the music context
+  rather than replacing it (LAT-009); leaving the video player pauses the
+  film, saves its resume point (VID-118) and returns the bar to the paused
+  music context, one tap from resuming, unless picture-in-picture or
+  listen-only is on. The film resumes from its title page, Continue
+  Watching or the queue switcher (MUS-131). This is the model in
+  [surfaces.md](surfaces.md) (How music and video coexist); the earlier
+  draft kept the paused film in the bar, which left the bar unable to show
+  the music context it promised to return to.
 - **The device slot in R1.** R1 has no control channel, so it cannot move
-  or control playback elsewhere. **Proposal:** the queue records which
-  device is the active player whenever it writes a position. If a
-  different device becomes active, the slot reads "Playing on Living room
-  laptop" with a "Play here" action, and this device stops at its current
-  point instead of fighting over the position. Otherwise the slot is empty.
-  It sits at the end of its row, so its absence never shifts other
-  controls. How quickly a device notices depends on how often it syncs
-  (unverified until the sync design exists). From R2 the slot is always
-  present as the Devices button (CLI-101).
+  or control playback elsewhere. Two of a profile's sessions (two tabs, or
+  a laptop and a phone) share one queue, and the last Play wins: a play or
+  resume is an ordinary operation on the versioned queue (MUS-122), and the
+  queue records which of the profile's sessions issued it, by an opaque
+  identifier that is not a credential. Any other session that sees, on its
+  next sync, that a different session started playback pauses at its
+  current point, and its device slot shows the "Continue on this device"
+  prompt (CLI-103), which takes the queue back with the same operation.
+  Only the profile's own sessions can write its queue (SEC-HIS-014), and
+  queue events reach only that profile's sessions (SEC-API-016). The
+  prompt names no device. Otherwise the slot is empty. It sits at the end
+  of its row, so its contents never shift other controls. How quickly a
+  device notices depends on how often it syncs (unverified until the sync
+  design exists). From R2 the slot holds the Devices button (CLI-101).
 
 ### The full-screen player
 
@@ -284,15 +457,16 @@ Regions, top to bottom, on a phone:
    (MUS-099). Selecting the badge opens the track info sheet.
 5. **Transport**: shuffle, previous, play or pause, next, repeat (MUS-126,
    MUS-077).
-6. **Bottom row**, in fixed places: the device control on the left (CLI-103
-   in R1, CLI-101 in R2), lyrics in the centre (MUS-158), the queue on the
-   right (MUS-119).
+6. **Bottom row**, in fixed places: the device control on the left (in R1
+   only the "Continue on this device" prompt, CLI-103, otherwise empty; the
+   Devices button from R2, CLI-101), lyrics in the centre (MUS-158), the
+   queue on the right (MUS-119).
 
 The options menu holds, in this order:
 
 | Item | What it does | IDs | Release |
 |---|---|---|---|
-| Private session | Turns private listening on or off; a persistent indicator shows while it is on | ACC-117, MUS-185 | R1 |
+| Private session | Turns private listening on or off; a persistent indicator shows while it is on; it ends when turned off or after the person's chosen period without playback | ACC-117, MUS-185, SEC-PRV-024 | R1 |
 | Sleep timer | In a set number of minutes, at the end of this track, at the end of this album, or at the end of the queue, with a gentle fade | MUS-076, MUS-077 | R1 |
 | Add to playlist | The add-to-playlist sheet, with duplicate warning | MUS-133, MUS-134 | R1 |
 | Go to album, Go to artist | Navigation | MUS-123 | R1 |
@@ -303,10 +477,15 @@ The options menu holds, in this order:
 | Equaliser | A quick toggle for the active preset | MUS-094 | R2 |
 | Signal path | Every stage that changed the audio | MUS-103 | R2 |
 
-The private session sits first because the privacy research places it in
-the now-playing overflow menu on web and phone and as the first item of the
-player's options on TV, two D-pad presses from playback
-([privacy-and-data-protection.md](../security/privacy-and-data-protection.md)).
+The private session sits first because SEC-PRV-024 requires it within two
+interactions of the player on every client, and the privacy baseline
+places it in the now-playing overflow menu on web and phone and as the
+first item of the player's options on TV, two D-pad presses from playback
+([privacy-and-data-protection.md](../security/privacy-and-data-protection.md),
+design guidance section 4). The test counts the interactions on the web in
+R1 and with a D-pad on TV in R2. On wide layouts the bar's Options button
+opens this same menu; the earlier draft had the menu only in the full
+player, which made private listening three interactions from the bar.
 
 **R2 additions.** Scrolling down from the player reveals info cards with a
 lyrics preview, credits and album details (MUS-111); native phones get the
@@ -349,14 +528,19 @@ Editing (MUS-119, MUS-120, CLI-062, DIS-110):
 - Moving an item between Up next and From changes which lane it belongs
   to; the item keeps its own "Playing from" source, shown on the row when
   it differs from the lane's source (MUS-123).
-- Rows are removed by swiping on touch, by a remove button that appears on
-  hover or focus, or from the row menu. Multi-select removes several at
-  once.
+- Rows are removed by a remove button that appears on hover or focus (and
+  is always shown on touch screens), or from the row menu. Multi-select
+  removes several at once. Swiping a row to remove it arrives in R2 with
+  swipe actions on rows (MUS-065).
 - On wide layouts, dragging tracks from any list onto the queue shows two
   drop zones, "Play next" and "Play last", and dropping between rows
   inserts at that point (CLI-062).
-- "Clear queue" asks for confirmation in R1. Undo after a removal or clear
-  replaces the confirmation in R2 (MUS-121).
+- Queue undo is R2 (MUS-121). In R1, removing one row acts at once with no
+  prompt, and the actions that remove many items at once ("Clear Up next",
+  "Clear queue" and removing a multi-selection) ask first and say how many
+  items will go, because nothing can bring them back. From R2 all of them
+  act at once and offer Undo, which replaces the confirmation, as the
+  [design language](design-language.md) (section 11, rule 6) sets out.
 - Items the device cannot play are dimmed, with the reason on the row
   (MUS-229).
 
@@ -375,8 +559,9 @@ Shuffle (MUS-126, MUS-127, MUS-128):
   current item onwards.
 
 The queue menu holds "Save as playlist" (MUS-125), the shuffle modes,
-"Reshuffle the rest", "Clear Up next", "Clear queue", and the Continue with
-switch.
+"Reshuffle the rest", "Sleep timer" (MUS-076, the same action as in the
+options menu, because the feature row names both menus), "Clear Up next",
+"Clear queue", and the Continue with switch.
 
 The end of the queue is a visible marker. When Continue with is off and
 repeat is off, playback stops there; see [States](#states).
@@ -393,11 +578,16 @@ artwork on wide layouts (MUS-158). The lyrics view stays open from track to
 track, and a setting opens the player on lyrics (MUS-158). Lyrics come from
 the file: embedded tags (MUS-154), `.lrc` sidecars (MUS-155) and Enhanced
 LRC word timings (MUS-156), parsed at scan and carried in the synced
-library, so they are free and instant.
+library, so they are free and instant. The core parses them into its
+timed-line model within the limits of SEC-MED-049 and SEC-API-090, so the
+client never receives the original file, and the view draws every line as
+plain text: plain lyrics keep their line breaks through pre-wrapped text
+and synced lines are text spans, never inserted markup (SEC-API-046,
+SEC-CLI-001).
 
 | Lyrics state | What the view shows | IDs |
 |---|---|---|
-| None in the file | The lyrics control stays in its place but is shown as unavailable, with the text "No lyrics in this file". It is not removed, because the layout contract pins it. In R2, if the owner has enabled the lyrics lookup plugin, a "Find lyrics" action appears here. | MUS-113, MUS-162 (R2) |
+| None in the file | The lyrics control stays in its place but is shown as unavailable, with the text "This file has no lyrics." It is not removed, because the layout contract pins it. In R2, if the owner has enabled the lyrics lookup plugin, a "Find lyrics on *provider*" action appears here. It names the provider, runs only when pressed, and its result is parsed like file lyrics; opening the lyrics view never contacts a provider by itself (SEC-PRV-015). | MUS-113, MUS-162 (R2), SEC-PRV-015 |
 | Plain, unsynced | Scrollable text with no highlight and no automatic scrolling. | MUS-154 |
 | Line-synced | The current line is highlighted and kept about a third of the way down the view. Scrolling by hand pauses automatic scrolling, and a "Back to current line" button returns to it. | MUS-155 |
 | Word-synced | As line-synced, with the current word highlighted. | MUS-156 |
@@ -446,9 +636,9 @@ The quality badge (MUS-099) says exactly what the decision engine decided:
 
 | Situation | Badge text (examples) | Release |
 |---|---|---|
-| The original, played as it is | "Original FLAC, 24-bit, 96 kHz, played directly" (compact: "FLAC 24/96") | R1 |
-| The browser cannot decode the file | "Cannot play here: this browser cannot decode ALAC" | R1 |
-| Converted for mobile data or a cap | "Opus 160 kbps, converted for mobile data" | R2 (MUS-106, ACC-107) |
+| The original, played as it is | "Original FLAC, 24-bit, 96 kHz, played directly" (compact: "Original") | R1 |
+| The browser cannot decode the file | "Can't play in this browser: ALAC" | R1 |
+| Converted for mobile data or a cap | "Opus 160 kbps, converted for mobile data" (compact: "Converted") | R2 (MUS-106, ACC-107) |
 | Bit-perfect output | A separate "Bit-perfect" mark, shown only when no stage changed the samples; levelling or the equaliser removes it | R2 (MUS-101, MUS-103) |
 
 ### Device handoff and remote control
@@ -456,24 +646,35 @@ The quality badge (MUS-099) says exactly what the decision engine decided:
 **R1: continue on this device.** The queue and its position are in every
 device's synced copy, so opening Gunmetal on another browser offers to
 continue where the person left off (CLI-103). Pressing Play starts this
-device from the saved position. The active-device proposal in the bar
-section stops the first device when the second takes over.
+device from the saved position. The last Play wins, as the bar section
+describes, so the first device pauses on its next sync instead of fighting
+over the position.
 
 **R2: the device sheet** (CLI-101, MUS-197). The Devices button in the bar
 and the full player opens one sheet:
 
 | Section | Contents | IDs |
 |---|---|---|
-| This device | Its name, and on native and desktop clients the output picker (speakers, headphones, a DAC), kept per device | CLI-067, MUS-200 |
+| This device | Its name, and on native clients (and the desktop shell, Later) the output picker (speakers, headphones, a DAC), kept per device | CLI-067, MUS-200 |
 | Your Gunmetal players | Every player signed in to this profile, with what it is playing, its volume and whether it is reachable; unreachable ones are greyed with "last seen" | CLI-101, CLI-102 |
 | Cast | Chromecast and Google TV receivers on the network | CLI-106, MUS-203 |
-| In use by another profile | Players signed in as someone else, shown greyed and not selectable; controlling another person's player needs their grant and is Later | ACC-047 |
+| In use | Household devices this profile may use that another profile is using now, greyed, not selectable, and labelled only "In use": no profile name, no title. Other people's own players never appear; controlling another person's player needs their grant and is Later | ACC-047, SEC-PRV-022, SEC-API-068 |
+
+The earlier draft listed every player signed in as someone else. That
+would tell one member which devices another member owns and when they are
+playing, which is Activity data the baseline keeps between the person and
+the server (SEC-PRV-022), and other users' devices may appear only in admin
+response types (SEC-API-068). The server's session events are filtered per
+recipient (SEC-API-016), so the sheet can show only what this profile may
+see.
 
 Choosing a player moves playback there: the lanes, the position, the
 shuffle order and the repeat mode go with it (MUS-122, MUS-077), the target
-fetches the original file itself, and this device stops. Only one device
-plays a profile's queue at a time, so there is never a question of which
-queue a command applies to.
+fetches the original file itself, and this device stops. The handoff
+carries item IDs and the position, never a stream URL or a token: the
+target asks the server for its own capability URLs under its own session
+(SEC-API-026). Only one device plays a profile's queue at a time, so there
+is never a question of which queue a command applies to.
 
 While another device is playing, this device is in **remote mode**:
 
@@ -506,8 +707,9 @@ risks").
 ### Mini player
 
 On phones and narrow web layouts the bar is the mini player. On the desktop
-shell (R2), the mini player is a second, always-on-top window over the same
-queue state (CLI-065, MUS-082), in two sizes:
+shell (Later, see [Releases](#releases-and-platforms)), the mini player is a
+second, always-on-top window over the same queue state (CLI-065, MUS-082),
+in two sizes:
 
 - **Compact:** artwork, title and artist, previous, play or pause, next,
   love, and a thin progress line.
@@ -522,14 +724,14 @@ picture-in-picture window (VID-134).
 
 | Integration | Release | Behaviour | IDs |
 |---|---|---|---|
-| Browser media controls | R1 | The Media Session API supplies title, artist, album and artwork, and handles play, pause, stop, previous track, next track, seek to, seek backward and seek forward. Position comes from the audio clock and is pushed on every play, pause, seek, rate change and queue edit, so the lock screen does not drift as Navidrome's does. iPhone background limits are stated plainly in the installed web app. Media Session works only where the browser allows it, and in a plain HTTP tab it is unverified per browser. | CLI-070, MUS-073, CLI-150 |
-| Background audio and lock screen on phones | R2 | The native module's notification and lock-screen controls: previous, play or pause, next, and love as a custom action. Bluetooth displays get title and artist. | CLI-069, MUS-074 |
+| Browser media controls | R1 | The Media Session API supplies title, artist, album and artwork, and handles play, pause, stop, previous track, next track, seek to, seek backward and seek forward. Position comes from the audio clock and is pushed on every play, pause, seek, rate change and queue edit, so the lock screen does not drift as Navidrome's does. iPhone background limits are stated plainly in the installed web app. The player runs only over HTTPS or on loopback (SEC-NET-001), so there is no plain-HTTP case; the earlier draft allowed for one. On sign-out or revocation the metadata is cleared with the rest of the account's data (SEC-CLI-009). | CLI-070, MUS-073, CLI-150, SEC-NET-001 |
+| Background audio and lock screen on phones | R2 | The native module's notification and lock-screen controls: previous, play or pause, next, and love as a custom action. Bluetooth displays get title and artist. When playback stops the notification goes; the system's media resumption card, which keeps the last item after playback ends, is published only if the profile opted in (SEC-CLI-061). | CLI-069, MUS-074, SEC-CLI-061 |
 | Interruptions | R2 | A call pauses and resumes after; a navigation prompt lowers the music; unplugging headphones pauses; resume fades in, reusing the fades that ship on the web in R1 (MUS-072). | CLI-071, MUS-075 |
-| Desktop media panels | R2 | MPRIS on Linux, Windows media controls and macOS Now Playing, answering only while Gunmetal is the active player. Gunmetal never launches itself on a play key or a headphone connection unless the person asks for that. | CLI-063, MUS-081, CLI-068 |
-| Global hotkeys | R2 | Optional system-wide shortcuts mapped to the same action list. | CLI-064 |
+| Desktop media panels | Later | MPRIS on Linux, Windows media controls and macOS Now Playing, answering only while Gunmetal is the active player. Gunmetal never launches itself on a play key or a headphone connection unless the person asks for that. Later with the desktop shell (SEC-TM-074, SEC-CLI-069). | CLI-063, MUS-081, CLI-068 |
+| Global hotkeys | Later | Optional system-wide shortcuts mapped to the same action list. Later with the desktop shell. | CLI-064 |
 | Watch | R2 | Pause and skip through the system's own now-playing app. | CLI-127 |
-| Android Auto | R2 | The platform draws media apps from a browse tree, not the app's own screens. The car's now-playing screen shows shuffle, repeat and the queue. | CLI-116, CLI-122, MUS-219 |
-| TV launcher rows | R2 | Continue items on Android TV's Play Next row, filled from the local log. | CLI-049 |
+| Android Auto | R2 | The platform draws media apps from a browse tree, not the app's own screens. The car's now-playing screen shows shuffle, repeat and the queue. The browse tree is returned only to callers on an allow-list verified by package signature (system UI, Android Auto, named wearables); any other app gets an empty root (SEC-CLI-055). | CLI-116, CLI-122, MUS-219, SEC-CLI-055 |
+| TV launcher rows | R2 | Continue items on Android TV's Play Next row, filled from the local log, only when the profile opted in: asked once at TV pairing, on by default only for a single-profile TV, never for restricted or PIN-protected profiles, and never for plays in a private session (SEC-CLI-061, SEC-PRV-058). The earlier draft filled the row for everyone. | CLI-049, SEC-CLI-061 |
 | Widgets, voice, NFC, CarPlay, AirPlay | Later | | CLI-073, CLI-074, CLI-075, CLI-117, CLI-109 |
 
 Privacy rules that apply to all of these:
@@ -537,14 +739,48 @@ Privacy rules that apply to all of these:
 - Lock-screen controls show the current track, because the person chose to
   play it. A private session donates nothing to OS history features: no
   Siri or Spotlight suggestions, no Play Next row, no recents lists
-  (SEC-PRV-058 in the privacy research).
+  (SEC-PRV-058 in
+  [privacy-and-data-protection.md](../security/privacy-and-data-protection.md)).
 - Notifications other than active media controls show no titles on the
   lock screen (SEC-CLI-062 in
   [client-and-device-security.md](../security/client-and-device-security.md)).
-- **Proposal:** the artwork handed to the operating system comes from the
-  device's local artwork cache rather than a signed server URL, so no
-  signature lands in an OS cache (ACC-123). Whether every browser accepts
-  local object URLs for Media Session artwork is unverified.
+- Publishing to every other system-wide surface follows the opt-in rule
+  under [Shared screens and lock screens](#security-rules-for-every-surface)
+  (SEC-CLI-061).
+- The artwork handed to the operating system comes from the bytes the
+  player already holds, as a local object URL, never as a capability URL,
+  so no signed URL lands in an OS cache or history (ACC-123, SEC-API-029,
+  SEC-IAM-047). On a shared computer those bytes are in memory only
+  (SEC-CLI-010). Whether every browser accepts local object URLs for Media
+  Session artwork is unverified; where one does not, that browser's media
+  controls show no artwork rather than a capability URL.
+
+### Listening through a share link
+
+From R1, a music share link lets someone without an account listen to one
+track, album or playlist (SEC-API-097, owner decision 7, owner to
+confirm). The page that holds it is the public share page, SUR-059 in
+[surfaces.md](surfaces.md), which is R1 for music as well. The player there
+is the bar and a track list, with these differences:
+
+- It shows what the link covers and nothing else of the server: no
+  sharer's name, no other people, no library size (SEC-PRV-031). There is
+  no queue sync, history, love, device slot or options menu, because the
+  listener has no account.
+- Media and artwork come through capability URLs bound to the share
+  instead of a session, and the share is re-checked on every request, so
+  revoking it stops playback at the next range request (SEC-API-028).
+  Download appears only when the owner allows downloads server-wide
+  (SEC-API-097).
+- A link with a password asks for it in a field that allows paste and
+  password managers (SEC-CLI-028). Wrong guesses meet growing delays and
+  never disable the link (SEC-API-056).
+- "Too many people are listening through this link right now. Try again
+  in a few minutes." when the link's concurrent-stream limit is reached,
+  and "This link no longer works." when it has expired, been revoked or
+  been suspended for spreading widely; the sharer is told about a
+  suspension, the listener is not told which case applies (SEC-API-097,
+  SEC-API-057).
 
 ### Music on a TV
 
@@ -555,13 +791,26 @@ over playback or be driven from a phone.
 - **Layout.** Artwork on the left; title, artist, album, the scrubber and
   the transport row on the right; a rail of the next five or so queue items
   below. Lyrics replace the rail when opened.
+- **How it is reached.** TV Now Playing is the fixed first entry of the
+  TV rail, present whether or not anything is playing, so no other rail
+  entry moves when playback starts or stops (CLI-035, the layout contract).
+  With nothing queued it shows the empty-queue state with recently played
+  items to start from.
 - **Focus.** Focus starts on play or pause. Left and right move along the
-  transport row, down moves to the queue rail, and Back returns to the TV
-  music home with playback continuing (DIS-112, CLI-036).
+  transport row, down moves to the queue rail, and Back closes the topmost
+  sheet, otherwise returns to the screen and card the person came from
+  (the rail's Now Playing entry when it was opened from the rail), with
+  playback continuing (DIS-112, CLI-036).
 - **Ambient mode.** After a period with no input, the screen dims to the
   artwork, the title and a thin progress line. The content drifts slowly to
   protect OLED panels, as the library screensaver does (CLI-042). Any key
-  wakes it without acting on playback.
+  wakes it. Only the dedicated play or pause key also acts, pausing or
+  playing with the brief symbol, because that key controls playback on
+  every screen (CLI-045); every other key only wakes the screen.
+- **A household TV.** Until an adult's profile is unlocked for the session,
+  the queue rail shows only what was queued on the TV in that session, and
+  no "Continue" prompt or recent item appears (SEC-IAM-110). Ambient mode
+  shows only what is playing in the room.
 - **Remote keys** are in [TV remote](#tv-remote).
 
 ## Video player
@@ -603,9 +852,12 @@ layers.
 | **Transport bar** | The seek bar with chapter ticks and chapter names in the preview bubble; elapsed time on the left; on the right, remaining time or "Ends at 22:41" (selecting it switches between them, and the clock accounts for speed); a speed chip such as "1.5x" whenever speed is not 1x | VID-096, VID-098, VID-106, VID-133 |
 | **Action row** | Audio and subtitles, Quality, Speed, Chapters, Queue, More, always in this order | VID-053, VID-025, VID-131, VID-095, VID-181 |
 
-The Queue action opens the shared queue panel (the "Player > Up next"
-surface in VID-181), with the same lanes as music: picks, then the season
-or collection, then nothing further.
+The Queue action opens the shared queue panel, with the same lanes as
+music: Up next (the viewer's own picks), then From *season or
+collection*, and no Continue with lane. The feature map calls this surface
+"Player > Up next" (VID-181); on screen it is labelled "Queue", as the
+music queue is, so the words "Up next" name only the lane of a person's own
+picks everywhere in the interface.
 
 **More** holds, in order: Private session (first, as on music), Sleep timer
 (VID-126, shared with music), Listen only (VID-065), Picture-in-picture
@@ -669,10 +921,18 @@ and the subtitles stay visible while the viewer changes them (VID-092).
   from the operating system's caption settings, with the picture as the
   live preview (VID-091, VID-092, CLI-143). Subtitles on HDR content are
   dimmer by default (VID-047). Placement in the picture or the black bars
-  (VID-094).
+  (VID-094). The fonts offered are the bundled, pinned subtitle font set.
+  Fonts embedded in a file reach the player only for a library whose owner
+  opted in, and then only after the server's parse worker has parsed and
+  rewritten them (SEC-MED-054; owner to confirm, owner decision 12).
 - "Add file", for people with the upload right (VID-075), and "Search",
   which runs the subtitle plugin after a grant prompt that says plainly a
-  third party will learn what is being watched (VID-087, VID-088).
+  third party will learn what is being watched (VID-087, VID-088). Search
+  runs only when pressed and names the provider (SEC-PRV-015). Uploaded and
+  found subtitles are parsed by the core and re-served as WebVTT under a
+  server-chosen name (SEC-API-089), and the web player draws them only
+  through the browser's text-track pipeline or a renderer in a worker,
+  never as page text (SEC-CLI-053).
 - When a new subtitle arrives mid-film (for example from Bazarr), a notice
   reads "New subtitle available" and the track appears in the list without
   a restart (VID-076, INT-122).
@@ -699,8 +959,11 @@ back" (VID-093) and a "Prefer SDH" default (VID-082, CLI-144).
   the time, the chapter name (VID-096) and, where the device can decode a
   second stream fast enough, a picture (VID-098). The picture is one
   keyframe cut by the server's remuxer and decoded on the device, with
-  nothing generated in advance or stored. The client limits how often it
-  asks while scrubbing. On devices that fail the decoder probe, the bubble
+  nothing generated in advance or stored. It arrives through a capability
+  URL for that item and session, like the stream (SEC-API-026), and
+  reaches the decoder the same way the stream does (SEC-CLI-047). The
+  client limits how often it asks while scrubbing, and the server limits
+  it as an expensive operation (SEC-NET-053). On devices that fail the decoder probe, the bubble
   shows time and chapter only; pre-generated previews for those devices
   are Later (VID-099), and blurred spoiler-safe previews are Later
   (VID-100). The feature row warns that R2 TV clients may therefore ship
@@ -731,7 +994,7 @@ from the picture is Later (VID-113).
   move it; the edit is a user log event, so it survives a rebuild
   (VID-116).
 
-### Up next, autoplay and the post-play screen
+### Next episode, autoplay and the post-play screen
 
 - **The countdown card** appears when the credits marker begins, or a set
   time before the end when there is no marker (VID-123). It shows the next
@@ -786,15 +1049,23 @@ rebuilt apps and Jellyfin's Android TV app both show.
 
 Everyone sees codecs, figures and reasons. File paths, server addresses and
 other people's sessions are shown only to admins, following the video map's
-recommendation (video.md, open decision 11). A "Copy report" action builds
-the playback diagnostic bundle on the device, shows it for review, and
-saves it as a file the person chooses to send (VID-174, CLI-033). The
-owner's view of the same session is ADM-100.
+recommendation (video.md, open decision 11), which the baseline now
+requires: they exist only in admin response types (SEC-API-068). Even an
+admin sees other people's sessions without titles unless each person opted
+in (SEC-PRV-025). A "Copy report" action builds the playback diagnostic
+bundle on the device, shows it in full for review, and saves it as a file
+the person chooses to send (VID-174, CLI-033). The report never contains a
+capability URL, token or signature (SEC-IAM-047), and it replaces titles,
+file paths, user names and addresses with per-report pseudonyms, the rule
+SEC-PRV-046 sets for the server's own diagnostic bundles. The owner's view
+of the same session is ADM-100.
 
 For music, the equivalent is the track info sheet (MUS-114): file path
 (admins only, by the same rule), format, size, tags as read, gain applied,
 gapless trim and the identity used, from the same inspect API as the
-owner's file inspector (ADM-125).
+owner's file inspector (ADM-125). Tags as read are shown as plain text in
+bidirectional isolates, exactly as stored, so a hostile tag is visible as
+text rather than acted on (SEC-MED-057).
 
 ### Picture-in-picture, background audio and listen-only
 
@@ -806,9 +1077,13 @@ owner's file inspector (ADM-125).
   (VID-135, CLI-072).
 - **Listen only** hands the session to the music player's bar and lock
   screen; when remote, the server sends only the audio track (VID-065).
-- **Proposal.** On web and desktop, leaving the video player pauses the
-  film, and the bar shows it with a resume control, unless the browser's
-  own picture-in-picture is in use.
+- **Leaving the video player** on every client pauses the film and saves
+  its resume point (VID-118), unless picture-in-picture or listen-only is
+  on. The bar returns to the paused music context, one tap from resuming
+  it, and never holds the paused film; the film resumes from its title
+  page, Continue Watching or the queue switcher (MUS-131). The earlier
+  proposal kept the paused film in the bar on web and desktop, which
+  [surfaces.md](surfaces.md) contradicted.
 
 ### Casting
 
@@ -819,6 +1094,20 @@ mode with the same controls. Subtitles go to the receiver as a side track
 as a last resort, transcodes, and the cast information says why (CLI-111).
 Cast controls appear in the notification (CLI-112). Away from home, the
 phone relays for the receiver (CLI-110).
+
+The receiver gets capability URLs scoped to the one item being cast and to
+the cast session the sender started, and nothing else: no session token,
+account token, device token or refresh credential (SEC-NET-064). The
+sender mints them and refreshes them before they expire, under the stream
+lifetimes of SEC-API-027, which stay inside SEC-NET-064's bound of the
+item's duration plus at most an hour; only the representations a receiver
+needs may be read cross-origin (SEC-API-098). Ending the sender's session
+or revoking its device ends the cast session, which stops the cast at the
+next range request (SEC-API-028). A credential that lets a receiver
+refresh on its own is a cast credential, which the baseline places Later
+(SEC-TM-074, SEC-CLI-071). The earlier draft cited only SEC-CLI-071, a
+Later requirement, for this R2 surface, and described the URLs differently
+from [flows.md](flows.md) (F08).
 
 ### Remote control and handoff on a TV
 
@@ -838,14 +1127,16 @@ under [TV remote](#tv-remote), and a phone or laptop driving the TV.
   TV's state and drives play, pause, seek, tracks, subtitles, speed, skip
   and volume. Control needs the same profile or an explicit grant, checked
   for every command; controlling another person's session is Later
-  (ACC-047). A command arriving from another device shows a small,
-  non-blocking chip on the TV, "Controlled from Sam's phone", for a few
-  seconds.
+  (ACC-047, SEC-HIS-014). A command arriving from another device shows a
+  small, non-blocking chip on the TV, "Controlled from Sam's phone", for a
+  few seconds. The phone's name is the name it gave itself, drawn as text
+  (SEC-API-046).
 - **Conflicts.** Commands from the TV's remote and from the phone are
   applied in the order the server receives them, and both screens show the
   result. Neither device locks the other out.
 - **A TV in use by another profile** appears greyed in the device sheet as
-  "In use by another profile" (CLI-050, ACC-047).
+  "In use", with no profile name or title, and only if it is a household
+  device this profile may use (CLI-050, ACC-047, SEC-PRV-022).
 
 ## Live TV and radio in the same player
 
@@ -878,28 +1169,38 @@ example of the tone: say what happened, why, and what the person can do.
 | State | Trigger | Music presentation | Video presentation | IDs | Release |
 |---|---|---|---|---|---|
 | **No queue yet** | A new profile that has never played anything | No bar; home's empty states guide the person | Not applicable | DIS-004 | R1 |
-| **Restored** | The app opens with a saved queue | The bar shows the item paused at its saved position, with "Continue" | The resume prompt on the title | MUS-122, CLI-103, VID-118 | R1 (music), R2 (video) |
+| **Restored** | The app opens with a saved queue | The bar shows the item paused at its saved position, with "Continue"; on a household TV, only once the adult's profile is unlocked for the session | The resume prompt on the title, under the same household rule | MUS-122, CLI-103, VID-118, SEC-IAM-110 | R1 (music), R2 (video) |
 | **Loading** | Play pressed | The bar and player switch to the new item at once from the synced library; a progress ring on the play button appears only if sound has not started after a short delay | The title and backdrop show at once; a progress indicator appears only after a short delay | VID-012 | R1, R2 |
 | **Buffering** | The buffer ran dry mid-play | The play button shows a progress ring; the scrubber shows the buffered range | A spinner over the frame after a short delay, with "Buffering" for screen readers | MUS-070, CLI-099 | R1, R2 |
 | **Slow link** | Buffering keeps recurring, or the measured link is below the file's peak | "Your connection is slower than this file" with "Keep trying"; in R2, the Opus option where allowed | "This connection is slower than this film", with the VID-024 choices | VID-024, MUS-106 | R1, R2 |
-| **Cannot play here** | The decision engine knows before play that this device cannot decode the item | The row is dimmed with the reason; the queue skips it with one grouped notice, "Skipped 2 tracks this browser cannot play (ALAC)" | The pre-play sheet shows the reason and the alternatives (another version, a download, a conversion if allowed) | MUS-229, VID-010, VID-015 | R1, R2 |
+| **Cannot play here** | The decision engine knows before play that this device cannot decode the item | The row is dimmed with the reason, "Can't play in this browser: ALAC"; the queue skips it with one grouped notice, "Skipped 2 tracks this browser can't play (ALAC)" | The pre-play sheet shows the reason and the alternatives (another version, a download, a conversion if allowed) | MUS-229, VID-010, VID-015 | R1, R2 |
 | **Damaged file** | The health report flagged the file at scan | Skipped with a notice; admins also get a link to Library health | As music | MUS-079, LIB-193 | R1 |
-| **Playback error** | An unexpected failure during play | A notice with the reason sentence, "Try again", "Skip" and "Details" | An error card with the reason, "Try again", "Back", and "Copy report" | VID-169, VID-174, CLI-033 | R1, R2 |
-| **Stream URL expired** | A long pause outlived the short-lived URL | Nothing visible: the player gets a fresh URL when play is pressed | As music; long films refresh during play | ACC-122, VID-011 | R1, R2 |
-| **Server unreachable** | The server or network went away | A quiet banner; the current item plays out what is buffered; later items are dimmed; plays are kept and uploaded on reconnect | The same banner; the film stops when its buffer runs out, with "Try again" | CLI-025, CLI-026, CLI-093 | R1 (music), R2 (video) |
-| **Offline with downloads** | No server, native app with downloads | The same screens with a "Downloaded" filter; the queue plays downloaded items and dims the rest as "Not downloaded" | Downloaded films keep markers, chapters, subtitles and previews | MUS-209, CLI-026, VID-175 | R2 |
+| **Playback error** | An unexpected failure during play | A notice with the reason sentence, "Try again", "Skip" and "Details"; Details shows only the error type and the request identifier, never a path, address, version or stack trace | An error card with the reason, "Try again", "Back", and "Copy report" | VID-169, VID-174, CLI-033, SEC-API-072, SEC-TM-040 | R1, R2 |
+| **Stream URL expired** | A long pause outlived the short-lived URL | Nothing visible: the player gets a fresh URL when play is pressed and resumes at the same position | As music; long films refresh during play | ACC-122, VID-011, SEC-API-027 | R1, R2 |
+| **Server unreachable** | The server or network went away | A quiet banner; the current item plays out what is buffered; later items are dimmed; plays are kept and uploaded on reconnect (in memory only on a computer marked as shared) | The same banner; the film stops when its buffer runs out, with "Try again" | CLI-025, CLI-026, CLI-093, SEC-PRV-019 | R1 (music), R2 (video) |
+| **Offline with downloads** | No server, native app with downloads | The same screens with a "Downloaded" filter; the queue plays downloaded items and dims the rest as "Not downloaded" | Downloaded films keep markers, chapters, subtitles and previews | MUS-209, CLI-026, VID-175, SEC-CLI-035 | R2 |
+| **Offline grant expired** | The device has not reached the server for the grant period (30 days by default) | The track or queue already playing finishes; the next play shows "Connect to your server once to keep listening offline" in neutral colours, not as an error; nothing is deleted | As music | SEC-CLI-036, SEC-IAM-054 | R2 |
 | **End of item** | A video item reached its end | Not applicable (music moves on gaplessly) | The countdown card or the post-play screen | VID-122, VID-123 | R2 |
 | **End of queue** | Nothing left, Continue with off, repeat off | Playback stops; the bar shows the last item at its end, and Play restarts the From lane from its first item; the queue's end marker offers "Start radio from what you just played" and the Continue with switch | The post-play screen with replay and back to the show | MUS-129, DIS-070 | R1, R2 |
 | **Sleep timer ended** | The timer ran out | The music fades and pauses; the bar reads "Sleep timer ended"; the position is kept | As music | MUS-076, VID-126 | R1, R2 |
-| **Private session on** | The person switched it on | A persistent indicator in the bar and player | The same indicator in the top bar | ACC-117 | R1, R2 |
-| **Playing elsewhere** | Another of the person's devices is the active player | "Playing on Living room laptop" with "Play here" (R1 proposal); remote mode in R2 | Remote mode | CLI-103, CLI-101 | R1, R2 |
+| **Private session on** | The person switched it on | A persistent indicator in the bar and player | The same indicator in the top bar | ACC-117, SEC-PRV-024 | R1, R2 |
+| **Playing elsewhere** | Another of the profile's sessions started playback | R1: this device pauses at its current point on its next sync, and the device slot offers "Continue on this device" (last Play wins); R2: remote mode | Remote mode | CLI-103, CLI-101, MUS-122 | R1, R2 |
 | **Handoff in progress** | A device was chosen in the device sheet | "Moving to Living room TV"; on timeout, "Living room TV did not respond" and play continues here | As music | CLI-101, VID-144 | R2 |
 | **Lost contact** | The controlled device stopped reporting | "Lost contact with Living room TV", with "Try again" and "Play here" | As music | CLI-102 | R2 |
-| **Stopped by the owner** | The owner stopped the session | Playback stops; a card shows "The server owner stopped this session" and the owner's message as plain text | As music | ADM-102 | R1 |
-| **Signed out** | The device was removed, or a credential changed | Playback ends; a card says "This device was signed out" with a sign-in action | As music | ACC-065, ACC-069 | R1 |
-| **Not allowed** | A policy refuses the stream: a playback-mode right, a concurrent stream limit | Not applicable in R1 | A card with the reason and the alternatives the policy allows | VID-010, VID-173 | R2 |
-| **Transcoding unavailable** | The sandbox self-test failed | Not applicable | Items that need a transcode say so before play; the owner sees a banner | VID-009 | R2 |
+| **Stopped by the owner** | The owner stopped the session | Playback stops; a card shows "The server owner stopped this session" and the owner's message as plain text, normalised and length-capped like any other untrusted string | As music | ADM-102, SEC-API-046, SEC-API-048 | R1 |
+| **Signed out** | The device was removed, the session was ended, or a credential changed | Playback ends at the next range request. The client first deletes the account's data and clears the media session, then shows the sign-in screen with one sentence, "This device was signed out", and no titles | As music; native apps also delete downloads before drawing any screen | ACC-065, ACC-069, SEC-IAM-043, SEC-CLI-009, SEC-CLI-037 | R1 (web), R2 (native) |
+| **Not allowed** | A policy refuses the stream: a concurrent stream limit (per guest, per share link, or server-wide), or in R2 a playback-mode right | "Too many streams are playing on this server right now" or "Your account can play on N devices at once", with what to do; never a silent failure | A card with the reason and the alternatives the policy allows | SEC-TM-068, SEC-API-031, VID-010, VID-173 | R1 (stream limits), R2 |
+| **Transcoding unavailable** | The sandbox self-test failed | Not applicable | Items that need a transcode say so before play; the owner sees a banner saying what would turn it on, and there is no way to run the transcoder unconfined | VID-009, SEC-MED-024 | R2 |
 | **Update needed** | The server's protocol moved past this client | A notice saying which update is needed; what still works keeps working | As music | CLI-032 | R1 |
+
+**Stream limits are R1.** The earlier draft made "Not allowed" R2 only,
+following VID-173. The baseline requires per-user and global stream limits
+from R1, answered with a typed "too many" error (SEC-TM-068, SEC-API-031),
+and share links carry their own limit (SEC-API-097), so the music player
+must explain the refusal in R1. The default values are the owner's (owner
+decision 25, device and stream limits). The next item's opening bytes,
+fetched early for gapless playback, belong to the same playback and must
+not count as a second stream, or gapless playback would hit the limit.
 
 ## Input mappings
 
@@ -924,8 +1225,8 @@ control and need no learning:
 | Escape | Close the topmost sheet or menu; then leave the full-screen music player; it never stops playback |
 | Hardware media keys | Play, pause, next and previous through the browser's media session (CLI-070) |
 
-**Shortcuts anywhere in the web client and desktop app, R2.** They work on
-any screen when focus is not in a text field. Space is ignored when focus is
+**Shortcuts anywhere in the web client, R2, and the desktop shell, Later.**
+They work on any screen when focus is not in a text field. Space is ignored when focus is
 on a control that Space already activates.
 
 | Key | Action | IDs |
@@ -997,7 +1298,7 @@ what happened**.
 | Play or pause key | Play or pause, with a brief play or pause symbol | Play or pause | Play or pause |
 | Left, Right | Show the transport and go back or forward by the short skip interval; holding scrubs continuously with accelerating steps and preview pictures where the device supports them | Move focus | Move focus along the transport row; on the focused scrubber, seek |
 | Up, Down | Show the controls | Move between the top bar, the seek bar and the action row | Move between the transport row, the queue rail and lyrics |
-| Back | Leave the player; the position is saved | Close the topmost sheet, otherwise hide the controls | Close the topmost sheet, otherwise return to the music home with playback continuing |
+| Back | Leave the player; the film pauses and its position is saved | Close the topmost sheet, otherwise hide the controls | Close the topmost sheet, otherwise return to the screen and card the person came from, with playback continuing |
 | Rewind or fast-forward, tapped | Back or forward by the short skip interval | The same | Back or forward by the music skip interval |
 | Rewind, held | Scrub back continuously | The same | Scrub back continuously |
 | Fast-forward, held | Play at 2x while held, then return to normal speed (VID-132) | The same | Scrub forward continuously |
@@ -1037,7 +1338,7 @@ Choosing which gesture does what is Later (CLI-153).
 | Swipe the artwork left or right | Full music player | Next or previous item | MUS-110 | R1 |
 | Swipe down | Full music player | Collapse to the bar | MUS-110 | R1 |
 | Long press on a row | Lists and queue | The item menu | DIS-111 | R1 |
-| Swipe a queue row | Queue | Remove it | MUS-119 | R1 |
+| Swipe a queue row | Queue | Remove it | MUS-065 | R2 |
 | Drag a row's handle | Queue, playlists | Reorder | MUS-119, MUS-120 | R1 |
 | Tap | Video | Show or hide the controls | VID-102 | R2 |
 | Double tap on the left or right third | Video | Back or forward by the skip interval; further taps add to it | VID-102 | R2 |
@@ -1118,19 +1419,23 @@ Each item names the feature row that owns it.
 | The player needs | Provided by | Release |
 |---|---|---|
 | A versioned queue with three lanes, named contexts, an insertion cursor, a seeded shuffle order, repeat and stop-after modes, and an operation endpoint with server-ordered versions | MUS-116, MUS-117, MUS-122, MUS-126, MUS-077, LAT-009 | R1 |
-| Which device is the active player of a profile's queue (proposal above) | An extension of MUS-122 | R1 |
+| Play and resume as ordinary queue operations that record which of the profile's sessions issued them, by an opaque identifier that is not a credential, so the last Play wins and other sessions pause on their next sync; no separate active-device record and no device name | MUS-122, CLI-103, SEC-HIS-014, SEC-API-016 | R1 |
 | The playback decision with a structured reason list, before play and per session | MUS-099, MUS-229, VID-002, VID-169, ADM-100, INT-134 | R1 (music), R2 (video) |
 | Per-file codec, container, trim, gain, true peak and seek index in the synced library | MUS-021, MUS-069, MUS-071, MUS-084, MUS-088 | R1 |
 | An album palette in the synced library | MUS-110 | R1 |
 | Lyrics (plain, line and word timed) in the synced library | MUS-154, MUS-155, MUS-156 | R1 |
-| Short-lived, session-bound stream URLs with silent refresh, and cut-off of in-flight responses on revocation | ACC-122, VID-011 | R1 (music), R2 (video) |
-| A private-session flag that keeps plays out of history, recommendations and plugins | ACC-117 | R1 |
+| Capability URLs for streams, artwork, lyrics files and subtitles, with the token in the path, bound to the item, the representation and the session, lifetimes from SEC-API-027, silent refresh, re-checks on every request, and cut-off of in-flight responses on revocation | ACC-122, VID-011, SEC-API-026 to SEC-API-029, SEC-IAM-043, SEC-IAM-046 | R1 (music), R2 (video) |
+| A typed "too many streams" error, with per-user, per-share and global limits, that counts a queue's early fetch of the next item as the same playback | SEC-TM-068, SEC-API-031, SEC-API-097 | R1 |
+| Errors as problem types from a closed catalogue with a request identifier, which the client maps to sentences | SEC-API-072, SEC-TM-040 | R1 |
+| A private-session flag that keeps plays out of history, recommendations and plugins, and titles out of admin views | ACC-117, SEC-PRV-024, SEC-PRV-025 | R1 |
+| An admin session-list response type, separate from the player state, with no title unless the person opted in | ADM-099, SEC-PRV-025, SEC-API-068 | R1 |
 | Stop a session with a message, delivered to the client | ADM-102 | R1 |
 | Play events with real timestamps, queued offline and merged | CLI-093 | R1 |
 | Library radio with reason labels for the Continue with lane | DIS-067, DIS-062, MUS-165 | R1 |
-| A session registry and a control channel with a closed command set, including volume | CLI-101, CLI-102 | R2 |
-| A single-keyframe endpoint for previews and chapter thumbnails, rate-limited | VID-097, VID-098 | R2 |
-| Chapters, track names and flags, cue counts and font attachments in the stream index | VID-054, VID-081, VID-095, VID-069 | R2 |
+| A session registry and a control channel with a closed command set, including volume, whose events are filtered per recipient so no one sees another person's players | CLI-101, CLI-102, SEC-HIS-014, SEC-API-016, SEC-PRV-022 | R2 |
+| Offline grants signed by the server and bound to the device key, with silent renewal and withdrawal at the next contact after revocation | SEC-CLI-036, SEC-IAM-054 | R2 |
+| A single-keyframe endpoint for previews and chapter thumbnails, behind a capability URL and the expensive-operation limits | VID-097, VID-098, SEC-API-026, SEC-NET-053 | R2 |
+| Chapters, track names and flags and cue counts in the stream index; font attachments only for libraries that opted in, after the parse worker rewrites them (owner to confirm, owner decision 12) | VID-054, VID-081, VID-095, VID-069, SEC-MED-054 | R2 |
 | Skip segments as log events, and a skip policy in synced settings | VID-110, VID-114, VID-116 | R2 |
 | An item-changed event to live sessions | VID-076, INT-122 | R2 |
 | Settings split by person, device and audio output | CLI-030, VID-142 | R1 (mechanism), R2 (video settings) |
@@ -1162,6 +1467,27 @@ surviving mutants (README, "Engineering standards"). The player divides cleanly 
 - **Accessibility** runs axe checks on the web build, accessibility
   snapshots on native, and a written VoiceOver and TalkBack script before
   each release (CLI-136).
+- **Security tests carry their requirement IDs** (SEC-STD-004):
+  - the hostile-metadata fixture library (every tag, lyric and name holds
+    script and bidirectional-text payloads) is played through every player
+    surface, asserting the literal text appears and nothing runs
+    (SEC-CLI-001, SEC-API-046, SEC-MED-057);
+  - every player state is visited in Chromium, Firefox and WebKit with the
+    production policy, failing on any content security policy violation
+    (SEC-API-044);
+  - an injected clock pauses past a stream URL's expiry and resumes with no
+    visible error (SEC-API-027);
+  - revoking the session mid-track stops playback at the next range
+    request and the client wipes before showing anything (SEC-IAM-043,
+    SEC-CLI-009);
+  - a network and storage capture asserts that no capability URL reaches
+    Cache Storage, the Media Session, the diagnostic report or a log
+    (SEC-API-029, SEC-IAM-047);
+  - the private session is reached in two interactions from the full
+    player and the wide bar, and records nothing (SEC-PRV-024);
+  - on the TV build, unlocked and locked household profiles, OS-surface
+    publication and the "In use" device entry show exactly the expected
+    strings (SEC-IAM-110, SEC-CLI-061, SEC-PRV-022).
 
 ## Deliberately not in the player
 
@@ -1185,6 +1511,13 @@ reason given there, plus two design refusals.
 - **A low default quality.** The default is the original, never a silent
   720p.
 - **Paid tiers for any player feature.**
+- **Security refusals:** no player on a plain-HTTP address other than
+  loopback (SEC-NET-001); no "play anyway" past a server whose identity
+  cannot be confirmed (SEC-CLI-043); no capability URL handed to the
+  operating system, a log or a report (SEC-IAM-047); no titles in
+  notifications on a lock screen other than active media controls
+  (SEC-CLI-062); and no view of what another person is playing
+  (SEC-PRV-022).
 - **Design refusals:** no scrolling titles anywhere, and no player redesign
   that ships without an opt-in preview and a way back.
 
@@ -1195,12 +1528,18 @@ reason given there, plus two design refusals.
    and pause will feel broken to keyboard users. *Recommendation:* ship
    Space, Shift+Left and Shift+Right, Shift+N and Shift+P, and M in R1 as
    part of MUS-227's keyboard promise, with the off switch WCAG requires;
-   keep the palette and the rest in R2.
-2. **One active device per queue in R1.** Without a control channel, two
-   browsers playing one profile's queue would fight over its position.
-   *Recommendation:* add an active-device field to the MUS-122 queue design
-   now, with the "Playing on" and "Play here" behaviour described under the
-   bar. It costs little and is the same rule R2's handoff needs.
+   keep the palette and the rest in R2. Until the owner decides, no
+   shortcut ships in R1, including "/" for search, which stays in R2 with
+   DIS-090 and CLI-061; [surfaces.md](surfaces.md) (SUR-032) now says the
+   same.
+2. **One player per queue in R1.** *Decided in the interface review (see
+   [README](README.md), decision 9; owner to confirm).* The last Play wins:
+   play and resume are ordinary operations on the versioned MUS-122 queue,
+   which records the issuing session, and any other session pauses on its
+   next sync and offers "Continue on this device" (CLI-103). The earlier
+   recommendation of a separate active-device field and a "Playing on
+   *device*" slot is withdrawn, because the queue versions already carry
+   what is needed and the prompt needs no device name.
 3. **Do new plays keep the person's picks?** *Recommendation:* yes; Play
    replaces only the From lane, and "Clear" on Up next is one press away.
 4. **OK on a TV remote with the controls hidden.** *Recommendation:* show
@@ -1220,7 +1559,32 @@ reason given there, plus two design refusals.
    *Recommendation:* adopt video.md's open decision 11: codecs, figures and
    reasons for everyone; file paths, server addresses and other people's
    sessions for admins only. Apply the same rule to the music track info
-   sheet.
-10. **Leaving the video player on web and desktop.** *Recommendation:*
-    pause the film and show it in the bar with a resume control, unless the
-    browser's picture-in-picture is in use.
+   sheet. The baseline now settles the paths and addresses part
+   (SEC-API-068), and admins see other people's sessions without titles
+   unless each person opted in (SEC-PRV-025).
+10. **Leaving the video player.** *Decided in the interface review (see
+    [README](README.md), decision 1; owner to confirm).* On every client,
+    leaving the video player pauses the film and saves its resume point
+    unless picture-in-picture or listen-only is on; the bar returns to the
+    paused music context and never holds the paused film. The earlier
+    recommendation to keep the film in the bar is withdrawn.
+11. **The desktop shell's release (owner to confirm).** The first draft of
+    the feature map put it in R2; the security release-scope table
+    (SEC-TM-074) and SEC-CLI-069 put it Later, and the feature map now
+    follows them. *Recommendation:* keep it Later, so the mini player,
+    desktop media panels and global hotkeys are Later; if the owner wants
+    them in R2, move SEC-CLI-069 and the desktop player sandbox to R2 with
+    them and pick the shell technology (client open decision 12) first.
+12. **Embedded subtitle fonts (owner to confirm, owner decision 12).**
+    *Recommendation:* the baseline's: off by default, with a per-library
+    opt-in that has the parse worker rewrite each font (SEC-MED-054);
+    otherwise the player uses its bundled, pinned font set.
+13. **Admin session list and titles (owner to confirm, owner decision 5).**
+    *Recommendation:* the admin list gets its own response type with no
+    title unless the person opted in, and never in a private session
+    (SEC-PRV-025), rather than the player state itself.
+14. **No plain-HTTP player (owner to confirm, owner decision 2).**
+    *Recommendation:* the web player runs only over HTTPS or on loopback
+    (SEC-NET-001), which removes CLI-150's idea of a reduced player on an
+    insecure address; the server's static help page explains how to reach
+    the secure address instead.

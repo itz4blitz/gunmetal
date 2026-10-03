@@ -21,12 +21,25 @@ platform, decision 8) and [ADR 2](../adr/0002-music-is-first-class.md)
 (music first, a persistent now-playing bar and queue, artwork-led browsing,
 dark-first, decision 7).
 
+The [security baseline](../security/README.md) outranks both this document
+and the feature map. The owner has directed that every plan be built
+around it, so where a surface and the baseline disagree, the surface
+follows the baseline and cites the requirement by its ID
+(SEC-<AREA>-<NNN>). The surfaces the baseline adds, the ones it changes and
+the data it takes off screens are listed in
+[Changes made to follow the security baseline](#changes-made-to-follow-the-security-baseline);
+the ones that rest on an open owner decision are marked "owner to confirm"
+there.
+
 ## How to read this document
 
 ### Surface entries
 
 Each surface has a stable ID of the form SUR-nnn. IDs are never renumbered;
-a new surface takes the next free number in its group. Every entry gives:
+a new surface takes the next free number in its group. A group whose range
+is full (sign-in, settings and account ends at SUR-079) takes its next
+surfaces from SUR-130 upward, and they are listed under their own group.
+Every entry gives:
 
 - **Release**: the first release in which the surface exists on at least
   one client. A part of a surface can arrive later, and the entry says so.
@@ -34,6 +47,9 @@ a new surface takes the next free number in its group. Every entry gives:
 - **Shows**: what is on it.
 - **Actions**: what a person can do there.
 - **Form factors**: how it differs on TV, phone, tablet, and web or desktop.
+- **Security**, where the baseline shapes what the surface may show or do:
+  the rules, by requirement ID. Each ID is a test the surface must pass
+  (SEC-STD-004).
 - **Serves**: the feature rows whose "UI surfaces" cell names this surface,
   grouped by the release in which each feature reaches it. A feature that is
   older than the surface reaches it when the surface ships: for example
@@ -52,17 +68,17 @@ The release key is the feature map's
 
 | Release | What it contains | Clients |
 |---|---|---|
-| **R1** (music) | Server, web client, music library and player. No remuxer or transcoder. | The web client and the installable web app, in browsers on desktops, laptops, tablets and phones. |
-| **R2** (video) | Movies and TV, the remuxer, sandboxed transcoding, native TV and mobile clients, and everything that needs a native app or a sandbox (downloads, handoff, casting, plugins, share links, household profiles). | Android phones and tablets, Android TV, Google TV and Fire OS, the desktop shell, and the web client. |
+| **R1** (music) | Server, web client, music library and player. No remuxer or transcoder. | The web client and the installable web app, in browsers on desktops, laptops, tablets and phones, reached only over HTTPS or on localhost (SEC-NET-001). |
+| **R2** (video) | Movies and TV, the remuxer, sandboxed transcoding, native TV and mobile clients, and everything that needs a native app or a sandbox (downloads, handoff, casting, plugins, video share links, household profiles, API keys and adapters). | Android phones and tablets, Android TV, Google TV and Fire OS, and the web client. |
 | **R3** (live) | M3U playlists and live TV. | As R2. |
-| **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, audiobooks, podcasts, photos and watch together. | |
+| **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, the desktop shell (the security baseline's release scope, SEC-TM-074; owner to confirm), audiobooks, podcasts, photos and watch together. | |
 | **No** | Deliberately not doing. | |
 
 ### Form factors
 
 | Form factor | Input and setting | R1 | R2 | Later |
 |---|---|---|---|---|
-| **Web and desktop** | Mouse or trackpad, keyboard, a large window, usually one person | The web client served by the server (CLI-001), in a browser tab or installed as a web app in its own window (CLI-003) | The desktop shell for Windows, macOS and Linux (CLI-014), plus the web client. Linux depends on open decision 21 in the feature map. | Ten-foot mode on a PC (CLI-015) |
+| **Web and desktop** | Mouse or trackpad, keyboard, a large window, usually one person | The web client served by the server (CLI-001), in a browser tab or installed as a web app in its own window (CLI-003) | The web client and the installable web app, as in R1, with the R2 web features | The desktop shell for Windows, macOS and Linux (CLI-014), Later because the security baseline puts it there (SEC-TM-074, SEC-CLI-069; owner to confirm); ten-foot mode on a PC (CLI-015) |
 | **Phone** | Touch, one hand, small screen, often moving, often on mobile data | The web client at phone width (CLI-149) and the installable web app. No offline listening, no car, and background playback on iPhone is unreliable (unverified), as CLI-003 states. | The Android app (CLI-004), with downloads, background audio, lock screen and Android Auto | iPhone (CLI-005), "R2 if the App Store licence decision allows" |
 | **Tablet** | Touch, often landscape, sometimes a keyboard, often shared in a household | The web client, laid out by the width classes below; no tablet-specific layout ships in R1. | The Android tablet layout (CLI-053): a side panel for browsing while the player stays visible, reflowing on rotation | iPad |
 | **TV** | A D-pad remote with Back, Home and media keys; viewed from about ten feet; shared by a household | None. No TV client exists in R1. | Android TV, Google TV and Fire OS (CLI-006, CLI-008) | Apple TV, Samsung and LG, Roku through the Jellyfin adapter |
@@ -115,6 +131,39 @@ These rules are decided in the feature map and constrain every layout below.
    navigation, a now-playing bar, a full-screen player and a queue sheet
    (CLI-149).
 
+### Rules the security baseline sets
+
+These come from the baseline's first principles and constrain every
+surface below as firmly as the rules above.
+
+1. **Nothing before sign-in.** Over plain HTTP every peer except loopback
+   gets a redirect or help page and nothing else (SEC-NET-001); in the home
+   posture, non-local addresses get a static help page (SEC-NET-024). A
+   surface a person sees before signing in shows no user list, server
+   name, library name or version (SEC-IAM-022, SEC-NET-047, SEC-API-005).
+2. **Untrusted text is text.** Every string from files, providers, other
+   people or devices is rendered as text, never markup (SEC-CLI-001,
+   SEC-API-046), and a link from metadata is a link only if it is an
+   absolute `https:` URL (SEC-CLI-002).
+3. **The client is never the gatekeeper.** Every restriction a surface
+   applies or displays is also enforced by the server on every request, so
+   hiding a control grants and protects nothing (SEC-CLI-015).
+4. **Admin screens need their own session, and host-equivalent actions need
+   step-up.** Admin surfaces open only in a separate admin session created
+   by a passkey check (15 idle minutes, 1 hour at most), and the actions
+   listed in SEC-IAM-041 also need a passkey check in the previous 5
+   minutes. Most are the owner's alone (SEC-IAM-075, SEC-TM-017).
+5. **Limited devices never administer.** TVs, browsers in shared mode,
+   browsers signed in by approval and other limited devices never show or
+   reach admin, device-approval or account-security surfaces, whatever the
+   client shows (SEC-CLI-024, SEC-IAM-108).
+6. **Admins see who is playing, not what.** No admin surface shows another
+   adult's history, ratings or private playlists; live sessions show the
+   title only when that person has chosen to show it (SEC-PRV-025).
+7. **Everyone can see and end their own sessions and devices, read their
+   own security events, and read what admins can see about them**
+   (SEC-IAM-042, SEC-IAM-097, SEC-IAM-104).
+
 ### Top-level destinations
 
 The same destinations exist on every form factor; only their placement
@@ -127,7 +176,7 @@ later releases add to them without moving them.
 | **Search** | R1 | Search (SUR-032) | Shared by music, video and, in R3, live TV. Kind chips scope it (LAT-013). |
 | **Library** | R1 | Library (SUR-022) | Per-kind tabs. In R2 it gains the same Music and Watch switch, and a Downloads entry on devices that download. |
 | **Live** | R3 | Live TV home (SUR-120) | Present only when the live TV module is on (LIV-001). |
-| **Account menu** | R1 | Account menu (SUR-006) | Settings, Account, History, Hidden, Admin (administrators only), Sign out. R2 adds profile and server switching. |
+| **Account menu** | R1 | Account menu (SUR-006) | Settings, Account (with Sessions and devices, Security events, What admins can see and Recovery), History, Hidden, Admin (administrators on personal devices only, behind the admin session), Sign out. R2 adds profile and server switching. |
 
 Pinned items (DIS-013, CLI-037) and playlists (MUS-132, MUS-139) are not
 destinations, but wide layouts and the TV rail show them in the navigation
@@ -153,19 +202,23 @@ the layout contract for anyone who only listens.
 
 **One queue, separate contexts.** The video queue reuses the music queue
 object and its named listening contexts (VID-181, MUS-122, LAT-009).
-**Proposal:** starting a film or an episode pauses the music context rather
-than replacing it. When the video ends or the player is closed, the
-now-playing bar returns to the music context with one tap to resume. The
-queue switcher (MUS-131) lists the contexts, so a person can see both. This
-is also the shape Later's audiobooks need ("a book never hijacks the music
-queue", LAT-039).
+**Proposal**, settled across the interface documents (README, decision 1;
+owner to confirm): starting a film or an episode pauses the music context
+rather than replacing it. When the video ends or the player is closed, the
+now-playing bar returns to the music context with one tap to resume; the
+bar never holds the paused film, which resumes from its title page,
+Continue Watching or the queue switcher. The queue switcher (MUS-131) lists
+the contexts, so a person can see both. This is also the shape Later's
+audiobooks need ("a book never hijacks the music queue", LAT-039).
 
 **Who owns the screen.** Music plays behind every screen and is controlled
 from the bar. Video takes the screen: the video player (SUR-046) hides the
-navigation and the bar. **Proposal:** leaving the video player pauses
-playback unless picture-in-picture (VID-134) or listen-only mode (VID-065)
-is on; in listen-only mode the session moves to the music player's bar and
-lock-screen controls, which is what VID-065 asks for.
+navigation and the bar. **Proposal:** leaving the video player pauses the
+film and saves its resume point (VID-118) unless picture-in-picture
+(VID-134) or listen-only mode (VID-065) is on; in listen-only mode the
+session moves to the music player's bar and lock-screen controls, which is
+what VID-065 asks for, and that is the only time a video appears in the
+bar.
 
 **Shared surfaces.** Search, the context menu, lists and grids, the rule
 editor, history, settings and the account surfaces are one surface each,
@@ -193,18 +246,21 @@ bar whenever anything is queued, and the status indicator. The right pane
 stays open if the person left it open.
 
 **Not on screen.** In the video player, the sign-in and setup screens, and
-the server-rendered startup and emergency pages, nothing persistent is
-shown.
+the server-rendered startup, emergency and help pages, nothing persistent
+is shown.
 
 **Keyboard.** Every control is reachable by keyboard with a visible focus
-ring (CLI-138). From R2, the command palette (SUR-007) reaches any command
-or item, and the desktop shell adds media keys, global hotkeys and a mini
-player window (CLI-063, CLI-064, CLI-065).
+ring (CLI-138). R1 has no keyboard shortcuts beyond each control's standard
+keys and the hardware media keys ([player.md](player.md), Input mappings).
+From R2, shortcuts and the command palette (SUR-007) reach any command or
+item (CLI-061, DIS-090). The
+desktop shell's media keys, global hotkeys and mini player window
+(CLI-063, CLI-064, CLI-065) are Later with the shell.
 
 **R2 and R3 additions.** The Music and Watch switch appears at the top of
-Home and Library. Downloads appears under Library in the desktop shell
-(**Proposal**). Live appears in the sidebar under Library when the module is
-on.
+Home and Library. Downloads does not appear on the web: the web client
+cannot hold downloads (MUS-217 is Later), and the desktop shell that could
+is Later. Live appears in the sidebar under Library when the module is on.
 
 ### Phone
 
@@ -257,48 +313,59 @@ the player side panel (landscape).
 
 **Frame.** A left rail that is one press away from anywhere (CLI-035).
 **Proposal for its order**, shared with the design language: Now Playing
-first whenever something is playing, so playback is always one press away;
+always first, present whether or not anything is playing, so playback is
+always one press away and no entry moves when playback starts or stops;
 then Search, Home, then one entry for each library the profile can see (music libraries open the music Home for that library;
 film and show libraries open their grids), then pinned items (CLI-037), then
 Live (R3), then Settings and the profile. Every library is within two
-presses: left, then down to it (CLI-037). The rail's position is part of
-the layout contract and pinned by tests.
+presses: left, then down to it (CLI-037). The rail's position and order are
+part of the layout contract and pinned by tests. The earlier draft showed
+Now Playing only while something played, which would have shifted every
+other entry and broken that contract.
 
 **Always on screen.** On browse screens, the rail collapsed to a narrow
 strip of icons at the left edge, which expands to show labels when focus
-moves into it (**Proposal**). When music is playing, the rail's first entry
-opens TV Now Playing (there is no now-playing bar on TV), and the remote's
-play and pause keys control it from any screen (CLI-045).
-In the video player and the screensaver nothing persistent is shown.
+moves into it (**Proposal**). The rail's first entry opens TV Now Playing
+(there is no now-playing bar on TV); with nothing queued it shows the
+empty-queue state. The remote's play and pause keys control playback from
+any screen (CLI-045). In the video player and the screensaver nothing
+persistent is shown.
 
 **Launch.** On a shared TV the profile picker comes first (CLI-050,
 DIS-142), then the Home the device remembers: Watch by default on a TV that
 can see video libraries (**Proposal**).
 
 **Focus.** Focus lands where a person expects and Back returns to the same
-row and tile (CLI-036). Every card has a long-press menu, which is the TV
+row and tile (CLI-036): from any screen, including TV Now Playing, Back
+goes to the screen and card the person came from, with playback
+continuing, and from a top-level screen's content to the rail (the design
+language, section 8, rule 7). Every card has a long-press menu, which is the TV
 form of the context menu (CLI-039). Every grid has a letter column
 (CLI-040, DIS-163). Text size can be raised (CLI-043).
 
 **What the TV does not do.** **Proposal:** the TV does not host the rule
 editor, the metadata edit sheet's free-text fields, the webhook and plugin
 screens, or the dense admin editors. It shows the results of all of them.
-The exceptions the feature map names are kept: the admin dashboard on TV
-(ADM-114), the edit sheet "on web, phone and TV" (LIB-172, so the TV gets a
-simplified edit sheet), and the live TV set-up wizard "in TV and touch
-layouts" (LIV-002). Jellyfin's Android TV app already keeps a left
-navigation, according to the discovery research; Gunmetal matches it and
-adds the layout contract and focus tests.
+The TV is a limited device, so it never shows an admin surface, approves
+another device or changes account security, and the server refuses those
+routes from it whatever the client shows (SEC-CLI-024, SEC-IAM-049). On a
+TV, alerts appear only as a banner on an admin's profile (ADM-114), and
+every admin task offers a QR code that opens it on a phone or computer.
+This replaces the earlier admin dashboard, simplified edit sheet (LIB-172)
+and live TV set-up wizard (LIV-002) on TV, which need admin rights.
+Jellyfin's Android TV app already keeps a left navigation, according to
+the discovery research; Gunmetal matches it and adds the layout contract
+and focus tests.
 
 ### What is always on screen
 
 | State | Web and desktop | Phone | Tablet (R2 native) | TV (R2) |
 |---|---|---|---|---|
-| Browsing | Sidebar (a rail at the medium class), now-playing bar, status indicator, right pane if open | Tab bar, now-playing bar | Navigation rail, now-playing bar or player side panel | Collapsed rail, with Now Playing as its first entry when something plays |
-| Full-screen music player | Sidebar and right pane stay; the player fills the content area | Nothing else; swipe down to return | Rail stays | TV Now Playing fills the screen; Back returns |
+| Browsing | Sidebar (a rail at the medium class), now-playing bar, status indicator, right pane if open | Tab bar, now-playing bar | Navigation rail, now-playing bar or player side panel | Collapsed rail, with Now Playing always its first entry |
+| Full-screen music player | Sidebar and right pane stay; the player fills the content area | Nothing else; swipe down to return | Rail stays | TV Now Playing fills the screen; Back returns to the screen and card the person came from, with playback continuing |
 | Video player | Nothing; full window or full screen | Nothing | Nothing | Nothing |
 | Offline or server unreachable | A quiet banner and dimmed unplayable items (CLI-025) | Same | Same | Same |
-| Sign-in, setup, startup, emergency pages | Nothing | Nothing | Nothing | Nothing |
+| Sign-in, setup, startup, emergency and help pages | Nothing | Nothing | Nothing | Nothing |
 
 ## Surface index
 
@@ -312,7 +379,7 @@ adds the layout contract and focus tests.
 | SUR-005 | Selection bar and drag and drop | Shell and persistent controls | R1 | 6 |
 | SUR-006 | Account menu and profile picker | Shell and persistent controls | R1 | 13 |
 | SUR-007 | Command palette and shortcut help | Shell and persistent controls | R2 | 4 |
-| SUR-008 | Confirmation prompt | Shell and persistent controls | R1 | 1 |
+| SUR-008 | Confirmation and step-up prompt | Shell and persistent controls | R1 | 1 |
 | SUR-009 | Upload dialog | Shell and persistent controls | R1 | 1 |
 | SUR-010 | Full-screen player | Listening | R1 | 38 |
 | SUR-011 | Queue | Listening | R1 | 20 |
@@ -345,29 +412,29 @@ adds the layout contract and focus tests.
 | SUR-049 | Player cards and prompts | Watching | R2 | 20 |
 | SUR-050 | Downloads | Devices, offline and the operating system | R2 | 13 |
 | SUR-051 | Cast controls | Devices, offline and the operating system | R2 | 4 |
-| SUR-052 | Mini player window | Devices, offline and the operating system | R2 | 3 |
+| SUR-052 | Mini player window | Devices, offline and the operating system | Later | 3 |
 | SUR-053 | System media controls | Devices, offline and the operating system | R1 | 18 |
 | SUR-054 | Car | Devices, offline and the operating system | R2 | 11 |
 | SUR-055 | TV launcher rows | Devices, offline and the operating system | R2 | 3 |
 | SUR-056 | Watch controls | Devices, offline and the operating system | R2 | 1 |
 | SUR-057 | Install, deep links and operating-system hooks | Devices, offline and the operating system | R1 | 4 |
-| SUR-058 | Share sheet | Devices, offline and the operating system | R2 | 10 |
-| SUR-059 | Public share page | Devices, offline and the operating system | R2 | 1 |
+| SUR-058 | Share sheet | Devices, offline and the operating system | R1 | 10 |
+| SUR-059 | Public share page | Devices, offline and the operating system | R1 | 1 |
 | SUR-060 | TV screensaver | Devices, offline and the operating system | R2 | 3 |
-| SUR-061 | Pairing and approval | Devices, offline and the operating system | R2 | 8 |
-| SUR-070 | Sign-in | Sign-in, settings and account | R1 | 11 |
+| SUR-061 | Pairing and approval | Devices, offline and the operating system | R1 | 7 |
+| SUR-070 | Sign-in | Sign-in, settings and account | R1 | 9 |
 | SUR-071 | Invite landing and first launch | Sign-in, settings and account | R1 | 3 |
 | SUR-072 | Server picker | Sign-in, settings and account | R2 | 5 |
 | SUR-073 | Settings | Sign-in, settings and account | R1 | 16 |
 | SUR-074 | Settings: playback, sound and subtitles | Sign-in, settings and account | R1 | 43 |
-| SUR-075 | Settings: data, downloads and storage | Sign-in, settings and account | R1 | 12 |
+| SUR-075 | Settings: data, downloads and storage | Sign-in, settings and account | R1 | 10 |
 | SUR-076 | Settings: appearance, accessibility and language | Sign-in, settings and account | R1 | 11 |
 | SUR-077 | Settings: this device, connection and help | Sign-in, settings and account | R1 | 8 |
-| SUR-078 | Account | Sign-in, settings and account | R1 | 56 |
+| SUR-078 | Account | Sign-in, settings and account | R1 | 47 |
 | SUR-079 | Profiles and guardian controls | Sign-in, settings and account | R1 | 26 |
 | SUR-080 | Startup page | Setup and administration | R1 | 12 |
 | SUR-081 | Emergency page | Setup and administration | R1 | 1 |
-| SUR-082 | Welcome (first-run setup) | Setup and administration | R1 | 25 |
+| SUR-082 | Welcome (first-run setup) | Setup and administration | R1 | 26 |
 | SUR-083 | Admin dashboard | Setup and administration | R1 | 29 |
 | SUR-084 | Sessions | Setup and administration | R1 | 17 |
 | SUR-085 | Libraries and library settings | Setup and administration | R1 | 37 |
@@ -376,23 +443,25 @@ adds the layout contract and focus tests.
 | SUR-088 | File inspector | Setup and administration | R1 | 11 |
 | SUR-089 | Corrections and metadata editor | Setup and administration | R1 | 33 |
 | SUR-090 | Users and invitations | Setup and administration | R1 | 17 |
-| SUR-091 | Household, policies, devices and shares | Setup and administration | R2 | 14 |
+| SUR-091 | Household, policies, devices and shares | Setup and administration | R2 | 13 |
 | SUR-092 | Sign-in and security settings | Setup and administration | R1 | 5 |
-| SUR-093 | Network and remote access | Setup and administration | R1 | 12 |
-| SUR-094 | Integrations, tokens and webhooks | Setup and administration | R1 | 42 |
+| SUR-093 | Network and remote access | Setup and administration | R1 | 14 |
+| SUR-094 | Integrations, tokens and webhooks | Setup and administration | R2 | 42 |
 | SUR-095 | Plugins and providers | Setup and administration | R2 | 22 |
 | SUR-096 | Compatibility adapters | Setup and administration | R2 | 7 |
-| SUR-097 | Migration | Setup and administration | R1 | 21 |
+| SUR-097 | Migration | Setup and administration | R1 | 11 |
 | SUR-098 | Backups and export | Setup and administration | R1 | 12 |
 | SUR-099 | Updates | Setup and administration | R1 | 6 |
 | SUR-100 | Tasks and activity | Setup and administration | R1 | 22 |
 | SUR-101 | Alerts and logs | Setup and administration | R1 | 14 |
 | SUR-102 | Diagnostics | Setup and administration | R1 | 11 |
 | SUR-103 | Server settings and about | Setup and administration | R1 | 9 |
-| SUR-104 | History and statistics for administrators | Setup and administration | R2 | 2 |
+| SUR-104 | Totals and statistics for administrators | Setup and administration | R2 | 2 |
 | SUR-105 | Trash | Setup and administration | R1 | 2 |
 | SUR-106 | Video tools | Setup and administration | R2 | 3 |
 | SUR-107 | Household curation | Setup and administration | R2 | 5 |
+| SUR-108 | Security log | Setup and administration | R1 | 1 |
+| SUR-109 | Plain-HTTP and home-posture help pages | Setup and administration | R1 | 3 |
 | SUR-110 | Command line | Outside the client | R1 | 21 |
 | SUR-111 | Project site and documentation | Outside the client | R1 | 32 |
 | SUR-112 | API reference page | Outside the client | R1 | 4 |
@@ -403,6 +472,10 @@ adds the layout contract and focus tests.
 | SUR-123 | Recordings | Live TV | R3 | 30 |
 | SUR-124 | Live TV administration | Live TV | R3 | 59 |
 | SUR-125 | Radio | Live TV | R3 | 4 |
+| SUR-130 | Sessions and devices | Sign-in, settings and account | R1 | 4 |
+| SUR-131 | Security events | Sign-in, settings and account | R1 | 2 |
+| SUR-132 | What admins can see, and privacy choices | Sign-in, settings and account | R1 | 2 |
+| SUR-133 | Recovery | Sign-in, settings and account | R1 | 0 |
 
 ## Surface inventory
 
@@ -424,7 +497,7 @@ adds the layout contract and focus tests.
   recommended release bar (clients open decision 9). *All:* reduced motion
   (CLI-140), motor accessibility (CLI-142), and every list keeps working
   without the server for what the device holds (CLI-026, MUS-209).
-- **Serves:** R1: CLI-026, CLI-135, CLI-138, CLI-139, CLI-140, CLI-142, DIS-140. R2: CLI-014, CLI-036, CLI-045, CLI-137, CLI-147, DIS-160, MUS-209.
+- **Serves:** R1: CLI-026, CLI-135, CLI-138, CLI-139, CLI-140, CLI-142, DIS-140. R2: CLI-036, CLI-045, CLI-137, CLI-147, DIS-160, MUS-209. Later: CLI-014 (the desktop shell, SEC-TM-074).
 
 #### SUR-001 Navigation shell
 - **Release:** R1 (web, wide and phone-width). R2 adds the TV rail, the
@@ -450,27 +523,41 @@ adds the layout contract and focus tests.
   a fixed place (MUS-108, MUS-113).
 - **Shows:** Artwork, title, the credit line with every artist linked
   (MUS-001), a thin progress line, play and pause, next, the love heart
-  (MUS-109), the quality badge that says whether the original file is
-  playing (MUS-099, MUS-066), the private-session indicator while one is on
-  (ACC-117), the source label for radio (DIS-067), and a "Continue on this
-  device" prompt when the queue was last played elsewhere (CLI-103). From
-  R2: the output device and the device picker button (MUS-197), the Opus
-  badge on mobile data (MUS-106) and a per-person quality cap (ACC-107).
+  (MUS-109), the compact quality badge that says whether the original file
+  is playing ("Original"; "Converted" from R2) on every layout, phone width
+  included (MUS-099, MUS-066), the private-session indicator while one is on
+  (ACC-117), the source label for radio (DIS-067), and the device slot,
+  which in R1 holds only a "Continue on this device" prompt when another of
+  the profile's sessions last played the queue (CLI-103) and is otherwise
+  empty. When another session starts playback, this one pauses at its
+  point and shows the same prompt: the last Play wins (MUS-122). From R2:
+  the Devices button in the same slot, with the output device (MUS-197),
+  the Opus badge on mobile data (MUS-106) and a per-person quality cap
+  (ACC-107). A video appears in the bar only in listen-only mode (VID-065).
 - **Actions:** Play or pause, skip, love, open the full-screen player, open
-  the queue, resume on this device; from R2, open the device picker and
-  return to a paused music context after a video.
-- **Form factors:** *TV:* no bar. **Proposal:** a now-playing entry in the
-  rail and the remote's media keys stand in for it. *Phone:* a compact bar
-  above the tabs; tap opens the player. *Tablet:* the bar in portrait; in
-  landscape on R2 the player side panel replaces it. *Web and desktop:* a
-  full-width bar with queue, lyrics, volume and (R2) device buttons on the
-  right.
+  the queue, continue on this device; on wide layouts, open the player's
+  options menu, whose first item is Private session; from R2, open the
+  device picker and return to the paused music context after a video.
+- **Form factors:** *TV:* no bar. **Proposal:** the rail's fixed Now
+  Playing entry and the remote's media keys stand in for it. *Phone:* a
+  compact bar above the tabs; tap opens the player, and the options menu
+  is in the full player. *Tablet:* the bar in portrait; in landscape on R2
+  the player side panel replaces it. *Web and desktop:* a full-width bar
+  with the lyrics and queue toggles, Options and volume on the right, and
+  the device slot at the end of that group, as [player.md](player.md)
+  fixes.
+- **Security:** the private-session indicator stays visible for as long as
+  the session is private, so nobody is private by accident; the session is
+  started from the player's options menu in at most two interactions, which
+  on wide layouts means from the bar's Options button (SEC-PRV-024).
+  Titles and credit lines are rendered as text (SEC-CLI-001).
 - **Serves:** R1: ACC-117, CLI-103, DIS-045, DIS-053, DIS-067, LAT-006, MUS-001, MUS-066, MUS-099, MUS-108, MUS-109, MUS-122, MUS-180. R2: ACC-107, LAT-098, MUS-101, MUS-106. R3: LIV-167.
 
 #### SUR-003 Status layer and notice centre
-- **Release:** R1. The notice centre list is R2.
-- **Purpose:** Tells the truth about the connection, sync, scans and server
-  messages without blocking anything.
+- **Release:** R1, including the notice centre, because R1 delivers
+  security alerts in the app only (SEC-OPS-032, SEC-IAM-098).
+- **Purpose:** Tells the truth about the connection, sync, scans, server
+  messages and security events without blocking anything.
 - **Shows:** The connection indicator (ACC-003; home or away and relay
   state from R2, CLI-029, ACC-105, ACC-096), sync status (DIS-002,
   MUS-214), the quiet "server unreachable" banner and dimmed items that
@@ -478,18 +565,39 @@ adds the layout contract and focus tests.
   (MUS-043, MUS-042), "Update needed" for old clients (CLI-032), the
   unsupported-browser notice (CLI-002), the undo toast (DIS-023; queue undo
   MUS-121 in R2), a notice when a damaged file was skipped, linking to the
-  health report (MUS-079), and banners from the administrator (ACC-073,
-  ADM-102; scheduled notices ADM-103 and messages ACC-074 in R2). From R2,
-  the notice centre keeps new-device alerts (ACC-071) and follow alerts
-  (INT-050), and banners report transcoding being off (VID-009) or a
-  setting that needs a restart (ADM-008).
-- **Actions:** Dismiss, undo, open the detail, retry now.
+  health report (MUS-079), the "too many streams" notice when a stream
+  limit refuses music playback, saying which limit and what to do
+  (ACC-075, SEC-TM-068, SEC-API-031; the player's "Not allowed" state), and
+  banners from the administrator (ACC-073,
+  ADM-102; scheduled notices ADM-103 and messages ACC-074 in R2). From R1,
+  the notice centre keeps security notices for this account: a new device
+  or credential, a removed credential, use of recovery and the recovery
+  hold, a changed identity-provider link, a role change and bursts of
+  failed attempts (ACC-071, SEC-IAM-098); for the owner and admins, the
+  owner alerts of SEC-OPS-032, with a persistent banner for critical ones.
+  It also shows "Your session has ended" when this device was signed out
+  elsewhere (SEC-IAM-043). From R2 it keeps follow alerts (INT-050), and
+  banners report transcoding being off (VID-009) or a setting that needs a
+  restart (ADM-008).
+- **Actions:** Dismiss, undo, open the detail, retry now. On every alert
+  about a device or credential: **It was me** and **It wasn't me**; the
+  second revokes it, ends its sessions and makes its stream URLs fail
+  (SEC-OPS-033). On a recovery-hold notice: end the hold and revoke the new
+  credential with one tap (SEC-IAM-106).
 - **Form factors:** *TV:* toasts in a corner that never take focus
-  (**Proposal**, to keep CLI-036's focus promise). *Phone:* banners at the
-  top of the content; toasts above the now-playing bar. *Tablet:* as phone.
-  *Web and desktop:* the indicator in the sidebar footer, banners at the top
-  of the content area, toasts above the bar.
-- **Serves:** R1: ACC-003, ACC-073, ADM-085, ADM-102, CLI-002, CLI-025, CLI-032, DIS-002, DIS-023, LIB-032, MUS-042, MUS-043, MUS-079, MUS-229. R2: ACC-071, ACC-074, ACC-096, ACC-105, ADM-008, ADM-103, CLI-029, CLI-094, INT-050, MUS-209, MUS-214, VID-009.
+  (**Proposal**, to keep CLI-036's focus promise); security alerts appear
+  only on an admin's profile and never interrupt playback. *Phone:* banners
+  at the top of the content; toasts above the now-playing bar. *Tablet:* as
+  phone. *Web and desktop:* the indicator in the sidebar footer, banners at
+  the top of the content area, toasts above the bar.
+- **Security:** notices never carry another person's activity, and carry
+  titles only when the recipient turned that notice type on (SEC-PRV-030).
+  Re-signing in with a known passkey on a known device raises nothing, and
+  non-critical notices are batched into a daily summary (SEC-IAM-098). The
+  critical owner alerts cannot be muted, only batched (SEC-OPS-034). On a
+  lock screen, security notices say only that something happened
+  (SEC-CLI-062). Managed profiles never receive security alerts.
+- **Serves:** R1: ACC-003, ACC-071, ACC-073, ACC-075, ADM-085, ADM-102, CLI-002, CLI-025, CLI-032, DIS-002, DIS-023, LIB-032, MUS-042, MUS-043, MUS-079, MUS-229. R2: ACC-074, ACC-096, ACC-105, ADM-008, ADM-103, CLI-029, CLI-094, INT-050, MUS-209, MUS-214, VID-009.
 
 #### SUR-004 Context menu
 - **Release:** R1.
@@ -498,17 +606,20 @@ adds the layout contract and focus tests.
 - **Shows:** For music items: Play next (MUS-117), Add to queue and Play last
   (MUS-118), Start radio (MUS-165, DIS-067), Add to playlist (opens SUR-015),
   Love and Rate (DIS-045, DIS-047, MUS-181), Go to artist or album, Info
-  (opens SUR-013), Pin (DIS-013), Copy link (CLI-034, INT-147), and "Copy ID"
-  in developer mode (INT-008). On Continue rows: Dismiss (DIS-022). On
-  history rows: Remove this play (MUS-184, DIS-052). For administrators:
-  Rescan (LIB-012), File info (LIB-195), Merge and Split (LIB-041, LIB-058).
-  From R2: Tag (MUS-023), Hide, Snooze, Less like this and Keep out of my
-  taste (MUS-170, DIS-054, DIS-055, DIS-057), Mark played (DIS-033), Watch
-  video (MUS-029, LIB-189), Download and Download to another device
-  (CLI-097), Share, Add to collection, Pin as a Home row (DIS-126), Allow for
-  a child (ACC-029), Lock (LIB-175), and the video queue actions (VID-181).
+  (opens SUR-013), Pin (DIS-013), Copy link (CLI-034, INT-147), Share for
+  music tracks, albums and playlists (opens SUR-058; ACC-086), and "Copy
+  ID" in developer mode (INT-008). On Continue rows: Dismiss (DIS-022). On
+  history rows: Remove this play (MUS-184, DIS-052). For administrators, in
+  an admin session on a personal device: Rescan (LIB-012), File info
+  (LIB-195), Merge and Split (LIB-041, LIB-058). From R2: Tag (MUS-023),
+  Hide, Snooze, Less like this and Keep out of my taste (MUS-170, DIS-054,
+  DIS-055, DIS-057), Mark played (DIS-033), Watch video (MUS-029, LIB-189),
+  Download and Download to another device (CLI-097), Share for films and
+  episodes when the owner has enabled video links (ACC-092), Add to
+  collection, Pin as a Home row (DIS-126), Allow for a child (ACC-029), Lock
+  (LIB-175), and the video queue actions (VID-181).
 - **Actions:** As listed. Destructive or sensitive actions confirm
-  (SUR-008).
+  (SUR-008). A copied link never grants access by itself (CLI-034).
 - **Form factors:** *TV:* long-press on every card opens the menu as a side
   sheet (CLI-039, DIS-162). *Phone:* a "more" button on every row and tile,
   and long-press; from R2, swipe actions on rows (MUS-065) and a long-press
@@ -525,9 +636,10 @@ adds the layout contract and focus tests.
   edit (LIB-176).
 - **Actions:** Select a range, drag selected tracks onto a sidebar playlist
   or into the queue pane (MUS-063).
-- **Form factors:** *TV:* not offered in R2 (**Proposal**); the live TV
-  lineup editor's remote multi-select (LIV-059) is the one exception, in
-  R3. *Phone:* a "Select" action in list headers enters selection mode,
+- **Form factors:** *TV:* not offered (**Proposal**). The earlier exception,
+  the live TV lineup editor's remote multi-select (LIV-059), goes too,
+  because the lineup editor is an admin surface and a TV never shows one
+  (SEC-CLI-024). *Phone:* a "Select" action in list headers enters selection mode,
   because long-press already opens the context menu (**Proposal**); queue
   and playlist rows have drag handles. *Tablet:* as phone, and in R2 drag
   from the browsing panel onto the player panel's queue. *Web and desktop:*
@@ -540,7 +652,12 @@ adds the layout contract and focus tests.
   settings.
 - **Shows:** The profile's name and picture (ACC-011), the private-session
   badge while one is active (DIS-053, MUS-185), and links to Settings,
-  Account, History, Hidden, Admin (administrators only) and Sign out. R1
+  Account, Sessions and devices (SUR-130), Security events (SUR-131), What
+  admins can see (SUR-132), History, Hidden, Admin (administrators on a
+  personal device only; opening it asks for the passkey and starts the
+  admin session, SEC-IAM-041, SEC-CLI-024) and Sign out. Signing out ends
+  the session on the server and clears this account's data from the
+  browser (SEC-API-039, SEC-CLI-009). R1
   ships profiles separate from sign-in as a data model (ACC-017), but no
   picker. From R2: Switch profile with an optional PIN (ACC-019, ACC-020,
   DIS-153), the household's profiles (ACC-016, ACC-018), and Switch server
@@ -566,18 +683,35 @@ adds the layout contract and focus tests.
   shortcut opens it.
 - **Serves:** R2: CLI-061, DIS-090, MUS-080, VID-105.
 
-#### SUR-008 Confirmation prompt
+#### SUR-008 Confirmation and step-up prompt
 - **Release:** R1.
 - **Purpose:** Confirms a sensitive change by asking for the person's
-  passkey or password again (ACC-056), and confirms anything that cannot be
-  undone.
-- **Shows:** What will change, in plain words, and the re-authentication
-  step.
-- **Actions:** Confirm or cancel.
-- **Form factors:** *TV:* **Proposal:** approve on a signed-in phone, as TV
-  sign-in does (ACC-061), because typing a password with a remote is poor.
-  *Phone and tablet:* a dialog with the platform passkey prompt. *Web and
-  desktop:* a dialog.
+  passkey again (ACC-056), opens the separate admin session, and confirms
+  anything that cannot be undone. There is no password to ask for
+  (SEC-IAM-025).
+- **Shows:** What will change, in plain words, and the passkey prompt. The
+  three kinds: opening admin screens, which starts an admin session that
+  ends after 15 idle minutes or 1 hour; step-up, a passkey check in the
+  previous 5 minutes for the actions SEC-IAM-041 lists (trusted proxies,
+  posture and remote administration, TLS and naming, egress policy, plugins,
+  adapters, backup download and restore, ownership transfer, key rotation,
+  creating or promoting administrators, adding or removing library roots,
+  browsing the file system); and the same 5-minute check for adding or
+  removing a sign-in method, exporting data or deleting the account
+  (SEC-IAM-023, SEC-PRV-048).
+- **Actions:** Confirm with the passkey, or cancel.
+- **Form factors:** *TV:* not offered. A TV is a limited device that can
+  never perform these actions, so the TV shows a QR code that opens the
+  action on a phone or computer instead (SEC-CLI-024). This replaces the
+  earlier proposal to approve a TV's sensitive change from a phone. *Phone
+  and tablet:* a dialog with the platform passkey prompt; from R2 the
+  native apps use a biometric or device PIN bound to the device key
+  (SEC-CLI-059). *Web and desktop:* a dialog.
+- **Security:** an identity-provider sign-in alone never satisfies step-up
+  (SEC-IAM-107). Every step-up action is audited, and host-equivalent ones
+  are announced to every admin (SEC-TM-017). A shared-mode browser or a
+  browser signed in by approval cannot reach this prompt for admin or
+  account-security actions (SEC-CLI-024, SEC-IAM-108).
 - **Serves:** R1: ACC-056.
 
 #### SUR-009 Upload dialog
@@ -593,6 +727,12 @@ adds the layout contract and focus tests.
 - **Actions:** Choose or drop a file, cancel.
 - **Form factors:** *TV:* not offered (**Proposal**). *Phone and tablet:*
   the system file picker. *Web and desktop:* a file picker and a drop zone.
+- **Security:** each upload route declares its allowed types and size, and
+  uploads are capped per person by count and bytes (SEC-API-085,
+  SEC-API-088); files are stored by a server-generated content hash, never
+  by name (SEC-API-087); uploaded images are re-encoded with their metadata
+  removed (SEC-PRV-006); a backup uploaded at setup is accepted only with
+  the setup code (SEC-OPS-008).
 - **Serves:** R1: ACC-125.
 
 ### Listening
@@ -617,14 +757,22 @@ adds the layout contract and focus tests.
 - **Actions:** All transport actions, swipe the artwork to skip, love, rate,
   start a private session, set a sleep timer, open queue, lyrics, info and
   (R2) the device picker.
-- **Form factors:** *TV:* TV Now Playing (R2): artwork-led, with the queue
-  visible beside it and a dim ambient mode (CLI-041, MUS-223, DIS-167);
-  remote keys drive it. *Phone:* a full-screen sheet over the tabs; swipe
+- **Form factors:** *TV:* TV Now Playing (R2), the rail's fixed first
+  entry: artwork-led, with a rail of the next queue items below it and a
+  dim ambient mode (CLI-041, MUS-223, DIS-167); remote keys drive it, and
+  Back returns to where the person came from with playback continuing. *Phone:* a full-screen sheet over the tabs; swipe
   down to close. *Tablet:* in R2 the player can live in the side panel;
   landscape shows artwork and lyrics side by side. *Web and desktop:* fills
   the content area while the sidebar and right pane stay; the research
   credits Plexamp's free UltraBlur backgrounds and Finamp's artwork colours
   as the strongest existing examples.
+- **Security:** Private session is at most two interactions from playback
+  on every client, the first item of the player's options on TV; while it
+  is on, nothing is recorded in history, recommendations or scrobbles, and
+  any admin's live view omits the title (SEC-PRV-024). It ends when turned
+  off or after a period without playback the person picks, 6 hours by
+  default. From R2, private plays are never handed to the operating
+  system's recents or home-screen rows (SEC-PRV-058).
 - **Serves:** R1: ACC-117, DIS-067, MUS-001, MUS-002, MUS-039, MUS-070, MUS-071, MUS-076, MUS-077, MUS-099, MUS-109, MUS-110, MUS-113, MUS-116, MUS-122, MUS-123, MUS-126, MUS-127, MUS-185, MUS-227. R2: ACC-107, CLI-041, CLI-045, CLI-054, CLI-098, CLI-102, DIS-055, DIS-167, INT-105, LAT-091, LAT-099, MUS-068, MUS-078, MUS-094, MUS-111, MUS-112, MUS-223, MUS-228.
 
 #### SUR-011 Queue
@@ -640,10 +788,13 @@ adds the layout contract and focus tests.
   music and video contexts (MUS-131), and video items (VID-181).
 - **Actions:** Reorder, even while shuffled (MUS-120); remove; edit the
   whole queue (MUS-119); save it as a playlist (MUS-125); reshuffle the rest
-  (MUS-128); set a sleep timer from the queue menu (MUS-076); turn the
-  suggestions lane on. From R2: undo an edit (MUS-121) and swipe rows
-  (MUS-065).
-- **Form factors:** *TV:* the TV queue beside TV Now Playing (CLI-041,
+  (MUS-128); set a sleep timer from the queue menu, the same action as in
+  the player's options menu, since MUS-076 names both (MUS-076); turn the
+  suggestions lane on. In R1, removing one row acts at once, and "Clear Up
+  next", "Clear queue" and removing a multi-selection ask first, because
+  nothing can bring them back. From R2: undo an edit, which replaces those
+  confirmations (MUS-121), and swipe rows to remove them (MUS-065).
+- **Form factors:** *TV:* the queue rail below TV Now Playing (CLI-041,
   MUS-223); reorder with the remote. *Phone:* a sheet from the player or the
   bar (CLI-149). *Tablet:* the player side panel in R2. *Web and desktop:*
   the right pane at full height, resizable, keeping durations and album
@@ -665,6 +816,8 @@ adds the layout contract and focus tests.
   Playing; no feature row names TV lyrics yet. *Phone:* a panel in the
   player; beside the artwork in landscape (R2). *Tablet:* in the player
   side panel. *Web and desktop:* the right pane or the full content area.
+- **Security:** lyrics are parsed into a timed-line model within size
+  limits and rendered only as text (SEC-MED-049, SEC-API-090, SEC-CLI-001).
 - **Serves:** R1: LIB-067, MUS-154, MUS-155, MUS-156, MUS-158. R2: INT-078, LIB-069, LIB-070, MUS-157, MUS-159, MUS-160, MUS-162.
 
 #### SUR-013 Track info sheet
@@ -692,17 +845,26 @@ adds the layout contract and focus tests.
 - **Purpose:** Choose where playback happens and control other players,
   including handing the queue from one device to another (MUS-197,
   CLI-101).
-- **Shows:** This device and its output devices (MUS-200, CLI-067), other
-  Gunmetal players signed in as the same person, and Chromecast targets
-  (MUS-203, CLI-106). In remote mode, the player shows which device it is
+- **Shows:** This device and, on native clients, its output devices
+  (MUS-200, CLI-067); the other Gunmetal players signed in to this profile;
+  Chromecast targets (MUS-203, CLI-106); and household devices this
+  profile may use that another profile is using now, greyed, not
+  selectable and labelled only "In use", with no profile name or title.
+  Other people's own players never appear, and controlling another
+  person's player is Later (ACC-047, SEC-HIS-014, SEC-PRV-022,
+  SEC-API-068). In remote mode, the player shows which device it is
   driving and that device's volume (CLI-102).
 - **Actions:** Hand off, take over, control remotely, choose an output.
 - **Form factors:** *TV:* a target more than a controller; an accept prompt
   appears when another device hands playback to it (VID-144). *Phone:* a
   sheet from the bar or player, and a remote screen for driving the TV
   (VID-145). *Tablet:* as phone. *Web and desktop:* a popover from the bar;
-  the desktop shell adds an output picker (CLI-067) and exclusive output
-  (MUS-102, in SUR-074).
+  the output picker (CLI-067) and exclusive output (MUS-102) arrive with
+  the desktop shell, Later.
+- **Security:** the list comes from session events filtered per recipient,
+  so it holds only what this profile may see (SEC-API-016); a handoff
+  carries item IDs and the position, never a stream URL or token, and the
+  target asks for its own capability URLs (SEC-API-026).
 - **Serves:** R2: CLI-067, CLI-101, CLI-102, CLI-106, INT-137, MUS-197, MUS-198, MUS-200, MUS-203, VID-144, VID-145.
 
 #### SUR-015 Add-to-playlist sheet
@@ -733,7 +895,9 @@ adds the layout contract and focus tests.
   played" rows (DIS-061) with a reason on every suggestion (DIS-062), rows
   as long as you like with "See all" (DIS-009), and helpful first-run cards
   and empty states (DIS-004). From R2: the Music and Watch switch (DIS-017),
-  Continue Watching, Next Up and new episodes (DIS-024 to DIS-026,
+  Continue Watching, the "Next to watch" row (the feature map's Next Up,
+  DIS-025, and the next film of a started series, DIS-031) and new
+  episodes (DIS-024 to DIS-026,
   DIS-029 to DIS-031, DIS-037), the watchlist row (DIS-048), recently released (DIS-040),
   mixes, rediscovery, On this day and charts (MUS-166 to MUS-168, DIS-063
   to DIS-066, DIS-069), plugin rows such as new releases and similar
@@ -783,8 +947,9 @@ adds the layout contract and focus tests.
   happening (ADM-031). Playlist files found in music folders appear as
   playlists (LIB-192). From R2: Watch tabs for films, shows, collections and
   home videos (DIS-118, LIB-010), music videos (LAT-095), playlist folders
-  (MUS-136), video playlists (VID-183), service playlists (INT-109), the
-  household blend (DIS-184), and Downloads on devices that download.
+  (MUS-136), video playlists (VID-183), service playlists (INT-109), and
+  Downloads on devices that download. Later: the household blend
+  (DIS-184), if the owner adds household activity features.
 - **Actions:** Open a tab, open an item, and use the shared list controls
   (SUR-023).
 - **Form factors:** *TV:* each library is its own rail entry (CLI-037), and
@@ -792,7 +957,7 @@ adds the layout contract and focus tests.
   *Tablet:* as phone, with more columns. *Web and desktop:* the sidebar
   lists playlists and pins (MUS-132, MUS-139), and the tabs sit at the top
   of the content.
-- **Serves:** R1: ADM-031, CLI-062, DIS-046, DIS-106, DIS-121, INT-138, LAT-010, LIB-004, LIB-008, LIB-021, LIB-192, MUS-027, MUS-028, MUS-043, MUS-056, MUS-063, MUS-132, MUS-139, MUS-149, MUS-208. R2: DIS-072, DIS-118, DIS-124, DIS-184, INT-109, LAT-095, LIB-010, LIB-150, MUS-136, VID-183.
+- **Serves:** R1: ADM-031, CLI-062, DIS-046, DIS-106, DIS-121, INT-138, LAT-010, LIB-004, LIB-008, LIB-021, LIB-192, MUS-027, MUS-028, MUS-043, MUS-056, MUS-063, MUS-132, MUS-139, MUS-149, MUS-208. R2: DIS-072, DIS-118, DIS-124, INT-109, LAT-095, LIB-010, LIB-150, MUS-136, VID-183. Later: DIS-184.
 
 #### SUR-023 Lists, grids, rows and browse controls
 - **Release:** R1.
@@ -928,10 +1093,16 @@ adds the layout contract and focus tests.
 - **Shows:** Plays grouped by day with the device each came from, including
   offline plays merged later (CLI-093). From R2: which app recorded a play
   through an adapter (INT-093) and a charts link (DIS-066).
-- **Actions:** Remove a play (MUS-184, ACC-118, DIS-052), play again,
-  export (in SUR-078).
-- **Form factors:** *TV:* read-only (**Proposal**). *Phone, tablet, web:*
-  full.
+- **Actions:** Remove a play, a range of dates or everything (MUS-184,
+  ACC-118, DIS-052), play again, export (in SUR-078).
+- **Form factors:** *TV:* read-only (**Proposal**), and on a household TV
+  an adult profile's history stays hidden until that adult's PIN or phone
+  unlocks it (SEC-IAM-110). *Phone, tablet, web:* full.
+- **Security:** each person's own history only; no other person, admins
+  included, can open it, except a managed profile's designated guardians
+  (SEC-PRV-022, SEC-PRV-025, SEC-PRV-029). A removed play leaves the
+  database, logs, indexes and caches within 24 hours and stays removed
+  after an older backup is restored (SEC-PRV-049).
 - **Serves:** R1: ACC-118, CLI-093, DIS-021, DIS-050, DIS-052, MUS-183. R2: DIS-066, INT-093.
 
 #### SUR-030 Hidden page
@@ -970,8 +1141,13 @@ adds the layout contract and focus tests.
 - **Form factors:** *TV:* a rail entry with an on-screen keyboard and the
   remote's microphone (CLI-044). *Phone:* the Search tab, with Browse above
   the results when empty (**Proposal**). *Tablet:* as phone. *Web and
-  desktop:* a field at the top of the sidebar with a keyboard shortcut; from
-  R2 also the command palette.
+  desktop:* a field at the top of the sidebar, reached by Tab like any
+  control in R1; from R2 also a keyboard shortcut and the command palette
+  (DIS-090, CLI-061), which the feature map places in R2.
+- **Security:** recent searches live only on the device and can be cleared;
+  the server never stores or logs search terms (SEC-PRV-004). The index on
+  the device holds only what this profile may see, artwork and search terms
+  included (SEC-CLI-020).
 - **Serves:** R1: CLI-022, DIS-083, DIS-084, DIS-085, DIS-086, DIS-087, DIS-088, DIS-089, MUS-061. R2: CLI-044, DIS-092, DIS-093, DIS-094, DIS-095, LAT-013, MUS-161. R3: LIV-072, LIV-119.
 
 ### Watching
@@ -1032,8 +1208,8 @@ phone they share the app with music under the Music and Watch switch.
   (LIB-163, LIB-166, DIS-129).
 - **Shows:** Members in the collection's own order (DIS-131, LIB-164),
   films and shows together (DIS-132, LIB-169), child collections (DIS-130,
-  LIB-168), collection artwork (LIB-165), and the Up Next item for a film
-  series (DIS-031). Collections written through the API appear here
+  LIB-168), collection artwork (LIB-165), and "Watch the next film" for a
+  film series the person has started (DIS-031). Collections written through the API appear here
   (INT-139).
 - **Actions:** Play in order, shuffle (VID-182), edit membership and order,
   turn a filter into a smart collection (LIB-166), set artwork.
@@ -1090,7 +1266,10 @@ phone they share the app with music under the Music and Watch switch.
   indicator (VID-133); a seek bar with chapter names and scrub previews
   (VID-096, VID-098, LIB-096) that seeks without restarting the stream
   (VID-008); the skip-intro and skip-credits button driven by markers
-  (VID-110 to VID-112, VID-114, LIB-094); "Up next" (VID-181); a loading
+  (VID-110 to VID-112, VID-114, LIB-094); the queue panel, which the feature
+  map calls "Player > Up next" and which is labelled "Queue" on screen, with
+  the Up next lane of the viewer's picks and the From lane of the season or
+  collection (VID-181); a loading
   state that says what it is doing (VID-012); and the same controls offline
   for downloaded titles (VID-175).
 - **Actions:** Play, pause, seek, skip markers, change speed (VID-131),
@@ -1184,9 +1363,18 @@ phone they share the app with music under the Music and Watch switch.
   another of your devices (CLI-097).
 - **Form factors:** *TV:* not offered (**Proposal**; TVs stream on the home
   network). *Phone:* the first entry inside Library (**Proposal**), plus
-  toggles on pages. *Tablet:* as phone. *Web and desktop:* the desktop
-  shell only; the web client cannot hold downloads. Progress continues in
-  system notifications (SUR-053).
+  toggles on pages. *Tablet:* as phone. *Web and desktop:* not offered: the
+  web client cannot hold downloads (MUS-217 is Later), and the desktop
+  shell is Later (SEC-TM-074). Progress continues in system notifications
+  (SUR-053).
+- **Security:** downloads play offline only under a server-signed grant
+  bound to the device key, 30 days by default within the admin's range;
+  expiry never interrupts what is playing, deletes nothing, and the screen
+  says "Connect to your server once to keep listening offline"
+  (SEC-IAM-054, SEC-CLI-036). Downloads stay in app-private internal
+  storage, out of backups and media indexing, with no SD-card option until
+  an encrypted format exists (SEC-CLI-035, SEC-CLI-072). A revoked device
+  deletes its downloads at its next contact (SEC-IAM-053).
 - **Serves:** R2: CLI-078, CLI-079, CLI-080, CLI-081, CLI-084, CLI-085, CLI-089, CLI-095, CLI-097, MUS-210, MUS-211, MUS-212, MUS-215.
 
 #### SUR-051 Cast controls
@@ -1205,13 +1393,20 @@ phone they share the app with music under the Music and Watch switch.
 - **Serves:** R2: CLI-106, CLI-111, VID-146, VID-149.
 
 #### SUR-052 Mini player window
-- **Release:** R2.
+- **Release:** Later, with the desktop shell. The first draft placed it in
+  R2; the security baseline's release scope puts the desktop shell in Later
+  (SEC-TM-074), its controls are SEC-CLI-069 (Later), and the feature map
+  now places these rows Later too (owner to confirm). The ID is kept so the
+  surface needs no new number when the shell arrives.
 - **Purpose:** A small always-on-top player in the desktop shell, sharing
   the main window's queue (CLI-065, MUS-082).
 - **Shows:** Artwork, title, transport, love.
 - **Actions:** Control playback, return to the main window.
-- **Form factors:** Desktop shell only.
-- **Serves:** R2: CLI-014, CLI-065, MUS-082.
+- **Form factors:** Desktop shell only. Until it exists, the web client's
+  bar is the mini player on every desktop.
+- **Security:** the shell loads only bundled content, keeps renderers
+  isolated and checks every IPC message (SEC-CLI-069).
+- **Serves:** Later: CLI-014, CLI-065, MUS-082.
 
 #### SUR-053 System media controls
 - **Release:** R1 through the browser's media controls (MUS-073, CLI-070).
@@ -1222,16 +1417,25 @@ phone they share the app with music under the Music and Watch switch.
 - **Shows:** Artwork, title, transport and position, as the platform
   allows. From R2: native lock-screen and notification controls with
   background playback (MUS-074, CLI-069), video and cast controls in the
-  notification (VID-135, VID-151, CLI-112), desktop media panels and keys
-  (MUS-081, CLI-063, VID-139), system picture-in-picture (VID-134), local
+  notification (VID-135, VID-151, CLI-112), the platform's media keys and
+  now-playing panel for video (VID-139), system picture-in-picture
+  (VID-134), local
   notifications such as "downloads finished" (CLI-076), and download
   progress (CLI-090). From R3: reminders and recording alerts (LIV-075,
-  LIV-111, LIV-155).
+  LIV-111, LIV-155). The desktop shell's own media panels (MPRIS, Windows
+  media controls, macOS Now Playing) are Later with the shell (CLI-063,
+  MUS-081, SEC-TM-074).
 - **Actions:** As the platform allows.
 - **Form factors:** *TV:* the Android TV system media controls where they
   exist (unverified). *Phone and tablet:* lock screen and notification.
-  *Web and desktop:* the browser or OS media panel and media keys.
-- **Serves:** R1: CLI-070, MUS-073. R2: CLI-063, CLI-069, CLI-072, CLI-076, CLI-090, CLI-112, MUS-074, MUS-081, VID-065, VID-134, VID-135, VID-139, VID-151. R3: LIV-075, LIV-111, LIV-155.
+  *Web and desktop:* the browser's media session, which the OS media panel
+  and media keys reach (CLI-070).
+- **Security:** notifications other than active media controls show no
+  titles, other people's names or device details on the lock screen
+  (SEC-CLI-062). From R2, push messages carry no content and only wake the
+  app, which fetches the details over its own connection (SEC-OPS-036,
+  SEC-PRV-056).
+- **Serves:** R1: CLI-070, MUS-073. R2: CLI-069, CLI-072, CLI-076, CLI-090, CLI-112, MUS-074, VID-065, VID-134, VID-135, VID-139, VID-151. R3: LIV-075, LIV-111, LIV-155. Later: CLI-063, MUS-081 (the desktop shell).
 
 #### SUR-054 Car
 - **Release:** R2 (Android Auto). CarPlay is Later.
@@ -1250,7 +1454,11 @@ phone they share the app with music under the Music and Watch switch.
 - **Purpose:** Continue watching on Android TV's home screen without opening
   the app (CLI-049, DIS-168).
 - **Shows:** Items from the synced watch log; a dismissal in the app removes
-  the item there too. Restricted artwork never appears (DIS-155).
+  the item there too. Restricted artwork never appears (DIS-155). The rows
+  appear only if the person said yes when the TV was paired, which defaults
+  to yes on a single-profile TV and no when several profiles exist; they
+  never include restricted or PIN-protected profiles (SEC-CLI-061), or
+  anything played in a private session (SEC-PRV-058).
 - **Actions:** Open an item straight into the player.
 - **Form factors:** TV only. Apple TV's Top Shelf, named in CLI-049, waits
   for Apple builds.
@@ -1277,36 +1485,69 @@ phone they share the app with music under the Music and Watch switch.
   automation hooks through the system settings and share sheet (INT-148).
 - **Actions:** Install, open a link, run an automation.
 - **Form factors:** *TV:* not applicable in R2. *Phone and tablet:* home
-  screen and app links. *Web and desktop:* the installed web app in R1; the
-  desktop shell's installers in R2 (CLI-017, in SUR-111).
+  screen and app links. *Web and desktop:* the installed web app from R1;
+  desktop installers arrive with the desktop shell, Later (SEC-TM-074).
+- **Security:** every inbound link and code is parsed by one function in
+  the core into a closed set of routes, and none changes anything without a
+  confirmation screen (SEC-CLI-025). A secret carried by a link
+  (invitation, pairing, recovery) travels in the fragment, is removed from
+  the address bar before any request, and is redeemed only after a screen
+  that names the server and says what will happen (SEC-CLI-013). Native
+  apps from R2 accept links only through verified app links, never a
+  custom URL scheme (SEC-CLI-039).
 - **Serves:** R1: CLI-003, CLI-034, DIS-173. R2: INT-148.
 
 #### SUR-058 Share sheet
-- **Release:** R2. In R1, sharing means "Copy link" in the context menu,
-  and a link still needs a signed-in device (CLI-034).
+- **Release:** R1 for music tracks, albums and playlists (ACC-086; security
+  README decision 7, owner to confirm). R2 adds film and episode links, off
+  until the owner enables them (ACC-092), the guest capability (ACC-135),
+  sharing a playlist with people on the server, and the native share
+  sheets. Without a share link, "Copy link" in the context menu still needs
+  a signed-in device (CLI-034).
 - **Purpose:** Share an item with someone, with or without an account, as a
   scoped, expiring and revocable capability (ACC-086, ACC-135).
-- **Shows:** Link options: expiry, password (ACC-087), download allowed or
-  not (ACC-088); sharing a playlist with people on the server and inviting
-  collaborators (MUS-150); film and episode links (ACC-092); and the OS
-  share targets.
+- **Shows:** Link options: expiry (30 days by default), an optional
+  password (ACC-087), and a download switch that appears only when the
+  owner allows downloads server-wide (ACC-088); the per-link limits (two
+  streams at once, a cap on uses or bytes); whether chat apps may show a
+  preview, off by default; and the person's existing links with their use
+  (ACC-089). From R2: sharing a playlist with people on the server and
+  inviting collaborators (MUS-150); film and episode links (ACC-092); and
+  the OS share targets.
 - **Actions:** Create, copy, revoke.
 - **Form factors:** *TV:* not offered (**Proposal**). *Phone and tablet:*
-  the system share sheet with Gunmetal's options first. *Web and desktop:* a
-  dialog.
-- **Serves:** R2: ACC-086, ACC-087, ACC-088, ACC-092, ACC-135, CLI-034, INT-147, INT-148, MUS-150, MUS-151.
+  the system share sheet with Gunmetal's options first (R2), a dialog in
+  the R1 web client. *Web and desktop:* a dialog.
+- **Security:** a link carries a 128-bit secret in its fragment, covers one
+  object, takes its sharer from the session, and stops working on the next
+  request after revocation; a link that reaches too many distinct addresses
+  suspends itself and alerts the sharer (SEC-API-097, SEC-API-028). A
+  share password follows the guessing delays and never disables the link
+  (SEC-API-056, SEC-STD-008). Only the sharer and admins can see or change
+  a link. Managed profiles cannot create links (SEC-PRV-029).
+- **Serves:** R1: ACC-086, ACC-087, ACC-088, CLI-034, INT-147, MUS-151. R2: ACC-092, ACC-135, INT-148, MUS-150.
 
 #### SUR-059 Public share page
-- **Release:** R2.
+- **Release:** R1 for music (ACC-086; owner to confirm). R2 adds the guest
+  player that ACC-135 defines.
 - **Purpose:** What someone without an account sees when they open a share
   link: a minimal listening page (ACC-086) or the guest player that
   ACC-135 defines.
-- **Shows:** Artwork, title, a player, and the link's expiry. Nothing else
-  of the server.
+- **Shows:** Artwork, title, a player, the link's expiry, and a password
+  field when the link has one. Nothing else of the server: not the
+  sharer's name, other people, the library's size, its name or the
+  server's name (SEC-PRV-031, SEC-NET-047).
 - **Actions:** Play; download if the link allows it.
-- **Form factors:** Any browser. It is an unauthenticated surface, so it
-  is kept deliberately small (ACC-086 explains why it is not in R1).
-- **Serves:** R2: ACC-086.
+- **Form factors:** Any browser, over HTTPS only (SEC-NET-001). It is an
+  unauthenticated surface, so it is kept deliberately small.
+- **Security:** the secret stays in the fragment, so it never reaches a
+  request line or a log (SEC-API-097, SEC-IAM-047); the page carries
+  `noindex` and no
+  link-preview metadata unless the sharer turned previews on
+  (SEC-PRV-031); its media URLs are short-lived capabilities re-checked on
+  every request (SEC-API-026, SEC-API-028); its strings are rendered as
+  text (SEC-CLI-001).
+- **Serves:** R1: ACC-086.
 
 #### SUR-060 TV screensaver
 - **Release:** R2.
@@ -1315,63 +1556,121 @@ phone they share the app with music under the Music and Watch switch.
   (DIS-155).
 - **Shows:** Slowly changing artwork; the current track when music plays
   (**Proposal**, overlapping with ambient mode in CLI-041).
-- **Actions:** Any key returns to where the person was.
+- **Actions:** Any key returns to where the person was; the play or pause
+  key also plays or pauses, as it does on every screen (CLI-045), and TV
+  Now Playing's ambient mode follows the same rule.
 - **Form factors:** TV only.
 - **Serves:** R2: CLI-042, DIS-155, DIS-165.
 
 #### SUR-061 Pairing and approval
-- **Release:** R2.
-- **Purpose:** Sign in devices and tools without typing passwords: a TV by
-  QR code, a borrowed browser from a signed-in one, a command-line tool by
-  device code, a companion tool by consent (ACC-061, CLI-027, ACC-062,
-  INT-027, INT-028).
-- **Shows:** On the new device, a QR code and a short code; on the
-  approving device, an approval sheet that names the device and what it will
-  get; for household devices, which profiles appear (ACC-021); for native
-  apps, device-key enrolment (ACC-051); for handoff, the accept prompt on
-  the TV (VID-144).
-- **Actions:** Approve, deny, choose which profile the device gets.
-- **Form factors:** *TV:* shows the QR code. *Phone:* approves. *Tablet:*
-  approves. *Web and desktop:* approves, or shows the code when it is the
-  new device.
-- **Serves:** R2: ACC-021, ACC-051, ACC-061, ACC-062, CLI-027, INT-027, INT-028, VID-144.
+- **Release:** R1 for signing in a browser that cannot use a passkey, by
+  approval from a signed-in device (ACC-062, SEC-IAM-108). R2 for TVs,
+  native apps and command-line tools. Companion-tool sign-in (INT-028) is
+  Later.
+- **Purpose:** Sign in devices and tools without any password: a borrowed
+  or old browser from a signed-in phone or computer, a TV by QR code, a
+  command-line tool by device code (ACC-062, ACC-061, CLI-027, INT-027).
+- **Shows:** On the new device, a QR code and an 8-character code from the
+  base-20 alphabet, valid for 10 minutes (SEC-IAM-056). On the approving
+  device, an approval sheet with the requesting device's self-reported name
+  marked as unverified, its type, "In this home" or "Somewhere else", how
+  long ago it asked, and exactly which account, profiles and capabilities
+  it will get, with addresses only behind "Details" (SEC-IAM-058). When the
+  two devices are not on the same local network, the sheet asks the
+  approver to type the code shown on the new device and confirm a matching
+  code shown on both screens, worded neutrally: "Type the code on the TV to
+  confirm" (SEC-IAM-060). For household devices, which profiles appear
+  (ACC-021); for native apps, device-key enrolment and the key's protection
+  level (ACC-051, SEC-CLI-031); for TVs, the one-time question about
+  home-screen rows (SEC-CLI-061); for handoff, the accept prompt on the TV
+  (VID-144).
+- **Actions:** Approve with a passkey or biometric check, deny, choose
+  which profile the device gets.
+- **Form factors:** *TV:* shows the QR code and the code; never approves.
+  *Phone:* approves. *Tablet:* approves. *Web and desktop:* approves when
+  it is a personal device, or shows the code when it is the new device.
+- **Security:** approval needs a passkey check in the previous 5 minutes
+  (SEC-IAM-058) and always starts on the approving device, by scanning or
+  typing; nothing a stranger sends can make a prompt appear on anyone's
+  device (SEC-STD-027, SEC-IAM-052). A code dies after 5 wrong guesses
+  (SEC-IAM-056). No approval ever grants owner or administrator
+  capabilities, and a typed-code or remote enrolment never creates a
+  household device and alerts every adult (SEC-IAM-059). A browser signed in
+  this way is a limited device that can play but never administer, approve
+  other devices or change account security (SEC-IAM-108). Limited devices
+  never show the approval sheet (SEC-CLI-024). From R2, code screens set
+  `FLAG_SECURE` and the approve control ignores touches while obscured
+  (SEC-CLI-057, SEC-CLI-058).
+- **Serves:** R1: ACC-062. R2: ACC-021, ACC-051, ACC-061, CLI-027, INT-027, VID-144.
 
 ### Sign-in, settings and account
 
 #### SUR-070 Sign-in
 - **Release:** R1.
-- **Purpose:** Modern sign-in with no vendor account: passkeys where the
-  server has a secure context, a password with two-factor codes elsewhere,
-  and single sign-on through the owner's identity provider (ACC-050,
-  ACC-052, ACC-053, ACC-057).
-- **Shows:** The server's name and sign-in message (ADM-140), no list of
-  users (ACC-007), the passkey button, the password fallback, the second
-  step for codes, "Continue with" the configured provider, clear messages
-  after repeated failures (ACC-063), "Remember this browser" (ACC-079), a
-  first-sign-in banner that says which web features work on this address
-  (CLI-150), and a recovery sign-in screen for an owner recovering from the
-  host (ACC-004). From R2: "Use another device" (ACC-062, in SUR-061).
-- **Actions:** Sign in, use a recovery code, change a password (the dialog
-  signs out everywhere else, ACC-065).
+- **Purpose:** Modern sign-in with no vendor account and no password:
+  passkeys, single sign-on through the owner's identity provider, and
+  approval from a signed-in device for a browser that cannot use a passkey
+  (ACC-050, ACC-057, ACC-062). Passwords and authenticator-app codes
+  (ACC-052, ACC-053) are not offered (SEC-IAM-025; owner to confirm).
+- **Shows:** A generic page: no list of users (ACC-007), and no server name,
+  message, library name or version before sign-in (SEC-NET-047,
+  SEC-API-005); a device that has signed in before shows the name it
+  remembers, and the name and message appear after sign-in (ADM-140). The
+  passkey button; "Continue with" the configured provider; "Use another
+  device" (ACC-062, opening SUR-061); one uniform message for any failure
+  and plain delay messages after repeated failures (ACC-063); after sign-in,
+  the one plain question "Is this your own device?" (ACC-079); "Use a
+  recovery code" (SUR-133); and the enrolment screen for an owner
+  recovering from the host (ACC-004).
+- **Actions:** Sign in, use another device, use a recovery code.
 - **Form factors:** *TV:* the TV shows a QR code instead (SUR-061).
   *Phone and tablet:* the platform passkey sheet. *Web and desktop:* the
-  browser's passkey prompt; over plain HTTP on a LAN address, password and
-  two-factor only (CLI-150).
-- **Serves:** R1: ACC-004, ACC-007, ACC-050, ACC-052, ACC-053, ACC-057, ACC-063, ACC-065, ACC-079, ADM-140, CLI-150.
+  browser's passkey prompt. Over plain HTTP the page does not exist: every
+  peer but loopback gets the help page (SUR-109, SEC-NET-001).
+- **Security:** sign-in is usernameless and reveals nothing about whether an
+  account or credential exists, by content, status or timing (SEC-IAM-022,
+  SEC-API-058). Passkey failures are throttled per source but never disable
+  a credential (SEC-API-056). The identity-provider flow keeps every token
+  on the server (SEC-CLI-026). The session cookie is `__Host-`, HttpOnly
+  and never readable by scripts (SEC-API-032). The answer to "Is this your
+  own device?" sets the session: own device, 30 days with 7 idle and
+  persistent storage; shared, memory only, a browser-session cookie and 30
+  idle minutes (SEC-IAM-041, SEC-CLI-010; the default answer is owner to
+  confirm). A post-sign-in return target is only a relative path from an
+  allowlist (SEC-IAM-033).
+- **Serves:** R1: ACC-004, ACC-007, ACC-050, ACC-057, ACC-062, ACC-063, ACC-079, ADM-140, CLI-150.
 
 #### SUR-071 Invite landing and first launch
 - **Release:** R1 (the invite landing in the web client). R2 (app first
   launch).
 - **Purpose:** Turn an invitation link or QR code into a working account
-  with as few steps as possible (ACC-080).
-- **Shows:** Who invited the person and to which server, then account
-  creation with a passkey or password. From R2: "install this app, then tap
-  here" (ACC-082), and an app first launch that finds the server on the home
-  network or reads the invite's address (ACC-104, ACC-083).
-- **Actions:** Accept, create the account, install the app.
+  with as few steps as possible (ACC-080), without letting a forwarded link
+  quietly admit a stranger.
+- **Shows:** Who invited the person and to which server, what will happen,
+  and a privacy notice generated from the server's real settings: what is
+  stored about them, who can see what, retention, what leaves the server,
+  and how to export and delete, in at most five plain sentences with "More
+  details" (SEC-PRV-053). Then account creation with the person's own
+  passkey, or their link to the owner's identity provider; no password
+  (SEC-IAM-079). For an invitation that makes the person a household member
+  or grants more than one library, a waiting screen with a short matching
+  code to read to the inviter, until the inviter confirms (SEC-IAM-079).
+  From R2: "install this app, then tap here" (ACC-082), and an app first
+  launch that finds the server on the home network or reads the invite's
+  address (ACC-104, ACC-083).
+- **Actions:** Accept, create the account, read the matching code, install
+  the app.
 - **Form factors:** *TV:* **Proposal:** the TV first launch offers only
   pairing (SUR-061) and finding the server. *Phone, tablet, web:* the full
   landing.
+- **Security:** served only over HTTPS, and redeemable only there or in a
+  native app (SEC-IAM-078). The page removes the secret from the address
+  bar before any request and redeems nothing until the person confirms on
+  a screen that names the server (SEC-CLI-013, SEC-NET-036); it sends the
+  secret in a POST body, rate-limited, with the same response for any
+  failure (SEC-API-096, SEC-API-058). The server's name appears here
+  because the invitation authorises it (owner to confirm). A pending
+  account holds no grants until confirmed (SEC-IAM-079).
 - **Serves:** R1: ACC-080. R2: ACC-082, ACC-104.
 
 #### SUR-072 Server picker
@@ -1398,7 +1697,7 @@ phone they share the app with music under the Music and Watch switch.
   that there is no social feed (ACC-113, ACC-114); the quality-badge
   setting (LIB-146). From R2: the start screen (DIS-014), which media kinds
   and libraries are shown (LAT-012, CLI-051), recommendation reset
-  (DIS-056), Up Next and abandoned-show settings (DIS-026, DIS-028),
+  (DIS-056), "Next to watch" and abandoned-show settings (DIS-026, DIS-028),
   spoiler protection (DIS-117), per-device Home overrides (DIS-008), and
   search inside settings (CLI-152). From R3: Live TV as a start screen
   (LIV-076) and recording notifications (LIV-111).
@@ -1415,8 +1714,9 @@ phone they share the app with music under the Music and Watch switch.
   (MUS-087, MUS-088), shuffle mode (MUS-126), lyrics staying open
   (MUS-158), and fetching ahead on patchy signal (CLI-099). From R2:
   crossfade and smart fades (MUS-091, MUS-092), the equaliser (MUS-094),
-  sample-rate matching, bit-perfect and exclusive output (MUS-100 to
-  MUS-102), output device (MUS-200, CLI-048), ratings that steer playback
+  sample-rate matching and bit-perfect output (MUS-100, MUS-101; exclusive
+  output, MUS-102, is Later with the desktop shell), output device
+  (MUS-200, CLI-048), ratings that steer playback
   (MUS-171), and the video sections: default quality, deinterlacing, frame
   rate and dynamic range matching, Dolby Vision and tone mapping per device
   (VID-019, VID-023, VID-041, VID-043, VID-045, VID-046, CLI-046),
@@ -1430,26 +1730,32 @@ phone they share the app with music under the Music and Watch switch.
 - **Actions:** Change a setting; per-device settings are marked.
 - **Form factors:** *TV:* audio output, passthrough, frame-rate matching and
   subtitle size matter most here and come first (**Proposal**). *Phone:*
-  bit-perfect output on Android (MUS-101). *Web and desktop:* exclusive
-  output in the desktop shell (MUS-102). Settings the device cannot honour
+  bit-perfect output on Android (MUS-101). *Web and desktop:* the browser
+  chooses the output; exclusive output arrives with the desktop shell,
+  Later (MUS-102). Settings the device cannot honour
   are hidden, with a note (**Proposal**).
-- **Serves:** R1: CLI-099, MUS-072, MUS-087, MUS-088, MUS-126, MUS-158. R2: CLI-046, CLI-048, MUS-091, MUS-092, MUS-094, MUS-100, MUS-101, MUS-102, MUS-171, MUS-200, VID-019, VID-023, VID-041, VID-043, VID-045, VID-046, VID-047, VID-051, VID-056, VID-057, VID-058, VID-059, VID-062, VID-066, VID-079, VID-080, VID-082, VID-091, VID-093, VID-094, VID-101, VID-114, VID-119, VID-128, VID-135, VID-142. R3: LIV-147.
+- **Serves:** R1: CLI-099, MUS-072, MUS-087, MUS-088, MUS-126, MUS-158. R2: CLI-046, CLI-048, MUS-091, MUS-092, MUS-094, MUS-100, MUS-101, MUS-171, MUS-200, VID-019, VID-023, VID-041, VID-043, VID-045, VID-046, VID-047, VID-051, VID-056, VID-057, VID-058, VID-059, VID-062, VID-066, VID-079, VID-080, VID-082, VID-091, VID-093, VID-094, VID-101, VID-114, VID-119, VID-128, VID-135, VID-142. R3: LIV-147. Later: MUS-102 (the desktop shell).
 
 #### SUR-075 Settings: data, downloads and storage
 - **Release:** R1 (storage and sync status). Downloads and data use are R2.
 - **Purpose:** What the device keeps and what it spends on the network.
 - **Shows:** In R1: what is synced, how much space each part uses, when it
-  last synced, "Sync now" and "Clear cache" (CLI-024). From R2: partial sync
-  for small devices (CLI-023), the storage cap and eviction (CLI-082),
-  download location (CLI-059, MUS-216), download quality including Opus
-  (CLI-083, MUS-213), the mobile-data rule for downloads (CLI-091),
+  last synced, "Sync now" and "Clear cache" (CLI-024). On a shared browser
+  it says that nothing is kept after the tab closes (SEC-CLI-010). From R2:
+  partial sync for small devices (CLI-023), the storage cap and eviction
+  (CLI-082), download quality including Opus (CLI-083, MUS-213), the
+  mobile-data rule for downloads (CLI-091),
   streaming quality per network (CLI-092, VID-031), Opus streams on mobile
   data (MUS-106), and the network policy (MUS-107).
 - **Actions:** Sync now, clear cache, set caps and rules.
 - **Form factors:** *TV:* storage and sync status only. *Phone and
-  tablet:* everything. *Web and desktop:* storage and sync status on the
-  web; downloads in the desktop shell.
-- **Serves:** R1: CLI-024. R2: CLI-023, CLI-059, CLI-082, CLI-083, CLI-091, CLI-092, MUS-106, MUS-107, MUS-213, MUS-216, VID-031.
+  tablet:* everything. *Web and desktop:* storage and sync status; downloads
+  arrive with the desktop shell, Later (SEC-TM-074).
+- **Security:** there is no download-location choice in R2. Downloads stay
+  in app-private internal storage (SEC-CLI-035), and choosing an SD card or
+  other removable storage (CLI-059, MUS-216) waits until downloads there are
+  encrypted (SEC-CLI-072, Later; owner to confirm).
+- **Serves:** R1: CLI-024. R2: CLI-023, CLI-082, CLI-083, CLI-091, CLI-092, MUS-106, MUS-107, MUS-213, VID-031.
 
 #### SUR-076 Settings: appearance, accessibility and language
 - **Release:** R1.
@@ -1470,43 +1776,75 @@ phone they share the app with music under the Music and Watch switch.
 - **Release:** R1.
 - **Purpose:** Facts about this device and this connection, help, and the
   preview switch for layout changes.
-- **Shows:** "About this connection", which says which web features work on
-  this address and how to get the rest (CLI-150); Preview features, where
+- **Shows:** "About this connection", which says which address this is,
+  that it is secure, whether this browser is marked as the person's own or
+  shared and what that keeps, and when the session ends (CLI-150,
+  SEC-CLI-010, SEC-IAM-041); Preview features, where
   layout changes arrive as opt-in previews with a way back (CLI-031); and
-  Help > Diagnostics, readable before it is sent (CLI-033). From R2: the
+  Help > Diagnostics, redacted by default and shown in full before it is
+  sent (CLI-033, SEC-PRV-046). From R2: the
   connection's real state and route (ACC-105), the device capability
-  report (CLI-047), global hotkeys (CLI-064), and whether the app may start
-  itself on a play key or a headphone connection (CLI-068).
+  report (CLI-047), and whether the app may start itself on a play key or a
+  headphone connection (CLI-068). Global hotkeys (CLI-064) arrive with the
+  desktop shell, Later.
 - **Actions:** Turn a preview on or off, view or send diagnostics.
-- **Form factors:** The same sections on every form factor; hotkeys only in
-  the desktop shell, and launch behaviour only in the native apps.
-- **Serves:** R1: CLI-031, CLI-033, CLI-150. R2: ACC-105, CLI-047, CLI-064, CLI-068, LIB-109.
+- **Form factors:** The same sections on every form factor; launch
+  behaviour only in the native apps, and hotkeys only in the desktop shell
+  once it exists.
+- **Serves:** R1: CLI-031, CLI-033, CLI-150. R2: ACC-105, CLI-047, CLI-068, LIB-109. Later: CLI-064 (the desktop shell).
 
 #### SUR-078 Account
 - **Release:** R1.
-- **Purpose:** A person's identity and data: sign-in methods, devices,
-  tokens, exports and imports, and connected services.
-- **Shows:** Sign-in methods with passkeys, password and two-factor
-  (ACC-055, ACC-050, ACC-052, ACC-053); devices and sessions, with remove
-  one and sign out of all (ACC-068 to ACC-070, ACC-065); sign-in history
-  (ACC-078); apps and tokens (INT-017, INT-021, ACC-049); your data, with a
-  documented export of everything the person told the server (ACC-010,
-  DIS-058, MUS-188, INT-151, LAT-007) and history import from Last.fm and
-  ListenBrainz files (MUS-189, INT-107); and the owner's account details
-  (ACC-002). From R2: offline copies per device (ACC-045), device keys
-  (ACC-051), shares (ACC-089, MUS-151, ACC-135), "what your admin can see"
-  (ACC-115), connected services for scrobbling, loved-track sync and
-  similar plugins with their delivery status (ACC-119, INT-058, INT-064,
-  INT-075, INT-102 to INT-106, INT-110, INT-111, MUS-192 to MUS-195), app
-  passwords and "connect a music app" for Subsonic apps (ACC-129, CLI-130,
-  INT-024, INT-087, INT-096), companion-tool sign-ins (INT-028),
-  notifications and per-person webhooks (INT-050, INT-051), security events
-  (INT-036), and API and Trakt history imports (INT-108, INT-152, INT-076).
-- **Actions:** Add or remove a sign-in method, revoke a device or token,
-  export, import, connect or disconnect a service.
-- **Form factors:** *TV:* devices and sign-out only (**Proposal**). *Phone,
-  tablet, web:* everything.
-- **Serves:** R1: ACC-002, ACC-010, ACC-017, ACC-049, ACC-050, ACC-052, ACC-053, ACC-055, ACC-065, ACC-068, ACC-069, ACC-070, ACC-078, ADM-074, DIS-058, INT-017, INT-021, INT-107, INT-151, LAT-007, MUS-188, MUS-189. R2: ACC-045, ACC-051, ACC-071, ACC-089, ACC-115, ACC-119, ACC-129, ACC-135, CLI-130, INT-024, INT-028, INT-036, INT-050, INT-051, INT-058, INT-064, INT-075, INT-076, INT-087, INT-096, INT-102, INT-103, INT-104, INT-105, INT-106, INT-108, INT-110, INT-111, INT-152, MUS-151, MUS-192, MUS-193, MUS-194, MUS-195.
+- **Purpose:** A person's identity and data: sign-in methods, sessions and
+  devices, security, shares, exports and imports, and connected services.
+  It is the hub for SUR-130 to SUR-133.
+- **Shows:** Sign-in methods: the person's passkeys, named, and any linked
+  identity provider (ACC-055, ACC-050, ACC-057), with a gentle prompt while
+  only one passkey exists; there is no password or authenticator-app code
+  (SEC-IAM-025). Links to Sessions and devices (SUR-130), Security events
+  (SUR-131), What admins can see and Privacy (SUR-132) and Recovery
+  (SUR-133). The person's share links with their use, and revoke (ACC-089,
+  MUS-151). Your data: a documented export of everything the person told
+  the server (ACC-010, ADM-074, DIS-058, MUS-188, INT-151, LAT-007), history
+  import from Last.fm and ListenBrainz files (MUS-189, INT-107), and
+  deleting the account. The owner's account details and, for an incoming
+  ownership transfer, Accept (ACC-002, ADM-052). From R2: offline copies per
+  device (ACC-045), device keys (ACC-051), apps and API keys (ACC-049,
+  INT-017, INT-021), the single-item guest links (ACC-135), connected
+  services for scrobbling, loved-track sync and similar plugins with their
+  delivery status (ACC-119, INT-058, INT-064, INT-075, INT-102 to INT-106,
+  INT-110, INT-111, MUS-192 to MUS-195), app keys and "connect a music app"
+  for Subsonic apps (ACC-129, CLI-130, INT-024, INT-087, INT-096),
+  notifications and per-person webhooks (INT-050, INT-051), the person's own
+  security events sent to their own webhooks (INT-036), and API and Trakt
+  history imports (INT-108, INT-152, INT-076). Companion-tool sign-ins
+  (INT-028) are Later.
+- **Actions:** Add or remove a passkey, link or unlink a provider, revoke a
+  share or key, export, import, connect or disconnect a service, delete the
+  account.
+- **Form factors:** *TV:* not offered. A TV is a limited device, so it
+  never shows account-security screens (SEC-CLI-024); its own menu offers
+  sign-out only. *Phone, tablet, web:* everything, on a personal device; a
+  shared-mode browser or one signed in by approval shows the data sections
+  but none of the security sections (SEC-IAM-108).
+- **Security:** adding or removing a sign-in method needs a passkey check in
+  the previous 5 minutes, tells the account's other devices, and offers to
+  end all other sessions; the last credential, and the owner's last
+  passkey, cannot be removed (SEC-IAM-023, SEC-IAM-024, SEC-IAM-042,
+  SEC-IAM-107). Linking a provider happens only inside this account's
+  session after a passkey check (SEC-IAM-029). Starting an export or a
+  deletion needs the same check and is rate-limited; the download works
+  once, only in this session, and expires within an hour; the export holds
+  no one else's data and no secrets (SEC-PRV-047, SEC-PRV-048). Deletion
+  disables the account at once, keeps it restorable for 7 days, offers an
+  export first, and states when it will have left the backups
+  (SEC-PRV-051, SEC-IAM-103). During a recovery hold the export and
+  credential removal are refused (SEC-IAM-106). Scrobbling and every other
+  outbound feature start off and are turned on only by the person, never by
+  an admin (SEC-PRV-033). An API key's scopes can never exceed the person's
+  own rights or include administration, and creating one needs a passkey
+  check (SEC-EXT-010, SEC-EXT-012).
+- **Serves:** R1: ACC-002, ACC-010, ACC-017, ACC-050, ACC-055, ACC-065, ACC-089, ADM-074, DIS-058, INT-107, INT-151, LAT-007, MUS-151, MUS-188, MUS-189. R2: ACC-045, ACC-049, ACC-051, ACC-119, ACC-129, ACC-135, CLI-130, INT-017, INT-021, INT-024, INT-036, INT-050, INT-051, INT-058, INT-064, INT-075, INT-076, INT-087, INT-096, INT-102, INT-103, INT-104, INT-105, INT-106, INT-108, INT-110, INT-111, INT-152, MUS-192, MUS-193, MUS-194, MUS-195.
 
 #### SUR-079 Profiles and guardian controls
 - **Release:** R1 (profile name and picture, explicit-content display).
@@ -1518,61 +1856,207 @@ phone they share the app with music under the Music and Watch switch.
   PIN (DIS-143, ACC-020); child-profile settings with presets, maximum
   ratings, rating systems by country, allow and block rules, unrated items,
   single-title exceptions, explicit filter, schedules and viewing hours
-  (ACC-023 to ACC-029, ACC-032, DIS-145 to DIS-151, LAT-014); the guardian's
-  activity view of a child's history (ACC-034, DIS-156); a profile's year in
-  review (DIS-183); and consent to household blends (DIS-184). From R3: live
-  TV limits (ACC-036, LIV-164).
+  (ACC-023 to ACC-029, ACC-032, DIS-145 to DIS-151, LAT-014); the
+  designated guardians' view of a child's history, which no other adult or
+  admin gets (ACC-034, DIS-156); and a profile's year in review
+  (DIS-183). From R3: live TV limits (ACC-036, LIV-164). Later: each
+  person's own consent to household blends (DIS-184), if the owner adds
+  household activity features.
 - **Actions:** Edit, set limits, allow a title, review activity.
 - **Form factors:** *TV:* profile name, picture and PIN only; guardians
   set limits on phone or web (**Proposal**). *Phone, tablet, web:*
   everything.
-- **Serves:** R1: ACC-011, MUS-047. R2: ACC-020, ACC-023, ACC-024, ACC-025, ACC-026, ACC-027, ACC-028, ACC-029, ACC-032, ACC-034, DIS-143, DIS-145, DIS-146, DIS-147, DIS-148, DIS-149, DIS-150, DIS-151, DIS-156, DIS-183, DIS-184, LAT-014. R3: ACC-036, LIV-164.
+- **Security:** a managed profile's history is visible only to its
+  designated guardians, and the child's own screens say so (SEC-PRV-029,
+  SEC-PRV-022). Managed profiles cannot link outside accounts, enable
+  outbound sharing or create share links (SEC-PRV-029). PINs are checked
+  only by the server, delay per device and profile, never lock forever, and
+  only switch profiles (SEC-IAM-062, SEC-IAM-063); adding an adult profile
+  to a TV preselects "Add a PIN" (SEC-IAM-110). Content limits are enforced
+  in the one visibility predicate, so no path around them exists
+  (SEC-IAM-064). A household blend includes a person only after their own
+  consent (SEC-PRV-022, SEC-PRV-023).
+- **Serves:** R1: ACC-011, MUS-047. R2: ACC-020, ACC-023, ACC-024, ACC-025, ACC-026, ACC-027, ACC-028, ACC-029, ACC-032, ACC-034, DIS-143, DIS-145, DIS-146, DIS-147, DIS-148, DIS-149, DIS-150, DIS-151, DIS-156, DIS-183, LAT-014. R3: ACC-036, LIV-164. Later: DIS-184.
+
+#### SUR-130 Sessions and devices
+- **Release:** R1. Device keys and API keys join the list in R2.
+- **Purpose:** Every person can see where they are signed in and end any of
+  it, with effect on the next request (first principle 11; SEC-IAM-042).
+- **Shows:** Every session and device on the account (from R2, every API
+  key and app key too) with its name, device class (personal or limited),
+  key protection level, network type, rough location and last use; "This
+  device" marked; new devices also announced in the notice centre
+  (ACC-068, ACC-071). From R2, each native device's offline copies and when
+  they expire (ACC-045), and household devices, with dormant ones marked
+  and a one-tap wake for adults (SEC-IAM-109).
+- **Actions:** Remove one device or session; "Sign out everywhere else"
+  (ACC-069, ACC-070). Wake a dormant household device (R2).
+- **Form factors:** *TV:* not offered; a TV offers only "Sign out of this
+  TV". *Phone, tablet, web:* the full list on personal devices.
+- **Security:** removing a session or device makes its next request fail
+  and closes its open streams and sockets within 5 seconds, its stream URLs
+  included (SEC-IAM-043, SEC-API-028); the removed browser deletes this
+  account's data when it is told (SEC-CLI-009). This list shows only a
+  rough location; the person's own security events show full addresses
+  (SEC-IAM-042, SEC-OPS-027). Admins can end any non-owner account's
+  sessions from Users (SUR-090), and only the owner can end the owner's
+  (SEC-IAM-044).
+- **Serves:** R1: ACC-068, ACC-069, ACC-070, ACC-071.
+
+#### SUR-131 Security events
+- **Release:** R1.
+- **Purpose:** Each person can read the security log entries about their own
+  account, so a sign-in they did not make, or an admin looking at their
+  sessions, is never hidden from them (SEC-IAM-097).
+- **Shows:** Sign-ins and failed attempts, new and removed devices and
+  passkeys, recovery and the recovery hold, changes to their role, library
+  access or identity-provider link, and every admin action that read or
+  changed something of theirs, including reading their live sessions, each
+  with time, device and full address (SEC-IAM-077, SEC-OPS-027,
+  SEC-PRV-026). A guardian also sees the entries for their managed
+  profiles.
+- **Actions:** Filter by kind; from an entry about a device or credential,
+  "This wasn't me", which revokes it (SEC-OPS-033).
+- **Form factors:** *TV:* not offered. *Phone, tablet, web:* a list on
+  personal devices.
+- **Security:** generated from the hash-chained audit log (SEC-IAM-094),
+  showing only this person's records; secrets and media titles are never
+  in it (SEC-OPS-021). Retention follows the one schedule, 365 days with
+  addresses shortened after 30 and removed at 90 (SEC-PRV-005).
+- **Serves:** R1: ACC-078, ADM-110.
+
+#### SUR-132 What admins can see, and privacy choices
+- **Release:** R1.
+- **Purpose:** The page that tells each person exactly what admins and
+  guardians on this server can see about them, generated from the same
+  policy the server enforces, so it can never drift from the truth
+  (SEC-IAM-104, SEC-PRV-027).
+- **Shows:** In plain words, for example: "Your admin can see that you are
+  streaming, on which device and at what quality. Your admin sees the title
+  only if you turn on the switch below. Your admin cannot see your history,
+  ratings or private playlists in Gunmetal. Your admin controls the computer
+  Gunmetal runs on, so a determined admin could read its files directly."
+  Below it: the switch "Show what I'm playing to admins", off by default
+  (ACC-116); the private-session default end time; and, from R2, sharing
+  what one plays with the household, off by default.
+- **Actions:** Turn the title switch on or off; open Security events
+  (SUR-131).
+- **Form factors:** The same page on every form factor; on TV, read-only.
+- **Security:** every privacy setting starts at its most private value, and
+  no upgrade or admin can change it for the person (SEC-PRV-023,
+  SEC-PRV-033). No server setting can widen what admins see beyond live
+  sessions and totals (SEC-PRV-025). The same statements appear, shortened,
+  in the invitation's privacy notice (SEC-PRV-053).
+- **Serves:** R1: ACC-115, ACC-116.
+
+#### SUR-133 Recovery
+- **Release:** R1.
+- **Purpose:** The recovery ladder in one place: another passkey first,
+  then recovery codes, then the identity provider, then an administrator's
+  link, and for the owner only, the host (SEC-IAM-089 to SEC-IAM-092).
+- **Shows:** How many passkeys the account holds, with a prompt to add a
+  second; recovery codes (10, single-use, offered at enrolment to owners and
+  administrators and available here to everyone), shown once and
+  regenerated on request (SEC-IAM-089); for the owner, the recovery kit
+  status and "Show the kit again" (SEC-PRV-040); an explanation of
+  administrator recovery links and the 72-hour hold; and, during a hold,
+  what is restricted and when it ends (SEC-IAM-106). On the sign-in page,
+  "Use a recovery code" opens a session that can do nothing but enrol a new
+  passkey.
+- **Actions:** Generate new codes, show the kit again, end a hold from an
+  existing device.
+- **Form factors:** *TV:* not offered. *Phone, tablet, web:* on personal
+  devices; from R2 the code screen sets `FLAG_SECURE` (SEC-CLI-057).
+- **Security:** showing codes or the kit again needs a passkey check in the
+  previous 5 minutes (SEC-PRV-040, SEC-CLI-059). Codes are stored only as
+  peppered hashes (SEC-IAM-089), entry is rate-limited (SEC-IAM-101), and
+  using one notifies every device on the account and lists every existing
+  credential to review (SEC-IAM-090). A new credential enrolled by a code
+  or an admin link cannot remove others, elevate, export history or create
+  invitations until the hold ends, and after an admin's link the history
+  stays hidden from it (SEC-IAM-106).
+- **Serves:** no feature row yet. The feature map has no row for recovery
+  codes or the recovery kit ([flows G18](flows.md#gaps-and-questions-the-flows-expose));
+  this surface carries SEC-IAM-089, SEC-IAM-106 and SEC-PRV-040 until it
+  does.
 
 ### Setup and administration
 
-Administration is reached from the account menu by administrators only.
+Administration is reached from the account menu by administrators only, on
+a personal device, in a separate admin session that a passkey check opens
+and that ends after 15 idle minutes or 1 hour; a media session never opens
+an admin route (SEC-IAM-041). The actions SEC-IAM-041 lists also need a
+passkey check in the previous 5 minutes (the step-up prompt, SUR-008), and
+the owner-only capabilities (administrators, ownership, security settings,
+identity providers, plugins) are never available to anyone else
+(SEC-IAM-075). Admin routes are refused on internet-posture paths unless
+the owner has turned remote administration on (SEC-NET-045). Every
+state-changing admin action writes an audit record, and does not happen if
+the record cannot be written (SEC-OPS-020).
+
 **One rule covers every admin surface's form factors, and each entry notes
 only its exceptions.** In R1 the admin surfaces are part of the web client
 and work in both the wide layout and the phone-width layout, because
 CLI-149 covers every screen. In R2 they reach the native phone and tablet
-apps because they are part of the one shared UI (CLI-058, ADM-114). The TV
-gets the dashboard, sessions and activity, mostly for reading, so the owner
-can check the server from the sofa (ADM-114); **Proposal:** every other
-admin surface on TV shows a short "open this on your phone or computer"
-note with a QR code to the page. Dense editors (webhook templates, rule
-builders, the live TV lineup editor) are designed for wide screens first
-and remain usable at phone width.
+apps because they are part of the one shared UI (CLI-058, ADM-114); admin
+rights there need a hardware-backed device key and a biometric or device
+PIN per action (SEC-IAM-049, SEC-CLI-059). The TV never shows an admin
+surface: it is a limited device, and the server refuses admin routes from
+it whatever the client shows (SEC-CLI-024). An admin's profile on a TV
+shows security alerts as a banner (ADM-114), and **Proposal:** every admin
+task on TV is a short "open this on your phone or computer" note with a QR
+code to the page. Dense editors (webhook templates, rule builders, the live
+TV lineup editor) are designed for wide screens first and remain usable at
+phone width.
 
-Three surfaces in this group are not part of the client at all: the startup
-page and the emergency page are rendered by the server itself, and the
-welcome flow runs before any account exists.
+Four surfaces in this group are not part of the client at all: the startup
+page, the emergency page and the help pages (SUR-109) are rendered by the
+server itself, and the welcome flow runs before any account exists.
 
 #### SUR-080 Startup page
 - **Release:** R1.
 - **Purpose:** Says what the server is doing instead of refusing the
   connection while it starts, migrates, rebuilds or restores (ADM-032).
-- **Shows:** Each step with an estimate, configuration errors (ADM-007), the
-  pre-upgrade snapshot's location (ADM-056), migration checks and their
-  result (ADM-057, ADM-058), a rebuild because the data was written by a
-  newer version (ADM-059), user-log recovery after a torn write (ADM-078),
-  a refusal to use a data directory on a network filesystem (ADM-079), the
-  error text when started as root (ADM-006), and restore and maintenance
-  progress (ADM-029, ADM-070). From R2: upgrades that re-read only what a
-  new parser changes (ADM-062). The page is read-only and shows no secrets.
+- **Shows:** Each step with an estimate, in plain words: starting,
+  migrating, checking (ADM-057, ADM-058), rebuilding the cache (ADM-059),
+  recovering the user log after a torn write (ADM-078), restoring, or in
+  maintenance after a failed migration (ADM-029, ADM-070), and when a
+  problem stops the start, that there is one and that the console and
+  `gunmetal doctor` give the details. The details themselves, such as
+  configuration errors with their line (ADM-007), the pre-upgrade
+  snapshot's location (ADM-056), a data directory on a network filesystem
+  (ADM-079) and the refusal to run as root (ADM-006), go to the console and
+  the log, not to the page. From R2: upgrades that re-read only what a new
+  parser changes (ADM-062). The page is read-only.
 - **Actions:** None; it refreshes itself.
 - **Form factors:** A plain server-rendered page in any browser. **Proposal:**
   native apps show the same states in their own words when they reach a
   server that is starting.
+- **Security:** the page is unauthenticated, so it shows no version, build,
+  file path, stack trace, database error or secret (SEC-OPS-050,
+  SEC-NET-047). Over plain HTTP only loopback sees it; every other peer gets
+  the help page (SEC-NET-001). This moves configuration errors, the
+  snapshot path and the root refusal off the page.
 - **Serves:** R1: ADM-006, ADM-007, ADM-029, ADM-032, ADM-056, ADM-057, ADM-058, ADM-059, ADM-070, ADM-078, ADM-079. R2: ADM-062.
 
 #### SUR-081 Emergency page
 - **Release:** R1.
 - **Purpose:** Lets an administrator check status, read logs, take a backup
   or restart even when the main client will not load (ADM-113).
-- **Shows:** Server status, recent log lines, a backup button and restart.
-- **Actions:** Sign in, back up, restart.
+- **Shows:** Before sign-in, only a passkey sign-in button. After an owner
+  or administrator signs in, which opens an admin session: server status,
+  recent diagnostic log lines (which at the default level hold no titles,
+  paths, search terms or secrets), "Back up now", and restart.
+- **Actions:** Sign in, back up now, download a backup (owner only, with a
+  passkey check in the previous 5 minutes), restart.
 - **Form factors:** A minimal server-rendered page, deliberately without the
   client bundle.
+- **Security:** it is not a back door: it needs its own admin session
+  (SEC-IAM-041), is refused on internet-posture paths unless remote
+  administration is on (SEC-NET-045), and over plain HTTP exists only for
+  loopback (SEC-NET-001). Log lines follow SEC-PRV-043 and SEC-OPS-029.
+  Downloading a backup is owner-only step-up, audited and alerted
+  (SEC-OPS-045). Every action writes an audit record (SEC-OPS-020).
 - **Serves:** R1: ADM-113.
 
 #### SUR-082 Welcome (first-run setup)
@@ -1580,27 +2064,54 @@ welcome flow runs before any account exists.
 - **Purpose:** Take a fresh install to a playing library, safely: nobody
   else on the network can claim the server first, and nothing leaves the
   house unless the owner chooses (ACC-001, LIB-108, ACC-113).
-- **Shows:** The steps, in order (**Proposal** for the order): the one-time
-  setup code from the console or log (ACC-001, ADM-018); create the owner
-  account with a passkey, or a password where the page is not a secure
-  context, with a panel explaining why (ACC-002, ADM-019, ADM-021, ACC-050);
-  HTTPS for a domain the owner has (ADM-022); language, region and time zone
-  (ADM-027); privacy choices, with what each provider would send (ADM-028,
+- **Shows:** The steps, in order (**Proposal** for the order): language,
+  region and time zone (ADM-027), held by the page until the claim; the
+  one-time setup code, arriving in the claim link's fragment or typed from
+  the console, with a checksum that catches typos (ACC-001, ADM-018); "Where
+  will people reach this server?", which names the address the passkey will
+  belong to and says it is permanent for passkeys, sends a localhost visit
+  to the configured HTTPS name first, and explains the paths to HTTPS when
+  there is none (ADM-021, ADM-022, ADM-023); a prompt to trust a reverse
+  proxy that is in front of the server but not declared; create the owner
+  account with a passkey only (ACC-002, ADM-019, ACC-050); the recovery
+  kit, confirmed by typing its last four characters, and an offer of a
+  second passkey; privacy choices, with what each provider would send, and
+  the required security-fix question with no answer preselected (ADM-028,
   LIB-108, ACC-113); music folders with live checks (ADM-025, LIB-001,
   LIB-005); "coming from another server?" (ADM-030); and done, with the
-  library usable while the first scan runs (ADM-031, LIB-021). "Restore from
-  a backup" is offered on the first screen and asks where the libraries are
-  now (ADM-029, ADM-051, ADM-069). From R2: movie and TV folders (ADM-026,
+  library usable while the first scan runs (ADM-031, LIB-021). "Restore
+  from a backup" is offered on the first screen, behind the same setup
+  code, and asks for the recovery key and where the libraries are now
+  (ADM-029, ADM-051, ADM-069). From R2: movie and TV folders (ADM-026,
   LIB-002), a transcoding self-test (VID-009), an import summary of ratings
-  found in tags (MUS-045), and setup from a native app with a device key
-  (ADM-035). The welcome flow closes for good once an administrator exists
+  found in tags (MUS-045), and setup from the Android app with a device key
+  (ADM-035). The welcome flow closes for good once the owner exists
   (ADM-020).
 - **Actions:** Each step's choices; skip optional steps; restore instead.
-- **Form factors:** *TV:* **Proposal:** in R2 a TV can complete setup only
-  through ADM-035's device-key flow, with folder choice on a phone. *Phone
-  and tablet:* the web flow at phone width in R1; the native onboarding in
-  R2. *Web and desktop:* the main path.
-- **Serves:** R1: ACC-001, ACC-002, ACC-050, ACC-113, ADM-018, ADM-019, ADM-021, ADM-022, ADM-025, ADM-027, ADM-028, ADM-029, ADM-030, ADM-031, ADM-051, ADM-069, LIB-001, LIB-005, LIB-021, LIB-108. R2: ADM-026, ADM-035, LIB-002, MUS-045, VID-009.
+- **Form factors:** *TV:* not offered. A TV never claims a server, because
+  it is a limited device that can never hold owner or administrator
+  capabilities (SEC-CLI-024, SEC-IAM-059); the owner claims from a phone or
+  computer and pairs the TV afterwards. This replaces the earlier proposal
+  of TV setup through ADM-035. *Phone and tablet:* the web flow at phone
+  width in R1, usually opened by scanning the console's QR code; the native
+  onboarding in R2. *Web and desktop:* the main path.
+- **Security:** until the claim the server answers only this page, its
+  assets, the claim and restore endpoints and a health check, and accepts
+  no sign-in (SEC-IAM-006, SEC-OPS-001, SEC-OPS-003). The page works only in
+  a secure context, the server's HTTPS name or localhost, with a recognised
+  Host (SEC-IAM-008, SEC-IAM-010). The code is 128 bits, lasts 24 hours,
+  survives restarts, never appears in a response or the log, and is moved
+  from the fragment into a request body and off the address bar
+  (SEC-IAM-007, SEC-CLI-013); wrong codes are delayed per source, shown on
+  the host console and never use it up (SEC-IAM-008, SEC-OPS-004). The
+  claim consumes the code, creates the owner and enrols the passkey in one
+  transaction, after which every setup route is gone for good (SEC-IAM-009,
+  SEC-OPS-005, SEC-OPS-006). There is no password path (SEC-IAM-025). A
+  restore needs the same code (SEC-OPS-008) and checks the backup's
+  signature before anything else (SEC-OPS-043). Before the claim the server
+  makes no outbound connection except the name service and its certificate
+  (SEC-OPS-007). Browsing folders and adding roots is step-up (SEC-IAM-041).
+- **Serves:** R1: ACC-001, ACC-002, ACC-050, ACC-113, ADM-018, ADM-019, ADM-021, ADM-022, ADM-023, ADM-025, ADM-027, ADM-028, ADM-029, ADM-030, ADM-031, ADM-051, ADM-069, LIB-001, LIB-005, LIB-021, LIB-108. R2: ADM-026, ADM-035, LIB-002, MUS-045, VID-009.
 
 #### SUR-083 Admin dashboard
 - **Release:** R1.
@@ -1608,33 +2119,63 @@ welcome flow runs before any account exists.
   what needs attention (ADM-109).
 - **Shows:** A health summary (ADM-109) with backup and verification state
   (ADM-065, ADM-072), library roots (ADM-108), free space (ADM-083) and a
-  scan card with bytes read (ADM-088, ADM-031); who is listening now
-  (ADM-099, MUS-190); alerts (ADM-116); banners for known advisories and
-  token expiry (ACC-127, ADM-054, INT-019) and for recovery having been used
-  (ADM-034); an update card (ADM-053); and a menu to restart or shut down
-  (ADM-112). From R2: a checklist that ticks itself (ADM-033), direct play,
-  remux and transcode breakdown (ADM-101), bandwidth and system charts
-  (ADM-104, ADM-105), storage statistics (ADM-082, ADM-107), capability and
-  withdrawn-release notices (ADM-014, ADM-133, ADM-061), and server events
-  (INT-037). From R3: live TV sessions (LIV-161).
-- **Actions:** Open any card's detail, acknowledge, restart.
-- **Form factors:** The general admin rule. On TV this is one of the
-  surfaces shown in full (ADM-114).
-- **Serves:** R1: ACC-127, ADM-031, ADM-034, ADM-054, ADM-065, ADM-072, ADM-083, ADM-088, ADM-099, ADM-108, ADM-109, ADM-112, ADM-116, INT-019, MUS-042, MUS-190. R2: ADM-014, ADM-033, ADM-061, ADM-062, ADM-082, ADM-101, ADM-104, ADM-105, ADM-107, ADM-114, ADM-133, CLI-058, INT-037.
+  scan card with bytes read (ADM-088, ADM-031); a security card: "Reachable
+  from the internet: no", or through which proxy, and which listeners hold
+  globally routable addresses (SEC-NET-028, SEC-OPS-038), the isolation
+  tier (SEC-MED-024), root and capability state, audit verification, backup
+  age and encryption, version support and clock skew (SEC-OPS-061), whether
+  the security-fix check is off (SEC-OPS-047), a reminder until the
+  recovery kit is confirmed (SEC-PRV-040), and the certificate's expiry
+  (SEC-NET-072); who is listening now, without titles unless each person
+  chose to show them (ADM-099, MUS-190); owner alerts (ADM-116), with
+  critical ones as a persistent banner; banners for known advisories (ACC-127,
+  ADM-054) and for recovery having been used (ADM-034); an update card
+  (ADM-053); and a menu to restart or shut down (ADM-112). For the owner:
+  "Rotate all server secrets" (SEC-OPS-018). From R2: a checklist that
+  ticks itself (ADM-033), direct play, remux and transcode breakdown
+  (ADM-101), bandwidth and system charts (ADM-104, ADM-105), storage
+  statistics (ADM-082, ADM-107), capability and withdrawn-release notices
+  (ADM-014, ADM-133, ADM-061), API-key expiry banners (INT-019), and server
+  events (INT-037). From R3: live TV sessions (LIV-161).
+- **Actions:** Open any card's detail, acknowledge, restart, and for the
+  owner rotate secrets (step-up).
+- **Form factors:** The general admin rule. Not on TV, which shows only the
+  alert banner on an admin's profile (ADM-114, SEC-CLI-024).
+- **Security:** the "listening now" card shows person, device, quality and
+  playback method, and the title only for people who turned on "Show what
+  I'm playing to admins"; private sessions never show one; each admin read
+  of live sessions is rate-limited and appears in that person's own
+  security events (SEC-PRV-025, SEC-PRV-024, SEC-IAM-077). The version
+  appears only here and in other signed-in admin views (SEC-NET-047).
+  Rotating secrets invalidates every session and stream URL, keeps device
+  keys enrolled, and alerts the owner and admins (SEC-OPS-018).
+- **Serves:** R1: ACC-127, ADM-031, ADM-034, ADM-054, ADM-065, ADM-072, ADM-083, ADM-088, ADM-099, ADM-108, ADM-109, ADM-112, ADM-116, MUS-042, MUS-190. R2: ADM-014, ADM-033, ADM-061, ADM-062, ADM-082, ADM-101, ADM-104, ADM-105, ADM-107, ADM-114, ADM-133, CLI-058, INT-019, INT-037.
 
 #### SUR-084 Sessions
 - **Release:** R1.
 - **Purpose:** Live sessions, each with its playback decision and the reason
   for it, and the power to stop one with a message (ADM-099, ADM-100,
   ADM-102).
-- **Shows:** Who is playing what on which device, the delivery path and its
-  reason (ADM-100, INT-134, VID-002); from R2, the remux and transcode
+- **Shows:** Who is playing on which device, at what quality and by which
+  playback method, the delivery path and its reason (ADM-100, INT-134,
+  VID-002), and the title only for people who chose to show it; a private
+  session shows as private, with no title. From R2, the remux and transcode
   worker state (VID-005, VID-007, VID-169, VID-171), bandwidth (ADM-104) and
-  a session trace (ADM-126); messages to one person or everyone and
-  scheduled maintenance notices (ACC-074, ADM-103).
+  a session trace (ADM-126), which names the title only when the viewer
+  sent a report; messages to one person or everyone and scheduled
+  maintenance notices (ACC-074, ADM-103).
 - **Actions:** Stop a session with a message (ACC-073, ADM-102, VID-172),
   open the session detail, message people (R2).
-- **Form factors:** The general admin rule; shown in full on TV (ADM-114).
+- **Form factors:** The general admin rule. Not on TV (SEC-CLI-024).
+- **Security:** this replaces "who is playing what": an admin sees that a
+  person is playing, not what, unless that person opted in (SEC-PRV-025;
+  owner to confirm, security README decision 5). Admin reads of live
+  sessions are rate-limited and recorded in each person's own security
+  events (SEC-IAM-077). Stopping a session refuses its next request and cuts
+  its open stream within 5 seconds (SEC-IAM-043); administrators can stop
+  any session except the owner's (SEC-IAM-044). The message is plain text,
+  shown as text (SEC-API-046). There is no way to act as another person
+  (SEC-PRV-026).
 - **Serves:** R1: ACC-072, ACC-073, ADM-099, ADM-100, ADM-102, INT-134. R2: ACC-074, ADM-103, ADM-104, ADM-126, INT-136, VID-002, VID-005, VID-007, VID-169, VID-171, VID-172.
 
 #### SUR-085 Libraries and library settings
@@ -1656,18 +2197,34 @@ welcome flow runs before any account exists.
   recommendation plugins (DIS-076), locks (LIB-175), I/O profile per root
   (ADM-087), and refresh modes (LIB-119).
 - **Actions:** Add a library, scan now (LIB-012), rescan a folder or item,
-  edit settings, change location, rebuild.
+  edit settings, change location, rebuild, choose who may see a library.
 - **Form factors:** The general admin rule. "Scan now" is also on the phone
-  and TV dashboard in R2 (CLI-058).
+  dashboard in R2 (CLI-058); not on TV (SEC-CLI-024).
+- **Security:** adding, removing or moving a root, and opening the folder
+  picker, are step-up actions (SEC-IAM-041, SEC-TM-017). The picker lists
+  directories only, inside the configured browse roots, and refuses a
+  filesystem root, a system directory, or a folder that holds the server's
+  own data, cache, configuration or logs, saying why (SEC-API-022,
+  SEC-MED-037). Roots are opened read-only, and the page warns when the
+  service account could write to one (SEC-MED-038, SEC-OPS-054). A new
+  library is visible only to the owner and admins until someone is granted
+  it (SEC-IAM-070); a grant applies from the next request (SEC-IAM-076).
+  Turning on MusicBrainz or cover-art lookups for a library is an egress
+  grant, shown with the fields each provider receives (SEC-PRV-013,
+  SEC-PRV-014).
 - **Serves:** R1: ADM-025, ADM-051, ADM-085, ADM-088, ADM-108, DIS-012, LAT-010, LIB-001, LIB-003, LIB-004, LIB-006, LIB-007, LIB-012, LIB-013, LIB-014, LIB-015, LIB-024, LIB-031, LIB-038, LIB-136, LIB-179, MUS-035. R2: ADM-087, DIS-076, DIS-134, LAT-093, LIB-002, LIB-010, LIB-055, LIB-061, LIB-119, LIB-128, LIB-129, LIB-167, LIB-175, LIB-183, MUS-016.
 
 #### SUR-086 Library health
 - **Release:** R1.
 - **Purpose:** Every problem the scanner found, in one place, each with a
   fix where one exists (MUS-044).
-- **Shows:** Damaged and unreadable files (LIB-193, MUS-229, MUS-079), tag
-  problems with fix actions (LIB-194, LIB-038, LIB-049), same-name artist
-  collisions (MUS-006), sidecar problems such as LRC files (LIB-068,
+- **Shows:** Damaged and unreadable files (LIB-193, MUS-229, MUS-079),
+  files quarantined after crashing or hanging the scan worker twice, with
+  the reason and a retry (SEC-MED-019), the scan worker's isolation tier
+  with a "reduced isolation" notice when the host cannot apply the full
+  sandbox (SEC-MED-024), tag problems with fix actions (LIB-194, LIB-038,
+  LIB-049), same-name artist collisions (MUS-006), sidecar problems such as
+  LRC files (LIB-068,
   MUS-155), missing files (LIB-034), moved files (MUS-038), offline roots
   (LIB-032) and watch warnings (LIB-014). From R2: remap a missing file by
   hand (LIB-035), naming (LIB-084), files that need indexing (LIB-089),
@@ -1724,29 +2281,65 @@ welcome flow runs before any account exists.
   undo plus a recent-changes list (LIB-178, LIB-030, INT-120).
 - **Actions:** Merge, split, alias, edit, lock, choose artwork, fix a match,
   undo.
-- **Form factors:** *TV:* a simplified edit sheet, as LIB-172 asks, with
-  choice fields rather than free text (**Proposal**). Otherwise the general
-  admin rule.
+- **Form factors:** *TV:* not offered. LIB-172 names the TV, but editing
+  the library is an administrator capability, and a TV is a limited device
+  that the server refuses admin operations from (SEC-CLI-024,
+  SEC-IAM-049); the TV offers a QR code to open the item's edit sheet on a
+  phone or computer. Otherwise the general admin rule.
+- **Security:** every edit is a logged event attributed to the admin who
+  made it (SEC-OPS-020). Uploaded artwork goes through the upload route and
+  is re-encoded by memory-safe decoders (SEC-API-085, SEC-MED-061,
+  SEC-PRV-006); an artwork link is fetched by the server only through the
+  egress client, never from a URL a user typed into a request
+  (SEC-API-080). Names and fields are stored as text and never written back
+  into media folders (SEC-MED-038).
 - **Serves:** R1: LIB-041, LIB-048, LIB-058, LIB-135, MUS-007. R2: ACC-024, INT-141, LIB-100, LIB-101, LIB-111, LIB-112, LIB-113, LIB-118, LIB-119, LIB-121, LIB-126, LIB-138, LIB-139, LIB-140, LIB-141, LIB-144, LIB-156, LIB-172, LIB-173, LIB-174, LIB-176, LIB-178, LIB-180, LIB-186, MUS-018, MUS-025, MUS-046, MUS-138.
 
 #### SUR-090 Users and invitations
 - **Release:** R1.
 - **Purpose:** Local accounts with no vendor account, invited by link or QR
   code (ACC-006, ACC-080).
-- **Shows:** Users with their libraries (ACC-037, MUS-027) and an enable
-  switch (ACC-008); several administrators (ACC-040); "help sign in" with a
-  QR code for a locked-out user (ACC-064); handing the server to a new owner
-  by adding an admin and removing yourself (ADM-052); invitations
-  (ACC-080). From R2: per-person playback, download, quality, device and
+- **Shows:** Users with their libraries (ACC-037, MUS-027), their role,
+  their device count and last sign-in, and an enable switch (ACC-008);
+  several administrators (ACC-040); "help sign in" for a locked-out member
+  or guest, which shows a one-time recovery QR code on this screen for the
+  person to scan while present, or sends it to a device they already
+  approved (ACC-064); handing the server to a new owner by a transfer the
+  recipient accepts (ADM-052); invitations with their address, expiry, uses
+  and status, including those waiting for the inviter to confirm a
+  matching code (ACC-080); and everyone's share links, with revoke
+  (ACC-089). From R2: per-person playback, download, quality, device and
   remote-access rights (ACC-043, ACC-044, ACC-076, ACC-103, ACC-107,
-  ACC-108); memberships that end on a date (ACC-081); invite options and
-  QR codes that carry the server's address (ACC-083); and re-inviting people
-  from an old server (ACC-084).
-- **Actions:** Invite, disable, change access, help sign in, make an
-  administrator.
+  ACC-108); memberships that end on a date (ACC-081); and invite options
+  and QR codes that carry the server's address (ACC-083). Re-inviting people
+  from an old server (ACC-084) is Later, with the rival importers.
+- **Actions:** Invite, confirm a pending invitee's matching code, disable,
+  end someone's sessions, change access, help sign in, make an
+  administrator (owner only), transfer ownership (owner only), revoke a
+  share.
 - **Form factors:** The general admin rule; managing users from the phone is
-  named in CLI-058.
-- **Serves:** R1: ACC-006, ACC-008, ACC-037, ACC-040, ACC-064, ACC-080, ADM-052, MUS-027. R2: ACC-043, ACC-044, ACC-076, ACC-081, ACC-083, ACC-084, ACC-103, ACC-107, ACC-108.
+  named in CLI-058. Not on TV (SEC-CLI-024).
+- **Security:** an invitation's preset can never exceed the inviter's own
+  rights; it carries a 128-bit secret in the fragment, lasts 7 days and one
+  use by default, and the screen shows the address the link carries
+  (SEC-IAM-073, SEC-IAM-078, SEC-NET-015). An invitation that confers member
+  or household access, or more than one library, leaves the new account
+  pending with no grants until the inviter confirms a short matching code
+  after seeing the redeeming device's description (SEC-IAM-079). Recovery
+  links: administrators for members and guests, the owner for
+  administrators, nobody for the owner; redeemed in person or on an
+  approved device; they start the 72-hour hold, during which the account's
+  history stays hidden from the new credential (SEC-IAM-091, SEC-IAM-106).
+  Only the owner creates or promotes administrators, with step-up, and
+  every administrator is alerted (SEC-IAM-075, SEC-OPS-034). Ownership moves
+  only when the current owner and the recipient each confirm with a passkey
+  check in the previous 5 minutes; the owner can never be deleted, disabled
+  or demoted (SEC-IAM-003). Disabling ends the account's sessions at once
+  (SEC-IAM-103), and any change to a person's credentials, role or access is
+  shown to them at their next sign-in (SEC-PRV-026). This page never shows
+  anyone's history, and there is no "sign in as" (SEC-PRV-025,
+  SEC-PRV-026). This replaces "add an admin and remove yourself".
+- **Serves:** R1: ACC-006, ACC-008, ACC-037, ACC-040, ACC-064, ACC-080, ACC-089, ADM-052, MUS-027. R2: ACC-043, ACC-044, ACC-076, ACC-081, ACC-083, ACC-103, ACC-107, ACC-108.
 
 #### SUR-091 Household, policies, devices and shares
 - **Release:** R2.
@@ -1756,48 +2349,95 @@ welcome flow runs before any account exists.
   ACC-018); household devices (ACC-021); named policies and their defaults
   (ACC-038, ACC-039); stream and transcode limits (ACC-075, ACC-111,
   VID-173); playback-mode rights and quality floors (VID-010, VID-029);
-  devices and their offline copies, with revoke (ACC-045, CLI-096);
-  everyone's shares (ACC-089); and what admins may see (ACC-116).
+  devices and their offline copies, with revoke (ACC-045, CLI-096); and
+  everyone's shares, including video links once the owner enables them
+  (ACC-089). The earlier "what admins may see" setting (ACC-116) is gone
+  from here: no server setting can widen what admins see, and the one
+  choice belongs to each person (SUR-132, SEC-PRV-025).
 - **Actions:** Create and assign policies, revoke a device's downloads,
-  revoke a share.
+  wake or remove a dormant household device, revoke a share.
 - **Form factors:** The general admin rule.
-- **Serves:** R2: ACC-016, ACC-018, ACC-021, ACC-038, ACC-039, ACC-045, ACC-075, ACC-089, ACC-111, ACC-116, CLI-096, VID-010, VID-029, VID-173.
+- **Security:** household devices work only on the home network by default,
+  go dormant after 30 days unused, and never carry administrator
+  capabilities (SEC-IAM-109, SEC-IAM-049; owner to confirm, security README
+  decision 16). Enrolling one needs the household-device capability, and a
+  remote or typed-code enrolment can never create one (SEC-IAM-059).
+  Policies can never grant more than their creator holds (SEC-IAM-073), and
+  a policy default never sets a privacy setting to anything but its most
+  private value (SEC-PRV-023).
+- **Serves:** R2: ACC-016, ACC-018, ACC-021, ACC-038, ACC-039, ACC-045, ACC-075, ACC-089, ACC-111, CLI-096, VID-010, VID-029, VID-173.
 
 #### SUR-092 Sign-in and security settings
 - **Release:** R1.
-- **Purpose:** The server's sign-in rules.
+- **Purpose:** The server's sign-in rules. Owner only (SEC-IAM-075).
 - **Shows:** Single sign-on through the owner's OIDC provider (ACC-057),
-  protection against guessing and its current state (ACC-063), and session
-  lifetimes (ACC-079). From R2: required strong sign-in (ACC-054) and
-  provider claims mapped to policies (ACC-058).
-- **Actions:** Configure, test the provider, change lifetimes.
+  with automatic sign-up off and claims mapped to administrator off
+  (SEC-IAM-030, SEC-IAM-031); protection against guessing and its current
+  state (ACC-063); session lifetimes, which the owner may shorten but never
+  lengthen beyond 30 days for browsers and 15 minutes idle or 1 hour for
+  admin sessions (ACC-079, SEC-IAM-041); the recovery-hold length, 24 to
+  72 hours (SEC-IAM-106); and remote administration, off by default
+  (SEC-NET-045). From R2: requiring a passkey rather than the provider alone
+  (ACC-054) and provider claims mapped to policies (ACC-058).
+- **Actions:** Configure, test the provider, shorten lifetimes, turn remote
+  administration on or off.
 - **Form factors:** The general admin rule.
+- **Security:** every change here is an owner step-up action, audited, and
+  a loosening raises an owner alert (SEC-IAM-041, SEC-OPS-031). The
+  provider's client secret is kept encrypted and never shown again
+  (SEC-OPS-017). A provider can never make anyone the owner, and a provider
+  sign-in alone never satisfies step-up (SEC-IAM-031, SEC-IAM-107). There
+  is no switch for passwords, passwordless "home network" sign-in or
+  disabling authentication (SEC-IAM-025, SEC-HIS-004).
 - **Serves:** R1: ACC-057, ACC-063, ACC-079. R2: ACC-054, ACC-058.
 
 #### SUR-093 Network and remote access
-- **Release:** R1 (reverse proxy, path prefix, HTTPS, privacy and network
-  activity). R2 (iroh remote access, relays and upload budgets).
-- **Purpose:** How the server is reached, and a truthful list of every
-  outbound connection it makes.
-- **Shows:** Reverse-proxy and VPN settings (ACC-097), a path prefix
-  (ACC-134), HTTPS served by the server (ACC-098, ADM-022), privacy choices
-  (ADM-028), and the network activity page (ADM-129). From R2: remote access
-  with no open ports (ACC-096), self-hosted and default relays (ACC-100,
-  ACC-101), the upload budget (ACC-109) and remux and transcode bandwidth
-  limits (VID-028, VID-030).
-- **Actions:** Configure, test (the connectivity check is in SUR-102).
+- **Release:** R1 (posture, trusted proxies, path prefix, HTTPS and naming,
+  privacy and network activity). R2 (iroh remote access, relays, the
+  browser edge and upload budgets).
+- **Purpose:** How the server is reached, who can reach it, and a truthful
+  list of every outbound connection it makes.
+- **Shows:** The posture in plain words, "Reachable from the internet: no",
+  or through which proxy, with any listener on a globally routable address
+  and a note that the server cannot see the router (SEC-NET-028,
+  SEC-OPS-038); trusted proxies, each declared as a private overlay or as
+  public, with any undeclared proxy seen and a one-step "Trust it"
+  (ACC-097, SEC-NET-017, SEC-NET-019); a detected container gateway or NAT
+  front-end with its fixes (SEC-NET-068); a path prefix (ACC-134); HTTPS
+  and naming: the per-server name, the owner's own domain with automatic
+  certificates, or a tailnet, with the certificate's expiry and Certificate
+  Transparency monitoring for the per-server name (ACC-098, ACC-099,
+  ADM-022, ADM-023, SEC-NET-069, SEC-NET-072); privacy choices (ADM-028);
+  and the network activity page, which lists every outbound destination
+  and the feature that caused it (ADM-129, SEC-NET-032). From R2: remote
+  access with no open ports (ACC-096), the browser edge, off until the
+  owner turns it on (ACC-102, SEC-NET-043), self-hosted and default relays
+  with what the relay operator can see (ACC-100, ACC-101, SEC-NET-039), the
+  upload budget (ACC-109) and remux and transcode bandwidth limits
+  (VID-028, VID-030).
+- **Actions:** Configure, trust a proxy, renew a certificate now, test (the
+  connectivity check is in SUR-102).
 - **Form factors:** The general admin rule.
-- **Serves:** R1: ACC-097, ACC-098, ACC-134, ADM-022, ADM-028, ADM-129. R2: ACC-096, ACC-100, ACC-101, ACC-109, VID-028, VID-030.
+- **Security:** owner only. Trusted proxies, posture and remote access,
+  TLS and naming, and egress policy are step-up actions, audited and
+  announced to every admin (SEC-IAM-041, SEC-TM-017). Leaving the home
+  posture raises an alert at the first internet-posture request
+  (SEC-OPS-038). There is no port-mapping switch for the web listeners, and
+  iroh's is off unless the owner turns it on (SEC-NET-030, SEC-OPS-040).
+  The trusted-proxy list starts empty, and forwarding headers from anyone
+  else are ignored (SEC-NET-016).
+- **Serves:** R1: ACC-097, ACC-098, ACC-099, ACC-134, ADM-022, ADM-023, ADM-028, ADM-129. R2: ACC-096, ACC-100, ACC-101, ACC-109, VID-028, VID-030.
 
 #### SUR-094 Integrations, tokens and webhooks
-- **Release:** R1 (tokens). R2 (webhooks, connection recipes and the
-  integrations inventory).
+- **Release:** R2. API keys move from R1 to R2 with the baseline (security
+  README decision 8, owner to confirm), so this surface has nothing to show
+  in R1.
 - **Purpose:** Let other tools in, narrowly, and send events out, safely.
-- **Shows:** In R1: the token list, editor and detail, with scope by
-  library, root and user (INT-017, INT-018, ACC-049), expiry and rotation
-  (INT-019), last use and audit trail (INT-020), usage and throttling
-  (INT-012), change-feed position (INT-006), revoke one or all (INT-021),
-  and the no-escalation error (INT-022). From R2: connection recipes for
+- **Shows:** The key list, editor and detail, with scope by library and
+  root within the creator's own rights (INT-017, INT-018, ACC-049), expiry
+  and rotation (INT-019), last use and audit trail (INT-020), usage and
+  throttling (INT-012), change-feed position (INT-006), revoke one or all
+  (INT-021), and the no-escalation error (INT-022). Also connection recipes for
   Lidarr, Sonarr, Radarr, Bazarr, Seerr, Music Assistant and statistics
   tools (INT-025, INT-011, INT-097, INT-118, INT-119, INT-121, INT-124,
   INT-133); the integrations inventory (INT-029) and tokens still calling
@@ -1806,11 +2446,27 @@ welcome flow runs before any account exists.
   button (INT-030 to INT-047, INT-049); the library event log (LIB-027);
   refresh tokens for download tools (LIB-026); and the Prometheus switch
   (INT-135). From R3: live TV and recording events (INT-053).
-- **Actions:** Create, scope, rotate and revoke tokens; create, test and
+- **Actions:** Create, scope, rotate and revoke keys; create, test and
   redeliver webhooks.
 - **Form factors:** The general admin rule; the template editor is a
   wide-screen editor.
-- **Serves:** R1: ACC-049, INT-006, INT-011, INT-012, INT-017, INT-018, INT-019, INT-020, INT-021, INT-022. R2: INT-002, INT-025, INT-029, INT-030, INT-031, INT-032, INT-033, INT-034, INT-035, INT-036, INT-037, INT-038, INT-039, INT-040, INT-041, INT-042, INT-043, INT-044, INT-045, INT-046, INT-047, INT-049, INT-097, INT-118, INT-119, INT-121, INT-124, INT-133, INT-135, LIB-026, LIB-027. R3: INT-053.
+- **Security:** a key is a 256-bit secret shown once and stored only as a
+  keyed hash; its scopes come from a fixed list with no "all" and never
+  include administrator, owner-only or host-equivalent rights, and never
+  exceed the creator's own (SEC-EXT-008, SEC-EXT-010, SEC-IAM-083).
+  Creating or changing a key needs an interactive session with step-up;
+  no key can manage credentials (SEC-EXT-012). Keys expire, 365 days by
+  default, and are disabled after 180 days unused, with a warning 14 days
+  ahead (SEC-EXT-013). Webhooks stay off until the owner enables them with
+  a list of allowed destination hosts; payloads carry only the fields
+  listed for each event type, and events about a person's playback go only
+  to their own webhooks or to admin webhooks they opted into; every
+  delivery is signed; destinations are masked after creation; and the
+  delivery log and test button show only success or failure (SEC-EXT-045
+  to SEC-EXT-048). Metrics are off by default, and when on listen only on
+  loopback or need a metrics-only key, with no per-user data
+  (SEC-NET-046, SEC-OPS-059).
+- **Serves:** R2: ACC-049, INT-006, INT-011, INT-012, INT-017, INT-018, INT-019, INT-020, INT-021, INT-022, INT-002, INT-025, INT-029, INT-030, INT-031, INT-032, INT-033, INT-034, INT-035, INT-036, INT-037, INT-038, INT-039, INT-040, INT-041, INT-042, INT-043, INT-044, INT-045, INT-046, INT-047, INT-049, INT-097, INT-118, INT-119, INT-121, INT-124, INT-133, INT-135, LIB-026, LIB-027. R3: INT-053.
 
 #### SUR-095 Plugins and providers
 - **Release:** R2.
@@ -1821,14 +2477,30 @@ welcome flow runs before any account exists.
   (INT-060, INT-065), the permission review sheet (INT-055), plugin detail
   with network allowlist, network log, limits, data and status (INT-056,
   INT-057, INT-061 to INT-063), generated settings forms (INT-059),
-  first-party plugins (INT-066), adding a third-party plugin by URL
-  (INT-067), developer mode (INT-069); the providers list with TMDB and its
+  first-party plugins (INT-066), third-party plugins from a plugin index
+  the owner added after confirming its root key fingerprint (INT-067), a
+  persistent banner naming every unsigned plugin when developer mode is on
+  in the server's configuration file (INT-069); pending updates, which stay
+  inactive until approved; the providers list with TMDB and its
   attribution (LIB-109), order and fallback per library (LIB-116, LIB-117,
   INT-077) and provider status (LIB-120); and the grant prompts that appear
   when a feature needs a network grant (VID-087, MUS-162; LIV-015 in R3).
-- **Actions:** Review and grant, enable, disable, configure, reorder
-  providers.
-- **Form factors:** The general admin rule.
+- **Actions:** Review and grant, enable, disable, configure, approve an
+  update, add an index, reorder providers.
+- **Form factors:** The general admin rule. Per-user plugin consent happens
+  on phone, web or desktop, never on a TV (SEC-EXT-039).
+- **Security:** installing, updating, granting permissions to and removing
+  plugins, and adding an index, are owner-only step-up actions, audited and
+  alerted without a mute (SEC-EXT-038, SEC-OPS-034). Nothing runs until the
+  owner has read the plain-language permission screen generated from the
+  manifest (SEC-EXT-039). A plugin installs only if its signature verifies
+  through a trusted index; there is no install from a bare URL, and
+  developer mode cannot be switched on from any screen (SEC-EXT-035,
+  SEC-EXT-037). Updates wait for approval unless the owner opted that
+  plugin in to unchanged-permission updates after 72 hours (SEC-EXT-040).
+  An index can only advise; it can never disable anything (SEC-EXT-041).
+  Until the plugin host's requirements pass, no plugin runs at all
+  (SEC-EXT-018).
 - **Serves:** R2: INT-054, INT-055, INT-056, INT-057, INT-059, INT-060, INT-061, INT-062, INT-063, INT-065, INT-066, INT-067, INT-069, INT-077, LIB-107, LIB-109, LIB-116, LIB-117, LIB-120, MUS-162, VID-087. R3: LIV-015.
 
 #### SUR-096 Compatibility adapters
@@ -1836,54 +2508,107 @@ welcome flow runs before any account exists.
 - **Purpose:** The OpenSubsonic adapter and the Jellyfin adapter's music
   subset, off by default and under the same authorisation rules (ACC-130,
   INT-086, INT-098).
-- **Shows:** Each adapter's switch and guardrails (INT-094), the apps that
-  have connected (INT-096), certified clients and their quirks (INT-095),
-  and the music settings for the adapter (MUS-207).
+- **Shows:** Each adapter's switch and guardrails (INT-094), its own port
+  and the HTTPS address apps must use, the apps that have connected
+  (INT-096), certified clients and their quirks (INT-095), the music
+  settings for the adapter (MUS-207), and any app key a person has marked
+  as legacy.
 - **Actions:** Enable, disable, revoke an app.
 - **Form factors:** The general admin rule.
+- **Security:** enabling an adapter is an owner step-up action, enrols
+  nobody, and disabling it ends all its sessions at once (SEC-EXT-051). An
+  adapter listens on its own port, never reads or sets cookies, exposes no
+  administrative, user-management, file-browsing or share-management
+  endpoint, and refuses every credential over plain HTTP (SEC-EXT-052,
+  SEC-EXT-055, SEC-EXT-066). "Now playing" lists only the caller's own
+  sessions (SEC-PRV-032). Token-and-salt sign-in stays refused unless the
+  owner approves a written exception (SEC-EXT-069; owner to confirm,
+  security README decision 8).
 - **Serves:** R2: ACC-130, INT-086, INT-094, INT-095, INT-096, INT-098, MUS-207.
 
 #### SUR-097 Migration
-- **Release:** R1 (listening-service files and playlists). R2 (rival
-  servers).
+- **Release:** R1 (listening-service files and playlists). R2 (an iTunes
+  library file, dry runs, undo and mirror mode). Importers for rival
+  servers' databases are Later, as the baseline's release table places them
+  (SEC-TM-074).
 - **Purpose:** Bring a household's history and playlists over from where
   they were, with reasons for every match (ADM-030, ADM-044).
-- **Shows:** In R1: Last.fm and ListenBrainz export files (ADM-042), bulk
-  playlist import with a match report (ADM-043), and the review of
-  unmatched items (ADM-044). From R2: Plex, Jellyfin, Emby, Navidrome and
-  iTunes imports (ADM-036 to ADM-041, MUS-141), a dry-run report (ADM-045),
-  undo (ADM-046), importing over a rival's API (ADM-047), users as
-  invitations (ADM-048, ACC-084), syncing again during a switch (ADM-049),
-  mirror mode (INT-116), Navidrome smart playlists (MUS-148, DIS-125), and
-  the first-run import summary (MUS-045).
+- **Shows:** In R1: Last.fm and ListenBrainz export files, imported into the
+  importing person's own history only (ADM-042), bulk playlist import with a
+  match report (ADM-043), and the review of unmatched items (ADM-044). From
+  R2: an iTunes library file (ADM-041), a dry-run report (ADM-045), undo
+  (ADM-046), mirror mode (INT-116), Navidrome smart playlists (MUS-148,
+  DIS-125), and the first-run import summary (MUS-045). Later: Plex,
+  Jellyfin, Emby and Navidrome database imports (ADM-036 to ADM-040,
+  MUS-141), importing over a rival's API (ADM-047), users as invitations
+  (ADM-048, ACC-084) and syncing again during a switch (ADM-049).
 - **Actions:** Upload or connect, review matches, import, undo (R2).
 - **Form factors:** The general admin rule.
-- **Serves:** R1: ADM-030, ADM-042, ADM-043, ADM-044. R2: ACC-084, ADM-036, ADM-037, ADM-038, ADM-039, ADM-040, ADM-041, ADM-045, ADM-046, ADM-047, ADM-048, ADM-049, DIS-125, INT-116, MUS-045, MUS-141, MUS-148.
+- **Security:** files arrive only through the upload route, within type,
+  size and per-person limits, and are parsed in the core under its budgets
+  (SEC-API-085, SEC-API-088). An admin's import writes only the admin's own
+  history; each other adult imports their own from Account > Your data,
+  because no admin may write, read or export another adult's history
+  (SEC-PRV-022, SEC-PRV-025). Imported playlist entries match only items the
+  importer can see (SEC-MED-051). When the Later importers come, a rival's
+  database is opened read-only in a jailed worker (SEC-STD-031), and
+  reading a rival's API is an owner step-up egress grant (SEC-IAM-041).
+- **Serves:** R1: ADM-030, ADM-042, ADM-043, ADM-044. R2: ADM-041, ADM-045, ADM-046, DIS-125, INT-116, MUS-045, MUS-148.
 
 #### SUR-098 Backups and export
 - **Release:** R1.
-- **Purpose:** Tiny daily backups on by default, verified, downloadable and
-  restorable with a preview (ADM-065, ADM-070).
-- **Shows:** The backup list with status and verification (ADM-065,
-  ADM-072), pre-upgrade snapshots (ADM-056), each backup's contents in plain
-  words (ADM-066), the identity store and derived data included (ACC-013,
-  ADM-141), download and upload (ADM-069), restore with a restore point and
-  preview (ADM-070), and a full export in documented formats (ADM-074).
-  From R2: cache snapshots (ADM-067), encryption (ADM-068) and off-site
-  destinations (ADM-073).
-- **Actions:** Back up now, download, restore, export, configure.
+- **Purpose:** Tiny daily backups on by default, encrypted, signed,
+  verified, downloadable and restorable with a preview (ADM-065, ADM-068,
+  ADM-070).
+- **Shows:** The backup list with status, verification and encryption
+  (ADM-065, ADM-072, ADM-068), pre-upgrade snapshots (ADM-056), each
+  backup's contents in plain words, including the audit log and its latest
+  signed checkpoint (ADM-066, SEC-OPS-024), the identity store and derived
+  data included (ACC-013, ADM-141), how long backups are kept, 14 days by
+  default (SEC-PRV-041), the recovery kit's status and "Make a new kit"
+  (SEC-PRV-040), download and upload (ADM-069), restore with a restore
+  point and preview (ADM-070), and the server's own settings export
+  (ADM-074). From R2: cache snapshots (ADM-067) and off-site destinations,
+  which receive only the encrypted file (ADM-073).
+- **Actions:** Back up now, download (owner), restore (owner), make a new
+  recovery kit, export settings, configure.
 - **Form factors:** The general admin rule.
-- **Serves:** R1: ACC-013, ADM-056, ADM-065, ADM-066, ADM-069, ADM-070, ADM-072, ADM-074, ADM-141. R2: ADM-067, ADM-068, ADM-073.
+- **Security:** every backup is encrypted in age v1 to the server's backup
+  key and the owner's recovery key, and signed; there is no unencrypted
+  option (SEC-PRV-039, SEC-OPS-042, SEC-OPS-043). Encryption moves from R2
+  to R1. Downloading or restoring a backup is an owner-only step-up action,
+  audited and alerted (SEC-OPS-045, SEC-IAM-041). Restore checks the
+  signature first, shows which server made the backup and its key
+  fingerprint, and afterwards rotates all keys, invalidates every session,
+  holds any setting looser than today's defaults and suspends restored
+  devices until confirmed (SEC-OPS-043, SEC-OPS-044). Backups are never
+  written under a web-served path or into a media root (SEC-OPS-045). The
+  export here is the server's settings and the owner's own data only: each
+  person exports their own data from Account > Your data, and no admin can
+  export another adult's history (SEC-PRV-025, SEC-PRV-047). This replaces
+  the earlier whole-server "full export".
+- **Serves:** R1: ACC-013, ADM-056, ADM-065, ADM-066, ADM-068, ADM-069, ADM-070, ADM-072, ADM-074, ADM-141. R2: ADM-067, ADM-073.
 
 #### SUR-099 Updates
 - **Release:** R1.
 - **Purpose:** An opt-in update check from a signed feed, with the rollback
   safety of every release stated (ADM-053, ADM-060).
-- **Shows:** The current version, available updates, advisories (ADM-054)
-  and rollback safety (ADM-060). From R2: release channels (ADM-055) and
-  plugin compatibility before upgrading (ADM-063, INT-072).
-- **Actions:** Check now, read notes, switch channel (R2).
+- **Shows:** Whether the security-fix check is on, as the owner answered at
+  setup (SEC-OPS-047); the current version, available updates, advisories
+  that affect it and its end-of-support date (ADM-054, SEC-OPS-070); "Can't
+  confirm you're up to date" after 7 days without a valid feed
+  (SEC-SUP-050); and each release's upgrade notes: whether it migrates
+  data, whether it can be rolled back, and which security defaults changed
+  (ADM-060, SEC-OPS-052). From R2: release channels (ADM-055) and plugin
+  compatibility before upgrading (ADM-063, INT-072).
+- **Actions:** Check now, read notes, turn the check on or off (owner,
+  step-up, since it is an egress grant), switch channel (R2).
 - **Form factors:** The general admin rule.
+- **Security:** the feed is static, signed and checked against a trust root
+  built into the binary; the request carries no version or identifier, and
+  matching happens on the server (SEC-OPS-019, SEC-SUP-051). The server
+  never updates itself; this page only informs (SEC-OPS-046). The version
+  is shown only to signed-in admins (SEC-NET-047).
 - **Serves:** R1: ADM-053, ADM-054, ADM-060. R2: ADM-055, ADM-063, INT-072.
 
 #### SUR-100 Tasks and activity
@@ -1895,29 +2620,59 @@ welcome flow runs before any account exists.
   header (LIB-022), including "0 changed", bytes read, moved files and
   re-reads after a parser update (LIB-016, LIB-017, LIB-019, LIB-025,
   LIB-029); loudness analysis progress (MUS-086, LIB-066, LIB-024);
-  upgrades marked as upgrades (DIS-038); path-scoped refreshes (INT-011);
-  and sign-in, admin and recovery events (ACC-078, ADM-034). From R2:
-  reprioritise and cancel (LIB-023), schedules and a maintenance window
-  (ADM-094), concurrency and pause (ADM-096), optimisation (ADM-081),
-  plugin tasks (INT-071) and intro detection jobs (VID-112).
+  upgrades marked as upgrades (DIS-038); and sign-in, admin and recovery
+  events (ACC-078, ADM-034), which open the security log (SUR-108). From
+  R2: path-scoped refreshes (INT-011), reprioritise and cancel (LIB-023),
+  schedules and a maintenance window (ADM-094), concurrency and pause
+  (ADM-096), optimisation (ADM-081), plugin tasks (INT-071) and intro
+  detection jobs (VID-112).
 - **Actions:** Run, cancel, filter, open the item.
-- **Form factors:** The general admin rule; shown on TV (ADM-114).
-- **Serves:** R1: ACC-078, ADM-034, ADM-093, ADM-095, ADM-110, DIS-038, INT-011, LIB-016, LIB-017, LIB-019, LIB-022, LIB-024, LIB-025, LIB-029, LIB-066, MUS-086. R2: ADM-081, ADM-094, ADM-096, INT-071, LIB-023, VID-112.
+- **Form factors:** The general admin rule. Not on TV (SEC-CLI-024).
+- **Security:** activity entries name files and libraries but never what a
+  person played (SEC-PRV-025). Security events live in the audit log, read
+  in SUR-108.
+- **Serves:** R1: ACC-078, ADM-034, ADM-093, ADM-095, ADM-110, DIS-038, LIB-016, LIB-017, LIB-019, LIB-022, LIB-024, LIB-025, LIB-029, LIB-066, MUS-086. R2: ADM-081, ADM-094, ADM-096, INT-011, INT-071, LIB-023, VID-112.
 
 #### SUR-101 Alerts and logs
 - **Release:** R1.
 - **Purpose:** Tell the administrator when something needs attention,
   through destinations that cost nothing (ADM-116), and keep structured
   logs (ADM-119).
-- **Shows:** Alert rules and destinations (ADM-116), free-space alerts
-  (ADM-083), log settings with rotation (ADM-119), and sign-in failure
-  lines for fail2ban (ADM-122). From R2: an alert inbox with acknowledge and
-  snooze (ADM-117), a log viewer (ADM-118), log levels per module with
-  automatic revert (ADM-120), and plugin failures (INT-062). From R3:
-  source, guide and recording alerts (LIV-044, LIV-060, LIV-061, LIV-132,
-  LIV-155, LIV-156).
-- **Actions:** Configure, acknowledge (R2), read and filter logs (R2).
+- **Shows:** Alert rules and destinations (ADM-116), with the security
+  alerts the owner receives and which of them can be muted: in R1, the
+  in-app notice centre on every device the recipient is signed in on
+  (SUR-003); free-space alerts (ADM-083); log settings with rotation
+  (ADM-119); and sign-in failure lines for fail2ban (ADM-122). The owner's
+  security alerts, in R1: a new device or credential on any admin account,
+  and on any account to its holder; repeated failed sign-ins; a new user,
+  an invitation redeemed, a role or library access raised, a new admin;
+  internet exposure or an undeclared proxy; owner recovery; a backup
+  downloaded or restored, and the "review devices and access" list after a
+  restore; keys rotated; a security setting loosened outside the app; the
+  certificate expiring in 30 or 7 days; a certificate the server did not
+  ask for; an audit verification failure; and a running version affected by
+  an advisory or out of support (SEC-OPS-031, SEC-OPS-032, SEC-OPS-044,
+  SEC-NET-027, SEC-NET-069, SEC-NET-072). From R2: an alert inbox with
+  acknowledge and snooze (ADM-117), opt-in email and webhook destinations
+  that carry only the event type, time and a link (SEC-OPS-035), a log
+  viewer (ADM-118), log levels per module with automatic revert (ADM-120),
+  and plugin failures (INT-062). From R3: source, guide and recording
+  alerts (LIV-044, LIV-060, LIV-061, LIV-132, LIV-155, LIV-156).
+- **Actions:** Configure, acknowledge (R2), read and filter logs (R2). On a
+  device or credential alert, "It was me" or "It wasn't me" (SEC-OPS-033).
 - **Form factors:** The general admin rule.
+- **Security:** alerts for a new admin, a new credential or device on an
+  owner or admin account, owner recovery, internet exposure, a plugin
+  install or permission grant, and an audit integrity failure have no mute
+  switch; they can only be batched, with every distinct device listed
+  (SEC-OPS-034). Re-signing in with a known passkey on a known device
+  raises nothing, nobody is alerted about their own interactive action,
+  and non-critical alerts form a daily summary (SEC-OPS-032, SEC-OPS-034).
+  Diagnostic logs default to info, never record request bodies, query
+  strings, cookies or titles, are readable only by the service account,
+  and debug level switches itself off within 24 hours (SEC-OPS-029,
+  SEC-PRV-043, SEC-PRV-045). The fail2ban line format is stable and
+  documented (SEC-IAM-099, SEC-OPS-028).
 - **Serves:** R1: ADM-083, ADM-116, ADM-119, ADM-122. R2: ADM-117, ADM-118, ADM-120, INT-062. R3: LIV-044, LIV-060, LIV-061, LIV-132, LIV-155, LIV-156.
 
 #### SUR-102 Diagnostics
@@ -1933,29 +2688,66 @@ welcome flow runs before any account exists.
   playback diagnostic bundles sent from players (VID-174).
 - **Actions:** Run the doctor, build a bundle, rebuild.
 - **Form factors:** The general admin rule.
+- **Security:** the doctor includes the security checks: root and
+  capability state, file permissions, writable media or binary, internet
+  exposure, trusted proxies, backup age and encryption, audit verification,
+  version support and clock skew (SEC-OPS-061). A bundle is built from an
+  allowlist of fields with no database, backups or secrets, replaces paths,
+  titles, user names and addresses with pseudonyms, and is shown in full
+  before download (SEC-PRV-046, SEC-OPS-030). The metrics token is a
+  metrics-only key, never an admin key, and metrics carry no per-user data
+  (SEC-OPS-059). The remote connectivity check runs only when the owner
+  asks and sends only the address and port (SEC-OPS-074).
 - **Serves:** R1: ADM-077, ADM-080, ADM-123, ADM-124, ADM-130, ADM-141. R2: ADM-127, ADM-132, ADM-134, VID-009, VID-174.
 
 #### SUR-103 Server settings and about
 - **Release:** R1.
 - **Purpose:** The server's own settings and identity.
-- **Shows:** Server name and sign-in message (ADM-140), storage locations
-  for settings, log, cache and scratch space (ADM-090), and About with the
+- **Shows:** Server name and welcome message (ADM-140), with the note that
+  neither is shown before sign-in; storage locations for settings, log,
+  cache and scratch space (ADM-090); retention, with the private defaults:
+  security events 365 days with addresses shortened after 30 and removed at
+  90, diagnostic logs 14 days, backups 14 days, history until each person
+  deletes it; the owner may shorten these, and the change is audited
+  (ADM-111, SEC-PRV-005); stream limits, server-wide and per guest, with
+  the recommended defaults (ACC-075, SEC-IAM-102, SEC-TM-068; named
+  policies carry their own limits from R2, SUR-091); and About with the
   version, build, target and live footprint (ADM-001, ADM-010). From R2:
-  each setting's source and whether it needs a restart (ADM-008, ADM-024),
-  export and import with a diff (ADM-009), switching whole modules off
-  (ADM-097), and activity retention and anonymisation (ADM-111).
+  each setting's
+  source and whether it needs a restart (ADM-008, ADM-024), export and
+  import with a diff (ADM-009), and switching whole modules off (ADM-097).
 - **Actions:** Change, export, import.
 - **Form factors:** The general admin rule.
-- **Serves:** R1: ADM-001, ADM-010, ADM-090, ADM-140. R2: ADM-008, ADM-009, ADM-024, ADM-097, ADM-111.
+- **Security:** the name and message are plain text, shown only to people
+  who are signed in, on the invitation page, and as a remembered name on a
+  device that has signed in before (SEC-NET-047, SEC-API-005; owner to
+  confirm). The version is shown only here and in other signed-in admin
+  views (SEC-NET-047). A settings import passes the live validators and
+  never makes the server less strict without the owner's confirmation
+  (SEC-OPS-049).
+- **Serves:** R1: ACC-075, ADM-001, ADM-010, ADM-090, ADM-111, ADM-140. R2: ADM-008, ADM-009, ADM-024, ADM-097.
 
-#### SUR-104 History and statistics for administrators
+#### SUR-104 Totals and statistics for administrators
 - **Release:** R2.
-- **Purpose:** Play history and top users and titles across the server, and
-  the delivery breakdown over time (ADM-106, ADM-101), within the limits of
-  what admins may see (feature map open decision 13).
-- **Shows:** Charts and tables by period.
-- **Actions:** Filter, export.
+- **Purpose:** How much the server is used and how it delivers, over time
+  (ADM-106, ADM-101), without showing what anyone listened to or watched.
+  The earlier entry, "play history and top users and titles across the
+  server", is removed: the baseline forbids any admin view, search or
+  export of another adult's history (SEC-PRV-025; owner to confirm,
+  security README decision 5).
+- **Shows:** Charts and tables by period: plays and hours for the server and
+  per person, with no titles; the direct play, remux and transcode
+  breakdown. A "popular on this server" list is Later, behind the owner's
+  decision on household activity features (ACC-114); if it comes, it is
+  built only from people who opted in and only from items at least three
+  of them played, so it cannot single out one person (ADM-106).
+- **Actions:** Change the period, filter by delivery method.
 - **Form factors:** The general admin rule.
+- **Security:** no per-person history, no top titles per person, and no
+  export of anyone's activity (SEC-PRV-025, SEC-TM-054). Private sessions
+  would never count towards a later "popular on this server" list, and
+  joining it would be each person's choice, off by default (SEC-PRV-023,
+  SEC-PRV-024).
 - **Serves:** R2: ADM-101, ADM-106.
 
 #### SUR-105 Trash
@@ -1989,7 +2781,76 @@ welcome flow runs before any account exists.
   owner's picks row (DIS-127).
 - **Actions:** Merge genres, set and copy defaults, pick items.
 - **Form factors:** The general admin rule.
+- **Security:** a default Home layout carries layout only; it never sets
+  anyone's privacy settings (SEC-PRV-023). The owner's picks row shows each
+  viewer only the picks they are allowed to see (SEC-IAM-070).
 - **Serves:** R2: DIS-005, DIS-006, DIS-108, DIS-127, MUS-018.
+
+#### SUR-108 Security log
+- **Release:** R1.
+- **Purpose:** The owner's view of the server's security audit log: every
+  sign-in, failure, new device, recovery, grant, admin action and
+  configuration change, so the owner can see what happened and prove the
+  record was not altered (SEC-OPS-020, SEC-OPS-023).
+- **Shows:** Events newest first, each with its time, kind, who acted from
+  which device, what it touched and the outcome; other people's addresses
+  shortened to /24, /48 or a country (SEC-OPS-027); noisy events such as
+  failed authorisations folded into counts; the result of the last chain
+  verification and the latest signed checkpoint (SEC-OPS-023); and the
+  retention in force (SEC-PRV-005). An event that names a person links to
+  that person in Users, never to their history.
+- **Actions:** Filter by kind, person, device or time; verify the chain now;
+  export checkpoints into the recovery kit or a second backup destination
+  (SEC-OPS-075); for the owner, switch on an investigation mode that shows
+  full addresses.
+- **Form factors:** The general admin rule. Not on TV (SEC-CLI-024).
+- **Security:** readable only by the owner and holders of the audit
+  capability (SEC-OPS-027, SEC-IAM-097). Investigation mode is itself
+  audited, and each person whose full address it reveals is told
+  (SEC-OPS-027). Records carry no secrets, tokens, setup codes, media
+  titles or file paths (SEC-OPS-021). Nobody can clear or edit the log;
+  records leave only on the retention schedule, each prune writing a signed
+  checkpoint (SEC-OPS-026). Exporting the log is recorded where every
+  affected person can see it. A verification failure raises an owner alert
+  that cannot be muted (SEC-OPS-034).
+- **Serves:** R1: ADM-110.
+
+#### SUR-109 Plain-HTTP and home-posture help pages
+- **Release:** R1.
+- **Purpose:** What a browser sees when it reaches the server by a door that
+  carries nothing sensitive: plain HTTP from anywhere but loopback
+  (SEC-NET-001), a non-local address while the server is in the home
+  posture (SEC-NET-024), or a reverse proxy the owner has not declared
+  (SEC-NET-017). It replaces every sign-in form, player and API on those
+  doors, and it never dead-ends.
+- **Shows:** A static page that sets no cookie and holds no form. Over plain
+  HTTP from the home network, an immediate redirect to the server's HTTPS
+  address when one exists; if that address has not loaded within a few
+  seconds, plain steps: allow the per-server name in the router's DNS
+  rebinding settings, use the server's own name or tailnet name, or open
+  Gunmetal on the server itself (SEC-NET-001, SEC-NET-071). With no HTTPS
+  address yet, how to get one: the per-server name, a domain the owner
+  holds, a tailnet name, or an SSH tunnel to localhost for setup (ADM-021,
+  ACC-098). When the certificate is missing or expired, that the server
+  cannot be reached securely right now and that the owner has been told
+  (SEC-NET-005). From outside the home in the home posture, only that this
+  server cannot be reached from here (SEC-NET-024). Through an undeclared
+  proxy, "Configure your proxy", with no detail about the server
+  (SEC-NET-017).
+- **Actions:** Follow the link to the HTTPS address.
+- **Form factors:** Any browser; native apps never use plain HTTP
+  (SEC-NET-061).
+- **Security:** the page shows no server name, version, library or user,
+  and accepts no credential of any kind: no passkey ceremony, cookie,
+  invitation, PIN, share password, pairing or setup code (SEC-NET-001,
+  SEC-NET-047). API routes over plain HTTP answer 403; browser navigations
+  may only redirect to the configured HTTPS URL. Every non-local request
+  that reaches a home-posture listener writes a security event and an
+  owner alert, at most once per listener per day with a count
+  (SEC-NET-027). The help pages are the only part of the client a stranger
+  can reach, so the route-table replay over the plain listener proves this
+  surface for every route (SEC-NET-001).
+- **Serves:** R1: ACC-098, ADM-021, CLI-150.
 
 ### Outside the client
 
@@ -1998,9 +2859,16 @@ welcome flow runs before any account exists.
 - **Purpose:** Everything an operator needs when the interface is not
   available, or when scripting: install as a service, check configuration,
   recover the owner, back up and restore, rebuild, and diagnose.
-- **Shows:** The setup code on the console (ACC-001, ADM-018); `gunmetal
-  doctor` (ADM-123, with the checks in ADM-006, ADM-078, ADM-079, ADM-089);
-  owner and admin recovery (ACC-004, ADM-034); service installation
+- **Shows:** The claim link, its terminal QR code and the setup code on the
+  console, each failed code attempt with its address and time, and the
+  "claimed by" line after the claim; `gunmetal claim-code` to show the code
+  again or mint a new one after it expires (ACC-001, ADM-018, SEC-IAM-007,
+  SEC-OPS-004); `gunmetal doctor` and `doctor --security` (ADM-123, with the
+  checks in ADM-006, ADM-078, ADM-079, ADM-089, and SEC-OPS-061); `gunmetal
+  trust-proxy` (SEC-NET-017); `gunmetal audit verify` (SEC-OPS-023); owner
+  recovery, over a local socket only the service account can open, printing
+  a 15-minute enrolment link and alerting every admin (ACC-004, ADM-034,
+  SEC-IAM-092); service installation
   (ADM-005); configuration and migration checks (ADM-007, ADM-057); restore
   (ADM-071); `gunmetal rebuild` (ADM-077); the diagnostic bundle (ADM-124);
   and the file inspector (ADM-125, LIB-195). From R2: settings export and
@@ -2008,6 +2876,11 @@ welcome flow runs before any account exists.
   sandbox self-tests (ADM-132, ADM-133).
 - **Actions:** Run commands.
 - **Form factors:** A terminal on the server host.
+- **Security:** no command takes a secret as a command-line argument; secrets
+  come from files or systemd credentials (SEC-OPS-014). Owner recovery and
+  the claim code are reachable only on the host, never over the network
+  (SEC-IAM-092, SEC-IAM-007). The server refuses to start as root
+  (SEC-OPS-053).
 - **Serves:** R1: ACC-001, ACC-004, ADM-005, ADM-006, ADM-007, ADM-018, ADM-034, ADM-057, ADM-071, ADM-077, ADM-078, ADM-079, ADM-089, ADM-123, ADM-124, ADM-125, LIB-195. R2: ADM-009, ADM-091, ADM-132, ADM-133.
 
 #### SUR-111 Project site and documentation
@@ -2092,9 +2965,13 @@ these entries are here so that R1 and R2 navigation leaves room for them.
 - **Shows:** A mini guide over playback (LIV-082), captions and audio menus
   (LIV-083, LIV-084), a stats overlay (LIV-086), a timeline for pause and
   rewind (LIV-095), "start over" and "go to live" (LIV-097, LIV-098), a
-  tuner-busy sheet with choices (LIV-087, LIV-030), a warning when a
-  recording takes priority (LIV-127), the browser capacity warning (LIV-079),
-  and parental blocks (LIV-164).
+  tuner-busy sheet with choices (LIV-087, LIV-030), which names another
+  person or their channel only if that person shares what they play with
+  the household, and otherwise says only that the tuner is busy
+  (SEC-PRV-022; owner to confirm), a warning when a recording takes
+  priority (LIV-127), the browser capacity warning (LIV-079), and parental
+  blocks (LIV-164). Channel names, logos and programme text come through
+  the server and are shown as text (SEC-CLI-067).
 - **Actions:** Channel up and down, last channel and number entry (LIV-081,
   CLI-132), record (LIV-088), picture-in-picture (LIV-089), cast (LIV-090,
   CLI-133), sleep timer (LIV-092), skip a break (LIV-146, VID-117).
@@ -2127,7 +3004,8 @@ these entries are here so that R1 and R2 navigation leaves room for them.
 - **Release:** R3.
 - **Purpose:** Sources, tuners, guide data, the lineup and recording
   defaults.
-- **Shows:** A guided set-up wizard in TV and touch layouts (LIV-002);
+- **Shows:** A guided set-up wizard for phone, tablet and web on a
+  personal device (LIV-002);
   sources with filters, refresh, mirrors, logins, headers, connection limits
   and a test panel (LIV-003, LIV-007, LIV-008, LIV-010, LIV-012, LIV-013,
   LIV-016, LIV-126); tuners (LIV-024, LIV-025, LIV-029); guide sources and
@@ -2139,10 +3017,24 @@ these entries are here so that R1 and R2 navigation leaves room for them.
   channel profiles (ACC-048, LIV-162, LIV-163); and an activity log
   (LIV-160).
 - **Actions:** Add, test, map, edit, reorder, undo.
-- **Form factors:** The general admin rule, except that the set-up wizard
-  is built for TV and touch as well (LIV-002) and the lineup editor
-  supports remote multi-select (LIV-059).
-- **Serves:** R3: ACC-048, ADM-098, INT-084, INT-157, LIV-001, LIV-002, LIV-003, LIV-006, LIV-007, LIV-008, LIV-009, LIV-010, LIV-011, LIV-012, LIV-013, LIV-014, LIV-015, LIV-016, LIV-017, LIV-024, LIV-025, LIV-026, LIV-029, LIV-035, LIV-037, LIV-038, LIV-039, LIV-040, LIV-041, LIV-042, LIV-043, LIV-047, LIV-050, LIV-051, LIV-052, LIV-053, LIV-054, LIV-056, LIV-057, LIV-058, LIV-059, LIV-061, LIV-062, LIV-063, LIV-096, LIV-104, LIV-105, LIV-108, LIV-110, LIV-126, LIV-134, LIV-137, LIV-138, LIV-140, LIV-156, LIV-160, LIV-161, LIV-162, LIV-163.
+- **Form factors:** The general admin rule: the set-up wizard is built for
+  touch as well as wide screens (LIV-002), and the lineup editor supports
+  keyboard and touch multi-select (LIV-059), on phones, tablets and the
+  web on personal devices. Neither appears on TV, which is a limited
+  device and never shows admin surfaces; the server refuses these routes
+  from it whatever the client shows (SEC-CLI-024). On a TV, Live TV
+  settings offer only an "Open on your phone" QR code that opens this
+  surface on a phone or computer, as every admin task on TV does. LIV-002
+  and LIV-059 no longer name the TV.
+- **Security:** each source URL is an egress grant, which is an owner
+  step-up action; fetches refuse loopback, link-local, the server's own and
+  cloud metadata addresses unless the owner allows one named LAN tuner, and
+  entries outside a source's grant are not fetched (SEC-EXT-075,
+  SEC-NET-067, SEC-IAM-041). Provider logins and headers are stored
+  encrypted and never sent to clients (SEC-EXT-050, SEC-CLI-067). Guide
+  files with a DOCTYPE are rejected (SEC-MED-056). Recordings go only to a
+  dedicated recordings folder with a quota (SEC-OPS-063).
+- **Serves:** Later: INT-157 (a reference to LIV-171, which waits for its export-credential record). R3: ACC-048, ADM-098, INT-084, LIV-001, LIV-002, LIV-003, LIV-006, LIV-007, LIV-008, LIV-009, LIV-010, LIV-011, LIV-012, LIV-013, LIV-014, LIV-015, LIV-016, LIV-017, LIV-024, LIV-025, LIV-026, LIV-029, LIV-035, LIV-037, LIV-038, LIV-039, LIV-040, LIV-041, LIV-042, LIV-043, LIV-047, LIV-050, LIV-051, LIV-052, LIV-053, LIV-054, LIV-056, LIV-057, LIV-058, LIV-059, LIV-061, LIV-062, LIV-063, LIV-096, LIV-104, LIV-105, LIV-108, LIV-110, LIV-126, LIV-134, LIV-137, LIV-138, LIV-140, LIV-156, LIV-160, LIV-161, LIV-162, LIV-163.
 
 #### SUR-125 Radio
 - **Release:** R3.
@@ -2162,7 +3054,7 @@ designed here and have no IDs yet.
 | Surface | Later rows that name it | Room left for it now |
 |---|---|---|
 | Books tab, book page, chapter sheet, bookmarks, book mode in the player | LAT-015 to LAT-039 | The queue's named contexts (LAT-009) and the Music and Watch switch, which can take a third position for spoken word |
-| Podcast show page, Up Next across shows, effects sheet, podcast search | LAT-058 to LAT-090 | The same switch and contexts; the plugin host in R2 |
+| Podcast show page, a next-episodes list across shows, effects sheet, podcast search | LAT-058 to LAT-090 | The same switch and contexts; the plugin host in R2 |
 | Photos tab, grid, viewer and date timeline | LAT-106, LAT-113 to LAT-119 | Kind chips in search and library (LAT-013) |
 | Watch together and listen together: a group session sheet and a guest join screen | ACC-093, ACC-094, CLI-114 | The single-item guest capability in R2 (ACC-135) and the public share page (SUR-059) |
 | Apple platforms: iPhone, iPad, Apple TV, CarPlay, Top Shelf | CLI-005, CLI-007, CLI-117, CLI-049 | Every surface above is written for the shared UI; only the system surfaces differ |
@@ -2199,6 +3091,24 @@ exists in R1.** Every R3 row with a UI entry has a home too. The remaining table
 rows that have no UI by design, the R1 rows whose named surface only partly
 exists in R1, and the features that have no home of Gunmetal's own.
 
+The counts in the table above are from the first draft, before the feature
+map was changed on 2026-10-02 to follow the security baseline. That change
+moved rows between releases (for example browser approval, the page of
+what admins can see and music share links into R1; API keys into R2; rival
+importers and the SD-card choice into Later) and turned password sign-in
+and authenticator-app codes (ACC-052, ACC-053) into No, so those two need
+no home. The Serves lines and the surface index above already follow the
+new releases; the counts in this table need recomputing against the
+updated map.
+
+The same change moved the desktop shell and its rows to Later (CLI-014,
+CLI-063, CLI-064, CLI-065, CLI-066, MUS-081, MUS-082, MUS-102), because the
+baseline's release scope puts the shell there (SEC-TM-074) and its controls
+are SEC-CLI-069, also Later (owner to confirm). The Serves lines above list
+those rows under "Later", and SUR-052 keeps its ID with the release Later.
+The parts of CLI-067 and CLI-068 that need a native app stay in R2 on
+Android.
+
 ### Behaviour-only rows
 
 These R1 and R2 rows have no UI entry, because they are rules of a component
@@ -2217,7 +3127,7 @@ are promises that belong in documentation.
 | ACC-128 | Nobody can switch your server off remotely | R1 | None (published promise) |
 | ADM-020 | Setup closes for good once an admin exists | R1 | None after setup |
 | ADM-121 | Secrets that cannot reach logs | R1 | None (behaviour) |
-| CLI-066 | A light desktop shell | R2 | None |
+| CLI-066 | A light desktop shell | Later (with the shell, SEC-TM-074) | None |
 | CLI-071 | Interruptions handled cleanly | R2 | None |
 | CLI-110 | Local casting and a phone relay | R2 | None (automatic) |
 | CLI-136 | Accessibility as a release gate | R1 | None |
@@ -2276,10 +3186,11 @@ explicit for the people building R1.
 | ID | Named surface that arrives later | R1 home |
 |---|---|---|
 | ACC-011, ACC-017 | Profile picker (ACC-019, R2) | Account menu (SUR-006) and the profile editor (SUR-079) |
-| ACC-079 | Admin > Policies > Sessions (policies are ACC-038, R2) | Sign-in and security settings (SUR-092) and "Remember this browser" on sign-in (SUR-070) |
+| ACC-079 | Admin > Policies > Sessions (policies are ACC-038, R2) | Sign-in and security settings (SUR-092) and "Is this your own device?" on sign-in (SUR-070) |
 | ADM-011 | The setup checklist (ADM-033, R2) | Documentation (SUR-111); **Proposal:** a link from the welcome flow (SUR-082) |
 | CLI-026 | The "Downloaded" filter (downloads are R2) | The rule that lists keep working offline (SUR-000, SUR-023); the filter has nothing to show until R2 |
-| CLI-034, INT-147 | Share sheet (R2) | "Copy link" in the context menu (SUR-004) |
+| CLI-034, INT-147 | The native share sheets and film and episode links (R2) | "Copy link" in the context menu (SUR-004) and the R1 share sheet for music (SUR-058) |
+| INT-006 | Token detail (API keys arrive in R2) | None needed in R1: the change feed serves Gunmetal's own clients, and its per-key view arrives with keys in SUR-094 |
 | CLI-040, DIS-163 | TV letter column and car lists (R2) | The web letter column and the phone-width fast scroller (SUR-023) |
 | DIS-045, DIS-047, DIS-050, DIS-051, DIS-060, LIB-146 | "Detail pages", which for films are R2 | Artist and album pages (SUR-024, SUR-025) |
 | DIS-087 | Person pages (R2) | The artist page's role tabs (SUR-024) |
@@ -2355,8 +3266,9 @@ map. None changes the scope of a feature.
    10.
 4. **Now playing on TV.** No feature row defines how music playing in the
    background is shown on TV, or whether TV Now Playing shows lyrics.
-   *Recommendation:* add a clients row for the rail's now-playing entry and
-   a music row for TV lyrics, both R2.
+   *Recommendation:* add a clients row for the rail's now-playing entry,
+   fixed as the rail's first entry whether or not anything plays, and a
+   music row for TV lyrics, both R2.
 5. **The pre-play sheet.** Whether it opens on every play or only when a
    choice or a warning exists. *Recommendation:* only when needed, with a
    long-press or menu route to it at any time, so one press still plays.
@@ -2364,12 +3276,81 @@ map. None changes the scope of a feature.
    personal browser that is a wasted step. *Recommendation:* show it at
    launch only on devices marked as shared or household devices (ACC-021),
    and in the account menu everywhere.
-7. **Admin on TV.** *Recommendation:* the dashboard, sessions and activity
-   in full; everything else as a QR hand-off to a phone, as proposed above.
+7. **Admin on TV.** *Settled by the security baseline:* a TV is a limited
+   device, so it shows no admin surface at all, and the server refuses
+   admin routes from it (SEC-CLI-024). An admin's profile on a TV shows
+   security alerts as a banner (ADM-114), and every admin task is a QR
+   hand-off to a phone or computer, as proposed above. The earlier
+   recommendation of the dashboard, sessions and activity in full on TV is
+   withdrawn.
 8. **Command palette versus search.** DIS-090 and DIS-083 overlap.
    *Recommendation:* one index behind both, with the palette adding commands
    and the search adding browse; never two different result sets for the
    same text.
-9. **Linux desktop.** The mini player, media keys and global hotkeys on
-   Linux depend on the desktop shell decision (feature map open decision 21).
-   Until it is made, Linux users get the installable web app's surfaces.
+9. **Linux desktop.** The mini player, media keys and global hotkeys
+   arrive with the desktop shell, which is Later on every desktop
+   (SEC-TM-074; owner to confirm). Until it ships, Windows, macOS and Linux
+   users all get the installable web app's surfaces, and the Linux question
+   (feature map open decision 21) waits for the shell.
+10. **Where admin screens live in the browser.** The baseline's network
+    file recommends serving the admin UI on a separate origin under the
+    same certificate, so a script injected into the media pages cannot
+    reach the admin cookie (network decision 6, part of security README
+    decision 25). *Recommendation:* design the admin surfaces so they can
+    run in that admin mode of the same bundle, and settle it with the owner
+    before the R1 admin screens are built.
+
+## Changes made to follow the security baseline
+
+On 2026-10-02 this inventory was changed to follow the
+[security baseline](../security/README.md). The numbered owner decisions
+are those in the baseline's
+[open decisions](../security/README.md#open-decisions-for-the-owner); the
+changes that rest on one are applied as the baseline recommends and need
+the owner to confirm them.
+
+**Surfaces added.** SUR-108 Security log, SUR-109 Plain-HTTP and
+home-posture help pages, SUR-130 Sessions and devices, SUR-131 Security
+events, SUR-132 What admins can see, and privacy choices, and SUR-133
+Recovery, all R1. Every entry that the baseline shapes now has a
+**Security** line.
+
+| Where | Was | Now | Requirements | Owner to confirm |
+|---|---|---|---|---|
+| SUR-070, SUR-078, SUR-082, SUR-008 | Passwords with authenticator-app codes where passkeys could not work; re-authentication by password | Passkeys, the household's identity provider, and approval from a signed-in device; no password anywhere | SEC-IAM-025, SEC-IAM-108 | Yes, decision 1 |
+| SUR-070, SUR-082, SUR-109 | Over plain HTTP on a LAN address, password sign-in and an online-only player | Over plain HTTP, every peer but loopback gets the help page (new SUR-109) | SEC-NET-001, SEC-NET-024 | No |
+| SUR-070, SUR-103 | The sign-in page shows the server's name and message | A generic sign-in page; the name appears after sign-in, on invitations and as a remembered name | SEC-NET-047, SEC-API-005 | Yes, decision 25 (web decision 5) |
+| SUR-070, SUR-077 | "Remember this browser" | "Is this your own device?", with memory-only storage and 30 idle minutes on shared browsers | SEC-CLI-010, SEC-IAM-041 | Yes, decision 25 (the default answer) |
+| SUR-061 | Browser approval from a signed-in device in R2 | R1, with the unverified-name approval sheet and the typed and matching code off the local network | SEC-IAM-056 to SEC-IAM-060, SEC-IAM-108 | No |
+| SUR-003 | The notice centre in R2; new-device alerts in R2 | Both R1, with "This wasn't me" and the unmutable critical alerts | SEC-IAM-098, SEC-OPS-032 to SEC-OPS-034 | No |
+| SUR-008 | On TV, approve a sensitive change from a phone | No sensitive change on TV at all; a QR hand-off instead; step-up defined | SEC-CLI-024, SEC-IAM-041 | No |
+| Navigation; admin group; SUR-005, SUR-083, SUR-084, SUR-085, SUR-089, SUR-100, SUR-124; open question 7 | The admin dashboard, sessions and activity on TV; a TV edit sheet; the live TV wizard and lineup multi-select on TV | No admin surface on TV; alerts as a banner on an admin's profile; QR hand-off | SEC-CLI-024, SEC-IAM-049 | No |
+| SUR-083, SUR-084, SUR-010, SUR-002 | Who is playing what | Who is playing, on which device and how; the title only if that person opts in; admin reads recorded in the person's own log | SEC-PRV-025, SEC-PRV-024, SEC-IAM-077 | Yes, decision 5 |
+| SUR-104 | Play history and top users and titles across the server, with export | Totals only; no export; "popular on this server" is Later, and then only from opted-in people with a three-person threshold | SEC-PRV-025, SEC-TM-054 | Yes, decision 5 |
+| SUR-091, SUR-132 | The owner chooses what admins see, up to full history | No server setting widens it; each person alone chooses to show titles | SEC-PRV-025, SEC-PRV-027 | Yes, decision 5 |
+| SUR-078, SUR-132 | "What your admin can see" in R2 | R1 | SEC-IAM-104, SEC-PRV-027 | No |
+| SUR-078, SUR-131 | Security events in R2; sign-in history only | Each person's own security events in R1, including admin reads of their data | SEC-IAM-097, SEC-IAM-077, SEC-OPS-027 | No |
+| SUR-079 | A child's history visible to the household's adults | Only the child's designated guardians | SEC-PRV-029, SEC-PRV-022 | No |
+| SUR-080 | Configuration errors, the snapshot path and the root error on the unauthenticated startup page | State and progress only; details on the console, in the log and in `doctor` | SEC-OPS-050, SEC-NET-047 | No |
+| SUR-081 | Emergency page showing status and logs, with backup and restart | Nothing before an admin passkey sign-in; backup download owner-only with step-up | SEC-IAM-041, SEC-OPS-045 | No |
+| SUR-082 | A TV could complete setup with a device key | A TV never claims; the owner claims from a phone or computer | SEC-CLI-024, SEC-IAM-059 | No |
+| SUR-082, SUR-099 | The update check offered as a choice | A required question with two answers and none preselected | SEC-OPS-047 | Yes, decision 4 |
+| SUR-090 | Hand over the server by adding an admin and removing yourself | A transfer the current owner and the recipient each confirm with a passkey | SEC-IAM-003 | No |
+| SUR-090, SUR-071 | One-step invitation redemption; "help sign in" by link | Matching-code confirmation for members and multi-library invitations; a privacy notice first; recovery links redeemed in person, with the 72-hour hold | SEC-IAM-079, SEC-PRV-053, SEC-IAM-091, SEC-IAM-106 | Yes, decision 6 (recovery) |
+| SUR-093 | Proxies, HTTPS and privacy settings | Posture and exposure status, proxies declared private or public, naming and certificates in R1, all owner step-up | SEC-NET-019, SEC-NET-028, SEC-IAM-041, SEC-TM-017 | Yes, decision 2 (the name service) |
+| SUR-094, SUR-078 | Scoped tokens in R1 | API keys in R2, never administrative | SEC-IAM-083, SEC-EXT-010 | Yes, decision 8 |
+| SUR-095 | Third-party plugins installed by URL; developer mode as a screen | Plugins only through a signed index the owner added; developer mode only in the configuration file, with a banner | SEC-EXT-035, SEC-EXT-037, SEC-EXT-038 | Yes, decision 13 |
+| SUR-097 | Rival-server imports in R2; the admin imports history for the household | Rival-database importers Later; each person imports their own history | SEC-TM-074, SEC-STD-031, SEC-PRV-025 | Yes, decision 5 |
+| SUR-098 | Encryption in R2; a whole-server "full export" | Encrypted, signed backups in R1; the export holds the server's settings and the owner's own data only | SEC-PRV-039, SEC-OPS-042, SEC-PRV-025, SEC-PRV-047 | No |
+| SUR-058, SUR-059, SUR-004 | Share links in R2 | R1 for music, with per-link limits; the public page shows nothing of the sharer or the server | SEC-API-097, SEC-PRV-031, SEC-NET-047 | Yes, decision 7 |
+| SUR-075, SUR-050 | Choosing the SD card for downloads in R2 | App-private storage only; removable storage Later and encrypted | SEC-CLI-035, SEC-CLI-072 | Yes, decision 25 (client decision 3) |
+| SUR-122 | The tuner-busy sheet shows who holds each tuner | Names a person or channel only for people who share what they play | SEC-PRV-022 | Yes, decision 5 |
+| Releases, form factors, SUR-000, SUR-014, SUR-050, SUR-052, SUR-053, SUR-057, SUR-074, SUR-075, SUR-077, open question 9 | The desktop shell, its mini player, media panels, hotkeys, installers, downloads and exclusive output in R2 | Later, with the shell; desktops use the web client until then | SEC-TM-074, SEC-CLI-069 | Yes (the release scope; the feature map now agrees) |
+| SUR-002 | Private session reached from the full player's menu only | Also from an Options button on the wide bar, Private session first, so it is two interactions from the bar | SEC-PRV-024 | No |
+| SUR-003, SUR-103 | Stream limits only in R2 policies and the video limit card | R1 limits, server-wide and per guest, with a "too many streams" notice for music | SEC-TM-068, SEC-IAM-102, SEC-API-031 | Yes, decision 25 (the default values) |
+| SUR-014 | Other Gunmetal players signed in as the same person; nothing about household devices in use | The profile's own players, plus household devices in use shown only as "In use"; other people's players never listed | SEC-PRV-022, SEC-API-016, SEC-API-068, SEC-HIS-014 | No |
+
+The interface documents were then made consistent with each other. The
+decisions, which touch SUR-002, SUR-010, SUR-011, SUR-014, SUR-020,
+SUR-032, SUR-042, SUR-046 and the navigation model, are recorded in the
+[interface README](README.md#decisions-that-made-the-four-documents-consistent).
