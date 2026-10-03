@@ -208,6 +208,9 @@ pub fn decide_audio(tech: &TechInfo, device: &DeviceCaps) -> Decision {
     if container_cap == PlayCap::None {
         return Decision::CannotPlay(vec![Reason::UnsupportedContainer { codec, container }]);
     }
+    if codec_cap == PlayCap::MseOnly && !device.accepts_package(PackageFormat::FragmentedMp4) {
+        return Decision::CannotPlay(vec![Reason::CannotDecode { codec }]);
+    }
     Decision::Direct
 }
 
@@ -445,6 +448,13 @@ mod tests {
             .with_package(PackageFormat::FragmentedMp4, true)
     }
 
+    fn mse_only_without_package(codec: Codec, container: Container) -> DeviceCaps {
+        DeviceCaps::none()
+            .with_codec(codec, PlayCap::MseOnly)
+            .with_container(container, PlayCap::MseOnly)
+            .with_package(PackageFormat::FragmentedMp4, false)
+    }
+
     fn public(kind: IdKind, prefix: &str, symbols: &str) -> PublicId {
         PublicId::parse(&format!("{prefix}{symbols}"), kind).unwrap()
     }
@@ -663,6 +673,119 @@ mod tests {
                 (Codec::Pcm, Decision::Direct),
                 (Codec::Vorbis, Decision::Direct),
             ]
+        );
+    }
+
+    #[test]
+    fn each_core_format_is_refused_when_only_mse_can_decode_it_and_the_packager_cannot_run() {
+        let got: Vec<(Codec, Decision)> = CORES
+            .iter()
+            .map(|(codec, container)| {
+                (
+                    *codec,
+                    decide_audio(
+                        &tech(*codec, *container),
+                        &mse_only_without_package(*codec, *container),
+                    ),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    Codec::Aac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Aac }])
+                ),
+                (
+                    Codec::Alac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Alac }])
+                ),
+                (
+                    Codec::Flac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Flac }])
+                ),
+                (
+                    Codec::Mp3,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Mp3 }])
+                ),
+                (
+                    Codec::Opus,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Opus }])
+                ),
+                (
+                    Codec::Pcm,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Pcm }])
+                ),
+                (
+                    Codec::Vorbis,
+                    Decision::CannotPlay(vec![Reason::CannotDecode {
+                        codec: Codec::Vorbis
+                    }])
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn mse_only_codec_without_the_packager_is_refused_even_when_the_container_is_native() {
+        let got: Vec<(Codec, Decision)> = CORES
+            .iter()
+            .map(|(codec, container)| {
+                let device = DeviceCaps::none()
+                    .with_codec(*codec, PlayCap::MseOnly)
+                    .with_container(*container, PlayCap::Native)
+                    .with_package(PackageFormat::FragmentedMp4, false);
+                (*codec, decide_audio(&tech(*codec, *container), &device))
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    Codec::Aac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Aac }])
+                ),
+                (
+                    Codec::Alac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Alac }])
+                ),
+                (
+                    Codec::Flac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Flac }])
+                ),
+                (
+                    Codec::Mp3,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Mp3 }])
+                ),
+                (
+                    Codec::Opus,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Opus }])
+                ),
+                (
+                    Codec::Pcm,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Pcm }])
+                ),
+                (
+                    Codec::Vorbis,
+                    Decision::CannotPlay(vec![Reason::CannotDecode {
+                        codec: Codec::Vorbis
+                    }])
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn native_codec_plays_the_original_when_the_container_is_mse_only_and_the_packager_cannot_run()
+    {
+        let device = DeviceCaps::none()
+            .with_codec(Codec::Aac, PlayCap::Native)
+            .with_container(Container::Mp4, PlayCap::MseOnly)
+            .with_package(PackageFormat::FragmentedMp4, false);
+        assert_eq!(
+            decide_audio(&tech(Codec::Aac, Container::Mp4), &device),
+            Decision::Direct
         );
     }
 
@@ -936,17 +1059,54 @@ mod tests {
     #[test]
     fn the_details_summary_for_a_track_with_no_gain_tags_is_estimated() {
         let track = record("Untitled", "Unknown", flac_24_96(), None);
+        let decision = Decision::Direct;
         assert_eq!(
-            track_details(&track, &Decision::Direct, &gain(Source::Estimated)).gain_source,
-            Source::Estimated
+            track_details(&track, &decision, &gain(Source::Estimated)),
+            TrackDetails {
+                title: "Untitled".to_owned(),
+                credit: "Unknown".to_owned(),
+                artists: vec![artist_id(SYMBOLS)],
+                album: Some(album_id()),
+                format: flac_24_96(),
+                decision: Decision::Direct,
+                badge: "Original FLAC, 24-bit, 96 kHz, played directly".to_owned(),
+                gapless: false,
+                gain_source: Source::Estimated,
+            }
+        );
+    }
+
+    #[test]
+    fn the_details_summary_passes_through_measured_and_off_gain_sources() {
+        let track = record("Untitled", "Unknown", flac_24_96(), None);
+        let decision = Decision::Direct;
+        assert_eq!(
+            track_details(&track, &decision, &gain(Source::Measured)),
+            TrackDetails {
+                title: "Untitled".to_owned(),
+                credit: "Unknown".to_owned(),
+                artists: vec![artist_id(SYMBOLS)],
+                album: Some(album_id()),
+                format: flac_24_96(),
+                decision: Decision::Direct,
+                badge: "Original FLAC, 24-bit, 96 kHz, played directly".to_owned(),
+                gapless: false,
+                gain_source: Source::Measured,
+            }
         );
         assert_eq!(
-            track_details(&track, &Decision::Direct, &gain(Source::Measured)).gain_source,
-            Source::Measured
-        );
-        assert_eq!(
-            track_details(&track, &Decision::Direct, &gain(Source::Off)).gain_source,
-            Source::Off
+            track_details(&track, &decision, &gain(Source::Off)),
+            TrackDetails {
+                title: "Untitled".to_owned(),
+                credit: "Unknown".to_owned(),
+                artists: vec![artist_id(SYMBOLS)],
+                album: Some(album_id()),
+                format: flac_24_96(),
+                decision: Decision::Direct,
+                badge: "Original FLAC, 24-bit, 96 kHz, played directly".to_owned(),
+                gapless: false,
+                gain_source: Source::Off,
+            }
         );
     }
 
