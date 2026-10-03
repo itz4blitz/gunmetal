@@ -1,17 +1,16 @@
 # 9. Cryptography: the allow-list and the inventory
 
 Date: 2026-10-03
-Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
-is register decision D-08, which the owner delegated on 2026-10-02,
-accepting its recommendation
+Status: accepted, through the owner's technical answers of 2026-10-03
+([decision register](../decisions.md#technical-answers-to-wave-0s-package-questions-2026-10-03)),
+on the input of register decision D-08, which the owner delegated on
+2026-10-02, accepting its recommendation
 ([decisions](../decisions.md#owner-answers-2026-10-02)): aws-lc-rs if it
 builds cleanly for the R1 targets, otherwise ring; ES256 and EdDSA for
 passkeys; RS256 for OIDC only if the `rsa` crate passes review; `tough`
-if its dependency tree passes cargo-vet. That answer settles those
-choices, not this text. The rest of the allow-list, the inventory and the
-post-quantum plan are the author's. The owner accepts or edits the record
-when reviewing the wave-0 pull request into `main` (D-01), and this line
-then says so, with the date.
+if its dependency tree passes cargo-vet. The rest of the allow-list, the
+inventory and the post-quantum plan are the author's, accepted with the
+key-table and version-byte fixes below.
 
 ## Context
 
@@ -173,8 +172,19 @@ after review or names another bundled root source.
 - **Domain separation and agility.** Every MAC, hash-chain and signature
   input starts with a fixed label of the form `gunmetal/v1/<purpose>`, and
   HKDF's info is `gunmetal/v1/<purpose>/<key id>`. Every token, ciphertext
-  and signature starts with a version byte, so an algorithm can change
-  without breaking stored data.
+  and signature Gunmetal constructs carries a version, so an algorithm can
+  change without breaking stored data. For values the secrets crate stores
+  or sends on their own (session tokens, capability tags, vault
+  ciphertexts, audit checkpoints), that version is a single leading byte,
+  as the baseline's agility rule asks
+  ([operations, section 2](../security/operations-and-incident-response.md#2-secrets-and-keys)).
+  Two formats version another way, recorded here so they do not silently
+  disagree with [record 10](0010-backup-archives.md):
+  - age v1 payloads (backups) and TLS records carry the version their
+    specifications define;
+  - the backup archive of record 10 puts a 2-byte format version in the
+    signed header and does not also prefix the 64-byte Ed25519 signature,
+    because the version is already in the signed bytes.
 - **Hashes of stored secrets.** Random secrets the server stores only to
   check later (session tokens, invitations, pairing codes, recovery links,
   recovery codes) are kept as HMAC-SHA-256 under a key of their own, never
@@ -264,6 +274,31 @@ Non-security checks are not inventoried as cryptography: CRC-32C frames
 the user log against torn writes (WP-035) and protects nothing against an
 attacker.
 
+**Relation to the baseline's key table.** The operations guidance's
+inventory
+([operations, section 2](../security/operations-and-incident-response.md#2-secrets-and-keys))
+is the first table this record extends. This inventory is the one
+SEC-STD-018 and SEC-NET-057 ask for. Where they differ, this table wins;
+the differences were previously unspoken:
+
+| Baseline row | This inventory | How it differs |
+|---|---|---|
+| Root secret | `root` | Rotation also on every restore (SEC-OPS-044), which the baseline's "After restore: derived keys move to a new epoch" implies but does not list under Rotation |
+| Stream-URL and CSRF keys | `url_signing` | Capability-URL signing only. CSRF is not a signing key: cookie SameSite and the `__Host-` prefix are the CSRF control (SEC-API-032 to SEC-API-035). SEC-OPS-015's parenthetical "CSRF" is not a separate row |
+| Session tokens | `session_hash`, and the random values listed below the server-held table | The tokens are CSPRNG values stored as keyed hashes, not a signing key. The inventoried secret is the HMAC key |
+| Server identity key (the iroh endpoint key) | `identity` | Also the backup trust anchor (record 10) and the pairing QR-code key (SEC-IAM-057). Iroh use remains R2 |
+| TLS private key | `tls`, `acme_account` | Splits the ACME account key out; names the allowed key types |
+| Server backup key | `backup_recipient` | Same role |
+| Audit and backup signing keys | `audit_signing`, `backup_signing` | Split into two keys with separate labels, as SEC-OPS-015 requires one key per purpose |
+| Recovery key | `recovery_recipient` | Adds the optional passkey-PRF wrap (SEC-PRV-040) |
+| Third-party secrets | `vault` | XChaCha20-Poly1305 only. The baseline offers AES-256-GCM as well; decision 4 forbids AES-GCM with random nonces in Gunmetal's own server code |
+| Setup (claim) code | `claim_code` | Single-use, 24 hours, never rotated by failed attempts (SEC-IAM-007). The baseline table's "every restart" does not apply |
+| Project feed trust root | Update feed root (public-keys table) | Same role; it is a trust anchor, not a key the server holds |
+
+Rows this inventory adds, which the baseline table does not name:
+`secret_hash`, `recovery_pepper`, `audit_address`, `pin_pepper` (R2),
+`offline_grant` (R2).
+
 ### 6. The post-quantum plan
 
 SEC-STD-018 asks for a migration plan for the classical algorithms
@@ -276,7 +311,7 @@ Gunmetal relies on.
 | TLS server authentication: certificate chains, handshake signatures and the `tls` key | RSA, ECDSA and Ed25519, inside the TLS provider | Forgery needs a quantum computer at connection time; recorded traffic gives nothing | Follow the WebPKI: post-quantum certificates (ML-DSA) once CAs, browsers and the provider support them, through dependency updates and `webpki-roots` |
 | Passkeys, paired-browser keys, device keys | ES256 and EdDSA | Forgery needs a quantum computer at sign-in time; recorded traffic gives nothing | Follow WebAuthn and the platforms when post-quantum COSE algorithms ship |
 | The update feed and release signatures | Ed25519 (TUF) and Sigstore | Forged updates | TUF root rotation can change key types; follow Sigstore's own migration |
-| Audit checkpoints, backup signatures, the identity key and its certificates of backup-signing keys | Ed25519 | Forged local evidence or server identity | Add ML-DSA, alone or in a hybrid, when a reviewed pure-Rust implementation exists; the version byte allows the switch |
+| Audit checkpoints, backup signatures, the identity key and its certificates of backup-signing keys | Ed25519 | Forged local evidence or server identity | Add ML-DSA, alone or in a hybrid, when a reviewed pure-Rust implementation exists; the version on the value (a leading byte, or record 10's 2-byte format version for backup signatures) allows the switch |
 | HMAC, HKDF, XChaCha20-Poly1305, SHA-256 | 256-bit keys and outputs | Grover's algorithm halves the margin, which stays sufficient | None |
 
 ## Consequences
@@ -299,12 +334,8 @@ Gunmetal relies on.
 
 ## Requirement check
 
-Review record, dated 2026-10-03. This is the author's check, written by
-the coding agent working on WP-125; no person has reviewed it yet. The
-package's pull request merges into `wave-0` through the integrator agent
-once the gate passes, with no human review (D-01). The owner's review of
-the wave-0 pull request into `main` confirms or edits this check, and only
-then does it stand as the dated review record for SEC-STD-018,
+Review record, dated 2026-10-03, accepted with this follow-up on
+2026-10-03. It stands as the dated review record for SEC-STD-018,
 SEC-STD-019 and SEC-NET-057. The CI parts of each requirement are proved
 by the packages named, not by this record.
 
