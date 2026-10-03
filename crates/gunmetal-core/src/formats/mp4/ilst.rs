@@ -517,14 +517,14 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-MED-017
     #[test]
     fn drops_a_freeform_item_without_a_name() {
-        // The first item starts at 0; the one after it is kept.
-        let body = [
-            freeform(Some("m"), None, &[data(1, b"x")]),
-            mp4_box(*b"\xA9day", &data(1, b"2024")),
-        ]
-        .concat();
+        // A well-known atom first, so the nameless freeform is not at
+        // offset 0: the recorded problem names the freeform's own box.
+        let day = mp4_box(*b"\xA9day", &data(1, b"2024"));
+        let offset = u64::try_from(day.len()).expect("the day item fits");
+        let body = [day, freeform(Some("m"), None, &[data(1, b"x")])].concat();
         assert_eq!(
             read(&body, &Limits::DEFAULT),
             (
@@ -534,7 +534,7 @@ mod tests {
                 )],
                 vec![Mp4Problem::Metadata(Mp4Error::Missing {
                     kind: FourCc(*b"name"),
-                    offset: 0,
+                    offset,
                 })]
             )
         );

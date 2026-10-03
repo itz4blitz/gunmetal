@@ -1343,6 +1343,17 @@ mod tests {
         assert_eq!(read_asc(&short).0, Err(truncated(500, 7, 6)));
     }
 
+    /// Verifies: SEC-MED-001, SEC-TM-032
+    #[test]
+    fn takes_every_bit_the_decoder_specific_info_holds() {
+        // Two octets hold 16 bits. Taking them all must succeed: a bound
+        // of `end >= available` would refuse the last field even though
+        // the bits are there.
+        let mut bits = BitReader::new(Cursor::at(&[0xA5, 0x5A], 40));
+        assert_eq!(bits.take(16).expect("both octets"), 0xA55A);
+        assert_eq!(bits.take(1), Err(truncated(40, 3, 2)));
+    }
+
     /// Checks every cut of `body`, a structure whose fields have `widths`
     /// and whose first octet is at `base` in the file: reading the input
     /// built from the first `cut` octets must fail with `Truncated` at the

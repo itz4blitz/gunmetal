@@ -189,9 +189,12 @@ pub fn descriptor(tag: u8, width: usize, body: &[u8]) -> Vec<u8> {
     let mut written = Bytes::new();
     written.u8(tag);
     for index in (0..width).rev() {
-        let more = if index == 0 { 0 } else { 0x80 };
         let group = u8::try_from((len >> (7 * index)) & 0x7F).expect("seven bits fit an octet");
-        written.u8(more | group);
+        written.u8(if index == 0 {
+            group
+        } else {
+            0x80_u8.saturating_add(group)
+        });
     }
     written.bytes(body);
     written.into_vec()
