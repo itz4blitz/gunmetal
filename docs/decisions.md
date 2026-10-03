@@ -105,6 +105,15 @@ The owner delegated purely technical choices to the recommended defaults (D-02 a
   - SEC-TM-050 adopts SEC-PRV-001's data-class names.
   - Erasure selectors may use clock ranges within one stream.
 
+### Technical answer on how the full gate scales, 2026-10-03
+
+D-01 asked how the gate keeps up as the workspace grows, and the owner delegated purely technical choices. Wave 0's 1,084 mutants took 45 minutes in one CI job with a 60-minute limit. Wave 1 has 5,104 before its last packages merge, about 3.5 hours in one job, so its pull request into `main` could never pass.
+
+- **What changed.** CI's full gate runs as one `checks` job with every step except mutation testing (`GATE_SKIP_MUTANTS=1`) and ten `mutants` jobs, one per shard (`GATE_MUTANTS_SHARD=k/10`). `scripts/gate.sh` is still the one script that local runs and CI share, and with no switch set it still runs everything. A pull request into a wave branch stays one diff-scoped job.
+- **No mutant is skipped.** Mutant i of the workspace's list belongs to shard i mod 10, so the ten shards test every mutant exactly once. A missed or timed-out mutant fails its shard, and a failed shard does not cancel the others. The script refuses an unreadable switch and any two of its three mutation switches together.
+- **The required check keeps its name.** The job named `gate` now waits for every other job in `ci.yml` and fails unless each succeeded. `main`'s ruleset needs no change. The 32-bit test job and the two self-test jobs are now behind that check too.
+- **When to revisit.** Raise the shard count in `ci.yml` when a shard passes 45 minutes of its 75-minute limit.
+
 ## Decide first
 
 These block the build in this order. D-01 to D-04 block wave 0 of the plan

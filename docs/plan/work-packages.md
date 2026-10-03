@@ -598,7 +598,10 @@ wave 3.
 
 While developing, an agent may run the mutation tool on its own files only.
 The definition of done is still the full `scripts/gate.sh`. Owner decision 6
-proposes how the gate itself scales once the workspace grows.
+proposes how the gate itself scales once the workspace grows. Since wave 1,
+CI runs the full gate's mutation step as ten shards in parallel jobs
+(`GATE_MUTANTS_SHARD`), which together test every mutant
+([technical answer of 2026-10-03](../decisions.md#technical-answer-on-how-the-full-gate-scales-2026-10-03)).
 
 ## Waves at a glance
 
