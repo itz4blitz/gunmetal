@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use gunmetal_core::ebml::{
     DataSize, Element, ElementError, ElementHeader, ElementId, HeaderError, Vint, VintError,
 };
-use gunmetal_fuzz::{EbmlOutcome, Visit, ebml};
+use gunmetal_fuzz::ebml::{Outcome, Visit, run};
 
 /// The committed corpus, which the nightly fuzz job also starts from.
 fn seeds_dir() -> PathBuf {
@@ -38,10 +38,10 @@ const SEEDS: [&str; 9] = [
 
 /// Reads seed `name`, checks that it holds exactly `bytes`, and checks that
 /// the harness reports `expected` for it.
-fn replay(name: &str, bytes: &[u8], expected: &EbmlOutcome<'_>) {
+fn replay(name: &str, bytes: &[u8], expected: &Outcome<'_>) {
     let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
     assert_eq!(file, bytes, "seed {name} holds different bytes");
-    assert_eq!(&ebml(&file), expected, "seed {name}");
+    assert_eq!(&run(&file), expected, "seed {name}");
 }
 
 fn ok(depth: usize, id: u32, body: &[u8]) -> Visit<'_> {
@@ -84,7 +84,7 @@ fn replays_the_empty_input() {
     replay(
         "empty",
         &[],
-        &EbmlOutcome {
+        &Outcome {
             vint: Err(VintError::Empty),
             header: Err(HeaderError::Id(VintError::Empty)),
             walk: vec![],
@@ -98,7 +98,7 @@ fn replays_a_first_octet_with_no_length_marker() {
     replay(
         "zero-first-octet",
         &[0x00],
-        &EbmlOutcome {
+        &Outcome {
             vint: Err(VintError::InvalidWidth),
             header: Err(HeaderError::Id(VintError::InvalidWidth)),
             walk: vec![err(
@@ -118,7 +118,7 @@ fn replays_an_id_with_no_size_after_it() {
     replay(
         "id-without-size",
         &[0x81],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint { value: 1, width: 1 }),
             header: Err(HeaderError::Size(VintError::Empty)),
             walk: vec![err(
@@ -138,7 +138,7 @@ fn replays_an_id_longer_than_four_octets() {
     replay(
         "id-too-long",
         &[0x08, 0x00, 0x00, 0x00, 0x01, 0x81],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint { value: 1, width: 5 }),
             header: Err(HeaderError::IdTooLong { width: 5 }),
             walk: vec![err(
@@ -158,7 +158,7 @@ fn replays_a_size_larger_than_any_input() {
     replay(
         "size-beyond-input",
         &[0xEC, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xAA],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint {
                 value: 0x6C,
                 width: 1,
@@ -191,7 +191,7 @@ fn replays_a_live_segment_of_unknown_size() {
             0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // unknown size
             0xEC, 0x80, // an empty Void inside it
         ],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint {
                 value: 0x0853_8067,
                 width: 4,
@@ -218,7 +218,7 @@ fn replays_siblings_followed_by_garbage() {
     replay(
         "siblings-then-garbage",
         &[0xEC, 0x80, 0xEC, 0x81, 0x00, 0x00],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint {
                 value: 0x6C,
                 width: 1,
@@ -264,7 +264,7 @@ fn replays_a_real_ebml_header() {
             0xEC, 0x80, // Void
             0x42, 0x82, 0x88, b'm', b'a', b't', b'r', b'o', b's', b'k', b'a', // DocType
         ],
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint {
                 value: 0x0A45_DFA3,
                 width: 4,
@@ -341,7 +341,7 @@ fn replays_nesting_two_levels_deeper_than_the_walk_descends() {
     replay(
         "nested-past-the-walk-limit",
         &bytes,
-        &EbmlOutcome {
+        &Outcome {
             vint: Ok(Vint {
                 value: 0x20,
                 width: 1,

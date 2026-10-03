@@ -1,31 +1,72 @@
 name: Fuzz
 
-# Coverage-guided fuzzing of every harness (SEC-TM-033, SEC-MED-029): for an
-# hour each night, and for ten minutes on each pull request that changes
-# the parsers, the harnesses or this setup. A crash, an input that takes
-# more than 5 seconds, or more than 1 GiB of memory fails the job and keeps
-# the input as an artifact. Stable `cargo test` replays the committed seeds
-# in the gate (SEC-MED-028); this job is where new inputs are found.
+# Coverage-guided fuzzing of every registered harness (SEC-TM-033,
+# SEC-MED-029): for an hour each night, and for ten minutes on each pull
+# request that changes the parsers, the harnesses, their dependencies or
+# this setup. A pull request fuzzes every harness, not only those whose
+# files it touches, because a change to shared core code reaches all of
+# them. A crash, an input that takes more than 5 seconds, or more than
+# 1 GiB of memory fails the job and keeps the input as an artifact. Stable
+# `cargo test` replays the committed seeds in the gate (SEC-MED-028); this
+# job is where new inputs are found.
+#
+# The canary job proves on every run that these settings fail the job on
+# each kind of finding: it fuzzes three targets with planted bugs and
+# passes only when each run fails with the matching artifact.
 on:
   schedule:
     - cron: "17 2 * * *"
   pull_request:
     paths:
+      - Cargo.lock
       - crates/gunmetal-core/**
       - crates/gunmetal-fuzz/**
+      - crates/xtask/src/harnesses.rs
       - fuzz/**
       - .github/workflows/fuzz.yml
   workflow_dispatch:
 
-# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
 permissions: {}
 
 concurrency:
   group: fuzz-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # libFuzzer instrumentation needs nightly, pinned by date just as the
+  # stable toolchain is pinned by version (SEC-SUP-038).
+  NIGHTLY: nightly-2026-10-01
+  # The limits of every fuzz run, in one place so that the canaries test
+  # exactly what the harnesses run with (SEC-MED-029).
+  LIMITS: -timeout=5 -rss_limit_mb=1024
+
 jobs:
+  # The harness registry in crates/gunmetal-fuzz is the list of targets, so
+  # a parser package that registers a harness is fuzzed without editing
+  # this file. xtask refuses any name that is not lowercase ASCII letters,
+  # digits and underscores, because the jobs below put names in paths.
+  targets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      harnesses: ${{ steps.list.outputs.harnesses }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - id: list
+        run: |
+          harnesses="$(cargo run --locked --quiet -p xtask -- fuzz-targets)"
+          echo "harnesses=$harnesses" >> "$GITHUB_OUTPUT"
+
   fuzz:
+    needs: targets
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -33,11 +74,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ebml]
+        target: ${{ fromJSON(needs.targets.outputs.harnesses) }}
     env:
-      # libFuzzer instrumentation needs nightly, pinned by date just as the
-      # stable toolchain is pinned by version (SEC-SUP-038).
-      NIGHTLY: nightly-2026-10-01
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '600' || '3600' }}
       TARGET: ${{ matrix.target }}
     steps:
@@ -57,12 +95,14 @@ jobs:
       # sanitizer would add cost without coverage. cargo-fuzz builds with
       # optimisations, debug assertions and overflow checks. New inputs go
       # to the first, scratch directory; the committed seeds are read only.
+      # LIMITS holds several flags, so it is expanded unquoted on purpose.
       - name: Fuzz
         run: |
           mkdir -p "fuzz/corpus/$TARGET"
+          # shellcheck disable=SC2086
           cargo +"$NIGHTLY" fuzz run --sanitizer none "$TARGET" \
             "fuzz/corpus/$TARGET" "fuzz/seeds/$TARGET" -- \
-            -max_total_time="$FUZZ_SECONDS" -timeout=5 -rss_limit_mb=1024
+            -max_total_time="$FUZZ_SECONDS" $LIMITS
       - name: Keep the failing input
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -71,3 +111,41 @@ jobs:
           path: fuzz/artifacts/
           if-no-files-found: ignore
           retention-days: 30
+
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        finding: [crash, timeout, oom]
+    env:
+      FINDING: ${{ matrix.finding }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ env.NIGHTLY }}
+      - run: cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+      - run: cargo +"$NIGHTLY" fetch --locked --manifest-path fuzz/Cargo.toml
+      # The run must fail, and on the planted bug: an artifact of the
+      # finding's kind (crash-, timeout- or oom-) tells it from a build
+      # error. Found in seconds; ten minutes is the ceiling.
+      - name: The fuzz settings fail on the planted finding
+        run: |
+          target="canary_$FINDING"
+          mkdir -p "fuzz/corpus/$target"
+          # shellcheck disable=SC2086
+          if cargo +"$NIGHTLY" fuzz run --sanitizer none "$target" \
+            "fuzz/corpus/$target" -- -max_total_time=600 $LIMITS; then
+            echo "::error::fuzzing $target passed, so the fuzz job would miss a $FINDING"
+            exit 1
+          fi
+          if ! compgen -G "fuzz/artifacts/$target/$FINDING-*" > /dev/null; then
+            echo "::error::fuzzing $target failed without a $FINDING artifact"
+            exit 1
+          fi

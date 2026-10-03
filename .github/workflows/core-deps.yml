@@ -1,0 +1,46 @@
+name: Core dependencies
+
+# gunmetal-core is compiled into every client, so its normal dependencies,
+# direct and transitive, must be exactly the reviewed allowlist in
+# supply-chain/core-allowlist.toml (SEC-SUP-025). The check is
+# `xtask core-deps`, under the gate like all code; this job only feeds it
+# what cargo tree reports. --all-features matters: another workspace member
+# can turn on an optional dependency of the core through one of the core's
+# features, and without the flag cargo tree resolves the core's default
+# features alone and never lists it.
+#
+# The job runs on every pull request, with no path filter, so that a
+# required check is never left skipped. It stays until the integrator adds
+# the same two commands to scripts/gate.sh.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: core-deps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - name: List the core's normal dependencies with every feature on
+        run: |
+          mkdir -p target
+          cargo tree --locked -p gunmetal-core -e normal --target all --all-features \
+            --prefix none --format '{p}' > target/core-deps.txt
+      - name: Compare them with the reviewed allowlist
+        run: cargo run --locked --quiet -p xtask -- core-deps target/core-deps.txt
