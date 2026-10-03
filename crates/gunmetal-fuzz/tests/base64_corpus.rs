@@ -5,6 +5,10 @@
 //! Each file in `fuzz/seeds/base64` has a test here that pins its exact
 //! bytes and the exact outcome the harness reports for it. Commit a fuzzing
 //! reproducer by adding its file and its test together.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "replay reads the committed seed corpus, a repository fixture, by path (SEC-MED-028)"
+)]
 
 use std::fs;
 use std::path::PathBuf;

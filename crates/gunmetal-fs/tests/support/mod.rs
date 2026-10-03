@@ -3,6 +3,10 @@
 //!
 //! The testkit's temporary directories (WP-007) are built in the same wave
 //! as this crate, so these tests carry their own until both have merged.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "tests of the filesystem door build and inspect hostile layouts on the real filesystem, by path (SEC-MED-033)"
+)]
 
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};

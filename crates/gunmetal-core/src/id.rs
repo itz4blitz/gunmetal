@@ -280,6 +280,10 @@ mod compile_fail {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test oracles and generators work with small, bounded values"
+)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
@@ -308,7 +312,7 @@ mod tests {
 
     /// Stands in for the secrets crate's minting function (WP-047), which is
     /// the one caller of [`Minted::from_os_random`] outside tests.
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "tests stand in for the minting function"
     )]

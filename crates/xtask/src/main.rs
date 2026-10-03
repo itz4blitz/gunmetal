@@ -41,7 +41,6 @@ mod tree;
 use std::env;
 use std::fmt::Debug;
 use std::io::{self, Write};
-use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gunmetal_fuzz::registry;
@@ -70,7 +69,7 @@ fn main() -> Result<(), Failure> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
     let registered: Vec<&str> = registry::all().iter().map(|harness| harness.name).collect();
-    dispatch(&args, Path::new(ROOT), now, &registered, &mut io::stdout())
+    dispatch(&args, ROOT, now, &registered, &mut io::stdout())
 }
 
 /// Runs the subcommand `args` names against the repository at `root`, at
@@ -78,7 +77,7 @@ fn main() -> Result<(), Failure> {
 /// harnesses, writing any output to `out`.
 fn dispatch(
     args: &[String],
-    root: &Path,
+    root: &str,
     now: u64,
     registered: &[&str],
     out: &mut dyn Write,
@@ -146,7 +145,6 @@ fn write(out: &mut dyn Write, text: &str) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use std::io::{self, Write};
-    use std::path::Path;
 
     use super::{Failure, ROOT, dispatch, main, read, rendered, report, write};
 
@@ -170,7 +168,7 @@ mod tests {
     ) -> (Result<(), Failure>, String) {
         let args: Vec<String> = args.iter().map(|&arg| arg.to_owned()).collect();
         let mut out = Vec::new();
-        let result = dispatch(&args, Path::new(root), now, registered, &mut out);
+        let result = dispatch(&args, root, now, registered, &mut out);
         (result, String::from_utf8(out).expect("output is UTF-8"))
     }
 
@@ -381,11 +379,8 @@ mod tests {
     /// Verifies: SEC-SUP-027
     #[test]
     fn the_repository_names_one_login_that_owns_every_lock_file() {
-        let codeowners = read(
-            &super::tree::Disk::new(Path::new(ROOT)),
-            ".github/CODEOWNERS",
-        )
-        .expect("CODEOWNERS is readable");
+        let codeowners = read(&super::tree::Disk::new(ROOT), ".github/CODEOWNERS")
+            .expect("CODEOWNERS is readable");
         let owners: Vec<Vec<&str>> = super::age_override::LOCKFILES
             .iter()
             .map(|path| {
@@ -494,7 +489,7 @@ mod tests {
     fn output_that_cannot_be_written_fails() {
         let args = vec!["fuzz-targets".to_owned()];
         assert_eq!(
-            dispatch(&args, Path::new(FIXTURES), 0, &["ebml"], &mut Closed),
+            dispatch(&args, FIXTURES, 0, &["ebml"], &mut Closed),
             Err(Failure::Output)
         );
         assert_eq!(write(&mut Closed, "text"), Err(Failure::Output));
@@ -503,7 +498,7 @@ mod tests {
 
     #[test]
     fn helpers_report_reads_findings_and_writes_exactly() {
-        let tree = super::tree::Disk::new(Path::new(FIXTURES));
+        let tree = super::tree::Disk::new(FIXTURES);
         assert_eq!(read(&tree, "tree/alpha.txt"), Ok("alpha\n".to_owned()));
         assert_eq!(report::<u8>(vec![]), Ok(()));
         assert_eq!(report(vec![1_u8, 2]), Err(findings(&["1", "2"])));

@@ -20,6 +20,10 @@
 //! [`DataRoot::replace`] interrupted by a crash left in `secrets/` is
 //! removed and reported the same way. Anything else is refused. Files are
 //! created with mode 0600 and directories with mode 0700.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the data-root handle is the workspace's filesystem door: it opens the root by path once and works beneath its handle (SEC-MED-033, SEC-HIS-016)"
+)]
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;

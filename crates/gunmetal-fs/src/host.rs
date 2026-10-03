@@ -1,6 +1,10 @@
 //! Facts about the host, read by one small probe and handed to the pure
 //! checks in [`crate::dataroot`], so tests can state "another user owns the
 //! directory" or "the data directory is on NFS" instead of needing either.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the host probe reads the filesystem type of the data directory it is given (ADM-079)"
+)]
 
 use std::io;
 use std::path::Path;

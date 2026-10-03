@@ -6,10 +6,8 @@
 // The testkit is the one written exception to the ban on path-based
 // `std::fs` outside `gunmetal-fs` (owner decision 33 in the build plan): a
 // test's scratch directory has no root handle to open it beneath. Every
-// path-based call in the crate is in this module. The ban is not on the
-// wave branch yet, so this is an `allow`; it becomes the plan's
-// `#[expect(clippy::disallowed_methods)]` once the ban lands.
-#![allow(
+// path-based call in the crate is in this module.
+#![expect(
     clippy::disallowed_methods,
     reason = "the testkit's temporary directory is the one sanctioned path-based std::fs user (owner decision 33)"
 )]

@@ -334,7 +334,7 @@ disallowed-methods = [
     # SEC-HIS-012: a PublicId is built only from a Minted value, which only
     # the secrets crate's minting function (WP-047) creates. allow-invalid
     # until WP-006 adds the type; remove it then.
-    { path = "gunmetal_core::id::Minted::from_os_random", reason = "public IDs are minted only by the secrets crate's minting function (SEC-HIS-012)", allow-invalid = true },
+    { path = "gunmetal_core::id::Minted::from_os_random", reason = "public IDs are minted only by the secrets crate's minting function (SEC-HIS-012)" },
 
     # SEC-OPS-013, SEC-IAM-095: a secret's value is reachable only inside
     # gunmetal-secrets (WP-047).

@@ -1,6 +1,10 @@
 //! Read access to the repository. Every check is a pure function of what it
 //! reads through [`Tree`], so its tests run against small trees held in
 //! memory, and this module is the only one that touches the filesystem.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the xtask's one filesystem module reads the repository it checks, by path"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,9 +38,9 @@ pub struct Disk {
 
 impl Disk {
     /// The repository whose top directory is `root`.
-    pub fn new(root: &Path) -> Self {
+    pub fn new(root: &str) -> Self {
         Self {
-            root: root.to_path_buf(),
+            root: Path::new(root).to_path_buf(),
         }
     }
 }
@@ -115,7 +119,6 @@ mod tests {
     use super::memory::Memory;
     use super::{Disk, Tree, is_rust};
     use crate::ROOT;
-    use std::path::Path;
 
     #[test]
     fn recognises_rust_sources_by_their_exact_extension() {
@@ -132,7 +135,7 @@ mod tests {
 
     #[test]
     fn reads_a_file_by_its_path_from_the_root() {
-        let disk = Disk::new(Path::new(ROOT));
+        let disk = Disk::new(ROOT);
         assert_eq!(
             disk.read(&format!("{FIXTURE}/alpha.txt")),
             Some("alpha\n".to_owned())
@@ -145,21 +148,21 @@ mod tests {
 
     #[test]
     fn reads_nothing_for_a_missing_file_or_a_directory() {
-        let disk = Disk::new(Path::new(ROOT));
+        let disk = Disk::new(ROOT);
         assert_eq!(disk.read(&format!("{FIXTURE}/missing.txt")), None);
         assert_eq!(disk.read(&format!("{FIXTURE}/nested")), None);
     }
 
     #[test]
     fn lists_every_file_beneath_a_directory_relative_to_it() {
-        let disk = Disk::new(Path::new(ROOT));
+        let disk = Disk::new(ROOT);
         assert_eq!(disk.files(FIXTURE), ["alpha.txt", "nested/beta.txt"]);
         assert_eq!(disk.files(&format!("{FIXTURE}/nested")), ["beta.txt"]);
     }
 
     #[test]
     fn lists_every_file_in_the_tree_for_the_empty_directory() {
-        let disk = Disk::new(&Path::new(ROOT).join(FIXTURE));
+        let disk = Disk::new(&format!("{ROOT}/{FIXTURE}"));
         assert_eq!(disk.files(""), ["alpha.txt", "nested/beta.txt"]);
         let memory = Memory::default()
             .with("alpha.txt", "")
@@ -171,7 +174,7 @@ mod tests {
 
     #[test]
     fn lists_nothing_for_a_missing_directory() {
-        let disk = Disk::new(Path::new(ROOT));
+        let disk = Disk::new(ROOT);
         assert_eq!(disk.files(&format!("{FIXTURE}/missing")), [""; 0]);
     }
 }

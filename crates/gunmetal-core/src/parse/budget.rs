@@ -124,6 +124,10 @@ impl Depth {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test oracles and generators work with small, bounded values"
+)]
 mod tests {
     use super::*;
     use proptest::collection::vec;

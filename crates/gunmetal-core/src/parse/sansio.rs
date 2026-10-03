@@ -245,6 +245,10 @@ fn admitted(file: &[u8], request: ReadRequest) -> &[u8] {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test oracles and generators work with small, bounded values"
+)]
 mod tests {
     use super::super::fault::ParseFault;
     use super::super::small_stack::on_small_stack;

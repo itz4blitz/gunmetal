@@ -29,7 +29,7 @@ pub fn bounded_capacity(declared: u64, min_item_len: u64, remaining: u64, ceilin
 /// and unreserved instead of aborting the process; it still grows one item
 /// at a time.
 #[must_use]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the core's one sanctioned pre-sizing call; its capacity comes from bounded_capacity (SEC-MED-003)"
 )]
@@ -41,6 +41,10 @@ pub fn bounded_vec<T>(declared: u64, min_item_len: u64, remaining: u64, ceiling:
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test oracles and generators work with small, bounded values"
+)]
 mod tests {
     use super::*;
     use proptest::prelude::*;

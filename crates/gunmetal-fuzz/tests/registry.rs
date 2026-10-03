@@ -6,6 +6,10 @@
 //! every seed's bytes and the exact outcome the harness reports for it. This
 //! file holds the checks that apply to every harness at once, so a harness
 //! added later is replayed without anyone remembering to add it here.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "replay reads the committed seed corpus, a repository fixture, by path (SEC-MED-028)"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

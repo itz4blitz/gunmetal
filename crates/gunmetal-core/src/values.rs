@@ -955,7 +955,7 @@ mod tests {
                 "{text:?}"
             );
         }
-        let huge = format!("1{} dB", "0".repeat(50));
+        let huge = format!("1{} dB", ["0"; 50].concat());
         for text in ["128.01 dB", "-128.5", "1000 dB", huge.as_str()] {
             assert_eq!(
                 GainDb::parse(Untrusted::new(text)),

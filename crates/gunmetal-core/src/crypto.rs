@@ -8,6 +8,10 @@
 //! itself.
 //! Every other algorithm, keyed or keyless, lives in the secrets crate's
 //! crypto module, never in the core.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the core's one sanctioned use of sha2: SHA-256 for the schema digest and content identity (SEC-STD-018)"
+)]
 
 use sha2::{Digest as _, Sha256};
 
@@ -64,7 +68,7 @@ mod tests {
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
         assert_eq!(
-            hex(sha256(&vec![b'a'; 1_000_000])),
+            hex(sha256(&(0..1_000_000).map(|_| b'a').collect::<Vec<u8>>())),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
     }

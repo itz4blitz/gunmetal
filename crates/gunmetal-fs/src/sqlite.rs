@@ -22,6 +22,10 @@
 //! request text does not compile (SEC-API-066, SEC-TM-039, SEC-HIS-038).
 //! Sort orders and filters are enums that each pick a whole static
 //! statement.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the one SQLite connection opener and the one door to SQLite statements (SEC-HIS-016, SEC-TM-039)"
+)]
 
 use std::time::Duration;
 

@@ -15,6 +15,10 @@
 //! the data directory (SEC-HIS-015). A store that needs names it generates
 //! at run time, such as a log segment per stream and month, gets a typed
 //! constructor here that takes only the server's own identifier types.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the one place a data-directory path is built, from names the data root checked (SEC-MED-033)"
+)]
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};

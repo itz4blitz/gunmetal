@@ -1,4 +1,8 @@
 //! The host probe on a real filesystem.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "tests of the filesystem door build and inspect hostile layouts on the real filesystem, by path (SEC-MED-033)"
+)]
 
 #[allow(dead_code, reason = "each test binary uses part of the helpers")]
 mod support;
