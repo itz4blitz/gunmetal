@@ -69,18 +69,14 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
                 Item::Damaged { range } => Some(range.start),
                 Item::Record(_) => None,
             });
-            assert_eq!(
-                tail,
-                first_damage.unwrap_or(data.len()),
-                "recover_tail must be the first damaged start, or the input length"
-            );
+            assert_eq!(tail, first_damage.unwrap_or(data.len()));
         }
         Err(fault) => {
-            let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
-            assert!(
-                matches!(fault, ParseFault::BudgetExceeded { offset } if *offset <= len),
-                "{fault:?}"
-            );
+            assert!(matches!(
+                fault,
+                ParseFault::BudgetExceeded { offset }
+                    if *offset <= u64::try_from(data.len()).unwrap_or(u64::MAX)
+            ));
         }
     }
 
