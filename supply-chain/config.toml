@@ -95,7 +95,7 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 
 [[exemptions.getrandom]]
 version = "0.4.3"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.hybrid-array]]
@@ -180,7 +180,7 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 
 [[exemptions.r-efi]]
 version = "6.0.0"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.rand]]

@@ -9,6 +9,8 @@
 //! - `check-harnesses`: every parser entry point in `gunmetal-core` has a
 //!   registered fuzz harness, and every harness has its files (SEC-MED-027,
 //!   SEC-MED-031).
+//! - `crypto-inventory`: the cryptographic inventory in record 9 and the
+//!   two crypto modules agree (SEC-STD-018).
 //! - `core-deps <cargo-tree-output>`: `gunmetal-core`'s normal dependencies
 //!   are exactly the reviewed allowlist (SEC-SUP-025).
 //! - `fuzz-targets`: the registered harnesses as a JSON array, for the fuzz
@@ -42,6 +44,7 @@
 mod age_override;
 mod codeowners;
 mod core_deps;
+mod crypto_inventory;
 mod harnesses;
 mod js_deps;
 mod json;
@@ -104,6 +107,7 @@ fn dispatch(
             &read(&tree, output)?,
             &tree.read(core_deps::ALLOWLIST).unwrap_or_default(),
         )),
+        ["crypto-inventory"] => report(crypto_inventory::check(&tree)),
         ["fuzz-targets"] => write(out, &harnesses::targets_json(registered).map_err(rendered)?),
         ["js-deps"] => report(js_deps::check(&tree)),
         ["lint-exceptions"] => report(lint_exceptions::check(&tree, lint_exceptions::EXCEPTIONS)),
