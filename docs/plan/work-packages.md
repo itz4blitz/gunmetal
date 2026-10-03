@@ -602,14 +602,16 @@ proposes how the gate itself scales once the workspace grows.
 | Wave | Packages | Count | What it produces |
 |---|---|---:|---|
 | 0 | WP-001 to WP-008, WP-122, WP-125, WP-126 | 11 | Lints and merge rules, ADR 3 to 6, the security architecture records, the parse contract, text and typed values, identifiers and the problem catalogue, the testkit, the fuzz harness registry, the schema digest with data classes, the data-root handle (unchanged by the adopted R1) |
-| 1 | WP-009 to WP-021, WP-023 to WP-026, WP-028, WP-030 to WP-047, WP-124, WP-127, WP-128, WP-138, WP-139 | 41 | Every R1 container parser and lyrics, the pure logic of the queue, shuffle, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the project site's security files |
-| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130 | 23 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
+| 1 | WP-009 to WP-021, WP-023 to WP-026, WP-028, WP-030 to WP-047, WP-124, WP-127, WP-128, WP-138, WP-139, WP-235 | 42 | Every R1 container parser and lyrics, the pure logic of the queue, shuffle, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the project site's security files |
+| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130, WP-236, WP-237 | 25 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
 | 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132 | 30 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
 | 4 | WP-101 to WP-106, WP-108, WP-121, WP-133 | 9 | ACME for the owner's own domain, the scan pipeline and what needs it (artwork serving, the playback registry and stream limits, the packaging route and its worker job, account recovery), each person's data export, release builds and service install, history deletion and retention |
 | 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark and the speed budget tests, release provenance and signing |
 | 6 | WP-116, WP-117 | 2 | Doctor and the security summary, and the R1 flow acceptance tests |
 
-121 packages build R1. The 40 packages that serve only R1.1, R1.2, R1.3
+124 packages build R1 (three of them, WP-235 to WP-237, were added on
+2026-10-03 at the client plan's request: the WASM facade, once WP-088
+alone, is now built in slices). The 40 packages that serve only R1.1, R1.2, R1.3
 or R2 (18 moved whole, counting WP-091, which was already R2, and 22 new
 packages split from R1 packages, WP-140 to WP-161) are in
 [After R1](#after-r1-point-releases-and-later), grouped by release; R2's
@@ -632,7 +634,7 @@ WP-091 (scoped tokens) moved to R2 when the plan was aligned with the
 security baseline, and its entry is now in the R2 group of
 [After R1](#after-r1-point-releases-and-later).
 
-Wave 1 is the widest point: forty-one packages that need nothing but wave 0.
+Wave 1 is the widest point: forty-two packages that need nothing but wave 0.
 That is where most parallel agents are useful. The critical path to a
 running music server is WP-004 → WP-012 → WP-052 → WP-075 → WP-102, with the
 worker chain WP-045 → WP-061 → WP-078 → WP-102 and the store chain
@@ -2951,6 +2953,62 @@ returns the whole expected value.
   it is removed, never the reverse; an override outside the allowed
   range is refused with its name.
 
+### WP-235 WASM facade: the crate, the type mechanism and the lint answer (added for the client plan)
+
+- **Wave** 1 · **Size** S · **Depends on** WP-005, WP-006, WP-008.
+- **Owns** `crates/gunmetal-wasm/Cargo.toml`,
+  `crates/gunmetal-wasm/src/links.rs`, `text.rs`, `ids.rs`,
+  `problems.rs` (`lib.rs` is a registry), `crates/gunmetal-wasm/types/`
+  (generated declarations, committed), `crates/xtask/src/wasm_types.rs`
+  (with its dispatch line).
+- **Serves** ADR 1 decision 2; ADR 12 decisions on how types cross and
+  on `unsafe`; the web player's first packages
+  ([client-packages.md](client-packages.md)).
+- **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
+  SEC-CLI-021, and SEC-CLI-002 and SEC-API-047 for the browser (the
+  core's link filter is the one the web client calls).
+- **Why it exists.** The web player is built in parallel with the server
+  (owner answer, 2026-10-03) and needs the core in the browser before
+  wave 3. Three things about the facade were unverified and sat on that
+  path: whether `wasm-bindgen`'s generated code passes the workspace's
+  `unsafe_code` lint, how rich types cross to TypeScript, and how
+  coverage counts the glue. This package settles them on types already
+  on `main`, before any other slice is written.
+- **Scope.** Create the crate record 6 names. Export WP-005's link
+  filter and text normalisation and WP-006's public IDs and problem
+  codes. Set the mechanism record 12 decides: for each core type that
+  crosses, a mirror type in this crate with a conversion that takes the
+  core value apart field by field with no catch-all, so a core field
+  renamed, retyped, added or removed fails to compile; `serde` and
+  `tsify` derives on the mirrors, values crossing through
+  `serde-wasm-bindgen`; an xtask command that regenerates the TypeScript
+  declarations into `crates/gunmetal-wasm/types/` and fails when the
+  committed copy differs. The lint answer to owner decision 34: the
+  core keeps `unsafe_code = "forbid"`; this crate carries the narrowest
+  exception the generated code needs, with its reason, listed on the
+  xtask exception list; an xtask check fails on the `unsafe` keyword
+  anywhere in the crate's source, so hand-written `unsafe` stays
+  refused. A `wasm32-unknown-unknown` build of the crate under that lint
+  as a gate step, because the generated items are compiled only for
+  that target and the host build would never show the lint firing.
+- **Dependency requests.** `tsify` (crates.io; MIT or Apache-2.0;
+  github.com/madonoharu/tsify; not `tsify-next`) and
+  `serde-wasm-bindgen` (crates.io; MIT;
+  github.com/RReverser/serde-wasm-bindgen), each with the checklist and
+  the owner's approval; `serde`'s derive feature for this crate. None is
+  a dependency of the core.
+- **Not in scope.** Every other export (WP-236, WP-237, WP-088).
+- **Tests.** Native unit tests of each conversion, with literal values.
+  A fixture mirror with a field removed makes the drift check fail. A
+  fixture source file holding `unsafe` makes the keyword check fail. The
+  `wasm32` build passes under the lint. The committed declarations for
+  the exported types equal a literal expected text.
+- **Stop condition for others.** WP-236, WP-237, WP-088 and every client
+  package that depends on one do not start until this package has
+  merged with its `wasm32` build passing. If the narrowest exception
+  turns out wider than generated items, or `tsify` cannot be approved,
+  the mechanism goes back to record 12 before anything else is built.
+
 ## Wave 2: tag mapping, probing, search and the server's spine
 
 Four packages numbered in this section run in wave 3 because of
@@ -4152,6 +4210,55 @@ also runs in this wave.
   entry without a test (fixture register). Load figures are measured by
   WP-117's nightly job, not asserted here.
 
+### WP-236 WASM facade: queue, shuffle, gain, player state, lyrics and catalogue types (added for the client plan)
+
+- **Wave** 2 · **Size** M · **Depends on** WP-021, WP-025, WP-026,
+  WP-028, WP-030, WP-040, WP-235.
+- **Owns** `crates/gunmetal-wasm/src/queue.rs`, `shuffle.rs`, `gain.rs`,
+  `player.rs`, `lyrics.rs`, `catalog.rs`, with their generated
+  declarations under `crates/gunmetal-wasm/types/`.
+- **Serves** ADR 1 decision 2; MUS-116 to MUS-119, MUS-122, MUS-126,
+  MUS-077, MUS-084, MUS-085, MUS-087 to MUS-089, MUS-154, MUS-155 (each
+  as the core's rule reaching the web client).
+- **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
+  SEC-CLI-021.
+- **Scope.** In the form WP-235 sets: exports for applying and rebasing
+  queue operations, the shuffle order, the gain decision with the factor
+  to apply, the player state's transition function and the lyric
+  position lookup, and mirror types for the catalogue records, so the
+  web client's demo library is typed by the core. Each export is a
+  direct call into the core with conversion only.
+- **Not in scope.** User events (WP-237). Sync, the library, search, the
+  decision and Home rows (WP-088).
+- **Tests.** Native unit tests of each conversion with literal values;
+  the drift check; the `wasm32` build.
+
+### WP-237 WASM facade: user events (added for the client plan)
+
+- **Wave** 2 · **Size** S · **Depends on** WP-034, WP-235.
+- **Owns** `crates/gunmetal-wasm/src/userdata.rs`, with its generated
+  declarations under `crates/gunmetal-wasm/types/`.
+- **Serves** CLI-093, MUS-180, MUS-182; API-LOG-01 (each as the core's
+  rule reaching the web client).
+- **Security.** Boundaries TB4, TB5; threats TM-T18. Verifies
+  SEC-PRV-002 and SEC-PRV-024 for the browser (an event built in the
+  browser holds only the allowed fields, and in private mode the sink
+  returns nothing to upload).
+- **Scope.** In the form WP-235 sets: build a play, skip, love or unlove
+  event with its event ID and hybrid logical clock; receive a clock from
+  the server; and the event sink, which takes a mode and in private mode
+  drops play, skip and completion events before they can be queued
+  (api-needs.md, "Private listening in the synced copy"). The web client
+  makes no event ID, clock value or event field itself. If the backend
+  plan accepts the client plan's two requests (a tint rule in the core,
+  and the inbound-link parser split out of WP-089 into wave 1), this
+  package also exports them, one file each.
+- **Not in scope.** Storage and upload (client; WP-068 on the server).
+- **Tests.** Native unit tests of each conversion with literal values;
+  an event built through the facade serialises to the same literal
+  encoding WP-034's own test uses; private mode returns nothing; the
+  drift check; the `wasm32` build.
+
 ## Wave 3: the music model, sign-in, streaming and sync
 
 WP-063, WP-072, WP-073 and WP-074 also run in this wave (numbered in the
@@ -4726,36 +4833,46 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 - **Wave** 3 (moved back from 4: it was in wave 4 because WP-059 had
   moved to wave 3, and WP-059 is back in wave 2 now that the radio and
   rule packages it read, WP-058 and WP-027, left R1) · **Size** M ·
-  **Depends on** WP-021, WP-025, WP-026, WP-028, WP-030, WP-039, WP-040,
-  WP-054, WP-055, WP-059.
-- **Owns** `crates/gunmetal-wasm/` (creates the crate),
-  `.github/workflows/wasm.yml` (the `wasm32` build job; `ci.yml` belongs
-  to the integrator).
+  **Depends on** WP-039, WP-040, WP-054, WP-055, WP-059, WP-235. (On
+  2026-10-03 the facade was split at the client plan's request: WP-235
+  creates the crate in wave 1, and WP-236 and WP-237 export the wave 1
+  modules in wave 2, so the web player can use the core's queue, shuffle,
+  gain, player state, lyrics and user events before this package. This
+  package no longer creates the crate and no longer depends on WP-021,
+  WP-025, WP-026, WP-028 or WP-030.)
+- **Owns** In `crates/gunmetal-wasm/src/`, one file per module it
+  exports (`sync.rs`, `library.rs`, `search.rs`, `decision.rs`,
+  `home.rs`, `decode.rs`), with their generated declarations under
+  `crates/gunmetal-wasm/types/`; `.github/workflows/wasm.yml` (the
+  `wasm32` build job; `ci.yml` belongs to the integrator).
 - **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208,
   MUS-236 (the details summary, WP-055).
 - **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
   SEC-CLI-021.
-- **Scope.** A thin `wasm-bindgen` layer so the web client can apply sync
-  frames to an in-memory library, query search, evaluate Home rows,
-  apply queue operations optimistically, read
-  the decision engine (with its track details summary) and gain decision,
-  follow the player state and look up lyrics positions. Every exported function is a direct call into the
-  core with conversion only.
-- **Not in scope.** Persistent storage in the browser (client). Rule
-  evaluation and radio picks, which the later packages that build them
-  (WP-027 in R1.1, WP-058 in R1.3) add to this facade, one function each.
+- **Scope.** The rest of the thin `wasm-bindgen` layer, in the form
+  WP-235 sets (mirror types, generated declarations, the lint
+  exception): apply sync frames to an in-memory library and read it (an
+  item by ID, a list in a named order), query search, evaluate Home
+  rows, read the decision engine (with its track details summary), and
+  decode route responses as well as sync frames (SEC-CLI-021). Every
+  exported function is a direct call into the core with conversion
+  only. The client plan's further requests of this package (loading the
+  library from catalogue records, the audit-head check, a QR matrix) are
+  listed in [client-packages.md](client-packages.md#requests-to-the-backend-plan)
+  and are accepted or refused when this package starts.
+- **Not in scope.** Creating the crate, the type mechanism and the lint
+  exception (WP-235). The queue, shuffle, gain, player state, lyrics and
+  catalogue types (WP-236). User events (WP-237). Persistent storage in
+  the browser (client). Rule evaluation and radio picks, which the later
+  packages that build them (WP-027 in R1.1, WP-058 in R1.3) add to this
+  facade, one function each.
 - **Tests.** Native unit tests of each conversion (the facade must compile
   and be covered on the host target); a `wasm32` build in CI; a size check
   of the `.wasm` file reported.
 - **Risks.** Coverage tooling on the facade's generated glue may count code
-  the tests cannot reach (unverified); if so, the glue is kept in a module
-  the owner explicitly approves, because the gate allows no exclusions.
-  The workspace sets `unsafe_code = "forbid"`, and `wasm-bindgen`'s
-  generated code contains `unsafe` blocks; whether the forbid lint rejects
-  macro-generated code in this crate is unverified. If it does, this
-  crate needs a crate-level exception, which is an owner decision because
-  the README's rule is "no `unsafe` in the core" while the workspace
-  forbids it everywhere (owner decision 34).
+  the tests cannot reach (unverified); WP-235 meets that first and records
+  the answer. The `unsafe` question (owner decision 34) is answered and
+  proved by WP-235.
 
 ### WP-089 Server facts: health, discovery, negotiation and API reference
 
@@ -6494,7 +6611,7 @@ wave: WP-150 follows WP-140 (both edit
 `crates/gunmetal-server/src/libraries/`, WP-099's), WP-147 follows
 WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's), and
 WP-147 follows WP-027 (both add functions to `crates/gunmetal-wasm/`,
-WP-088's).
+the facade crate WP-235 creates).
 
 #### WP-022 M3U and M3U8 parser and writer
 
@@ -8141,7 +8258,13 @@ unless each person opts in, and no history. Items 3, 5, 10, 17, 21, 24,
     If `wasm-bindgen`'s generated code trips the forbid lint (unverified),
     WP-088 needs a crate-level exception. *Recommendation:* allow it in
     `gunmetal-wasm` only, where the code is generated glue, and keep it
-    forbidden everywhere else.
+    forbidden everywhere else. *Answered 2026-10-03 as a delegated
+    technical choice (register, technical answers):* the core keeps
+    `forbid` with no exception; the facade crate alone carries the
+    narrowest exception generated code needs, hand-written `unsafe` is
+    refused there by an xtask check, the exception is on the xtask
+    exception list, and WP-235 proves the `wasm32` build under it before
+    any other facade slice starts.
 35. **Service install and "one command"** (ADM-005). SEC-MED-063 forbids
     the server from starting programs outside the sandbox launcher, so the
     binary cannot create the service user or enable the unit itself.
