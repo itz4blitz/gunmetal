@@ -1,4 +1,11 @@
 //! The wrapper every byte or string from outside arrives in (SEC-TM-031).
+//!
+//! Outside this crate a wrapped value can only be handed to a validating
+//! constructor, every one of which takes `Untrusted`: the parsers in
+//! `values`, `time`, `net`, `base64` and `link`, and the decoders in
+//! `text`. Each returns a domain type or an error. Keep this module small:
+//! `tests/untrusted.rs` fails to compile if the field or an accessor with a
+//! common name becomes public, and review covers any other name.
 
 /// A value received from outside: a media file, a request, a provider.
 pub struct Untrusted<T>(T);

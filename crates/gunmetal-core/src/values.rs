@@ -8,6 +8,9 @@
 //! engine. Divisors such as a sample rate are non-zero by type, so a zero
 //! from a file never reaches a division.
 //!
+//! Text from a tag, a request or a provider arrives [`Untrusted`], and each
+//! type's `parse` is the one way from it to the value (SEC-TM-031).
+//!
 //! The gain range is wide on purpose: the player clamps gain from tags to
 //! −30 dB to +12 dB (SEC-MED-015), so a gain beyond that range is clamped
 //! there rather than dropped here.
@@ -16,6 +19,7 @@ use std::fmt;
 use std::num::{NonZeroU32, NonZeroU128};
 
 use crate::time::days_in_month;
+use crate::untrusted::Untrusted;
 
 /// Which value a [`ValueError`] is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +93,8 @@ impl Mbid {
     /// # Errors
     ///
     /// [`ValueError::Malformed`] for anything else.
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         let malformed = ValueError::Malformed { field: Field::Mbid };
         if text.len() != 36 {
             return Err(malformed);
@@ -140,7 +145,8 @@ impl Isrc {
     /// # Errors
     ///
     /// [`ValueError::Malformed`] for anything else.
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         let code: Vec<u8> = match text.as_bytes() {
             hyphenated @ [_, _, b'-', _, _, _, b'-', _, _, b'-', _, _, _, _, _] => hyphenated
                 .iter()
@@ -304,7 +310,8 @@ impl NumberOf {
     ///
     /// [`ValueError::Malformed`] for other text, and the errors of
     /// [`Self::new`].
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         let lower = text.trim().to_ascii_lowercase();
         let (number, total) = match lower.split_once('/').or_else(|| lower.split_once(" of ")) {
             Some((number, total)) => (number.trim_end(), Some(total.trim_start())),
@@ -384,7 +391,8 @@ impl PartialDate {
     ///
     /// [`ValueError::Malformed`] for other text, and the errors of
     /// [`Self::new`].
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         let text = text.trim();
         let date = text
             .split_once(['T', 't', ' '])
@@ -482,7 +490,8 @@ impl GainDb {
     ///
     /// [`ValueError::Malformed`] for other text, and the errors of
     /// [`Self::new`].
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         let lower = text.trim().to_ascii_lowercase();
         let number = lower.strip_suffix("db").unwrap_or(&lower).trim_end();
         Self::new(decimal(number).ok_or(ValueError::Malformed { field: Field::Gain })?)
@@ -531,7 +540,8 @@ impl PeakRatio {
     ///
     /// [`ValueError::Malformed`] for other text, and the errors of
     /// [`Self::new`].
-    pub fn parse(text: &str) -> Result<Self, ValueError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, ValueError> {
+        let text = text.into_inner();
         Self::new(decimal(text.trim()).ok_or(ValueError::Malformed { field: Field::Peak })?)
     }
 
@@ -621,7 +631,11 @@ mod tests {
             "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6",
             "f81D4fAe-7dEc-11d0-A765-00a0c91E6bf6",
         ] {
-            assert_eq!(Mbid::parse(text), Ok(Mbid(EXAMPLE_BYTES)), "{text}");
+            assert_eq!(
+                Mbid::parse(Untrusted::new(text)),
+                Ok(Mbid(EXAMPLE_BYTES)),
+                "{text}"
+            );
         }
     }
 
@@ -644,7 +658,11 @@ mod tests {
             "f81d4fae-7dec-11d0-a765-00a0c91e6bé",
             "../../../../../../../../../../../../",
         ] {
-            assert_eq!(Mbid::parse(text), Err(malformed(Field::Mbid)), "{text:?}");
+            assert_eq!(
+                Mbid::parse(Untrusted::new(text)),
+                Err(malformed(Field::Mbid)),
+                "{text:?}"
+            );
         }
     }
 
@@ -676,11 +694,13 @@ mod tests {
     #[test]
     fn reads_an_isrc_with_or_without_hyphens_in_either_case() {
         for text in ["USS1Z9900001", "uss1z9900001", "US-S1Z-99-00001"] {
-            let isrc = Isrc::parse(text).unwrap();
+            let isrc = Isrc::parse(Untrusted::new(text)).unwrap();
             assert_eq!(isrc.as_str(), "USS1Z9900001", "{text}");
         }
         assert_eq!(
-            Isrc::parse("GBAYE0601498").unwrap().as_str(),
+            Isrc::parse(Untrusted::new("GBAYE0601498"))
+                .unwrap()
+                .as_str(),
             "GBAYE0601498"
         );
     }
@@ -703,7 +723,11 @@ mod tests {
             "ÜSS1Z9900001",
             "../../../../x",
         ] {
-            assert_eq!(Isrc::parse(text), Err(malformed(Field::Isrc)), "{text:?}");
+            assert_eq!(
+                Isrc::parse(Untrusted::new(text)),
+                Err(malformed(Field::Isrc)),
+                "{text:?}"
+            );
         }
     }
 
@@ -755,7 +779,7 @@ mod tests {
             ("9999/9999", 9999, Some(9999)),
         ];
         for (text, number, total) in cases {
-            let parsed = NumberOf::parse(text);
+            let parsed = NumberOf::parse(Untrusted::new(text));
             assert_eq!(parsed, Ok(NumberOf { number, total }), "{text}");
             assert_eq!(parsed.map(NumberOf::number), Ok(number));
             assert_eq!(parsed.map(NumberOf::total), Ok(total));
@@ -796,7 +820,11 @@ mod tests {
             ),
         ];
         for (text, error) in cases {
-            assert_eq!(NumberOf::parse(text), Err(error), "{text:?}");
+            assert_eq!(
+                NumberOf::parse(Untrusted::new(text)),
+                Err(error),
+                "{text:?}"
+            );
         }
         assert_eq!(
             NumberOf::new(70_000, None),
@@ -827,7 +855,7 @@ mod tests {
             ("9999-12-31", 9999, Some(12), Some(31)),
         ];
         for (text, year, month, day) in cases {
-            let parsed = PartialDate::parse(text);
+            let parsed = PartialDate::parse(Untrusted::new(text));
             assert_eq!(parsed, Ok(PartialDate { year, month, day }), "{text}");
             assert_eq!(parsed.map(PartialDate::year), Ok(year));
             assert_eq!(parsed.map(PartialDate::month), Ok(month));
@@ -858,7 +886,11 @@ mod tests {
             ("2019-04-31", out_of_range(Field::Day, 31)),
         ];
         for (text, error) in cases {
-            assert_eq!(PartialDate::parse(text), Err(error), "{text:?}");
+            assert_eq!(
+                PartialDate::parse(Untrusted::new(text)),
+                Err(error),
+                "{text:?}"
+            );
         }
         assert_eq!(
             PartialDate::new(2019, None, Some(5)),
@@ -886,7 +918,7 @@ mod tests {
             ("-128.00 dB", -128.0),
         ];
         for (text, db) in cases {
-            let parsed = GainDb::parse(text);
+            let parsed = GainDb::parse(Untrusted::new(text));
             assert_eq!(parsed, Ok(GainDb(db)), "{text}");
             assert_eq!(parsed.map(GainDb::db), Ok(db));
         }
@@ -917,11 +949,19 @@ mod tests {
             "\u{FF16}",
             "6.5 dB dB",
         ] {
-            assert_eq!(GainDb::parse(text), Err(malformed(Field::Gain)), "{text:?}");
+            assert_eq!(
+                GainDb::parse(Untrusted::new(text)),
+                Err(malformed(Field::Gain)),
+                "{text:?}"
+            );
         }
         let huge = format!("1{} dB", "0".repeat(50));
         for text in ["128.01 dB", "-128.5", "1000 dB", huge.as_str()] {
-            assert_eq!(GainDb::parse(text), Err(unusable(Field::Gain)), "{text:?}");
+            assert_eq!(
+                GainDb::parse(Untrusted::new(text)),
+                Err(unusable(Field::Gain)),
+                "{text:?}"
+            );
         }
         // The nearest floats beyond each end of the range.
         let above = f32::from_bits(128.0_f32.to_bits() + 1);
@@ -962,20 +1002,20 @@ mod tests {
             ("16", 16.0),
         ];
         for (text, ratio) in cases {
-            let parsed = PeakRatio::parse(text);
+            let parsed = PeakRatio::parse(Untrusted::new(text));
             assert_eq!(parsed, Ok(PeakRatio(ratio)), "{text}");
             assert_eq!(parsed.map(PeakRatio::ratio), Ok(ratio));
         }
         for text in ["", "nan", "inf", "1e-3", "0.5 dB", "-", "0..5"] {
             assert_eq!(
-                PeakRatio::parse(text),
+                PeakRatio::parse(Untrusted::new(text)),
                 Err(malformed(Field::Peak)),
                 "{text:?}"
             );
         }
         for text in ["16.01", "-0.1", "1000"] {
             assert_eq!(
-                PeakRatio::parse(text),
+                PeakRatio::parse(Untrusted::new(text)),
                 Err(unusable(Field::Peak)),
                 "{text:?}"
             );
@@ -1036,7 +1076,7 @@ mod tests {
         /// Verifies: SEC-MED-014
         #[test]
         fn writing_then_reading_an_mbid_returns_it(bytes in any::<[u8; 16]>()) {
-            prop_assert_eq!(Mbid::parse(&Mbid(bytes).to_string()), Ok(Mbid(bytes)));
+            prop_assert_eq!(Mbid::parse(Untrusted::new(&Mbid(bytes).to_string())), Ok(Mbid(bytes)));
         }
 
         /// Verifies: SEC-MED-014
@@ -1053,7 +1093,7 @@ mod tests {
                 _ => format!("{number}"),
             };
             let expected = NumberOf { number, total: (form < 2).then_some(total) };
-            prop_assert_eq!(NumberOf::parse(&text), Ok(expected));
+            prop_assert_eq!(NumberOf::parse(Untrusted::new(&text)), Ok(expected));
         }
 
         /// Whatever any parser accepts lies inside its documented range.
@@ -1075,22 +1115,22 @@ mod tests {
                 ".{0,40}",
             ],
         ) {
-            if let Ok(number) = NumberOf::parse(&text) {
+            if let Ok(number) = NumberOf::parse(Untrusted::new(&text)) {
                 prop_assert!((1..=9999).contains(&number.number()));
                 prop_assert!(number.total().is_none_or(|total| (number.number()..=9999).contains(&total)));
             }
-            if let Ok(date) = PartialDate::parse(&text) {
+            if let Ok(date) = PartialDate::parse(Untrusted::new(&text)) {
                 prop_assert!((1..=9999).contains(&date.year()));
                 prop_assert!(date.month().is_none_or(|month| (1..=12).contains(&month)));
                 prop_assert!(date.day().is_none_or(|day| date.month().is_some() && (1..=31).contains(&day)));
             }
-            if let Ok(gain) = GainDb::parse(&text) {
+            if let Ok(gain) = GainDb::parse(Untrusted::new(&text)) {
                 prop_assert!(gain.db().is_finite() && (-128.0..=128.0).contains(&gain.db()));
             }
-            if let Ok(peak) = PeakRatio::parse(&text) {
+            if let Ok(peak) = PeakRatio::parse(Untrusted::new(&text)) {
                 prop_assert!(peak.ratio().is_finite() && (0.0..=16.0).contains(&peak.ratio()));
             }
-            if let Ok(mbid) = Mbid::parse(&text) {
+            if let Ok(mbid) = Mbid::parse(Untrusted::new(&text)) {
                 prop_assert_eq!(mbid.to_string(), text.to_ascii_lowercase());
             }
         }

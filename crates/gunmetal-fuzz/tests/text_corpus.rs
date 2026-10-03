@@ -10,7 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use gunmetal_core::text::Text;
-use gunmetal_fuzz::text::{TextOutcome, text};
+use gunmetal_fuzz::text::{Outcome, run};
 
 /// The committed corpus, which the nightly fuzz job also starts from.
 fn seeds_dir() -> PathBuf {
@@ -28,10 +28,10 @@ const SEEDS: [&str; 5] = [
 
 /// Reads seed `name`, checks that it holds exactly `bytes`, and checks that
 /// the harness reports `expected` for it.
-fn replay(name: &str, bytes: &[u8], expected: &TextOutcome) {
+fn replay(name: &str, bytes: &[u8], expected: &Outcome) {
     let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
     assert_eq!(file, bytes, "seed {name} holds different bytes");
-    assert_eq!(&text(&file), expected, "seed {name}");
+    assert_eq!(&run(&file), expected, "seed {name}");
 }
 
 fn kept(value: &str) -> Text {
@@ -73,7 +73,7 @@ fn replays_the_empty_input() {
     replay(
         "empty",
         &[],
-        &TextOutcome {
+        &Outcome {
             decoded: [kept(""), kept(""), kept(""), kept(""), kept("")],
             single: kept(""),
             multi: kept(""),
@@ -91,7 +91,7 @@ fn replays_a_bidi_override_with_a_tab_and_a_newline() {
     replay(
         "bidi-tab-and-newline",
         b"a\xE2\x80\xAEb\tc\n",
-        &TextOutcome {
+        &Outcome {
             decoded: [
                 kept("a\u{202E}b\tc\n"),
                 kept("\u{61E2}\u{80AE}\u{6209}\u{630A}"),
@@ -112,7 +112,7 @@ fn replays_invalid_utf8_among_controls() {
     replay(
         "invalid-utf8-and-controls",
         b"a\xFF\0b\r\x1B\xC3(",
-        &TextOutcome {
+        &Outcome {
             decoded: [
                 replaced("a\u{FFFD}b\u{FFFD}("),
                 kept("\u{61FF}b\u{D1B}\u{C328}"),
@@ -135,7 +135,7 @@ fn replays_a_utf16_mark_and_a_lone_surrogate() {
     replay(
         "utf16-mark-and-lone-surrogate",
         b"\xFF\xFEa\0\0\xD8\n\0\x0E\x20",
-        &TextOutcome {
+        &Outcome {
             decoded: [
                 replaced("\u{FFFD}\u{FFFD}a\u{FFFD}\n "),
                 replaced("a\u{FFFD}\n\u{200E}"),
@@ -165,7 +165,7 @@ fn replays_text_that_grows_past_the_cap() {
     replay(
         "past-the-cap",
         &[0xE9; 40],
-        &TextOutcome {
+        &Outcome {
             decoded: [
                 replacements.clone(),
                 private_use.clone(),

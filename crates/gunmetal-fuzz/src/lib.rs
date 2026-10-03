@@ -10,7 +10,12 @@
 //! reported so that the replay tests can check it exactly. A broken
 //! invariant panics, which the fuzzer records as a crash.
 
+pub mod base64;
+pub mod link;
+pub mod net;
 pub mod text;
+pub mod time;
+pub mod values;
 
 use gunmetal_core::ebml::{
     self, Element, ElementError, ElementHeader, HeaderError, Vint, VintError,

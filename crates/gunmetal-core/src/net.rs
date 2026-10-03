@@ -13,6 +13,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::untrusted::Untrusted;
+
 /// What kind of address an IP address is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddrClass {
@@ -228,7 +230,8 @@ impl IpNet {
     /// # Errors
     ///
     /// A [`NetError`] for anything else.
-    pub fn parse(text: &str) -> Result<Self, NetError> {
+    pub fn parse(text: Untrusted<&str>) -> Result<Self, NetError> {
+        let text = text.into_inner();
         let (addr, prefix) = text.split_once('/').ok_or(NetError::NoPrefix)?;
         let addr: IpAddr = addr.parse().map_err(|_| NetError::BadAddress)?;
         let decimal = !prefix.is_empty()
@@ -555,7 +558,7 @@ mod tests {
             ("::1/128", v6("::1"), 128),
         ];
         for (text, addr, prefix) in cases {
-            let net = IpNet::parse(text);
+            let net = IpNet::parse(Untrusted::new(text));
             assert_eq!(net, Ok(IpNet { addr, prefix }), "{text}");
             assert_eq!(
                 net.map(|net| (net.addr(), net.prefix())),
@@ -611,13 +614,13 @@ mod tests {
             ("/8", NetError::BadAddress),
         ];
         for (text, error) in cases {
-            assert_eq!(IpNet::parse(text), Err(error), "{text:?}");
+            assert_eq!(IpNet::parse(Untrusted::new(text)), Err(error), "{text:?}");
         }
     }
 
     #[test]
     fn contains_exactly_the_addresses_under_its_prefix() {
-        let net = |text| IpNet::parse(text).unwrap();
+        let net = |text| IpNet::parse(Untrusted::new(text)).unwrap();
         let cases = [
             ("10.0.0.0/8", "10.0.0.0", true),
             ("10.0.0.0/8", "10.255.255.255", true),
@@ -658,14 +661,14 @@ mod tests {
         ) {
             let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
             let network = Ipv4Addr::from(net_bits & mask);
-            let parsed = IpNet::parse(&format!("{network}/{prefix}")).unwrap();
+            let parsed = IpNet::parse(Untrusted::new(&format!("{network}/{prefix}"))).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::from(ip_bits));
             prop_assert_eq!(parsed.contains(ip), ip_bits & mask == net_bits & mask);
             prop_assert!(parsed.contains(IpAddr::V4(Ipv4Addr::from(net_bits))));
 
             let mask = if v6_prefix == 0 { 0 } else { u128::MAX << (128 - v6_prefix) };
             let network = Ipv6Addr::from(v6_net & mask);
-            let parsed = IpNet::parse(&format!("{network}/{v6_prefix}")).unwrap();
+            let parsed = IpNet::parse(Untrusted::new(&format!("{network}/{v6_prefix}"))).unwrap();
             let ip = Ipv6Addr::from(v6_ip);
             let expected = ip.to_ipv4_mapped().is_none() && v6_ip & mask == v6_net & mask;
             prop_assert_eq!(parsed.contains(IpAddr::V6(ip)), expected);

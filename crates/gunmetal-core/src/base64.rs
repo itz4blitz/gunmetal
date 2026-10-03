@@ -6,7 +6,10 @@
 //! padding: no whitespace, no characters of the other alphabet, and no
 //! stray bits in the last character, so a token cannot be written two
 //! ways. The output size is checked against the caller's cap before
-//! anything is decoded.
+//! anything is decoded. The text to decode arrives [`Untrusted`]: a token
+//! from a request or a picture from a tag (SEC-TM-031).
+
+use crate::untrusted::Untrusted;
 
 /// The standard alphabet, RFC 4648 section 4.
 const STANDARD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -89,7 +92,12 @@ pub fn encode(input: &[u8], alphabet: Alphabet) -> String {
 ///
 /// A [`B64Error`] for input that is not base64 in `alphabet`, or that
 /// decodes to more than `max_out` octets.
-pub fn decode(input: &[u8], alphabet: Alphabet, max_out: usize) -> Result<Vec<u8>, B64Error> {
+pub fn decode(
+    input: Untrusted<&[u8]>,
+    alphabet: Alphabet,
+    max_out: usize,
+) -> Result<Vec<u8>, B64Error> {
+    let input = input.into_inner();
     let (data, padded) = match input {
         [data @ .., b'=', b'='] | [data @ .., b'='] => (data, true),
         _ => (input, false),
@@ -154,6 +162,11 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+
+    /// Decodes `input` as it arrives from outside.
+    fn decode(input: &[u8], alphabet: Alphabet, max_out: usize) -> Result<Vec<u8>, B64Error> {
+        super::decode(Untrusted::new(input), alphabet, max_out)
+    }
 
     /// RFC 4648, section 10, with the URL-safe form of each.
     const VECTORS: [(&[u8], &str, &str); 7] = [

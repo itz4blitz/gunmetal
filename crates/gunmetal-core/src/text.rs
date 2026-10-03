@@ -61,7 +61,8 @@ pub struct Text {
 /// each become U+FFFD. One leading byte-order mark is dropped, whatever the
 /// encoding.
 #[must_use]
-pub fn decode(bytes: &[u8], encoding: Encoding, cap: u32) -> Text {
+pub fn decode(bytes: Untrusted<&[u8]>, encoding: Encoding, cap: u32) -> Text {
+    let bytes = bytes.into_inner();
     let (decoded, replaced) = match encoding {
         Encoding::Utf8 => utf8(bytes),
         Encoding::Utf16Bom => match bytes {
@@ -157,6 +158,11 @@ mod tests {
             truncated,
             replaced,
         }
+    }
+
+    /// Decodes `bytes` as they arrive from a media file.
+    fn decode(bytes: &[u8], encoding: Encoding, cap: u32) -> Text {
+        super::decode(Untrusted::new(bytes), encoding, cap)
     }
 
     fn single(bytes: &[u8], cap: u32) -> Text {

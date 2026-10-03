@@ -9,6 +9,11 @@
 //! falls at the end of a year. Every input is first held to the years 0000
 //! to 9999, so no step can overflow; the saturating operations only satisfy
 //! the lint that forbids unchecked arithmetic.
+//!
+//! RFC 3339 text arrives [`Untrusted`], and [`parse_rfc3339`] is the one
+//! way from it to a [`Timestamp`] (SEC-TM-031).
+
+use crate::untrusted::Untrusted;
 
 /// Milliseconds in a day.
 const MS_PER_DAY: i64 = 86_400_000;
@@ -249,7 +254,8 @@ pub fn format_rfc3339(time: Timestamp) -> String {
 /// [`TimeError::Syntax`] for text outside RFC 3339's grammar; the other
 /// variants for a date, time or offset that does not exist (leap seconds
 /// included), or an instant outside the years 0000 to 9999.
-pub fn parse_rfc3339(text: &str) -> Result<Timestamp, TimeError> {
+pub fn parse_rfc3339(text: Untrusted<&str>) -> Result<Timestamp, TimeError> {
+    let text = text.into_inner();
     let (head, rest) = text
         .as_bytes()
         .split_at_checked(19)
@@ -371,6 +377,11 @@ fn narrow_u32<T: TryFrom<u32> + Default>(value: u32) -> T {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    /// Reads `text` as it arrives from outside.
+    fn parse_rfc3339(text: &str) -> Result<Timestamp, TimeError> {
+        super::parse_rfc3339(Untrusted::new(text))
+    }
 
     fn date(year: u16, month: u8, day: u8) -> CivilDate {
         CivilDate { year, month, day }
