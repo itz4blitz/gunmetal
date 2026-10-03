@@ -256,88 +256,94 @@ mod tests {
         Boolean, Code, CodeList, Date, Decimal, Duration, Id, IdList, Integer, Mbid, Text,
         TextList, Timestamp,
     };
+    use CatalogField as F;
     use RecordKind::{Album, Artist, Track};
 
+    /// One row of the literal table: the variant callers name, then its
+    /// code, record, name and type.
+    type Row = (CatalogField, u16, RecordKind, &'static str, FieldType);
+
     /// The whole field table, written out independently of the declaration
-    /// above: code, record, name and type of every field, in order.
-    const TABLE: [(u16, RecordKind, &str, FieldType); 70] = [
-        (100, Track, "id", Id),
-        (101, Track, "kind", Code),
-        (102, Track, "library", Id),
-        (103, Track, "title", Text),
-        (104, Track, "title_sort", Text),
-        (105, Track, "artist_credit", Text),
-        (106, Track, "artists", IdList),
-        (107, Track, "album", Id),
-        (108, Track, "track_number", Integer),
-        (109, Track, "track_total", Integer),
-        (110, Track, "disc_number", Integer),
-        (111, Track, "disc_total", Integer),
-        (112, Track, "disc_subtitle", Text),
-        (113, Track, "date", Date),
-        (114, Track, "original_date", Date),
-        (115, Track, "genres", TextList),
-        (116, Track, "moods", TextList),
-        (117, Track, "styles", TextList),
-        (118, Track, "labels", TextList),
-        (119, Track, "grouping", TextList),
-        (120, Track, "advisory", Code),
-        (121, Track, "isrc", TextList),
-        (122, Track, "recording_mbid", Mbid),
-        (123, Track, "codec", Code),
-        (124, Track, "container", Code),
-        (125, Track, "sample_rate", Integer),
-        (126, Track, "bit_depth", Integer),
-        (127, Track, "channels", Integer),
-        (128, Track, "bitrate", Integer),
-        (129, Track, "duration", Duration),
-        (130, Track, "track_gain_scale", Code),
-        (131, Track, "track_gain", Decimal),
-        (132, Track, "track_peak", Decimal),
-        (133, Track, "album_gain_scale", Code),
-        (134, Track, "album_gain", Decimal),
-        (135, Track, "album_peak", Decimal),
-        (136, Track, "trim_delay", Integer),
-        (137, Track, "trim_padding", Integer),
-        (138, Track, "lyrics_timing", Code),
-        (139, Track, "availability", Code),
-        (140, Track, "added", Timestamp),
-        (200, Album, "id", Id),
-        (201, Album, "library", Id),
-        (202, Album, "title", Text),
-        (203, Album, "title_sort", Text),
-        (204, Album, "artist_credit", Text),
-        (205, Album, "artists", IdList),
-        (206, Album, "date", Date),
-        (207, Album, "original_date", Date),
-        (208, Album, "primary_type", Code),
-        (209, Album, "secondary_types", CodeList),
-        (210, Album, "compilation", Boolean),
-        (211, Album, "genres", TextList),
-        (212, Album, "labels", TextList),
-        (213, Album, "track_count", Integer),
-        (214, Album, "disc_count", Integer),
-        (215, Album, "duration", Duration),
-        (216, Album, "has_artwork", Boolean),
-        (217, Album, "release_mbid", Mbid),
-        (218, Album, "release_group_mbid", Mbid),
-        (219, Album, "added", Timestamp),
-        (300, Artist, "id", Id),
-        (301, Artist, "library", Id),
-        (302, Artist, "name", Text),
-        (303, Artist, "name_sort", Text),
-        (304, Artist, "mbid", Mbid),
-        (305, Artist, "album_count", Integer),
-        (306, Artist, "track_count", Integer),
-        (307, Artist, "genres", TextList),
-        (308, Artist, "has_artwork", Boolean),
+    /// above, in order. Each row names its variant, so a declaration that
+    /// gives a variant another field's code, name or type fails here.
+    const TABLE: [Row; 70] = [
+        (F::TrackId, 100, Track, "id", Id),
+        (F::TrackKind, 101, Track, "kind", Code),
+        (F::TrackLibrary, 102, Track, "library", Id),
+        (F::TrackTitle, 103, Track, "title", Text),
+        (F::TrackTitleSort, 104, Track, "title_sort", Text),
+        (F::TrackArtistCredit, 105, Track, "artist_credit", Text),
+        (F::TrackArtists, 106, Track, "artists", IdList),
+        (F::TrackAlbum, 107, Track, "album", Id),
+        (F::TrackNumber, 108, Track, "track_number", Integer),
+        (F::TrackTotal, 109, Track, "track_total", Integer),
+        (F::TrackDiscNumber, 110, Track, "disc_number", Integer),
+        (F::TrackDiscTotal, 111, Track, "disc_total", Integer),
+        (F::TrackDiscSubtitle, 112, Track, "disc_subtitle", Text),
+        (F::TrackDate, 113, Track, "date", Date),
+        (F::TrackOriginalDate, 114, Track, "original_date", Date),
+        (F::TrackGenres, 115, Track, "genres", TextList),
+        (F::TrackMoods, 116, Track, "moods", TextList),
+        (F::TrackStyles, 117, Track, "styles", TextList),
+        (F::TrackLabels, 118, Track, "labels", TextList),
+        (F::TrackGrouping, 119, Track, "grouping", TextList),
+        (F::TrackAdvisory, 120, Track, "advisory", Code),
+        (F::TrackIsrc, 121, Track, "isrc", TextList),
+        (F::TrackRecordingMbid, 122, Track, "recording_mbid", Mbid),
+        (F::TrackCodec, 123, Track, "codec", Code),
+        (F::TrackContainer, 124, Track, "container", Code),
+        (F::TrackSampleRate, 125, Track, "sample_rate", Integer),
+        (F::TrackBitDepth, 126, Track, "bit_depth", Integer),
+        (F::TrackChannels, 127, Track, "channels", Integer),
+        (F::TrackBitrate, 128, Track, "bitrate", Integer),
+        (F::TrackDuration, 129, Track, "duration", Duration),
+        (F::TrackGainScale, 130, Track, "track_gain_scale", Code),
+        (F::TrackGain, 131, Track, "track_gain", Decimal),
+        (F::TrackPeak, 132, Track, "track_peak", Decimal),
+        (F::TrackAlbumGainScale, 133, Track, "album_gain_scale", Code),
+        (F::TrackAlbumGain, 134, Track, "album_gain", Decimal),
+        (F::TrackAlbumPeak, 135, Track, "album_peak", Decimal),
+        (F::TrackTrimDelay, 136, Track, "trim_delay", Integer),
+        (F::TrackTrimPadding, 137, Track, "trim_padding", Integer),
+        (F::TrackLyricsTiming, 138, Track, "lyrics_timing", Code),
+        (F::TrackAvailability, 139, Track, "availability", Code),
+        (F::TrackAdded, 140, Track, "added", Timestamp),
+        (F::AlbumId, 200, Album, "id", Id),
+        (F::AlbumLibrary, 201, Album, "library", Id),
+        (F::AlbumTitle, 202, Album, "title", Text),
+        (F::AlbumTitleSort, 203, Album, "title_sort", Text),
+        (F::AlbumArtistCredit, 204, Album, "artist_credit", Text),
+        (F::AlbumArtists, 205, Album, "artists", IdList),
+        (F::AlbumDate, 206, Album, "date", Date),
+        (F::AlbumOriginalDate, 207, Album, "original_date", Date),
+        (F::AlbumPrimaryType, 208, Album, "primary_type", Code),
+        (F::AlbumSecondaryTypes, 209, Album, "secondary_types", CodeList),
+        (F::AlbumCompilation, 210, Album, "compilation", Boolean),
+        (F::AlbumGenres, 211, Album, "genres", TextList),
+        (F::AlbumLabels, 212, Album, "labels", TextList),
+        (F::AlbumTrackCount, 213, Album, "track_count", Integer),
+        (F::AlbumDiscCount, 214, Album, "disc_count", Integer),
+        (F::AlbumDuration, 215, Album, "duration", Duration),
+        (F::AlbumHasArtwork, 216, Album, "has_artwork", Boolean),
+        (F::AlbumReleaseMbid, 217, Album, "release_mbid", Mbid),
+        (F::AlbumReleaseGroupMbid, 218, Album, "release_group_mbid", Mbid),
+        (F::AlbumAdded, 219, Album, "added", Timestamp),
+        (F::ArtistId, 300, Artist, "id", Id),
+        (F::ArtistLibrary, 301, Artist, "library", Id),
+        (F::ArtistName, 302, Artist, "name", Text),
+        (F::ArtistNameSort, 303, Artist, "name_sort", Text),
+        (F::ArtistMbid, 304, Artist, "mbid", Mbid),
+        (F::ArtistAlbumCount, 305, Artist, "album_count", Integer),
+        (F::ArtistTrackCount, 306, Artist, "track_count", Integer),
+        (F::ArtistGenres, 307, Artist, "genres", TextList),
+        (F::ArtistHasArtwork, 308, Artist, "has_artwork", Boolean),
     ];
 
     #[test]
     fn every_field_has_the_listed_code_record_name_and_type() {
-        let declared: Vec<(u16, RecordKind, &str, FieldType)> = CatalogField::ALL
+        let declared: Vec<Row> = CatalogField::ALL
             .iter()
-            .map(|f| (f.code(), f.record(), f.name(), f.value_type()))
+            .map(|f| (*f, f.code(), f.record(), f.name(), f.value_type()))
             .collect();
         assert_eq!(declared, TABLE);
     }
@@ -346,10 +352,10 @@ mod tests {
     fn every_code_reads_back_as_its_field() {
         let read: Vec<Option<CatalogField>> = TABLE
             .iter()
-            .map(|(code, ..)| CatalogField::from_code(*code))
+            .map(|(_, code, ..)| CatalogField::from_code(*code))
             .collect();
         let expected: Vec<Option<CatalogField>> =
-            CatalogField::ALL.iter().copied().map(Some).collect();
+            TABLE.iter().map(|(field, ..)| Some(*field)).collect();
         assert_eq!(read, expected);
     }
 
@@ -364,13 +370,13 @@ mod tests {
 
     #[test]
     fn codes_are_unique_and_names_unique_within_a_record() {
-        let mut codes: Vec<u16> = TABLE.iter().map(|(code, ..)| *code).collect();
+        let mut codes: Vec<u16> = TABLE.iter().map(|(_, code, ..)| *code).collect();
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(codes.len(), TABLE.len());
         let mut names: Vec<(RecordKind, &str)> = TABLE
             .iter()
-            .map(|(_, record, name, _)| (*record, *name))
+            .map(|(_, _, record, name, _)| (*record, *name))
             .collect();
         names.sort_unstable_by_key(|(record, name)| (record.code(), *name));
         names.dedup();
@@ -381,7 +387,7 @@ mod tests {
     fn each_record_numbers_its_fields_in_its_own_hundred() {
         let outside: Vec<(u16, RecordKind)> = TABLE
             .iter()
-            .map(|(code, record, ..)| (*code, *record))
+            .map(|(_, code, record, ..)| (*code, *record))
             .filter(|(code, record)| code / 100 != u16::from(record.code()))
             .collect();
         assert_eq!(outside, []);
