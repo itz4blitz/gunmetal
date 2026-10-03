@@ -28,9 +28,10 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Write};
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
-use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, OpenOptions, OpenOptionsExt};
+use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions, OpenOptionsExt};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
@@ -732,6 +733,39 @@ impl DataRoot {
     /// directory joined with a path built from constants.
     pub(crate) fn sqlite_path(&self, path: &DataPath) -> PathBuf {
         self.path.join(path.beneath())
+    }
+
+    /// Whether the path [`DataRoot::sqlite_path`] gives for `path` names the
+    /// file the handle holds there, in the directory the handle holds it
+    /// in: both have the same device and inode whether they are reached by
+    /// that path or beneath the handle. SQLite opens by path, so its
+    /// opener asks this once the file is open and before it writes
+    /// anything, and refuses a data directory whose path was moved or
+    /// replaced after [`DataRoot::open`]. A link in place of the file is
+    /// never followed on either side.
+    ///
+    /// The check and SQLite's open are separate steps, so it does not
+    /// catch a path that was swapped for the open and swapped back before
+    /// the check; only an open beneath the handle could, and SQLite has
+    /// none.
+    pub(crate) fn holds_sqlite_path(&self, path: &DataPath) -> bool {
+        let file = path.beneath();
+        let parent = path.parent();
+        let beneath = |rel: &Path| {
+            self.dir
+                .symlink_metadata(rel)
+                .map(|found| (found.dev(), found.ino()))
+                .ok()
+        };
+        let by_path = |rel: &Path| {
+            std::fs::symlink_metadata(self.path.join(rel))
+                .map(|found| (found.dev(), found.ino()))
+                .ok()
+        };
+        beneath(&parent)
+            .zip(beneath(&file))
+            .zip(by_path(&parent).zip(by_path(&file)))
+            .is_some_and(|(held, named)| held == named)
     }
 }
 

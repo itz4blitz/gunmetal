@@ -138,15 +138,50 @@ pub enum Synchronous {
 /// assert_ne!(reader, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// A pragma set that leaves out `secure_delete` cannot be built.
-/// Verifies: SEC-PRV-050
+/// A store cannot build a pragma set any other way. The fields are
+/// private, so a struct literal does not compile, and the only values are
+/// the ones [`Pragmas::new`] and the two methods above return. If a field
+/// were made public this would compile, and the test would fail:
+///
+/// ```compile_fail,E0451
+/// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
+///
+/// let literal = Pragmas {
+///     synchronous: Synchronous::Normal,
+///     busy_timeout_ms: 0,
+///     query_only: false,
+/// };
+/// assert_eq!(literal, Pragmas::new(Synchronous::Normal));
+/// ```
+///
+/// None of those values can say that `secure_delete` is off, because the
+/// set has no such field, public or private (a private one would be the
+/// privacy error E0451 instead):
+///
+/// ```compile_fail,E0560
+/// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
+///
+/// let off = Pragmas {
+///     secure_delete: false,
+///     ..Pragmas::new(Synchronous::Normal)
+/// };
+/// assert_ne!(off, Pragmas::new(Synchronous::Normal));
+/// ```
+///
+/// and no method that sets it:
 ///
 /// ```compile_fail,E0599
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
-/// let reader = Pragmas::new(Synchronous::Normal).secure_delete(false);
-/// assert_ne!(reader, Pragmas::new(Synchronous::Normal));
+/// let off = Pragmas::new(Synchronous::Normal).secure_delete(false);
+/// assert_ne!(off, Pragmas::new(Synchronous::Normal));
 /// ```
+///
+/// These show only what a store can write. That every set a store can
+/// build opens a connection with `secure_delete` on, and that no statement
+/// switches it off afterwards, is proved by running them all in
+/// `no_pragma_set_a_store_can_build_switches_secure_delete_off`
+/// (`tests/sqlite.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pragmas {
     synchronous: Synchronous,
@@ -301,6 +336,10 @@ pub enum DbError {
     },
     /// A database the server did not create failed `PRAGMA quick_check`.
     QuickCheck,
+    /// The path SQLite opened does not name the file the data-root handle
+    /// holds, or the two are in different directories: the data
+    /// directory's path was moved or replaced after it was opened.
+    OutsideRoot,
 }
 
 /// An open database connection.
@@ -396,11 +435,18 @@ impl ToSql for Bind<'_> {
 }
 
 /// The one call that gives SQLite a path: the data root's resolved
-/// directory joined with `db`'s constant name.
+/// directory joined with `db`'s constant name. SQLite opens that path
+/// itself, outside the data-root handle, so before anything is written the
+/// file and its directory are compared, by device and inode, with what the
+/// handle holds; a connection to anything else is closed and refused.
 fn connect(root: &DataRoot, db: &DbFile, flags: OpenFlags) -> Result<Db, DbError> {
     Connection::open_with_flags(root.sqlite_path(db.path()), flags)
-        .map(|conn| Db { conn })
         .map_err(driver_error)
+        .and_then(|conn| {
+            root.holds_sqlite_path(db.path())
+                .then_some(Db { conn })
+                .ok_or(DbError::OutsideRoot)
+        })
 }
 
 /// Opens the database `db` beneath `root` with `pragmas`, creating it with

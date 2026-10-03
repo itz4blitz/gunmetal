@@ -118,6 +118,44 @@ const PRAGMA_CHANGES: [&str; 7] = [
 /// `SQLITE_AUTH`: the connection refused to prepare the statement.
 const NOT_ALLOWED: DbError = DbError::Sqlite { code: 23 };
 
+/// A store can build a pragma set only from `Pragmas::new` and its two
+/// methods (the type's fields are private, which its documentation tests
+/// prove), so these are all the kinds of set there are. None of them opens
+/// a connection with `secure_delete` off, and none can switch it off later.
+///
+/// Verifies: SEC-PRV-050
+#[test]
+fn no_pragma_set_a_store_can_build_switches_secure_delete_off() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    let read_back = Query::new("SELECT * FROM pragma_secure_delete()");
+    let mut opened = 0;
+    for synchronous in [Synchronous::Normal, Synchronous::Full] {
+        let base = Pragmas::new(synchronous);
+        for pragmas in [
+            base,
+            base.query_only(),
+            base.busy_timeout(0),
+            base.busy_timeout(5_000),
+            base.busy_timeout(u32::MAX).query_only(),
+            base.query_only().busy_timeout(1),
+        ] {
+            let db = open_db(&root, &LIBRARY, pragmas).expect("the cache opens");
+            assert_eq!(db.query(&read_back), Ok(vec![ints(&[1])]));
+            for statement in [
+                "PRAGMA secure_delete = OFF",
+                "PRAGMA secure_delete(0)",
+                "PRAGMA main.secure_delete = FAST",
+            ] {
+                assert_eq!(db.execute_batch(statement), Err(NOT_ALLOWED));
+            }
+            assert_eq!(db.query(&read_back), Ok(vec![ints(&[1])]));
+            opened += 1;
+        }
+    }
+    assert_eq!(opened, 12);
+}
+
 /// Verifies: SEC-PRV-050
 #[test]
 fn refuses_statements_that_change_a_pragma_after_opening() {
@@ -421,6 +459,89 @@ fn refuses_a_symlink_planted_for_the_database() {
         fs::read_dir(dir.join("elsewhere")).expect("list").count(),
         0
     );
+}
+
+/// Moves the data directory `open` opened to `moved` and puts a new, empty
+/// directory holding `layout_dir` at its path, as someone who can write to
+/// the directory above it could. The data root's handle still holds the
+/// directory that was opened.
+fn swap_the_data_directory(dir: &TempDir, layout_dir: &str) {
+    fs::rename(dir.join("data"), dir.join("moved")).expect("move the data directory");
+    fs::create_dir_all(dir.join("data").join(layout_dir)).expect("plant a data directory");
+}
+
+/// SQLite opens a database by path, so the opener compares the device and
+/// inode of what that path names with what the data-root handle holds, and
+/// refuses the connection before it writes anything.
+#[test]
+fn refuses_a_database_planted_where_the_data_directory_was() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    swap_the_data_directory(&dir, "cache");
+    fs::write(dir.join("data/cache/library.db"), b"").expect("plant a database");
+    assert_eq!(
+        open_db(&root, &LIBRARY, Pragmas::new(Synchronous::Normal)).map(|_| ()),
+        Err(DbError::OutsideRoot)
+    );
+    assert_eq!(names(&dir.join("data/cache")), ["library.db"]);
+    assert_eq!(
+        fs::read(dir.join("data/cache/library.db")).expect("read the planted file"),
+        b""
+    );
+    assert_eq!(names(&dir.join("moved/cache")), ["library.db"]);
+}
+
+/// A hard link to the real database is the same file, but SQLite would
+/// keep its `-wal` and `-shm` files beside the link, outside the data
+/// root, so the directory holding the database is compared as well.
+#[test]
+fn refuses_a_hard_link_to_the_database_in_a_planted_directory() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    drop(cache(&root));
+    swap_the_data_directory(&dir, "cache");
+    fs::hard_link(
+        dir.join("moved/cache/library.db"),
+        dir.join("data/cache/library.db"),
+    )
+    .expect("link the database");
+    assert_eq!(
+        open_db(&root, &LIBRARY, Pragmas::new(Synchronous::Normal)).map(|_| ()),
+        Err(DbError::OutsideRoot)
+    );
+    assert_eq!(names(&dir.join("data/cache")), ["library.db"]);
+}
+
+/// The database is at the path SQLite opens and nowhere beneath the handle.
+#[test]
+fn refuses_a_foreign_database_the_data_root_handle_does_not_hold() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    foreign(&root);
+    swap_the_data_directory(&dir, "tmp");
+    fs::rename(
+        dir.join("moved/tmp/restore.db"),
+        dir.join("data/tmp/restore.db"),
+    )
+    .expect("move the database into the planted directory");
+    assert_eq!(
+        open_untrusted(&root, &FOREIGN).map(|_| ()),
+        Err(DbError::OutsideRoot)
+    );
+}
+
+/// A data directory that was only moved leaves nothing at the path, and
+/// SQLite may not create a file there.
+#[test]
+fn refuses_to_create_a_database_where_the_data_directory_was() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    swap_the_data_directory(&dir, "cache");
+    assert_eq!(
+        open_db(&root, &LIBRARY, Pragmas::new(Synchronous::Normal)).map(|_| ()),
+        Err(DbError::Sqlite { code: 14 })
+    );
+    assert_eq!(names(&dir.join("data/cache")), [""; 0]);
 }
 
 /// Builds a database at `FOREIGN` with a view and a trigger, as a hostile
