@@ -45,7 +45,7 @@ mod tests {
     use crate::random::fake::{Counting, Failing};
     use crate::random::{OsRandom, RandomnessUnavailable};
 
-    /// Verifies: SEC-HIS-012, SEC-PRV-021
+    /// Verifies: SEC-HIS-012, SEC-API-023, SEC-PRV-021
     ///
     /// The "from the OS CSPRNG" part of these requirements: the
     /// identifier's 128 bits are exactly the 16 bytes the randomness source
