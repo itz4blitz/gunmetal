@@ -1,4 +1,9 @@
-//! The structure-aware harness for FLAC (SEC-MED-031).
+//! The structure-aware harness for FLAC (SEC-MED-031). It holds two
+//! generators that read the same input as two different recipes: [`run`]
+//! for the metadata blocks and [`frames`] for frame headers. The fuzz
+//! target feeds every input to both.
+//!
+//! # Metadata blocks
 //!
 //! Random bytes rarely get past the `fLaC` marker, so this harness reads
 //! its input as a recipe for a stream instead. The stream it writes always
@@ -24,7 +29,33 @@
 //!     description, 16 octets of width, height, depth and colours, and a
 //!     data length and the data;
 //!   - any other type: a length and that many octets.
+//!
+//! # Frame headers
+//!
+//! Random octets rarely make a frame header: a sync code, a coded number
+//! laid out as UTF-8 lays out a code point, and a CRC-8 that matches.
+//! [`frames`] reads its input as recipes instead and writes headers with
+//! that framing always valid around fields taken from the input, so the
+//! fuzzer spends its time on the fields: every code, reserved and forbidden
+//! ones included, coded numbers of every width, end-of-header fields, and
+//! data between headers that may hold false sync codes. The stream it
+//! writes is then indexed through the [`flac_frames`](crate::flac_frames)
+//! harness, which checks the index's invariants.
+//!
+//! A frame recipe is [`RECIPE_LEN`] octets:
+//!
+//! | Octets | Field |
+//! |---|---|
+//! | 0 | Bit 0: the blocking strategy bit. Bits 1 to 7: how many of the octets after the recipe follow the header as frame data. |
+//! | 1 | The header's block size and sample rate codes, as written. |
+//! | 2 | The header's channel and bit depth codes and reserved bit, as written. |
+//! | 3 to 7 | The coded number, big-endian, kept to its low 31 bits for a fixed-blocking frame number or 36 bits for a sample number. |
+//! | 8 and 9 | The end-of-header block size field, big-endian; an 8-bit field takes octet 9. |
+//! | 10 and 11 | The end-of-header sample rate field, big-endian; an 8-bit field takes octet 11. |
+//!
+//! Octets after the last whole recipe are ignored.
 
+use crate::flac_frames;
 use crate::flac_metadata;
 
 /// The most blocks a recipe writes after STREAMINFO.
@@ -131,13 +162,7 @@ impl Recipe<'_> {
     }
 }
 
-/// Structure-aware FLAC frame headers.
-///
-/// Metadata recipes stay in [`run`]. These recipes write frame headers
-/// with valid framing and index them through [`flac_frames`](crate::flac_frames).
-use crate::flac_frames;
-
-/// The octets of one recipe.
+/// The octets of one frame recipe.
 pub const RECIPE_LEN: usize = 12;
 
 /// What the harness wrote and what the frame index reported for it.
