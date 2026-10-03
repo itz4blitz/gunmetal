@@ -252,6 +252,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gunmetal-store"
+version = "0.0.0"
+dependencies = [
+ "gunmetal-core",
+ "gunmetal-fs",
+ "gunmetal-testkit",
+]
+
+[[package]]
 name = "gunmetal-testkit"
 version = "0.0.0"
 dependencies = [
