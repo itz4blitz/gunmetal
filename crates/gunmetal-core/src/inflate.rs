@@ -18,9 +18,7 @@
 //! the cap: a budget of `Budget::for_input(len, 1, cap)` is always enough.
 
 use miniz_oxide::inflate::TINFLStatus;
-use miniz_oxide::inflate::core::inflate_flags::{
-    TINFL_FLAG_COMPUTE_ADLER32, TINFL_FLAG_PARSE_ZLIB_HEADER,
-};
+use miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
 use miniz_oxide::inflate::core::{DecompressorOxide, TINFL_LZ_DICT_SIZE, decompress_with_limit};
 
 use crate::parse::{Budget, LimitKind, Limits, ParseFault, bounded_vec};
@@ -63,15 +61,6 @@ impl Target {
 /// The octets of deflate history the decompressor keeps (RFC 1951 allows
 /// back-references up to 32 KiB).
 const WINDOW: usize = TINFL_LZ_DICT_SIZE;
-
-/// The zeros a fresh window is made of, an eighth at a time.
-const ZEROS: [u8; WINDOW / 8] = [0; WINDOW / 8];
-
-/// How many [`ZEROS`] make a window.
-const PIECES: usize = WINDOW / ZEROS.len();
-
-/// Masks a position into the window, whose size is a power of two.
-const WRAP: usize = WINDOW - 1;
 
 /// The most octets one octet of deflate data can inflate to. The shortest
 /// back-reference takes two bits, a one-bit length code and a one-bit
@@ -120,11 +109,8 @@ impl BoundedBuf {
 
     /// The most octets this buffer may hold.
     #[must_use]
-    pub const fn cap(&self) -> u64 {
-        match self.declared {
-            Some(declared) if declared < self.max => declared,
-            _ => self.max,
-        }
+    pub fn cap(&self) -> u64 {
+        self.declared.unwrap_or(self.max).min(self.max)
     }
 
     /// The octets inflated so far. After an error they are a prefix of the
@@ -221,13 +207,19 @@ pub fn inflate(
     let most = widen(input.len()).saturating_mul(MOST_PER_OCTET);
     out.bytes = bounded_vec(cap, 1, most, cap);
     let flags = match framing {
-        Framing::Zlib => TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32,
+        // Parsing the zlib header also has the decompressor compute the
+        // Adler-32 and compare it with the stream's.
+        Framing::Zlib => TINFL_FLAG_PARSE_ZLIB_HEADER,
         Framing::Deflate => 0,
     };
     let mut state = DecompressorOxide::new();
     // A fresh, zeroed window for every call, so a back-reference to before
     // the start of the data reads zeros and never an earlier call's octets.
-    let mut window = fresh_window();
+    // It lives on the heap: 32 KiB is too large for a local array, and only
+    // the bounded capacity helper may pre-size a vector.
+    let size = widen(WINDOW);
+    let mut window = bounded_vec(size, 1, size, size);
+    window.extend(core::iter::repeat_n(0_u8, WINDOW));
     let mut rest = input;
     let mut read: u64 = 0;
     let mut at = 0;
@@ -250,7 +242,10 @@ pub fn inflate(
         }
         // The decompressor writes up to the window's end and no further, so
         // the next call starts after this one's output, wrapping to 0.
-        at = at.saturating_add(made) & WRAP;
+        at = at
+            .saturating_add(made)
+            .checked_rem(WINDOW)
+            .unwrap_or_default();
         match status {
             TINFLStatus::HasMoreOutput => {}
             TINFLStatus::Done => return Ok(read),
@@ -267,17 +262,6 @@ pub fn inflate(
             _ => return Err(InflateError::Corrupt { offset: read }),
         }
     }
-}
-
-/// A zeroed history window on the heap: 32 KiB is too large for a local
-/// array, and only the bounded capacity helper may pre-size a vector.
-fn fresh_window() -> Vec<u8> {
-    let size = widen(WINDOW);
-    let mut window = bounded_vec(size, 1, size, size);
-    for _ in 0..PIECES {
-        window.extend_from_slice(&ZEROS);
-    }
-    window
 }
 
 /// An octet count as a `u64`, saturating on a target where `usize` is
@@ -653,6 +637,18 @@ mod tests {
         assert_eq!(inflated(&wrapped, Framing::Zlib), Ok(data));
     }
 
+    /// A back-reference just after the window wraps reads the octet written
+    /// just before it, at the window's far end.
+    #[test]
+    fn back_references_reach_across_the_windows_wrap() {
+        // Runs written as distance-one matches: the wraps at 32,768 and
+        // 65,536 fall inside the runs of 7 and of 9.
+        let data = [filled(3, 20_000), filled(7, 20_000), filled(9, 30_000)].concat();
+        assert_eq!(inflated(&fixed(&data), Framing::Deflate), Ok(data.clone()));
+        let wrapped = zlib(&fixed(&data), adler32(&data));
+        assert_eq!(inflated(&wrapped, Framing::Zlib), Ok(data));
+    }
+
     #[test]
     fn reports_the_octets_the_stream_took_and_leaves_the_rest() {
         let data = b"payload";
@@ -813,7 +809,8 @@ mod tests {
     #[test]
     fn the_window_is_deflates_32_kib() {
         assert_eq!(WINDOW, 32_768);
-        assert_eq!(fresh_window(), filled(0, 32_768));
+        // The working memory is the window and the decompressor's state.
+        assert_eq!(WORKING_OCTETS - size_of::<DecompressorOxide>(), 32_768);
     }
 
     /// A 1 KiB zlib bomb inflates to about a mebibyte; with the picture
