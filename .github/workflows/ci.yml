@@ -31,8 +31,8 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy, llvm-tools-preview
-      # Pull-request CI only. Release workflows must not restore or save
-      # caches (SEC-SUP-015).
+      # Caching is for this CI only: release workflows must never restore or
+      # save caches (SEC-SUP-015).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Exact tool versions, downloaded with SHA-256 verification; no fallback
       # to unverified installers (SEC-SUP-011).
