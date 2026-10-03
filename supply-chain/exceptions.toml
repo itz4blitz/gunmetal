@@ -7,8 +7,11 @@
 # added or last reviewed. An expired entry fails CI. Changes need code-owner
 # review (SEC-SUP-005).
 #
-# The check that enforces this file is not written yet; until it is, review
-# both files together by hand.
+# The core's tests (crates/gunmetal-core/tests/workspace_rules.rs, until
+# WP-008's xtask takes the check over) fail the gate on an ignore without an
+# entry, an entry without an ignore, a missing field, an ID that is not
+# RUSTSEC-YYYY-NNNN, and a review-by date that is past or more than 90 days
+# after the day the gate runs.
 #
 # Entry format:
 #

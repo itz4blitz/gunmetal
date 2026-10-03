@@ -1,28 +1,11 @@
-# APIs that only one module may use: the "one door per risk" rule of
-# docs/security/secure-coding.md. Each use outside the owning module fails
-# the lint (`disallowed_methods` and `disallowed_types` are denied in every
-# crate). Inside it, a narrowly scoped
-# `#[expect(clippy::disallowed_methods, reason = "...")]` that review can see
-# marks the one sanctioned call, and the xtask exception list (WP-008) names
-# every module that holds one.
+# Clippy's configuration for gunmetal-core.
 #
-# Clippy reads the clippy.toml nearest to each crate and ignores the rest, so
-# a crate with its own file would switch every rule here off for itself. The
-# gate allows exactly two: this one, and crates/gunmetal-core/clippy.toml,
-# which repeats every line below that is not a comment and adds the core's
-# own rules. Change both together.
-#
-# Clippy checks that each path resolves only when the crate it names is in
-# the build, and warns (an error in the gate) when one does not. Every path
-# below was checked that way on 2026-10-03, in a scratch crate with every
-# feature of every named crate turned on, against the versions pinned in
-# [workspace.dependencies] or, for crates never to be used, the newest
-# release. An entry marked "feature-gated" names an API that exists only with
-# that feature, so it carries `allow-invalid = true`: a crate of ours may use
-# the crate without the feature, and the path would then not resolve. Check
-# those paths the same way again when their crate's version changes. A path
-# into one of the workspace's own crates is checked once that crate exists;
-# until then it carries `allow-invalid` only if the crate is already built.
+# Clippy reads the clippy.toml nearest to each crate, so for the core this
+# file replaces the workspace's. From its first list on it is
+# ../../clippy.toml word for word, with the core's own rules added at the end
+# of the methods list and at the end of the file. The core's tests fail if a
+# workspace rule is missing here (tests/workspace_rules.rs), and the gate
+# refuses any other clippy.toml. Change both files together.
 
 disallowed-methods = [
     # SEC-MED-063: external programs start only through the sandbox launcher
@@ -358,6 +341,60 @@ disallowed-methods = [
     { path = "gunmetal_secrets::Secret::expose", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
     { path = "secrecy::ExposeSecret::expose_secret", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
     { path = "secrecy::ExposeSecretMut::expose_secret_mut", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
+
+    # The core's own rules.
+    #
+    # SEC-MED-003: the core never sizes an allocation from a length or count
+    # the input declares. The one bounded capacity helper (WP-004) holds the
+    # only sanctioned call; `vec![x; n]` expands to `alloc::vec::from_elem`.
+    # Every call below takes a count and allocates for it at once. Clippy
+    # cannot see a count reach `collect` or `extend` through an iterator's
+    # size hint, as in `(0..n).map(f).collect()`; review, the per-format
+    # allocation tests and fuzzing with a memory limit catch that.
+    { path = "std::vec::Vec::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::try_reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::resize", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::vec::Vec::resize_with", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "alloc::vec::from_elem", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::string::String::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::string::String::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::string::String::reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::string::String::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::string::String::try_reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::try_reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::resize", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::VecDeque::resize_with", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashMap::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashMap::with_capacity_and_hasher", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashMap::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashMap::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashSet::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashSet::with_capacity_and_hasher", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashSet::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::HashSet::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::BinaryHeap::with_capacity", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::BinaryHeap::reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::BinaryHeap::reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::BinaryHeap::try_reserve", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::collections::BinaryHeap::try_reserve_exact", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::boxed::Box::new_uninit_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::boxed::Box::new_zeroed_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::rc::Rc::new_uninit_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::rc::Rc::new_zeroed_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::sync::Arc::new_uninit_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::sync::Arc::new_zeroed_slice", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "slice::repeat", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "str::repeat", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::iter::repeat", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::iter::repeat_n", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
+    { path = "std::iter::repeat_with", reason = "never size an allocation from a declared length; use the bounded capacity helper (SEC-MED-003)" },
 ]
 
 disallowed-types = [
@@ -415,3 +452,10 @@ disallowed-types = [
     # SEC-HIS-026: the configuration that turns certificate checks off.
     { path = "rustls::client::danger::DangerousClientConfig", reason = "certificate verification is never switched off (SEC-HIS-026)" },
 ]
+
+# SEC-MED-002 covers non-test code. These let tests unwrap, expect, panic and
+# index, which is how a test fails; the lints stay denied everywhere else.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
