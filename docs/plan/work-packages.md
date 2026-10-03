@@ -325,7 +325,11 @@ section 4).
 
 **Dependency direction.** `core` depends on nothing in the workspace. The
 I/O crates depend on `core`. `gunmetal-server` depends on all of them.
-`gunmetal-wasm` and `gunmetal-fuzz` depend only on `core`.
+`gunmetal-wasm` depends only on `core`. `gunmetal-fuzz` depends on the
+core and, for one purpose only, on `gunmetal-worker`: SEC-MED-026 requires
+Gunmetal's wrappers around third-party decoders (the artwork job's image
+decoder and the audio decoder of record 5) to be fuzzed, and those
+wrappers live in the worker, which exports them for that purpose only.
 `gunmetal-testkit` depends on nothing in the workspace, so it can never
 borrow the code it is meant to check.
 
@@ -553,7 +557,7 @@ way described.
 | `crates/gunmetal-server/tests/rivals/` | WP-131 owns the harness (`main.rs`) | A registry directory: a feature package adds one replay file per rival incident its feature touches, named after the incident and citing its SEC-HIS requirement, and lists SEC-HIS-066 in its own Security field. |
 | A crate's `Cargo.toml` | The package that creates the crate | Add one dependency line, in sorted position, using `workspace = true`. Never change another line. |
 | `lib.rs` and every `mod.rs` | Nobody; these are registries | They hold only `mod` and `pub mod` lines and re-exports, never code, so a module's types live in a named file beside it (for example `formats/flac/metadata.rs`, never `formats/flac/mod.rs`). Any package may create a missing one; two packages that both create it resolve the add/add conflict by keeping every line and re-sorting. This is what lets WP-012 and WP-013, or WP-017 and WP-018, share a directory in the same wave. |
-| `crates/gunmetal-fuzz/src/lib.rs` and `fuzz/Cargo.toml` | WP-008 | Add one `pub mod` line per harness module, and one `[[bin]]` block per cargo-fuzz target. Each parser package owns its own `crates/gunmetal-fuzz/src/<parser>.rs`, `crates/gunmetal-fuzz/tests/<parser>_corpus.rs`, `fuzz/fuzz_targets/<parser>.rs` and `fuzz/seeds/<parser>/`. |
+| `crates/gunmetal-fuzz/src/lib.rs`, `crates/gunmetal-fuzz/src/registry.rs` and `fuzz/Cargo.toml` | WP-008 | Add one `pub mod` line per harness module, one sorted name in `registry.rs`'s `harnesses!` list, and one `[[bin]]` block per cargo-fuzz target. Each parser package owns its own `crates/gunmetal-fuzz/src/<parser>.rs`, `crates/gunmetal-fuzz/tests/<parser>_corpus.rs`, `fuzz/fuzz_targets/<parser>.rs` and `fuzz/seeds/<parser>/`. |
 | `crates/xtask/src/main.rs` | WP-008 | Add one dispatch line per subcommand; each check lives in its own file owned by the package that adds it. |
 | `crates/gunmetal-server/security/public-routes.txt` | WP-118 (wave 2) | A route package that adds a public, credential-exchange or capability route adds its line, sorted, and runs WP-118's allow-list check and anonymous suite before merging. The file exists from wave 2, so no wave 3 route package depends on a same-wave peer to create it. It is under CODEOWNERS, so every change needs a maintainer's review (SEC-API-002). |
 | `crates/gunmetal-server/limits.toml` | Nobody; a registry | Any package may create it, as for `mod.rs`; WP-130's xtask check reads it. A package that enforces a business limit adds its entry, sorted, with the test that enforces it (SEC-STD-030). WP-064 and WP-130 both add entries in wave 2. |
@@ -720,8 +724,14 @@ is what catches a mismatch.
   the data-directory layout) are written through the data-root handle in
   `gunmetal-fs` (WP-126), not through `std::fs`. SQLite's own open, which
   takes a path the data-root handle builds from constants, now happens
-  only inside `gunmetal-fs` (WP-126), so the written exception list holds
-  one entry, the dev-only `gunmetal-testkit` (owner decision 33). Add
+  only inside `gunmetal-fs` (WP-126). The first draft said the written
+  exception list would hold one entry, the dev-only `gunmetal-testkit`
+  (owner decision 33). The xtask list (`EXCEPTIONS` in
+  `crates/xtask/src/lint_exceptions.rs`) now has eleven entries: the
+  doors that exist, plus the testkit, the fuzz corpus replay, the
+  xtask's tree module, the filesystem tests, the core's minting test
+  helper and the core's bounded-capacity helper. Record 6 decision 8
+  names them. Add
   `deny.toml` bans for port-mapping and UPnP, SSDP, archive-extraction,
   dynamic-loading, plugin-runtime, XML-with-DTD, unsafe-deserialisation,
   SAML, LDAP, GraphQL, WebRTC, telemetry and backtracking-regex crates,
@@ -1133,8 +1143,9 @@ is what catches a mismatch.
   reported; seeds in `fuzz/seeds/<harness>/`; a stable `cargo test` per
   harness that replays every seed and every committed reproducer; a
   `cargo-fuzz` target per harness under `fuzz/fuzz_targets/`. Move the
-  EBML harness out of `lib.rs` into `ebml.rs`, so `lib.rs` becomes a
-  registry of `pub mod` lines. Fuzz each changed harness for at least 10
+  EBML harness out of `lib.rs` into `ebml.rs`, so both registries exist:
+  `lib.rs` holds `pub mod` lines, and `registry.rs` holds the
+  `harnesses!` list. Fuzz each changed harness for at least 10
   minutes on pull requests that touch `gunmetal-core`, and every harness
   for at least one CPU-hour nightly, with a 5 s per-input timeout and a
   memory cap (SEC-MED-029). An `xtask check-harnesses` fails when a public
@@ -1232,31 +1243,35 @@ is what catches a mismatch.
   allow-list before server code. No package wrote them. SEC-HIS-019 also
   forbids extracting an archive from outside until a record allows it,
   which restore (WP-109) needs.
-- **Scope.** Four draft records, each accepted or edited by the owner
-  (AGENTS.md: agents never edit ADR 1 or ADR 2). Record 7, identity and
-  sessions: no passwords and no TOTP (SEC-IAM-025), passkeys, OIDC and
-  browser pairing in R1, one session-lifetime table matching the baseline's
-  parameters table, the principal kinds, the host-equivalent action list
-  and where identity data lives. Record 8, HTTPS and naming: the
-  per-server name service as the install-time default with own domain,
-  tailnet and localhost as tested alternatives, the cleartext rule, the
-  label scheme. Record 9, cryptography: the reviewed implementation
-  allow-list, the rustls provider, the AEAD nonce strategy and the first
-  cryptographic inventory (SEC-STD-018, SEC-STD-019, SEC-NET-057). Record
-  10, backup archives: the archive format inside the age envelope, with
-  entry paths ignored, symlink entries refused and entry count and
-  unpacked size limited, which is what SEC-HIS-019 asks before extraction
-  is allowed.
+- **Scope.** Four records, accepted on 2026-10-03 through the owner's
+  technical answers (AGENTS.md: agents never edit ADR 1 or ADR 2). Record
+  7, identity and sessions: no passwords and no TOTP (SEC-IAM-025),
+  passkeys, OIDC and browser pairing in R1, one session-lifetime table
+  matching the baseline's parameters table, the principal kinds, the
+  host-equivalent action list and where identity data lives. Record 8,
+  HTTPS and naming: the per-server name service as the install-time
+  default with own domain, tailnet and localhost as tested alternatives,
+  the cleartext rule, the label scheme. Record 9, cryptography: the
+  reviewed implementation allow-list, the rustls provider, the AEAD nonce
+  strategy and the first cryptographic inventory (SEC-STD-018,
+  SEC-STD-019, SEC-NET-057). Record 10, backup archives: the archive
+  format inside the age envelope, with entry paths ignored, symlink
+  entries refused and entry count and unpacked size limited, which is
+  what SEC-HIS-019 asks before extraction is allowed.
 - **Not in scope.** Code. The remuxer placement record (SEC-MED-081) and
   the client security record (SEC-STD-039), which are R2.
 - **Tests.** Not code. The docs lint of WP-127 fails while SEC-IAM-025 and
   a password feature row are both live (SEC-STD-006), and the review
   checks each record against the requirements it names.
-- **Risks and decisions.** WP-046, and through it every package that
-  stores a user, waits for the owner to accept record 7; WP-109 waits for
-  record 10; WP-073 and WP-101 wait for record 9's provider choice. These
-  records restate the baseline's recommendations, which are open owner
-  decisions (baseline README decisions 1, 2, 9 and 12).
+- **Risks and decisions.** The four records are accepted. Record 7's
+  SEC-STD-006 "every file agrees" clause is still Not met: the stale
+  narrative in `standards-coverage.md` and `rival-security-history.md`
+  remains for the baseline's owner. Record 8 still has two unanswered
+  items: the outbound exception before the claim (decision 4) and the
+  release of the name service (decision 8). WP-046 may store a user
+  against the accepted identity record; WP-109 may extract against the
+  accepted archive format; WP-073 and WP-101 follow record 9's accepted
+  provider choice (aws-lc-rs if it builds cleanly, otherwise ring).
 
 ### WP-126 Data-root handle and the filesystem crate (added for the security baseline)
 
@@ -7631,17 +7646,30 @@ rebuilds (ADM-141) is WP-071's, which arrives in R1.1.
   **Depends on** WP-003 (ADR 5 accepted), WP-029, WP-071, WP-078, WP-079,
   WP-102.
 - **Owns** `crates/gunmetal-worker/src/jobs/loudness.rs`,
-  `crates/gunmetal-server/src/loudness/`.
+  `crates/gunmetal-server/src/loudness/`, and, registered through the
+  shared-file table, `crates/gunmetal-fuzz/src/loudness.rs`,
+  `crates/gunmetal-fuzz/tests/loudness_corpus.rs`,
+  `fuzz/fuzz_targets/loudness.rs` and `fuzz/seeds/loudness/`.
 - **Serves** MUS-086, MUS-089, LIB-024, ADM-095.
 - **Security.** Boundaries TB6; threats TM-T20, TM-T21. Verifies
-  SEC-MED-018.
+  SEC-MED-018, SEC-MED-021, SEC-MED-026.
 - **Scope.** At low priority after a scan, throttled and checkpointed,
   decode untagged tracks in the worker and measure them; store results in
-  the derived-data store; mark the gain source as measured.
+  the derived-data store; mark the gain source as measured. The decoder
+  crate is admitted only after the recorded review SEC-MED-026 requires
+  (`unsafe`, scope, fuzzing, limits, supply chain), behind a Gunmetal
+  wrapper that is itself fuzzed. The loudness worker is single-threaded
+  and runs under the SEC-MED-021 limits (512 MiB memory, CPU-time, 300 s
+  per-file deadline).
 - **Tests.** Synthetic tones encoded in the test (FLAC with verbatim
   subframes is simple to write; other formats only if the testkit can
   produce them without an external encoder); a file over 12 hours keeps its
-  tags only; a restart resumes from the checkpoint.
+  tags only; a restart resumes from the checkpoint. The SEC-MED-026 review
+  record covers `unsafe`, scope, limits and supply chain; a test hook
+  reports that the loudness worker is single-threaded and runs under the
+  SEC-MED-021 limits, and a hung worker is killed at the 300 s deadline.
+  A wrapper fuzz harness in `crates/gunmetal-fuzz` replays its committed
+  seeds (SEC-MED-027, SEC-MED-028).
 
 #### WP-160 Builds for small ARM boards, including 32-bit (split from WP-121)
 
@@ -8130,8 +8158,12 @@ unless each person opts in, and no history. Items 3, 5, 10, 17, 21, 24,
     the data-root handle in `gunmetal-fs` (WP-126). SQLite's own open,
     which takes a path the data-root handle builds from constants, now
     happens only inside `gunmetal-fs` too (the one connection opener,
-    WP-126), so the only exception, checked by an xtask so the list cannot
-    grow silently, is the dev-only testkit. The first draft exempted the
+    WP-126). The first draft said the only exception, checked by an xtask
+    so the list cannot grow silently, is the dev-only testkit. The xtask
+    list now has eleven entries (record 6 decision 8 names them): the
+    doors that exist, plus the testkit, the fuzz corpus replay, the
+    xtask's tree module, the filesystem tests, the core's minting test
+    helper and the core's bounded-capacity helper. The first draft exempted the
     cache, the identity store, the log writers, the secrets crate and the
     data-directory module from the ban altogether, and the first security
     pass still exempted SQLite's open in two crates.
@@ -8899,15 +8931,15 @@ authoritative.
 | SEC-MED-015 | Player: clamp gain taken from tags to the range −30 | WP-028 |
 | SEC-MED-016 | Server: never fetch | WP-102 |
 | SEC-MED-017 | When a limit or parse error: keep the rest of the file's metadata | WP-052, WP-075, WP-102 |
-| SEC-MED-018 | Parsing of media: run in separate worker processes | WP-003, WP-045, WP-056, WP-061, WP-078, WP-105 |
+| SEC-MED-018 | Parsing of media: run in separate worker processes | WP-003, WP-045, WP-056, WP-061, WP-078, WP-105, WP-114 |
 | SEC-MED-019 | File that crashes or times out: quarantined until its size or modification time changes | WP-078, WP-110 |
 | SEC-MED-020 | Worker: receive input only as read-only file descriptors | WP-061, WP-105 |
-| SEC-MED-021 | Worker: single-threaded and must run | WP-045, WP-078 |
+| SEC-MED-021 | Worker: single-threaded and must run | WP-045, WP-078, WP-114 |
 | SEC-MED-022 | On Linux the worker: in order | WP-045 |
 | SEC-MED-023 | Server: treat messages from workers and sandboxes as untrusted | WP-039, WP-056, WP-061, WP-105 |
 | SEC-MED-024 | At startup and on demand: self-test each sandbox profile | WP-003, WP-045, WP-056, WP-105, WP-110, WP-116 |
 | SEC-MED-025 | Server and worker binaries: never link C or C++ media | WP-001 |
-| SEC-MED-026 | Third-party crate that parses or decodes: admitted only after a recorded review | WP-003, WP-079 |
+| SEC-MED-026 | Third-party crate that parses or decodes: admitted only after a recorded review | WP-003, WP-079, WP-114 |
 | SEC-MED-027 | Public parsing entry point in gunmetal-core: a fuzz harness whose body is a plain function | WP-008 |
 | SEC-MED-028 | Cargo test on stable: replay the committed corpus of every harness | WP-008 |
 | SEC-MED-029 | Coverage-guided fuzzing: run on every pull request that changes gunmetal-core | WP-008 |

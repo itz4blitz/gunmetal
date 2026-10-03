@@ -39,7 +39,8 @@ a much smaller attack surface, and stays fully open source.
 ## Scope
 
 Superseded by [record 2](0002-music-is-first-class.md): music now ships in
-the first version.
+the first version. Extended by [record 3](0003-durable-user-state.md): the
+identity store, the user log and erasure live outside the rebuildable cache.
 
 The first version covers movies and TV shows. M3U and live TV are the first
 module after that. Music, photos and books come later.

@@ -1,19 +1,18 @@
 # 8. HTTPS and naming
 
 Date: 2026-10-03
-Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
-is the owner's answer to register decision D-07 on 2026-10-02, which
-differs from the register's recommendation: R1 gets HTTPS through the
-owner's own domain (automatic certificates), a tailnet, or the same
-machine; the project-run per-server name service is not in R1 and moves
-to a later release. Remote access in R1 is the owner's own reverse proxy
-or a tailnet; built-in remote access over iroh arrives in R2
-([decisions](../decisions.md#owner-answers-2026-10-02)). That answer
-settles the direction, not this text. The owner accepts or edits the
-record when reviewing the wave-0 pull request into `main` (D-01), and this
-line then says so, with the date. Two parts wait for answers the owner has
-not given: the outbound exception before the claim proposed in decision 4,
-and the release of the name service in decision 8.
+Status: accepted, through the owner's technical answers of 2026-10-03
+([decision register](../decisions.md#technical-answers-to-wave-0s-package-questions-2026-10-03)),
+on the input of the owner's answer to D-07 on 2026-10-02, which differs
+from the register's recommendation: R1 gets HTTPS through the owner's own
+domain (automatic certificates), a tailnet, or the same machine; the
+project-run per-server name service is not in R1 and moves to a later
+release. Remote access in R1 is the owner's own reverse proxy or a
+tailnet; built-in remote access over iroh arrives in R2
+([decisions](../decisions.md#owner-answers-2026-10-02)). Two parts still
+wait for answers the owner has not given: the outbound exception before
+the claim proposed in decision 4, and the release of the name service in
+decision 8.
 
 ## Context
 
@@ -239,14 +238,11 @@ a second name; R1 does not require it.
 
 ## Requirement check
 
-Review record, dated 2026-10-03. This is the author's check, written by
-the coding agent working on WP-125; no person has reviewed it yet. The
-package's pull request merges into `wave-0` through the integrator agent
-once the gate passes, with no human review (D-01). The owner's review of
-the wave-0 pull request into `main` confirms or edits it. This record is
-the "HTTPS and naming" record of the baseline's "add to the repository
-now" item 17; it does not by itself verify a requirement, so this table
-checks that it agrees with the ones it relies on.
+Review record, dated 2026-10-03, accepted with this follow-up on
+2026-10-03. This record is the "HTTPS and naming" record of the
+baseline's "add to the repository now" item 17; it does not by itself
+verify a requirement, so this table checks that it agrees with the ones
+it relies on.
 
 | Requirement | Agreement |
 |---|---|

@@ -8,7 +8,19 @@
 //!
 //! This file is a registry: it holds only `pub mod` lines, one per module.
 
+pub mod ape;
 pub mod bytes;
 pub mod checksum;
 pub mod clock;
+pub mod flac;
+pub mod flac_frames;
+pub mod id3v1;
+pub mod id3v2;
+pub mod mp4;
+pub mod mp4_samples;
+pub mod mpa;
+pub mod ogg;
+pub mod opus;
+pub mod riff;
 pub mod tempdir;
+pub mod vorbis_comment;

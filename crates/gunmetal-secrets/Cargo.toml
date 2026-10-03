@@ -1,0 +1,20 @@
+[package]
+name = "gunmetal-secrets"
+description = "Gunmetal's secrets and keys door: the one CSPRNG function, the public-ID minting function, the root secret and the Secret wrapper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+gunmetal-fs = { path = "../gunmetal-fs", version = "0.0.0" }
+
+[dev-dependencies]
+gunmetal-testkit.workspace = true
+
+[lints]
+workspace = true
