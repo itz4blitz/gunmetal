@@ -3,7 +3,8 @@
 
 use gunmetal_core::time::Timestamp;
 use gunmetal_core::token::{
-    CapError, CapFields, MacProvider, SESSION_LEN, SessionHashError, hash_session, verify,
+    CapError, CapFields, MacProvider, Operation, Representation, SESSION_LEN, SessionHashError,
+    hash_session, verify,
 };
 use gunmetal_core::untrusted::Untrusted;
 
@@ -12,6 +13,10 @@ const RFC4231_CASE1: [u8; 32] = [
     0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53, 0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b, 0xf1, 0x2b,
     0x88, 0x1d, 0xc1, 0x81, 0xfd, 0xd9, 0xd4, 0xa9, 0x27, 0xad, 0xb2, 0xbd, 0x57, 0xb7, 0x99, 0xdf,
 ];
+
+/// A structurally valid token that names kid 0, expiry 1000, and the RFC 4231
+/// case 1 tag. `EmptyMac` answers that key, so [`verify`] accepts it.
+const KID0_FUTURE: &str = "AQAAAAAAAAAD6AEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALA0TGHY2zhTXKivzq8L8Ss";
 
 /// A provider that answers only key identifier 1, with the RFC 4231 case 1 tag.
 struct FuzzMac;
@@ -40,8 +45,9 @@ pub struct Outcome {
 /// # Panics
 ///
 /// Panics when an accepted capability token names an expiry outside
-/// [`Timestamp::MIN`] to [`Timestamp::MAX`], or when a session hash is
-/// returned for an input that is not 32 octets.
+/// [`Timestamp::MIN`] to [`Timestamp::MAX`], when a session hash is
+/// returned for an input that is not 32 octets, or when `EmptyMac` rejects
+/// a well-formed token that names the key it answers.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(data);
@@ -68,6 +74,24 @@ pub fn run(data: &[u8]) -> Outcome {
         );
         assert_ne!(data.len(), SESSION_LEN);
     }
+    assert_eq!(
+        verify(Untrusted::new(KID0_FUTURE), &EmptyMac, now).map(|fields| (
+            fields.kid,
+            fields.expiry.unix_seconds(),
+            fields.operation,
+            fields.representation,
+            fields.object,
+            fields.handle,
+        )),
+        Ok((
+            0,
+            1000,
+            Operation::Stream,
+            Representation::Original,
+            [0; 16],
+            [0; 8],
+        ))
+    );
     if data.len() == SESSION_LEN {
         assert_eq!(
             hash_session(Untrusted::new(data), &EmptyMac),
