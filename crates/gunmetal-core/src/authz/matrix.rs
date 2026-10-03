@@ -305,7 +305,7 @@ fn row(action: Action) -> (On, Option<Capability>) {
         .unwrap()
 }
 
-/// Verifies: SEC-IAM-068, SEC-IAM-075, SEC-TM-024
+/// Verifies: SEC-IAM-068, SEC-IAM-075
 #[test]
 fn every_kind_holding_everything_gets_exactly_its_ceiling() {
     let actions: Vec<Action> = CEILINGS.iter().map(|(action, ..)| *action).collect();
