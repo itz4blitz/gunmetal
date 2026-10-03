@@ -17,13 +17,19 @@ pub struct Outcome<'a> {
 /// # Panics
 ///
 /// Panics when the reader breaks an invariant that holds for every input:
-/// an error offset past the end of the input, or an unused suffix that is
-/// not the tail of the input.
+/// more than `n + 1` steps for `n` octets (SEC-MED-007), an error offset
+/// past the end of the input, or an unused suffix that is not the tail of
+/// the input.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome<'_> {
     let octets = u64::try_from(data.len()).unwrap_or(u64::MAX);
     let mut budget = Budget::for_input(0, 0, u64::MAX);
     let item = webauthn::decode(data, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+    let spent = u64::MAX - budget.remaining();
+    assert!(
+        spent <= octets.saturating_add(1),
+        "{spent} steps for {octets} octets"
+    );
     match &item {
         Ok(found) => {
             let rest = found.rest.len();

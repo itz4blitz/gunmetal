@@ -16,14 +16,19 @@ pub struct Outcome<'a> {
 ///
 /// # Panics
 ///
-/// Panics when the parser reports an error offset past the end of the
-/// input.
+/// Panics when the parser spends more than `n + 1` steps for `n` octets
+/// (SEC-MED-007), or reports an error offset past the end of the input.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome<'_> {
     let octets = u64::try_from(data.len()).unwrap_or(u64::MAX);
     let mut budget = Budget::for_input(0, 0, u64::MAX);
     let parsed =
         webauthn::attestation_object(data, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+    let spent = u64::MAX - budget.remaining();
+    assert!(
+        spent <= octets.saturating_add(1),
+        "{spent} steps for {octets} octets"
+    );
     if let Err(error) = &parsed {
         assert!(
             error.offset() <= octets,

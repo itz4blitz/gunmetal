@@ -15,13 +15,13 @@
 //! lengths count against [`crate::parse::LimitKind::Children`]. Byte and
 //! text string lengths count against [`crate::parse::LimitKind::LongText`].
 //! Every declared length is checked against its limit before the reader
-//! takes any octet or sizes any allocation from it.
+//! takes any octet. Arrays and maps start empty and grow as items are
+//! read, so a nested declared count cannot reserve against the rest of
+//! the input.
 
 use std::collections::BTreeSet;
 
-use crate::parse::{
-    Budget, Cursor, Depth, LimitKind, Limits, ParseFault, bounded_capacity, bounded_vec,
-};
+use crate::parse::{Budget, Cursor, Depth, LimitKind, Limits, ParseFault, bounded_capacity};
 use crate::problem::{Arg, Describe, Problem, ProblemCode};
 
 /// A decoded CBOR data item that borrows strings and byte strings from
@@ -367,12 +367,7 @@ fn read_array<'a>(
     let count = read_length(cursor, 4, additional, offset)?;
     limits.check(LimitKind::Children, count, offset)?;
     let nested = depth.descend(limits, offset)?;
-    let mut items = bounded_vec(
-        count,
-        1,
-        cursor.remaining(),
-        limits.get(LimitKind::Children),
-    );
+    let mut items = Vec::new();
     for _ in 0..bounded_capacity(count, 1, u64::MAX, count) {
         items.push(decode_from(cursor, limits, budget, nested)?);
     }
@@ -414,12 +409,7 @@ fn read_map<'a>(
     let count = read_length(cursor, 5, additional, offset)?;
     limits.check(LimitKind::Children, count, offset)?;
     let nested = depth.descend(limits, offset)?;
-    let mut entries = bounded_vec(
-        count,
-        2,
-        cursor.remaining(),
-        limits.get(LimitKind::Children),
-    );
+    let mut entries = Vec::new();
     let mut seen = BTreeSet::new();
     for _ in 0..bounded_capacity(count, 1, u64::MAX, count) {
         let key_at = cursor.offset();
@@ -1431,6 +1421,27 @@ mod tests {
                 max: 65_536,
                 offset: 0,
             }))
+        );
+    }
+
+    /// Verifies: SEC-MED-003
+    #[test]
+    fn nested_declared_counts_do_not_pre_size_from_the_rest_of_the_input() {
+        // Thirty-two maps, each declaring 65_536 pairs (`BA 00 01 00 00`)
+        // plus a one-octet unsigned-0 key, then 131_072 filler zeros. The
+        // innermost map's first pair is (0, 0); the next key is also 0.
+        let mut maps = repeated(&[0xBA, 0x00, 0x01, 0x00, 0x00, 0x00], 32);
+        maps.extend_from_slice(&repeated(&[0x00], 131_072));
+        assert_eq!(
+            on_small_stack(move || decode_default(&maps).map(|_| ())),
+            Err(WebauthnError::DuplicateKey { offset: 193 })
+        );
+        // The same declared counts as nested arrays stop at the first
+        // missing item, at the offset after the thirty-two heads.
+        let arrays = repeated(&[0x9A, 0x00, 0x01, 0x00, 0x00], 32);
+        assert_eq!(
+            on_small_stack(move || decode_default(&arrays).map(|_| ())),
+            Err(truncated(160, 1, 0))
         );
     }
 
