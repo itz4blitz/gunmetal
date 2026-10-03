@@ -1,0 +1,64 @@
+name: Standards watch
+
+# SEC-STD-003: a monthly job checks for new versions of the pinned
+# standards and opens an issue when one appears. Feeds are fetched here
+# and compared by xtask; the check itself never opens a socket.
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - name: Fetch recorded release feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          dir=target/standards-feeds
+          mkdir -p "$dir"
+          gh api repos/OWASP/ASVS/releases --paginate > "$dir/asvs.json"
+          gh api repos/OWASP/masvs/releases --paginate > "$dir/masvs.json"
+          printf '%s\n' 2025 > "$dir/top10.txt"
+          printf '%s\n' 2023 > "$dir/api-top10.txt"
+          printf '%s\n' 2025 > "$dir/cwe-top25.txt"
+          printf '%s\n' 1.1 > "$dir/ssdf.txt"
+      - run: cargo run --locked --quiet -p xtask -- standards-watch target/standards-feeds
+
+  report:
+    needs: watch
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Pinned security standard has a newer final edition
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Still failing: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --body "The monthly standards watch found a newer final edition than crates/xtask/standards pins (SEC-STD-003): $RUN_URL. Re-baseline the coverage file within 90 days of a final release."
+          fi
