@@ -19,7 +19,7 @@ use crate::time::Timestamp;
 /// milliseconds, with a burst of `burst` requests at once.
 ///
 /// Constructed only by [`Rate::new`], so a zero interval, a zero burst, or
-/// a pair whose delay tolerance does not fit in an `i64` cannot reach
+/// a pair whose `burst × interval` does not fit in an `i64` cannot reach
 /// [`check`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rate {
@@ -34,7 +34,7 @@ pub enum RateError {
     ZeroInterval,
     /// The burst was zero.
     ZeroBurst,
-    /// The interval, or `(burst - 1) × interval`, does not fit in an `i64`
+    /// The interval, or `burst × interval_ms`, does not fit in an `i64`
     /// of milliseconds, so it cannot be added to a [`Timestamp`].
     TooLarge,
 }
@@ -47,8 +47,8 @@ impl Rate {
     ///
     /// [`RateError::ZeroInterval`] when `interval_ms` is 0,
     /// [`RateError::ZeroBurst`] when `burst` is 0,
-    /// [`RateError::TooLarge`] when the interval or the delay tolerance
-    /// `(burst - 1) × interval_ms` does not fit in an `i64`.
+    /// [`RateError::TooLarge`] when the interval or `burst × interval_ms`
+    /// does not fit in an `i64`.
     pub fn new(interval_ms: u64, burst: u32) -> Result<Self, RateError> {
         if interval_ms == 0 {
             return Err(RateError::ZeroInterval);
@@ -57,11 +57,11 @@ impl Rate {
             return Err(RateError::ZeroBurst);
         }
         let interval = i64::try_from(interval_ms).map_err(|_| RateError::TooLarge)?;
-        let extra = u64::from(burst.saturating_sub(1));
-        let tau_ms = extra
+        let span = u64::from(burst)
             .checked_mul(interval_ms)
-            .and_then(|tau| i64::try_from(tau).ok())
+            .and_then(|span| i64::try_from(span).ok())
             .ok_or(RateError::TooLarge)?;
+        let tau_ms = span.saturating_sub(interval);
         Ok(Self {
             interval_ms: interval,
             tau_ms,
@@ -117,7 +117,13 @@ pub fn check(state: Option<Tat>, now: Timestamp, rate: Rate) -> (Decision, Tat) 
         );
     };
     let now_ms = now_ms.max(tat.observed_ms);
-    let earliest = tat.theoretical_ms.saturating_sub(rate.tau_ms);
+    // A saturated TAT must not subtract tau: TAT - tau would sit near 0
+    // and every later `now >= 0` would Allow.
+    let earliest = if tat.theoretical_ms == i64::MAX {
+        i64::MAX
+    } else {
+        tat.theoretical_ms.saturating_sub(rate.tau_ms)
+    };
     if now_ms < earliest {
         let retry_after_ms = earliest.saturating_sub(now_ms).unsigned_abs();
         return (
@@ -301,7 +307,8 @@ pub fn keys_for(principal: Option<PrincipalKey>, context: &ClientContext) -> Lim
 ///
 /// Inserting a new key at capacity evicts the least recently used entry.
 /// [`BoundedStore::get`] and a replacement [`BoundedStore::insert`] both
-/// count as a use. A capacity of zero stores nothing.
+/// count as a use. A capacity of zero stores nothing; [`check_store`]
+/// fails closed on a grant that cannot be recorded.
 #[derive(Debug)]
 pub struct BoundedStore<K, V> {
     capacity: usize,
@@ -369,11 +376,63 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
         self.order.retain(|held| held != key);
         self.order.push_back(key.clone());
     }
+
+    /// Stores every entry as one eviction transaction: members of the
+    /// group never evict each other. Unrelated LRU keys are evicted
+    /// first. When the group is larger than [`Self::capacity`], the last
+    /// `capacity` entries are kept, so [`LimitKey::Global`] (always last
+    /// in [`LimitKeys`]) and the coarser IPv6 prefixes survive.
+    ///
+    /// Returns `false` without storing when `capacity` is zero, so a
+    /// grant that cannot be recorded does not proceed.
+    fn insert_group(&mut self, entries: Vec<(K, V)>) -> bool {
+        if entries.is_empty() {
+            return true;
+        }
+        if self.capacity == 0 {
+            return false;
+        }
+        let drop_count = entries.len().saturating_sub(self.capacity);
+        let kept: Vec<(K, V)> = entries.into_iter().skip(drop_count).collect();
+        let mut new_count = 0_usize;
+        for (key, _) in &kept {
+            if !self.map.contains_key(key) {
+                new_count = new_count.saturating_add(1);
+            }
+        }
+        let free = self.capacity.saturating_sub(self.map.len());
+        let mut need = new_count.saturating_sub(free);
+        if need > 0 {
+            let mut stay = VecDeque::new();
+            while let Some(key) = self.order.pop_front() {
+                let in_kept = kept.iter().any(|(held, _)| held == &key);
+                if !in_kept && need > 0 {
+                    self.map.remove(&key);
+                    need = need.saturating_sub(1);
+                } else {
+                    stay.push_back(key);
+                }
+            }
+            self.order = stay;
+        }
+        for (key, value) in kept {
+            if self.map.insert(key.clone(), value).is_some() {
+                self.touch(&key);
+            } else {
+                self.order.push_back(key);
+            }
+        }
+        true
+    }
 }
 
 /// Checks every key in `keys` against `store`. Allows only when every key
 /// allows, and stores the new [`Tat`] for each key only then, so a deny on
 /// the global key does not spend a per-source cell (SEC-IAM-101).
+///
+/// The Tats are committed as one eviction transaction. If the store cannot
+/// record the grant (a capacity of zero), the request is denied and the
+/// store is left unchanged.
 ///
 /// `rate_of` supplies each key's ceiling: later packages give the /64, /56
 /// and /48 counters, and [`LimitKey::Global`], rates of their own.
@@ -404,10 +463,17 @@ where
     if let Some(retry_after_ms) = denied_retry {
         Decision::Deny { retry_after_ms }
     } else {
-        for (key, tat) in allowed {
-            store.insert(key, tat);
+        let now_ms = now.millis();
+        let mut retry_after_ms = 0_u64;
+        for (_, tat) in &allowed {
+            retry_after_ms =
+                retry_after_ms.max(tat.theoretical_ms.saturating_sub(now_ms).unsigned_abs());
         }
-        Decision::Allow
+        if store.insert_group(allowed) {
+            Decision::Allow
+        } else {
+            Decision::Deny { retry_after_ms }
+        }
     }
 }
 
@@ -529,11 +595,18 @@ mod tests {
         );
         assert_eq!(Rate::new(u64::MAX, 1), Err(RateError::TooLarge));
         assert_eq!(Rate::new(u64::MAX / 2, 3), Err(RateError::TooLarge));
+        assert_eq!(
+            Rate::new(u64::try_from(i64::MAX).unwrap(), 2),
+            Err(RateError::TooLarge)
+        );
+        assert_eq!(
+            Rate::new(u64::try_from(i64::MAX / 2).unwrap(), 3),
+            Err(RateError::TooLarge)
+        );
         assert!(Rate::new(u64::try_from(i64::MAX).unwrap(), 1).is_ok());
         assert!(Rate::new(1, u32::MAX).is_ok());
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn a_burst_at_the_limit_is_allowed_and_one_over_is_not() {
         let rate = rate(1_000, 3);
@@ -544,7 +617,6 @@ mod tests {
         deny(Some(third), START_MS + 999, rate, 1);
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn recovers_after_exactly_the_emission_interval() {
         let rate = rate(1_000, 3);
@@ -557,7 +629,6 @@ mod tests {
         allow(Some(fourth), START_MS + 2_000, rate);
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn a_burst_of_one_needs_a_full_interval_between_requests() {
         let rate = rate(250, 1);
@@ -567,7 +638,6 @@ mod tests {
         allow(Some(first), START_MS + 250, rate);
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn a_clock_going_backwards_is_treated_as_no_time_passed() {
         let rate = rate(1_000, 3);
@@ -581,7 +651,6 @@ mod tests {
         allow(Some(third), START_MS + 1_000, rate);
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn a_clock_going_backwards_after_the_burst_does_not_reset_the_limiter() {
         let rate = rate(1_000, 2);
@@ -593,7 +662,6 @@ mod tests {
         allow(Some(denied), START_MS + 1_000, rate);
     }
 
-    /// Verifies: SEC-API-057
     #[test]
     fn a_denied_request_does_not_spend_a_cell() {
         let rate = rate(1_000, 1);
@@ -612,6 +680,29 @@ mod tests {
             decision,
             Decision::Deny {
                 retry_after_ms: u64::try_from(i64::MAX - (START_MS + 1)).unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_saturated_tat_denies_instead_of_treating_earliest_as_zero() {
+        let rate = rate(1_000, 3);
+        let saturated = Tat {
+            theoretical_ms: i64::MAX,
+            observed_ms: START_MS,
+        };
+        let (decision, next) = check(Some(saturated), ts(START_MS), rate);
+        assert_eq!(
+            decision,
+            Decision::Deny {
+                retry_after_ms: u64::try_from(i64::MAX - START_MS).unwrap(),
+            }
+        );
+        assert_eq!(
+            next,
+            Tat {
+                theoretical_ms: i64::MAX,
+                observed_ms: START_MS,
             }
         );
     }
@@ -853,19 +944,35 @@ mod tests {
 
     /// Verifies: SEC-IAM-101
     #[test]
-    fn a_global_deny_does_not_spend_a_per_source_cell() {
-        let per_source = rate(1_000, 1);
+    fn a_global_deny_does_not_store_a_per_source_tat() {
+        let per_source = rate(60_000, 1);
         let global = rate(1_000, 1);
         let rate_of = |key: LimitKey| match key {
             LimitKey::Global => global,
             _ => per_source,
         };
         let mut store = BoundedStore::new(8);
-        let a = v4(203, 0, 113, 1);
-        let b = v4(198, 51, 100, 1);
+        let a_addr = Ipv4Addr::new(203, 0, 113, 1);
+        let b_addr = Ipv4Addr::new(198, 51, 100, 1);
+        let a = IpAddr::V4(a_addr);
+        let b = IpAddr::V4(b_addr);
         assert_eq!(
             check_store(&mut store, &keys(None, a), ts(START_MS), rate_of),
             Decision::Allow
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(a_addr)).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 60_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
         );
         assert_eq!(
             check_store(&mut store, &keys(None, b), ts(START_MS), rate_of),
@@ -873,9 +980,89 @@ mod tests {
                 retry_after_ms: 1_000
             }
         );
+        assert_eq!(store.get(&LimitKey::Ipv4(b_addr)), None);
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(a_addr)).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 60_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
+        );
         assert_eq!(
             check_store(&mut store, &keys(None, b), ts(START_MS + 1_000), rate_of),
             Decision::Allow
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(b_addr)).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 61_000,
+                observed_ms: START_MS + 1_000,
+            })
+        );
+    }
+
+    /// Verifies: SEC-IAM-101
+    #[test]
+    fn a_per_source_deny_does_not_spend_the_global_cell() {
+        let per_source = rate(1_000, 1);
+        let global = rate(1_000, 5);
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Global => global,
+            _ => per_source,
+        };
+        let mut store = BoundedStore::new(8);
+        let a_addr = Ipv4Addr::new(203, 0, 113, 1);
+        let c_addr = Ipv4Addr::new(198, 51, 100, 1);
+        let a = IpAddr::V4(a_addr);
+        let c = IpAddr::V4(c_addr);
+        assert_eq!(
+            check_store(&mut store, &keys(None, a), ts(START_MS), rate_of),
+            Decision::Allow
+        );
+        let spent_once = Tat {
+            theoretical_ms: START_MS + 1_000,
+            observed_ms: START_MS,
+        };
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(a_addr)).copied(),
+            Some(spent_once)
+        );
+        assert_eq!(store.get(&LimitKey::Global).copied(), Some(spent_once));
+        assert_eq!(
+            check_store(&mut store, &keys(None, a), ts(START_MS), rate_of),
+            Decision::Deny {
+                retry_after_ms: 1_000
+            }
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(a_addr)).copied(),
+            Some(spent_once)
+        );
+        assert_eq!(store.get(&LimitKey::Global).copied(), Some(spent_once));
+        assert_eq!(
+            check_store(&mut store, &keys(None, c), ts(START_MS), rate_of),
+            Decision::Allow
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(c_addr)).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 2_000,
+                observed_ms: START_MS,
+            })
         );
     }
 
@@ -972,6 +1159,228 @@ mod tests {
         assert!(store.is_empty());
     }
 
+    /// Verifies: SEC-NET-051, SEC-IAM-101
+    #[test]
+    fn check_store_on_a_zero_capacity_store_denies() {
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Ipv6Slash56(_) => rate(7_000, 1),
+            LimitKey::Ipv6Slash48(_) => rate(2_000, 1),
+            LimitKey::Global => rate(3_000, 1),
+            _ => rate(1_000, 1),
+        };
+        let mut store = BoundedStore::new(0);
+        let addr = IpAddr::V6(v6([0x2001, 0x0DB8, 0xAAAA, 0x0001, 0, 0, 0, 1]));
+        assert_eq!(
+            check_store(&mut store, &keys(None, addr), ts(START_MS), rate_of),
+            Decision::Deny {
+                retry_after_ms: 7_000
+            }
+        );
+        assert_eq!(store.get(&LimitKey::Global), None);
+        assert_eq!(
+            store.get(&LimitKey::Ipv6Slash48(reference_prefix(
+                v6([0x2001, 0x0DB8, 0xAAAA, 0x0001, 0, 0, 0, 1]),
+                48
+            ))),
+            None
+        );
+        assert!(store.is_empty());
+        assert_eq!(
+            check_store(&mut store, &keys(None, addr), ts(START_MS + 1_000), rate_of),
+            Decision::Deny {
+                retry_after_ms: 7_000
+            }
+        );
+    }
+
+    #[test]
+    fn check_store_with_no_keys_allows() {
+        let mut store = BoundedStore::new(0);
+        let none = LimitKeys::new(
+            [
+                LimitKey::Global,
+                LimitKey::Global,
+                LimitKey::Global,
+                LimitKey::Global,
+            ],
+            0,
+        );
+        assert_eq!(
+            check_store(&mut store, &none, ts(START_MS), |_| rate(1_000, 1)),
+            Decision::Allow
+        );
+        assert!(store.is_empty());
+        let mut store = BoundedStore::new(4);
+        assert_eq!(
+            check_store(&mut store, &none, ts(START_MS), |_| rate(1_000, 1)),
+            Decision::Allow
+        );
+        assert!(store.is_empty());
+    }
+
+    /// Verifies: SEC-NET-051, SEC-NET-052
+    #[test]
+    fn ipv6_rotation_with_capacity_two_still_exhausts_the_slash_48() {
+        rotating_slash_64s_exhaust_slash_48(2, 2);
+    }
+
+    /// Verifies: SEC-NET-051, SEC-NET-052
+    #[test]
+    fn ipv6_rotation_with_capacity_four_still_exhausts_the_slash_48() {
+        rotating_slash_64s_exhaust_slash_48(4, 4);
+    }
+
+    fn rotating_slash_64s_exhaust_slash_48(capacity: usize, expected_len: usize) {
+        let tight = rate(1_000, 2);
+        let generous = rate(1, 255);
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Ipv6Slash48(_) => tight,
+            _ => generous,
+        };
+        let mut store = BoundedStore::new(capacity);
+        let inside_one = v6([0x2001, 0x0DB8, 0xAAAA, 0x0001, 0, 0, 0, 1]);
+        let inside_two = v6([0x2001, 0x0DB8, 0xAAAA, 0x0002, 0, 0, 0, 1]);
+        let inside_three = v6([0x2001, 0x0DB8, 0xAAAA, 0x0003, 0, 0, 0, 1]);
+        let outside = v6([0x2001, 0x0DB8, 0xBBBB, 0x0001, 0, 0, 0, 1]);
+        let slash48 = LimitKey::Ipv6Slash48(reference_prefix(inside_one, 48));
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, IpAddr::V6(inside_one)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Allow
+        );
+        assert_eq!(store.len(), expected_len);
+        assert_eq!(
+            store.get(&slash48).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, IpAddr::V6(inside_two)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            store.get(&slash48).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 2_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, IpAddr::V6(inside_three)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Deny {
+                retry_after_ms: 1_000
+            }
+        );
+        assert_eq!(
+            store.get(&slash48).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 2_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, IpAddr::V6(outside)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Allow
+        );
+    }
+
+    /// Verifies: SEC-NET-051, SEC-IAM-101, SEC-API-057
+    #[test]
+    fn flooding_unique_ipv4s_does_not_reset_the_global_ceiling() {
+        let per_source = rate(1, 255);
+        let global = rate(1_000, 5);
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Global => global,
+            _ => per_source,
+        };
+        let mut store = BoundedStore::new(4);
+        for host in 1_u8..=5 {
+            assert_eq!(
+                check_store(
+                    &mut store,
+                    &keys(None, v4(203, 0, 113, host)),
+                    ts(START_MS),
+                    rate_of
+                ),
+                Decision::Allow,
+                "host {host}"
+            );
+            assert!(store.len() <= 4);
+            assert_eq!(
+                store.get(&LimitKey::Global).copied(),
+                Some(Tat {
+                    theoretical_ms: START_MS + i64::from(host) * 1_000,
+                    observed_ms: START_MS,
+                })
+            );
+        }
+        for host in 6_u8..=10 {
+            assert_eq!(
+                check_store(
+                    &mut store,
+                    &keys(None, v4(203, 0, 113, host)),
+                    ts(START_MS),
+                    rate_of
+                ),
+                Decision::Deny {
+                    retry_after_ms: 1_000
+                },
+                "host {host}"
+            );
+            assert_eq!(
+                store.get(&LimitKey::Global).copied(),
+                Some(Tat {
+                    theoretical_ms: START_MS + 5_000,
+                    observed_ms: START_MS,
+                })
+            );
+        }
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, v4(198, 51, 100, 1)),
+                ts(START_MS + 999),
+                rate_of
+            ),
+            Decision::Deny { retry_after_ms: 1 }
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 5_000,
+                observed_ms: START_MS,
+            })
+        );
+    }
+
     /// Verifies: SEC-NET-051
     #[test]
     fn a_missing_key_is_absent_and_a_capacity_of_one_keeps_only_the_latest() {
@@ -993,7 +1402,6 @@ mod tests {
     }
 
     proptest! {
-        /// Verifies: SEC-API-057
         #[test]
         fn allowed_requests_never_exceed_burst_plus_rate_times_elapsed(
             interval_ms in 1_u64..200,
