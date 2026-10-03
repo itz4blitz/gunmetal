@@ -48,7 +48,6 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
     match &items {
         Ok(items) => {
             let mut pos = 0_usize;
-            let mut first_damage = None;
             for item in items {
                 match item {
                     Item::Record(record) => {
@@ -61,14 +60,15 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
                     Item::Damaged { range } => {
                         assert!(range.start < range.end && range.end <= data.len());
                         assert_eq!(range.start, pos);
-                        if first_damage.is_none() {
-                            first_damage = Some(range.start);
-                        }
                         pos = range.end;
                     }
                 }
             }
             assert_eq!(pos, data.len());
+            let first_damage = items.iter().find_map(|item| match item {
+                Item::Damaged { range } => Some(range.start),
+                Item::Record(_) => None,
+            });
             assert_eq!(
                 tail,
                 first_damage.unwrap_or(data.len()),
