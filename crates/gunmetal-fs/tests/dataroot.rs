@@ -30,6 +30,7 @@ const LAYOUT: [&str; 7] = [
 
 const ROOT_KEY: DataPath = DataPath::constant(DataDir::Secrets, "root.key");
 const KEYS: DataPath = DataPath::constant(DataDir::Secrets, "keys.json");
+const TLS_KEY: DataPath = DataPath::constant(DataDir::Secrets, "tls/key.pem");
 const SEGMENT: DataPath = DataPath::constant(DataDir::Durable, "audit-0001.jsonl");
 
 fn read(root: &DataRoot, path: &DataPath) -> Vec<u8> {
@@ -71,7 +72,7 @@ fn reports_the_repairs_it_made_before_refusing() {
                 parent: Item::Dir(DataDir::Secrets),
                 name: OsString::from("secret~")
             },
-            repairs: vec![Repair {
+            repairs: vec![Repair::Mode {
                 item: Item::Path(ROOT_KEY),
                 from: 0o644,
                 to: 0o600
@@ -81,7 +82,7 @@ fn reports_the_repairs_it_made_before_refusing() {
     assert_eq!(mode(&secrets.join("root.key")), 0o600);
 }
 
-/// Verifies: SEC-OPS-012, SEC-MED-033
+/// Verifies: SEC-OPS-012
 #[test]
 fn creates_the_layout_owned_by_the_service_account_with_mode_0700() {
     assert_not_root();
@@ -122,7 +123,7 @@ fn tightens_a_loose_data_directory_and_reports_it() {
     let opened = open(&dir);
     assert_eq!(
         opened.repairs,
-        [Repair {
+        [Repair::Mode {
             item: Item::Root,
             from: 0o755,
             to: 0o700
@@ -142,7 +143,7 @@ fn repairs_a_data_directory_its_owner_cannot_write() {
     let opened = open(&dir);
     assert_eq!(
         opened.repairs,
-        [Repair {
+        [Repair::Mode {
             item: Item::Root,
             from: 0o500,
             to: 0o700
@@ -168,27 +169,26 @@ fn repairs_loose_secrets_and_layout_directories_in_order() {
     fs::write(data.join("secrets/claim-code"), b"code").expect("write the code");
     set_mode(&data.join("secrets/claim-code"), 0o600);
     let opened = open(&dir);
-    let path = |rel: &str| Item::Path(DataPath::new(DataDir::Secrets, rel).expect("valid"));
     assert_eq!(
         opened.repairs,
         [
-            Repair {
+            Repair::Mode {
                 item: Item::Dir(DataDir::Cache),
                 from: 0o755,
                 to: 0o700
             },
-            Repair {
-                item: path("root.key"),
+            Repair::Mode {
+                item: Item::Path(ROOT_KEY),
                 from: 0o644,
                 to: 0o600
             },
-            Repair {
-                item: path("tls"),
+            Repair::Mode {
+                item: Item::Path(DataPath::constant(DataDir::Secrets, "tls")),
                 from: 0o750,
                 to: 0o700
             },
-            Repair {
-                item: path("tls/key.pem"),
+            Repair::Mode {
+                item: Item::Path(TLS_KEY),
                 from: 0o640,
                 to: 0o600
             },
@@ -329,12 +329,25 @@ fn refuses_a_socket_in_secrets() {
 #[test]
 fn refuses_secrets_it_cannot_have_created() {
     assert_not_root();
+    let tls = || Item::Path(DataPath::constant(DataDir::Secrets, "tls"));
     for (rel, parent, name) in [
         ("Root.KEY", Item::Dir(DataDir::Secrets), "Root.KEY"),
         (".hidden", Item::Dir(DataDir::Secrets), ".hidden"),
+        // Names a crash during a replace cannot leave: no file of that
+        // name could have been replaced.
+        ("..tmp", Item::Dir(DataDir::Secrets), "..tmp"),
+        (
+            ".Root.KEY.tmp",
+            Item::Dir(DataDir::Secrets),
+            ".Root.KEY.tmp",
+        ),
+        (".keys.json", Item::Dir(DataDir::Secrets), ".keys.json"),
+        ("tls/.-x.tmp", tls(), ".-x.tmp"),
     ] {
         let dir = TempDir::new();
         drop(open(&dir));
+        fs::create_dir(dir.join("data/secrets/tls")).expect("create tls");
+        set_mode(&dir.join("data/secrets/tls"), 0o700);
         fs::create_dir(dir.join("data/secrets").join(rel)).expect("create the entry");
         assert_eq!(
             DataRoot::open(&dir.join("data"), &local_host(), Policy::DEFAULT)
@@ -359,8 +372,8 @@ fn refuses_secrets_nested_deeper_than_a_data_path_reaches() {
     for rel in ["a", "a/b", "a/b/c", "a/b/c/d"] {
         set_mode(&secrets.join(rel), 0o750);
     }
-    let repair = |rel: &str| Repair {
-        item: Item::Path(DataPath::new(DataDir::Secrets, rel).expect("valid")),
+    let repair = |rel: &'static str| Repair::Mode {
+        item: Item::Path(DataPath::constant(DataDir::Secrets, rel)),
         from: 0o750,
         to: 0o700,
     };
@@ -521,13 +534,99 @@ fn replaces_over_a_temporary_file_a_crash_left_behind() {
     assert_eq!(mode(&dir.join("data/secrets/keys.json")), 0o600);
 }
 
+/// Leaves `secrets/` as a crash during a replace of `keys.json` and of
+/// `tls/key.pem` would: the old files in place and a temporary file beside
+/// each.
+fn interrupted_replaces(dir: &TempDir) {
+    drop(open(dir));
+    let secrets = dir.join("data/secrets");
+    fs::write(secrets.join("keys.json"), b"old keys").expect("write the keys");
+    set_mode(&secrets.join("keys.json"), 0o600);
+    fs::write(secrets.join(".keys.json.tmp"), b"half written").expect("leave a temporary file");
+    set_mode(&secrets.join(".keys.json.tmp"), 0o600);
+    fs::create_dir(secrets.join("tls")).expect("create tls");
+    set_mode(&secrets.join("tls"), 0o700);
+    fs::write(secrets.join("tls/.key.pem.tmp"), b"half").expect("leave a temporary file");
+    set_mode(&secrets.join("tls/.key.pem.tmp"), 0o644);
+}
+
+/// Verifies: SEC-OPS-012
+#[test]
+fn opens_after_a_crash_during_a_replace_and_removes_what_it_left() {
+    assert_not_root();
+    let dir = TempDir::new();
+    interrupted_replaces(&dir);
+    let opened = DataRoot::open(&dir.join("data"), &local_host(), Policy::DEFAULT)
+        .expect("the data root opens");
+    assert_eq!(
+        opened.repairs,
+        [
+            Repair::Removed {
+                item: Item::Replacement(KEYS)
+            },
+            Repair::Removed {
+                item: Item::Replacement(TLS_KEY)
+            },
+        ]
+    );
+    assert_eq!(names(&dir.join("data/secrets")), ["keys.json", "tls"]);
+    assert_eq!(names(&dir.join("data/secrets/tls")), [] as [&str; 0]);
+    assert_eq!(read(&opened.root, &KEYS), b"old keys");
+}
+
+/// Verifies: SEC-OPS-012
+#[test]
+fn refuses_what_a_crash_during_a_replace_left_when_told_not_to_repair() {
+    assert_not_root();
+    let dir = TempDir::new();
+    interrupted_replaces(&dir);
+    let policy = Policy {
+        modes: Modes::Refuse,
+        network: NetworkFilesystems::Refuse,
+    };
+    assert_eq!(
+        DataRoot::open(&dir.join("data"), &local_host(), policy).map(|opened| opened.repairs),
+        refused(DataRootError::Leftover {
+            item: Item::Replacement(KEYS)
+        })
+    );
+    assert_eq!(
+        names(&dir.join("data/secrets")),
+        [".keys.json.tmp", "keys.json", "tls"]
+    );
+}
+
+/// Verifies: SEC-HIS-016, SEC-OPS-012
+#[test]
+fn refuses_a_symlink_named_like_a_temporary_file() {
+    assert_not_root();
+    let dir = TempDir::new();
+    drop(open(&dir));
+    fs::write(dir.join("elsewhere"), b"not ours").expect("write the target");
+    symlink(
+        dir.join("elsewhere"),
+        dir.join("data/secrets/.keys.json.tmp"),
+    )
+    .expect("plant");
+    assert_eq!(
+        DataRoot::open(&dir.join("data"), &local_host(), Policy::DEFAULT)
+            .map(|opened| opened.repairs),
+        refused(DataRootError::WrongKind {
+            item: Item::Replacement(KEYS),
+            found: Kind::Symlink
+        })
+    );
+    assert_eq!(names(&dir.join("data/secrets")), [".keys.json.tmp"]);
+    assert_eq!(fs::read(dir.join("elsewhere")).expect("read"), b"not ours");
+}
+
 #[test]
 fn replaces_a_file_in_a_nested_directory() {
     assert_not_root();
     let dir = TempDir::new();
     let root = open(&dir).root;
     let log = DataPath::constant(DataDir::Durable, "log");
-    let segment = log.join("2026-10.seg").expect("valid");
+    let segment = DataPath::constant(DataDir::Durable, "log/2026-10.seg");
     root.create_dir(&log).expect("create the log directory");
     root.replace(&segment, b"frames")
         .expect("write the segment");

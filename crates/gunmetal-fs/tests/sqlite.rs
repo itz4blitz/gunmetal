@@ -14,7 +14,7 @@ use gunmetal_fs::sqlite::{
     Db, DbError, DbFile, Pragmas, Query, Row, Synchronous, Value, open_db, open_untrusted,
 };
 use proptest::prelude::*;
-use support::{TempDir, assert_not_root, mode, open, set_mode};
+use support::{TempDir, assert_not_root, mode, names, open, set_mode};
 
 const LIBRARY: DbFile = DbFile::new(DataDir::Cache, "library.db");
 const FOREIGN: DbFile = DbFile::new(DataDir::Tmp, "restore.db");
@@ -98,6 +98,96 @@ fn reads_back_the_pragmas_each_store_declares() {
         reader.execute_batch(CREATE_NAMES),
         Err(DbError::Sqlite { code: 8 })
     );
+}
+
+/// The statements a store could write to undo the opener's pragmas.
+const PRAGMA_CHANGES: [&str; 7] = [
+    "PRAGMA secure_delete = OFF",
+    "PRAGMA secure_delete(0)",
+    "pragma SECURE_DELETE = false",
+    "PRAGMA main.secure_delete = OFF",
+    "PRAGMA foreign_keys = OFF",
+    "PRAGMA trusted_schema = ON",
+    "PRAGMA query_only = OFF",
+];
+
+/// `SQLITE_AUTH`: the connection refused to prepare the statement.
+const NOT_ALLOWED: DbError = DbError::Sqlite { code: 23 };
+
+/// Verifies: SEC-PRV-050
+#[test]
+fn refuses_statements_that_change_a_pragma_after_opening() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    let reader = Pragmas::new(Synchronous::Normal).query_only();
+    let db = open_db(&root, &LIBRARY, reader).expect("the cache opens");
+    for statement in PRAGMA_CHANGES {
+        assert_eq!(
+            db.execute(&Query::new(statement)),
+            Err(NOT_ALLOWED),
+            "{statement}"
+        );
+        assert_eq!(db.execute_batch(statement), Err(NOT_ALLOWED), "{statement}");
+    }
+    assert_eq!(
+        db.query(&Query::new(
+            "SELECT * FROM pragma_secure_delete(), pragma_foreign_keys(), \
+             pragma_trusted_schema(), pragma_query_only()"
+        )),
+        Ok(vec![ints(&[1, 1, 0, 1])])
+    );
+}
+
+/// Verifies: SEC-PRV-050
+#[test]
+fn still_checkpoints_the_log_and_reads_pragmas_after_opening() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    let db = cache(&root);
+    assert_eq!(
+        db.query(&Query::new("PRAGMA wal_checkpoint(TRUNCATE)")),
+        Ok(vec![ints(&[0, 0, 0])])
+    );
+    assert_eq!(
+        db.query(&Query::new("PRAGMA quick_check")),
+        Ok(vec![Row(vec![text("ok")])])
+    );
+}
+
+/// SQL text naming `file` in the temporary directory. A test may build
+/// statement text at run time only by leaking it, which is the point of
+/// `Query`'s `&'static str`.
+fn naming(text: &str, dir: &TempDir, file: &str) -> &'static str {
+    let path = dir.join(file);
+    let path = path.to_str().expect("UTF-8 temporary directory");
+    Box::leak(text.replace("{path}", path).into_boxed_str())
+}
+
+/// Verifies: SEC-MED-033, SEC-HIS-016
+#[test]
+fn refuses_to_open_or_write_another_database_file() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    let db = cache(&root);
+    db.execute_batch(CREATE_NAMES).expect("create the table");
+    let statements = [
+        naming("ATTACH DATABASE '{path}' AS other", &dir, "attached.db"),
+        naming("ATTACH '{path}' AS other", &dir, "names.db"),
+        naming("VACUUM INTO '{path}'", &dir, "copy.db"),
+        "ATTACH DATABASE ':memory:' AS other",
+        "DETACH DATABASE main",
+        "VACUUM",
+    ];
+    for statement in statements {
+        assert_eq!(db.execute_batch(statement), Err(NOT_ALLOWED), "{statement}");
+        assert_eq!(
+            db.execute(&Query::new(statement)),
+            Err(NOT_ALLOWED),
+            "{statement}"
+        );
+    }
+    assert_eq!(names(dir.path()), ["data"]);
+    assert_eq!(db.query(&TABLES), Ok(vec![Row(vec![text("names")])]));
 }
 
 /// Verifies: SEC-PRV-050
@@ -252,24 +342,6 @@ fn reports_each_way_a_statement_can_be_refused() {
     }
 }
 
-/// Verifies: SEC-HIS-038, SEC-TM-039
-#[test]
-fn matches_bound_names_exactly_never_as_patterns() {
-    let dir = TempDir::new();
-    let root = open(&dir).root;
-    let db = cache(&root);
-    db.execute_batch(CREATE_NAMES).expect("create the table");
-    db.execute(&INSERT_NAME.bind(text("admin")))
-        .expect("insert");
-    for probe in ["%", "_", "admin%", "adm_n", "ADMIN", "admin' OR '1'='1"] {
-        assert_eq!(db.query(&BY_NAME.bind(text(probe))), Ok(vec![]), "{probe}");
-    }
-    assert_eq!(
-        db.query(&BY_NAME.bind(text("admin"))),
-        Ok(vec![Row(vec![Value::Integer(1), text("admin")])])
-    );
-}
-
 fn hostile_text() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("'; DROP TABLE names; --".to_owned()),
@@ -385,6 +457,27 @@ fn opens_a_foreign_database_read_only_with_views_and_triggers_off() {
         )),
         Ok(vec![ints(&[1, 0, 1, 1])])
     );
+}
+
+/// Verifies: SEC-PRV-050, SEC-MED-033
+#[test]
+fn locks_down_a_foreign_database_connection_as_well() {
+    let dir = TempDir::new();
+    let root = open(&dir).root;
+    foreign(&root);
+    let db = open_untrusted(&root, &FOREIGN).expect("opens");
+    let attach = naming("ATTACH DATABASE '{path}' AS other", &dir, "attached.db");
+    for statement in PRAGMA_CHANGES.into_iter().chain([attach]) {
+        assert_eq!(db.execute_batch(statement), Err(NOT_ALLOWED), "{statement}");
+    }
+    assert_eq!(
+        db.query(&Query::new(
+            "SELECT * FROM pragma_secure_delete(), pragma_foreign_keys(), \
+             pragma_trusted_schema(), pragma_query_only()"
+        )),
+        Ok(vec![ints(&[1, 1, 0, 1])])
+    );
+    assert_eq!(names(dir.path()), ["data"]);
 }
 
 #[test]

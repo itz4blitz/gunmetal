@@ -10,6 +10,13 @@
 //! (SEC-PRV-050). A database the server did not create is opened only by
 //! [`open_untrusted`], read-only and hardened (SEC-STD-031).
 //!
+//! Both then lock the connection down, so no statement can undo that: one
+//! that gives a pragma a value (other than `wal_checkpoint` and
+//! `quick_check`), attaches or detaches a database, or runs `VACUUM`, which
+//! SQLite does through an attached copy, fails with `SQLITE_AUTH` (23).
+//! Attaching would open a file by path, outside the data-root handle
+//! (SEC-MED-033).
+//!
 //! A connection runs SQL only as a [`Query`], whose text is a
 //! `&'static str` and whose values are bound parameters, so SQL built from
 //! request text does not compile (SEC-API-066, SEC-TM-039, SEC-HIS-038).
@@ -19,6 +26,8 @@
 use std::time::Duration;
 
 use rusqlite::config::DbConfig;
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+use rusqlite::limits::Limit;
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, OpenFlags, ffi, params_from_iter};
 
@@ -125,7 +134,10 @@ pub enum Synchronous {
 /// assert_ne!(reader, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// ```compile_fail
+/// A pragma set that leaves out `secure_delete` cannot be built.
+/// Verifies: SEC-PRV-050
+///
+/// ```compile_fail,E0599
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
 /// let reader = Pragmas::new(Synchronous::Normal).secure_delete(false);
@@ -199,7 +211,10 @@ pub struct Row(pub Vec<Value>);
 /// assert_ne!(query, BY_NAME);
 /// ```
 ///
-/// ```compile_fail
+/// SQL built from a `String` does not compile.
+/// Verifies: SEC-API-066, SEC-TM-039, SEC-HIS-038
+///
+/// ```compile_fail,E0597
 /// use gunmetal_fs::sqlite::{Query, Value};
 ///
 /// const BY_NAME: Query = Query::new("SELECT id FROM users WHERE name = ?1");
@@ -209,7 +224,12 @@ pub struct Row(pub Vec<Value>);
 /// assert_ne!(query, BY_NAME);
 /// ```
 ///
-/// ```compile_fail
+/// Nor does SQL from a borrowed `&str`, such as a column name a request
+/// chose; a sort order or filter is an enum that picks a whole static
+/// statement.
+/// Verifies: SEC-API-066, SEC-TM-039, SEC-HIS-038
+///
+/// ```compile_fail,E0521
 /// use gunmetal_fs::sqlite::{Query, Value};
 ///
 /// const BY_NAME: Query = Query::new("SELECT id FROM users WHERE name = ?1");
@@ -387,6 +407,9 @@ fn connect(root: &DataRoot, db: &DbFile, flags: OpenFlags) -> Result<Db, DbError
 /// Returns a [`DbError`] when SQLite cannot open the file (it is missing
 /// and cannot be created, is not a database, or a symlink is anywhere in
 /// its path), or when a pragma did not take.
+///
+/// The connection is then locked down as the [module documentation](self)
+/// describes.
 pub fn open_db(root: &DataRoot, db: &DbFile, pragmas: Pragmas) -> Result<Db, DbError> {
     // The first open creates the file through the data root, so it has mode
     // 0600, and SQLite gives its `-wal` and `-shm` files the same mode. An
@@ -404,6 +427,7 @@ pub fn open_db(root: &DataRoot, db: &DbFile, pragmas: Pragmas) -> Result<Db, DbE
         })
         .and_then(|()| db.query(&READ_BACK))
         .and_then(|found| check(pragmas.expected(), found))
+        .and_then(|()| lock_down(&db.conn).map_err(driver_error))
         .map(|()| db)
 }
 
@@ -456,6 +480,7 @@ pub fn open_untrusted(root: &DataRoot, db: &DbFile) -> Result<Db, DbError> {
             })
         })
         .and_then(|found| check(untrusted_expected(), found))
+        .and_then(|()| lock_down(&db.conn).map_err(driver_error))
         .and_then(|()| db.query(&QUICK_CHECK))
         .and_then(|report| passes_quick_check(&report))
         .map(|()| db)
@@ -503,6 +528,43 @@ fn driver_error(error: rusqlite::Error) -> DbError {
                 .map_or(ffi::SQLITE_MISUSE, |error| error.extended_code),
         },
     }
+}
+
+/// The only pragmas a locked-down connection may give a value. Neither
+/// changes a setting: one checks the database and one moves the log into
+/// it, which the erasure job needs (SEC-PRV-050).
+const ALLOWED_PRAGMAS: [&str; 2] = ["quick_check", "wal_checkpoint"];
+
+/// Decides whether a connection may prepare a statement that does `context`.
+/// Attaching or detaching a database would open a file by path, outside the
+/// data-root handle (SEC-MED-033), and a pragma given a value could undo
+/// what the opener set (SEC-PRV-050), so both are denied. A pragma with no
+/// value only reads its setting (SQLite authorises the `pragma_...()` table
+/// functions the same way), and everything else is for the store's own
+/// statements to do.
+fn authorize(context: AuthContext<'_>) -> Authorization {
+    match context.action {
+        AuthAction::Attach { .. } | AuthAction::Detach { .. } => Authorization::Deny,
+        AuthAction::Pragma {
+            pragma_name,
+            pragma_value: Some(_),
+        } if !ALLOWED_PRAGMAS
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(pragma_name)) =>
+        {
+            Authorization::Deny
+        }
+        _ => Authorization::Allow,
+    }
+}
+
+/// Locks `conn` down once its opener has set it up and read it back: from
+/// then on it refuses to prepare a statement [`authorize`] denies, which
+/// fails with `SQLITE_AUTH`, and it can attach no database at all, which
+/// also stops `VACUUM`, since SQLite runs that through an attached copy.
+fn lock_down(conn: &Connection) -> rusqlite::Result<()> {
+    conn.set_limit(Limit::SQLITE_LIMIT_ATTACHED, 0)
+        .and_then(|_| conn.authorizer(Some(authorize)))
 }
 
 /// Refuses a connection whose settings read back differently.
@@ -575,6 +637,97 @@ mod tests {
                 expected,
                 found: vec![row(&[0, 1, 0])]
             })
+        );
+    }
+
+    fn ask(action: AuthAction<'_>) -> Authorization {
+        authorize(AuthContext {
+            action,
+            database_name: Some("main"),
+            accessor: None,
+        })
+    }
+
+    fn pragma(name: &str, value: Option<&str>) -> Authorization {
+        ask(AuthAction::Pragma {
+            pragma_name: name,
+            pragma_value: value,
+        })
+    }
+
+    /// Verifies: SEC-PRV-050, SEC-MED-033
+    #[test]
+    fn denies_attaching_detaching_and_giving_a_pragma_a_value() {
+        assert_eq!(
+            ask(AuthAction::Attach {
+                filename: "/etc/x.db"
+            }),
+            Authorization::Deny
+        );
+        assert_eq!(
+            ask(AuthAction::Detach {
+                database_name: "main"
+            }),
+            Authorization::Deny
+        );
+        for (name, value) in [
+            ("secure_delete", "OFF"),
+            ("foreign_keys", "0"),
+            ("trusted_schema", "ON"),
+            ("query_only", "OFF"),
+            ("journal_mode", "DELETE"),
+            ("temp_store_directory", "/tmp"),
+            ("integrity_check", "1"),
+        ] {
+            assert_eq!(pragma(name, Some(value)), Authorization::Deny, "{name}");
+        }
+    }
+
+    /// A pragma with no value only reads its setting, which is also how
+    /// SQLite authorises `SELECT * FROM pragma_secure_delete()`.
+    #[test]
+    fn allows_reading_a_pragma_and_the_two_that_take_a_harmless_value() {
+        for (name, value) in [
+            ("secure_delete", None),
+            ("foreign_keys", None),
+            ("integrity_check", None),
+            ("wal_checkpoint", Some("TRUNCATE")),
+            ("WAL_Checkpoint", Some("passive")),
+            ("quick_check", None),
+            ("QUICK_CHECK", Some("1")),
+        ] {
+            assert_eq!(pragma(name, value), Authorization::Allow, "{name}");
+        }
+    }
+
+    #[test]
+    fn allows_reading_and_writing_rows() {
+        for action in [
+            AuthAction::Select,
+            AuthAction::Read {
+                table_name: "t",
+                column_name: "x",
+            },
+            AuthAction::Insert { table_name: "t" },
+            AuthAction::Delete { table_name: "t" },
+        ] {
+            assert_eq!(ask(action), Authorization::Allow, "{action:?}");
+        }
+    }
+
+    /// Verifies: SEC-MED-033
+    #[test]
+    fn allows_no_attached_database_even_without_the_authorizer() {
+        let conn = Connection::open_in_memory().expect("open");
+        lock_down(&conn).expect("lock down");
+        assert_eq!(conn.limit(Limit::SQLITE_LIMIT_ATTACHED), Ok(0));
+        // Take the authorizer away to show the limit holds on its own.
+        conn.authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
+            .expect("remove the authorizer");
+        assert_eq!(
+            conn.execute_batch("ATTACH DATABASE ':memory:' AS other")
+                .map_err(driver_error),
+            Err(DbError::Sqlite { code: 1 })
         );
     }
 

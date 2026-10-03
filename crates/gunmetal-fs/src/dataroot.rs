@@ -14,9 +14,12 @@
 //! directories with mode 0700, and everything in `secrets/` must be a
 //! regular file with mode 0600 or a directory with mode 0700, all owned by
 //! the service account. A wrong mode on something the service account owns
-//! is tightened and reported as a [`Repair`] for the audit log; anything
-//! else is refused. Files are created with mode 0600 and directories with
-//! mode 0700.
+//! is tightened and reported as a [`Repair`] for the audit log, once
+//! inspecting it again shows the new mode; a filesystem that accepts the
+//! change and keeps the old mode is refused. A temporary file that a
+//! [`DataRoot::replace`] interrupted by a crash left in `secrets/` is
+//! removed and reported the same way. Anything else is refused. Files are
+//! created with mode 0600 and directories with mode 0700.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -27,7 +30,7 @@ use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, OpenOptions, OpenOptionsExt};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Filesystem, HostFacts, NetworkFs};
-use crate::path::{DataDir, DataPath};
+use crate::path::{self, DataDir, DataPath};
 
 /// The mode of every directory in the data directory.
 pub const DIR_MODE: u32 = 0o700;
@@ -88,6 +91,9 @@ pub enum Item {
     Dir(DataDir),
     /// A path inside a layout directory.
     Path(DataPath),
+    /// The temporary file that [`DataRoot::replace`] writes beside this
+    /// path before renaming it into place.
+    Replacement(DataPath),
 }
 
 /// What kind of filesystem object was found.
@@ -130,17 +136,29 @@ pub enum Op {
     Rename,
     /// Syncing the directory that holds a renamed file.
     Sync,
+    /// Removing a temporary file that an interrupted replace left behind.
+    Remove,
 }
 
-/// A mode the data root tightened, for the audit log (SEC-OPS-012).
+/// A change the data root made while opening, for the audit log
+/// (SEC-OPS-012).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Repair {
-    /// What was tightened.
-    pub item: Item,
-    /// Its permission bits before.
-    pub from: u32,
-    /// Its permission bits after.
-    pub to: u32,
+pub enum Repair {
+    /// A mode tightened.
+    Mode {
+        /// What was tightened.
+        item: Item,
+        /// Its permission bits before.
+        from: u32,
+        /// Its permission bits after.
+        to: u32,
+    },
+    /// A temporary file removed, which a replace interrupted by a crash
+    /// left in `secrets/`. The file it would have replaced is untouched.
+    Removed {
+        /// The temporary file, an [`Item::Replacement`].
+        item: Item,
+    },
 }
 
 /// Why the data root refused an operation.
@@ -184,6 +202,24 @@ pub enum DataRootError {
         mode: u32,
         /// The permission bits it must have.
         required: u32,
+    },
+    /// Its mode is wrong and tightening it did not take: the filesystem
+    /// accepted the change and kept the old mode, as a share or a FUSE
+    /// filesystem that ignores `chmod` does. The server cannot enforce the
+    /// mode there, so it refuses (SEC-OPS-012, ADM-079).
+    CannotRepair {
+        /// What has the wrong mode.
+        item: Item,
+        /// Its permission bits after the attempt.
+        mode: u32,
+        /// The permission bits it must have.
+        required: u32,
+    },
+    /// A temporary file that a replace interrupted by a crash left in
+    /// `secrets/`, and the policy says to refuse rather than remove it.
+    Leftover {
+        /// The temporary file, an [`Item::Replacement`].
+        item: Item,
     },
     /// An entry in `secrets/` whose name no [`DataPath`] can hold, so the
     /// server did not create it.
@@ -273,14 +309,14 @@ fn check_filesystem(
 ///
 /// Directories need mode 0700. Regular files need mode 0600 and are
 /// acceptable only where `files` is true. Everything must be owned by
-/// `uid`. Returns the repair to make, if any.
+/// `uid`. Returns the mode to set, if the mode is to be repaired.
 fn verdict(
     item: &Item,
     facts: Facts,
     files: bool,
     uid: u32,
     modes: Modes,
-) -> Result<Option<Repair>, DataRootError> {
+) -> Result<Option<u32>, DataRootError> {
     let required = match (facts.kind, files) {
         (Kind::Dir, _) => DIR_MODE,
         (Kind::File, true) => FILE_MODE,
@@ -300,16 +336,50 @@ fn verdict(
     }
     match (facts.mode == required, modes) {
         (true, _) => Ok(None),
-        (false, Modes::Repair) => Ok(Some(Repair {
-            item: item.clone(),
-            from: facts.mode,
-            to: required,
-        })),
+        (false, Modes::Repair) => Ok(Some(required)),
         (false, Modes::Refuse) => Err(DataRootError::WrongMode {
             item: item.clone(),
             mode: facts.mode,
             required,
         }),
+    }
+}
+
+/// Accepts a repair of `item` to the mode `required` only when `after`,
+/// what inspecting it again found, shows that mode.
+fn confirm(item: &Item, after: Facts, required: u32) -> Result<(), DataRootError> {
+    if after.mode == required {
+        Ok(())
+    } else {
+        Err(DataRootError::CannotRepair {
+            item: item.clone(),
+            mode: after.mode,
+            required,
+        })
+    }
+}
+
+/// Decides what to do about `item`, a temporary file that a replace
+/// interrupted by a crash left behind. A regular file the service account
+/// owns is removed when the policy allows repairs; anything else is
+/// refused, as it would be under any other name in `secrets/`.
+fn leftover(item: &Item, facts: Facts, uid: u32, modes: Modes) -> Result<(), DataRootError> {
+    if facts.kind != Kind::File {
+        return Err(DataRootError::WrongKind {
+            item: item.clone(),
+            found: facts.kind,
+        });
+    }
+    if facts.owner != uid {
+        return Err(DataRootError::NotOwned {
+            item: item.clone(),
+            owner: facts.owner,
+            uid,
+        });
+    }
+    match modes {
+        Modes::Repair => Ok(()),
+        Modes::Refuse => Err(DataRootError::Leftover { item: item.clone() }),
     }
 }
 
@@ -323,33 +393,64 @@ struct Settler {
 
 impl Settler {
     /// Inspects one object with `inspect`, decides with [`verdict`], and
-    /// tightens its mode with `repair` when that is the decision, recording
-    /// the repair. Returns what kind of object it is.
+    /// tightens its mode with `repair` when that is the decision. A repair
+    /// counts only once inspecting again shows the new mode, because some
+    /// filesystems report success and keep the old one; then it is
+    /// recorded. Returns what kind of object it is.
     fn settle(
         &mut self,
-        inspect: impl FnOnce() -> rustix::io::Result<Stat>,
+        inspect: impl Fn() -> rustix::io::Result<Stat>,
         repair: impl FnOnce(Mode) -> rustix::io::Result<()>,
-        item: Item,
+        item: &Item,
         files: bool,
     ) -> Result<Kind, DataRootError> {
+        let look = || {
+            inspect()
+                .map(|stat| Facts::of(&stat))
+                .map_err(io::Error::from)
+                .map_err(io_error(item.clone(), Op::Inspect))
+        };
+        look()
+            .and_then(|facts| {
+                verdict(item, facts, files, self.host.uid, self.modes).map(|change| (facts, change))
+            })
+            .and_then(|(facts, change)| match change {
+                None => Ok(facts.kind),
+                Some(required) => repair(Mode::from_raw_mode(required))
+                    .map_err(io::Error::from)
+                    .map_err(io_error(item.clone(), Op::Repair))
+                    .and_then(|()| look())
+                    .and_then(|after| confirm(item, after, required))
+                    .map(|()| {
+                        self.repairs.push(Repair::Mode {
+                            item: item.clone(),
+                            from: facts.mode,
+                            to: required,
+                        });
+                        facts.kind
+                    }),
+            })
+    }
+
+    /// Inspects `item`, a temporary file an interrupted replace left
+    /// behind, decides with [`leftover`], and removes it with `remove` when
+    /// that is the decision, recording the removal.
+    fn clear(
+        &mut self,
+        inspect: impl FnOnce() -> rustix::io::Result<Stat>,
+        remove: impl FnOnce() -> rustix::io::Result<()>,
+        item: Item,
+    ) -> Result<(), DataRootError> {
         inspect()
             .map_err(io::Error::from)
             .map_err(io_error(item.clone(), Op::Inspect))
-            .and_then(|stat| {
-                let facts = Facts::of(&stat);
-                verdict(&item, facts, files, self.host.uid, self.modes)
-                    .map(|change| (facts.kind, change))
-            })
-            .and_then(|(kind, change)| match change {
-                None => Ok(kind),
-                Some(fix) => repair(Mode::from_raw_mode(fix.to))
+            .and_then(|stat| leftover(&item, Facts::of(&stat), self.host.uid, self.modes))
+            .and_then(|()| {
+                remove()
                     .map_err(io::Error::from)
-                    .map_err(io_error(item, Op::Repair))
-                    .map(|()| {
-                        self.repairs.push(fix);
-                        kind
-                    }),
+                    .map_err(io_error(item.clone(), Op::Remove))
             })
+            .map(|()| self.repairs.push(Repair::Removed { item }))
     }
 
     /// Settles the data directory itself, then creates and settles each
@@ -358,7 +459,7 @@ impl Settler {
         self.settle(
             || rustix::fs::fstat(root),
             |mode| rustix::fs::fchmod(root, mode),
-            Item::Root,
+            &Item::Root,
             false,
         )
         .and_then(|_| {
@@ -371,7 +472,7 @@ impl Settler {
                 self.settle(
                     || rustix::fs::statat(root, dir.name(), AtFlags::SYMLINK_NOFOLLOW),
                     |mode| rustix::fs::chmodat(root, dir.name(), mode, AtFlags::empty()),
-                    Item::Dir(dir),
+                    &Item::Dir(dir),
                     false,
                 )
                 .map(drop)
@@ -398,40 +499,65 @@ impl Settler {
     }
 
     /// Settles the entry `name` of `dir`, and everything inside it when it
-    /// is a directory.
+    /// is a directory. A temporary file an interrupted replace left behind
+    /// is cleared instead.
     fn visit(&mut self, dir: &Dir, parent: &Item, name: &OsStr) -> Result<(), DataRootError> {
-        child(parent, name).and_then(|path| {
-            self.settle(
-                || rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW),
-                |mode| rustix::fs::chmodat(dir, name, mode, AtFlags::empty()),
-                Item::Path(path.clone()),
-                true,
-            )
-            .and_then(|kind| match kind {
-                Kind::Dir => dir
-                    .open_dir(name)
-                    .map_err(io_error(Item::Path(path.clone()), Op::List))
-                    .and_then(|inner| self.walk(&inner, &Item::Path(path))),
-                _ => Ok(()),
-            })
+        let inspect = || rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW);
+        child(parent, name).and_then(|entry| match entry {
+            Entry::Path(path) => {
+                let item = Item::Path(path);
+                self.settle(
+                    inspect,
+                    |mode| rustix::fs::chmodat(dir, name, mode, AtFlags::empty()),
+                    &item,
+                    true,
+                )
+                .and_then(|kind| match kind {
+                    Kind::Dir => dir
+                        .open_dir(name)
+                        .map_err(io_error(item.clone(), Op::List))
+                        .and_then(|inner| self.walk(&inner, &item)),
+                    _ => Ok(()),
+                })
+            }
+            Entry::Leftover(path) => self.clear(
+                inspect,
+                || rustix::fs::unlinkat(dir, name, AtFlags::empty()),
+                Item::Replacement(path),
+            ),
         })
     }
 }
 
-/// The path of the entry `name` inside `parent`, which is `secrets/` or a
-/// directory below it. An entry no [`DataPath`] can name was not created by
-/// the server.
-fn child(parent: &Item, name: &OsStr) -> Result<DataPath, DataRootError> {
+/// What an entry below `secrets/` is.
+enum Entry {
+    /// A path the server may have created.
+    Path(DataPath),
+    /// The temporary file of a replace of this path, which a crash
+    /// interrupted.
+    Leftover(DataPath),
+}
+
+/// What the entry `name` inside `parent` is; `parent` is `secrets/` or a
+/// directory below it. An entry that is neither a path a [`DataPath`] can
+/// name nor the temporary file of a replace of one was not created by the
+/// server.
+fn child(parent: &Item, name: &OsStr) -> Result<Entry, DataRootError> {
     let foreign = || DataRootError::ForeignEntry {
         parent: parent.clone(),
         name: name.to_os_string(),
     };
-    let rel = name.to_str().ok_or_else(foreign)?;
-    match parent {
+    let inside = |rel: &str| match parent {
         Item::Path(path) => path.join(rel),
         _ => DataPath::new(DataDir::Secrets, rel),
-    }
-    .map_err(|_| foreign())
+    };
+    let rel = name.to_str().ok_or_else(foreign)?;
+    inside(rel).map(Entry::Path).or_else(|_| {
+        path::replaced_by(rel)
+            .and_then(|target| inside(target).ok())
+            .map(Entry::Leftover)
+            .ok_or_else(foreign)
+    })
 }
 
 impl DataRoot {
@@ -538,7 +664,9 @@ impl DataRoot {
     /// Replaces the file at `path` with `bytes`, so that a crash leaves
     /// either the old contents or the new, never a mixture: the bytes go to
     /// a temporary file beside it, which is synced, renamed over it, and
-    /// followed by a sync of the directory.
+    /// followed by a sync of the directory. A temporary file a crash left
+    /// behind is removed by the next replace of the same path, and in
+    /// `secrets/` already by the next [`DataRoot::open`].
     ///
     /// # Errors
     ///
@@ -688,11 +816,7 @@ mod tests {
                 UID,
                 Modes::Repair
             ),
-            Ok(Some(Repair {
-                item: key(),
-                from: 0o644,
-                to: 0o600
-            }))
+            Ok(Some(0o600))
         );
         assert_eq!(
             verdict(
@@ -702,11 +826,7 @@ mod tests {
                 UID,
                 Modes::Repair
             ),
-            Ok(Some(Repair {
-                item: Item::Dir(DataDir::Cache),
-                from: 0o2755,
-                to: 0o700
-            }))
+            Ok(Some(0o700))
         );
         assert_eq!(
             verdict(
@@ -716,11 +836,7 @@ mod tests {
                 UID,
                 Modes::Repair
             ),
-            Ok(Some(Repair {
-                item: key(),
-                from: 0o400,
-                to: 0o600
-            }))
+            Ok(Some(0o600))
         );
     }
 
@@ -792,6 +908,63 @@ mod tests {
         }
     }
 
+    fn temp() -> Item {
+        Item::Replacement(DataPath::constant(DataDir::Secrets, "keys.json"))
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn removes_a_leftover_temporary_file_only_when_repairs_are_allowed() {
+        let file = facts(Kind::File, UID, 0o644);
+        assert_eq!(leftover(&temp(), file, UID, Modes::Repair), Ok(()));
+        assert_eq!(
+            leftover(&temp(), file, UID, Modes::Refuse),
+            Err(DataRootError::Leftover { item: temp() })
+        );
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn refuses_a_leftover_that_is_not_a_file_the_service_account_owns() {
+        assert_eq!(
+            leftover(&temp(), facts(Kind::File, 0, 0o600), UID, Modes::Repair),
+            Err(DataRootError::NotOwned {
+                item: temp(),
+                owner: 0,
+                uid: UID
+            })
+        );
+        for found in [Kind::Dir, Kind::Symlink, Kind::Other] {
+            assert_eq!(
+                leftover(&temp(), facts(found, UID, 0o600), UID, Modes::Repair),
+                Err(DataRootError::WrongKind {
+                    item: temp(),
+                    found
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn reports_a_leftover_it_cannot_remove() {
+        let scratch = Scratch::new("stuck-leftover");
+        let secret = scratch.0.join("outside/secret");
+        let mut settler = settler(Modes::Repair);
+        assert_eq!(
+            settler.clear(
+                || rustix::fs::stat(&secret),
+                || Err(rustix::io::Errno::ACCESS),
+                temp()
+            ),
+            Err(DataRootError::Io {
+                item: temp(),
+                op: Op::Remove,
+                kind: io::ErrorKind::PermissionDenied
+            })
+        );
+        assert_eq!(settler.repairs, [earlier()]);
+    }
+
     /// A directory under the system's temporary directory, removed on drop.
     /// The integration tests have a fuller helper; these unit tests need
     /// only this.
@@ -823,6 +996,68 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// A settler for this process's user that has already made one repair.
+    fn settler(modes: Modes) -> Settler {
+        Settler {
+            host: HostFacts {
+                uid: rustix::process::geteuid().as_raw(),
+                filesystem: Filesystem::Local,
+            },
+            modes,
+            repairs: vec![earlier()],
+        }
+    }
+
+    fn earlier() -> Repair {
+        Repair::Mode {
+            item: Item::Root,
+            from: 0o755,
+            to: 0o700,
+        }
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn refuses_when_a_repair_reports_success_but_the_mode_did_not_change() {
+        // A share or FUSE filesystem that accepts chmod and ignores it.
+        let scratch = Scratch::new("ignored-chmod");
+        let secret = scratch.0.join("outside/secret");
+        std::fs::set_permissions(&secret, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+            .expect("loosen the file");
+        let mut settler = settler(Modes::Repair);
+        assert_eq!(
+            settler.settle(|| rustix::fs::stat(&secret), |_| Ok(()), &key(), true),
+            Err(DataRootError::CannotRepair {
+                item: key(),
+                mode: 0o644,
+                required: 0o600
+            })
+        );
+        assert_eq!(settler.repairs, [earlier()]);
+    }
+
+    #[test]
+    fn reports_an_object_that_vanishes_while_it_is_repaired() {
+        let scratch = Scratch::new("vanishing");
+        let secret = scratch.0.join("outside/secret");
+        std::fs::set_permissions(&secret, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+            .expect("loosen the file");
+        let mut settler = settler(Modes::Repair);
+        let remove = |_| {
+            std::fs::remove_file(&secret).expect("remove the file");
+            Ok(())
+        };
+        assert_eq!(
+            settler.settle(|| rustix::fs::stat(&secret), remove, &key(), true),
+            Err(DataRootError::Io {
+                item: key(),
+                op: Op::Inspect,
+                kind: io::ErrorKind::NotFound
+            })
+        );
+        assert_eq!(settler.repairs, [earlier()]);
     }
 
     fn read_options() -> cap_std::fs::OpenOptions {

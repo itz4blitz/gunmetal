@@ -6,9 +6,15 @@
 //! name is one to [`MAX_NAME_LEN`] bytes of lower-case ASCII letters, digits,
 //! `.`, `-` and `_`, starting with a letter or a digit. So `..`, `.`, an
 //! absolute path, a backslash, a NUL byte and an empty name cannot be
-//! expressed (SEC-HIS-015, SEC-TM-043). The data-root handle resolves every
-//! path beneath its directory handle as well, so a path that got through
-//! wrongly still could not leave the root (SEC-HIS-016).
+//! expressed (SEC-TM-043). The data-root handle resolves every path beneath
+//! its directory handle as well, so a path that got through wrongly still
+//! could not leave the root (SEC-HIS-016).
+//!
+//! Outside this crate a [`DataPath`] is built only from constants, with
+//! [`DataPath::constant`], so no request or media data can name a file in
+//! the data directory (SEC-HIS-015). A store that needs names it generates
+//! at run time, such as a log segment per stream and month, gets a typed
+//! constructor here that takes only the server's own identifier types.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -161,18 +167,39 @@ impl DataPath {
     /// assert_eq!(ROOT_KEY.rel(), "root.key");
     /// ```
     ///
-    /// ```compile_fail
+    /// `..` and absolute paths cannot be expressed:
+    ///
+    /// ```compile_fail,E0080
     /// use gunmetal_fs::path::{DataDir, DataPath};
     ///
     /// const ESCAPE: DataPath = DataPath::constant(DataDir::Secrets, "../root.key");
     /// assert_eq!(ESCAPE.rel(), "../root.key");
     /// ```
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0080
     /// use gunmetal_fs::path::{DataDir, DataPath};
     ///
     /// const ABSOLUTE: DataPath = DataPath::constant(DataDir::Secrets, "/etc/passwd");
     /// assert_eq!(ABSOLUTE.rel(), "/etc/passwd");
+    /// ```
+    ///
+    /// Text that is not a constant cannot name a file, through this
+    /// function or any other:
+    ///
+    /// ```compile_fail,E0597
+    /// use gunmetal_fs::path::{DataDir, DataPath};
+    ///
+    /// let name = String::from("root.key");
+    /// let path = DataPath::constant(DataDir::Secrets, &name);
+    /// assert_eq!(path.rel(), "root.key");
+    /// ```
+    ///
+    /// ```compile_fail,E0624
+    /// use gunmetal_fs::path::{DataDir, DataPath};
+    ///
+    /// let name = String::from("root.key");
+    /// let path = DataPath::new(DataDir::Secrets, &name).unwrap();
+    /// assert_eq!(path.rel(), "root.key");
     /// ```
     ///
     /// # Panics
@@ -190,27 +217,19 @@ impl DataPath {
         }
     }
 
-    /// Builds a path from a name the server generated itself, such as a
-    /// stream ID or a month. Never pass request or media data
-    /// (SEC-HIS-015).
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`PathError`] for the first rule `rel` breaks.
-    pub fn new(dir: DataDir, rel: &str) -> Result<Self, PathError> {
+    /// Builds a path from a name found in the data directory, so that the
+    /// data root can check what it finds there. It is not public: outside
+    /// this crate a path is built only from constants, so no request or
+    /// media data can name a file (SEC-HIS-015, SEC-TM-031).
+    pub(crate) fn new(dir: DataDir, rel: &str) -> Result<Self, PathError> {
         check(rel).map(|()| Self {
             dir,
             rel: Cow::Owned(rel.to_owned()),
         })
     }
 
-    /// The path of `rel` inside this one.
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`PathError`] for the first rule the joined relative
-    /// path breaks.
-    pub fn join(&self, rel: &str) -> Result<Self, PathError> {
+    /// The path of `rel` inside this one, for the same check.
+    pub(crate) fn join(&self, rel: &str) -> Result<Self, PathError> {
         Self::new(self.dir, &format!("{}/{rel}", self.rel))
     }
 
@@ -252,6 +271,13 @@ impl DataPath {
         let (parent, last) = self.split();
         parent.join(format!(".{last}.tmp"))
     }
+}
+
+/// The name of the file whose replacement writes the temporary file called
+/// `temp` (see [`DataPath::temp_sibling`]), or `None` when `temp` is not
+/// named like one. The name returned is not checked.
+pub(crate) fn replaced_by(temp: &str) -> Option<&str> {
+    temp.strip_prefix('.')?.strip_suffix(".tmp")
 }
 
 #[cfg(test)]
@@ -298,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_generated_names() {
+    fn accepts_names_the_rules_allow() {
         let built = path("log/2026-10.seg").expect("a valid path");
         assert_eq!(built.dir(), DataDir::Secrets);
         assert_eq!(built.rel(), "log/2026-10.seg");
@@ -316,7 +342,7 @@ mod tests {
         assert_eq!(path(&second).map(|built| built.rel().len()), Ok(66));
     }
 
-    /// Verifies: SEC-HIS-015, SEC-TM-043
+    /// Verifies: SEC-TM-043
     #[test]
     fn refuses_parent_and_current_names() {
         assert_eq!(
@@ -356,7 +382,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-HIS-015, SEC-TM-043
+    /// Verifies: SEC-TM-043
     #[test]
     fn refuses_absolute_paths_and_empty_names() {
         assert_eq!(path(""), Err(PathError::Empty));
@@ -365,7 +391,7 @@ mod tests {
         assert_eq!(path("log/"), Err(PathError::EmptyName { offset: 4 }));
     }
 
-    /// Verifies: SEC-HIS-015, SEC-TM-043
+    /// Verifies: SEC-TM-043
     #[test]
     fn refuses_bytes_outside_the_allowed_set() {
         assert_eq!(
@@ -431,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn joins_a_generated_name_under_the_same_rules() {
+    fn joins_a_name_under_the_same_rules() {
         let log = path("log").expect("a valid path");
         assert_eq!(
             log.join("2026-10.seg"),
@@ -474,6 +500,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn recognises_the_name_of_a_temporary_file_and_nothing_else() {
+        assert_eq!(replaced_by(".keys.json.tmp"), Some("keys.json"));
+        assert_eq!(replaced_by(".a.tmp.tmp"), Some("a.tmp"));
+        assert_eq!(replaced_by("..tmp"), Some(""));
+        for name in ["keys.json", ".keys.json", "keys.json.tmp", ".tmp", ""] {
+            assert_eq!(replaced_by(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn recognises_every_temporary_sibling_it_names() {
+        for (path, last) in [
+            (
+                DataPath::constant(DataDir::Secrets, "keys.json"),
+                "keys.json",
+            ),
+            (
+                DataPath::constant(DataDir::Secrets, "tls/key.pem"),
+                "key.pem",
+            ),
+        ] {
+            let temp = path.temp_sibling();
+            let name = temp.file_name().and_then(|name| name.to_str());
+            assert_eq!(name.and_then(replaced_by), Some(last));
+        }
+    }
+
     /// Pieces of hostile paths: traversal, absolute and UNC prefixes,
     /// device names, NUL bytes, mixed separators, upper case and long names.
     fn piece() -> impl Strategy<Value = String> {
@@ -496,7 +550,7 @@ mod tests {
     }
 
     proptest! {
-        /// Verifies: SEC-TM-043, SEC-HIS-015
+        /// Verifies: SEC-TM-043
         #[test]
         fn accepts_exactly_what_the_rules_allow(
             pieces in proptest::collection::vec(piece(), 1..8),
