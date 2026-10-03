@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 //! Replays the committed recipes of the ID3 family's structure-aware
 //! harness on stable Rust, so that `cargo test` and the gate run every
 //! seed and every reproducer of a past finding.
@@ -7,41 +6,23 @@
 //! has a test here that pins its exact bytes, the exact file the harness
 //! builds from it and what the parsers find in that file. Commit a fuzzing
 //! reproducer by adding its file and its test together.
-=======
-//! Replays the committed corpus of the structure-aware `ID3v2` harness on
-//! stable Rust, so that `cargo test` and the gate run every seed and every
-//! reproducer of a past finding.
-//!
-//! Each file in `fuzz/seeds/id3_structure` is a recipe. Its test here pins
-//! the recipe's exact bytes, the tag the harness writes from it, written
-//! again with the testkit's tag builder, and the exact tag the parser reads
-//! back. Commit a fuzzing reproducer by adding its file and its test
-//! together.
->>>>>>> origin/wp/wp-010
 #![expect(
     clippy::disallowed_methods,
     reason = "replay reads the committed seed corpus, a repository fixture, by path (SEC-MED-028)"
 )]
 
 use std::fs;
-<<<<<<< HEAD
 use std::ops::Range;
 use std::path::PathBuf;
 
 use gunmetal_core::formats::ape::{ApeItem, ApeTag, ApeValue, ItemProblem};
 use gunmetal_core::formats::id3v1::Id3v1Tag;
-use gunmetal_core::text::Text;
-use gunmetal_fuzz::id3_structure::{Outcome, run};
-=======
-use std::path::PathBuf;
-
 use gunmetal_core::formats::id3v2::{
     Frame, FrameBody, FrameId, Header, Id3v2Tag, PictureRef, Span, TagProblem,
 };
 use gunmetal_core::text::Text;
-use gunmetal_fuzz::id3_structure::{Outcome, run};
+use gunmetal_fuzz::id3_structure::{Id3v2Outcome, Outcome, id3v2, run};
 use gunmetal_testkit::id3v2::{Tag, Version, chapter, frame as written};
->>>>>>> origin/wp/wp-010
 
 /// The committed corpus, which the nightly fuzz job also starts from.
 fn seeds_dir() -> PathBuf {
@@ -49,12 +30,18 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-<<<<<<< HEAD
-const SEEDS: [&str; 6] = [
+const SEEDS: [&str; 13] = [
     "empty",
     "forbidden-key-in-version-1000",
     "header-two-items-and-id3v1",
     "one-item-of-each-type",
+    "sixty-five-frames",
+    "v22-unsynchronised-with-the-footer-bit",
+    "v23-plain",
+    "v23-unsynchronised",
+    "v24-every-kind",
+    "v24-footer-only",
+    "v24-frame-flags",
     "value-that-poses-as-id3v1",
     "zero-in-a-key",
 ];
@@ -91,45 +78,6 @@ fn raw_item(key: &[u8], flags: u32, value: &[u8]) -> Vec<u8> {
 }
 
 fn text(value: &str) -> Text {
-=======
-const SEEDS: [&str; 8] = [
-    "empty",
-    "sixty-five-frames",
-    "v22-unsynchronised-with-the-footer-bit",
-    "v23-plain",
-    "v23-unsynchronised",
-    "v24-every-kind",
-    "v24-footer-only",
-    "v24-frame-flags",
-];
-
-/// Reads seed `name`, checks that it holds exactly `recipe`, and checks
-/// that the harness writes `tag` from it and reads back `read`.
-fn replay(name: &str, recipe: &[u8], tag: Vec<u8>, read: Id3v2Tag) {
-    let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
-    assert_eq!(file, recipe, "seed {name} holds different bytes");
-    assert_eq!(
-        run(&file),
-        Outcome {
-            tag,
-            read: Ok(read)
-        },
-        "seed {name}"
-    );
-}
-
-fn header(major: u8, flags: u8, size: u32, len: u64) -> Header {
-    Header {
-        major,
-        revision: 0,
-        flags,
-        size,
-        len,
-    }
-}
-
-fn plain(value: &str) -> Text {
->>>>>>> origin/wp/wp-010
     Text {
         value: value.to_owned(),
         truncated: false,
@@ -137,7 +85,6 @@ fn plain(value: &str) -> Text {
     }
 }
 
-<<<<<<< HEAD
 fn item(key: &str, value: ApeValue) -> ApeItem {
     ApeItem {
         key: key.to_owned(),
@@ -151,27 +98,6 @@ fn tag(range: Range<u64>, items: Vec<ApeItem>, problems: Vec<ItemProblem>) -> Ap
         items,
         problems,
     }
-=======
-fn four(id: &[u8]) -> FrameId {
-    FrameId::Four(id.try_into().expect("a 2.3 or 2.4 identifier"))
-}
-
-fn frame(id: FrameId, offset: u64, flags: u16, body: FrameBody) -> Frame {
-    Frame {
-        id,
-        offset,
-        flags,
-        body,
-    }
-}
-
-fn raw(start: u64, end: u64, unsynchronised: bool) -> FrameBody {
-    FrameBody::Raw(Span {
-        start,
-        end,
-        unsynchronised,
-    })
->>>>>>> origin/wp/wp-010
 }
 
 /// Verifies: SEC-MED-028, SEC-MED-030
@@ -191,11 +117,7 @@ fn the_corpus_holds_exactly_the_seeds_tested_here() {
     assert_eq!(names, SEEDS);
 }
 
-<<<<<<< HEAD
 /// An empty recipe asks for nothing: an `APEv2` footer alone.
-=======
-/// An empty recipe is a 2.2 tag with no frames.
->>>>>>> origin/wp/wp-010
 ///
 /// Verifies: SEC-MED-028, SEC-MED-031
 #[test]
@@ -203,26 +125,16 @@ fn replays_the_empty_recipe() {
     replay(
         "empty",
         &[],
-<<<<<<< HEAD
         &Outcome {
             file: block(2_000, 32, 0, 0),
             ape_range: 0..32,
             ape: Ok(Some(tag(0..32, vec![], vec![]))),
             v1: Ok(None),
             checked: true,
-=======
-        Tag::new(Version::V22).build(),
-        Id3v2Tag {
-            header: header(2, 0, 0, 10),
-            extended: None,
-            frames: vec![],
-            problems: vec![],
->>>>>>> origin/wp/wp-010
         },
     );
 }
 
-<<<<<<< HEAD
 /// Verifies: SEC-MED-028
 #[test]
 fn replays_a_headed_tag_of_two_items_before_an_id3v1_tag() {
@@ -399,7 +311,104 @@ fn replays_a_value_that_poses_as_an_id3v1_tag() {
                 genre: 0,
             })),
             checked: false,
-=======
+        },
+    );
+}
+
+/// A zero in a key would end it early and break the framing, so the
+/// recipe's zero becomes 0x01, which the key may not hold either.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_zero_asked_for_in_a_key() {
+    let file = [&raw_item(b"A\x01B", 0, b"")[..], &block(2_000, 44, 1, 0)].concat();
+    replay(
+        "zero-in-a-key",
+        &[0, 0, 1, 0, 3, b'A', 0, b'B', 0],
+        &Outcome {
+            file,
+            ape_range: 0..44,
+            ape: Ok(Some(tag(
+                0..44,
+                vec![],
+                vec![ItemProblem::BadKey { offset: 0 }],
+            ))),
+            v1: Ok(None),
+            checked: true,
+        },
+    );
+}
+
+fn replay_id3v2(name: &str, recipe: &[u8], tag: Vec<u8>, read: Id3v2Tag) {
+    let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
+    assert_eq!(file, recipe, "seed {name} holds different bytes");
+    assert_eq!(
+        id3v2(&file),
+        Id3v2Outcome {
+            tag,
+            read: Ok(read)
+        },
+        "seed {name}"
+    );
+}
+
+fn header(major: u8, flags: u8, size: u32, len: u64) -> Header {
+    Header {
+        major,
+        revision: 0,
+        flags,
+        size,
+        len,
+    }
+}
+
+fn plain(value: &str) -> Text {
+    Text {
+        value: value.to_owned(),
+        truncated: false,
+        replaced: false,
+    }
+}
+
+fn four(id: &[u8]) -> FrameId {
+    FrameId::Four(id.try_into().expect("a 2.3 or 2.4 identifier"))
+}
+
+fn frame(id: FrameId, offset: u64, flags: u16, body: FrameBody) -> Frame {
+    Frame {
+        id,
+        offset,
+        flags,
+        body,
+    }
+}
+
+fn raw(start: u64, end: u64, unsynchronised: bool) -> FrameBody {
+    FrameBody::Raw(Span {
+        start,
+        end,
+        unsynchronised,
+    })
+}
+
+/// An empty recipe is a 2.2 tag with no frames.
+///
+/// Verifies: SEC-MED-028, SEC-MED-031
+#[test]
+fn replays_the_empty_id3v2_recipe() {
+    replay(
+        "empty",
+        &[],
+        Tag::new(Version::V22).build(),
+        Id3v2Tag {
+            header: header(2, 0, 0, 10),
+            extended: None,
+            frames: vec![],
+            problems: vec![],
+        },
+    );
+}
+
 /// One frame of each kind in 2.4. The chapter holds an empty title, which
 /// is recorded at its own offset and is not one of the frames written.
 ///
@@ -544,35 +553,10 @@ fn replays_a_2_4_footer_without_unsynchronisation() {
             extended: None,
             frames: vec![],
             problems: vec![],
->>>>>>> origin/wp/wp-010
         },
     );
 }
 
-<<<<<<< HEAD
-/// A zero in a key would end it early and break the framing, so the
-/// recipe's zero becomes 0x01, which the key may not hold either.
-///
-/// Verifies: SEC-MED-028
-#[test]
-fn replays_a_zero_asked_for_in_a_key() {
-    let file = [&raw_item(b"A\x01B", 0, b"")[..], &block(2_000, 44, 1, 0)].concat();
-    replay(
-        "zero-in-a-key",
-        &[0, 0, 1, 0, 3, b'A', 0, b'B', 0],
-        &Outcome {
-            file,
-            ape_range: 0..44,
-            ape: Ok(Some(tag(
-                0..44,
-                vec![],
-                vec![ItemProblem::BadKey { offset: 0 }],
-            ))),
-            v1: Ok(None),
-            checked: true,
-        },
-    );
-=======
 /// Every frame flag 2.4 acts on, with the tag's unsynchronisation and a
 /// footer.
 ///
@@ -685,5 +669,4 @@ fn replays_a_recipe_of_more_frames_than_are_written() {
             .collect(),
     };
     replay("sixty-five-frames", &recipe, tag, read);
->>>>>>> origin/wp/wp-010
 }

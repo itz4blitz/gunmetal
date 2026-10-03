@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 //! The structure-aware harness for the ID3 family (SEC-MED-031). It covers
 //! the tags at the end of a file so far: an APE tag and the `ID3v1` tag
 //! after it.
@@ -276,22 +275,11 @@ fn allowed(key: &[u8]) -> bool {
         && !["ID3", "TAG", "OGGS", "MP+"]
             .iter()
             .any(|forbidden| key.eq_ignore_ascii_case(forbidden.as_bytes()))
-=======
-//! The structure-aware harness for `ID3v2` tags (SEC-MED-031).
-//!
-//! Random octets rarely make a tag whose frames line up, so this harness
-//! reads its input as a recipe instead and writes a tag with valid framing
-//! around octets the fuzzer chooses:
-//!
-//! - The first octet picks the version (2.2, 2.3 or 2.4 by its value
-//!   modulo 3), sets the tag's unsynchronisation flag with bit `0x10`, and
-//!   in 2.4 adds a footer with bit `0x20`.
-//! - Every three octets after it describe one frame, up to
-//!   [`MAX_FRAMES`]: which identifier it has from [`IDS`] or [`IDS_V22`],
-//!   its flags, and how many of the octets that follow are its body.
-//!
-//! The harness then reads the tag back and checks that every frame it
-//! wrote was found where it wrote it, or recorded as skipped there.
+}
+
+/// Structure-aware `ID3v2` tags.
+///
+/// APE and `ID3v1` recipes stay in [`run`].
 
 use gunmetal_core::formats::id3v2::{
     self, BUDGET_FIXED, BUDGET_PER_OCTET, FrameId, Id3v2Error, Id3v2Tag, TagProblem,
@@ -316,7 +304,7 @@ pub const IDS_V22: [[u8; 3]; 10] = [
 
 /// What the harness wrote and what the parser read back.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Outcome {
+pub struct Id3v2Outcome {
     /// The tag the recipe describes.
     pub tag: Vec<u8>,
     /// [`id3v2::parse`] of it, under the default limits and the budget the
@@ -332,7 +320,7 @@ pub struct Outcome {
 /// or when a frame the harness wrote is neither among the frames read at
 /// the offset it was written nor recorded there as skipped.
 #[must_use]
-pub fn run(data: &[u8]) -> Outcome {
+pub fn id3v2(data: &[u8]) -> Id3v2Outcome {
     let (&first, mut rest) = data.split_first().unwrap_or((&0, &[]));
     let major = 2 + first % 3;
     let unsynchronised = first & 0x10 != 0;
@@ -385,7 +373,7 @@ pub fn run(data: &[u8]) -> Outcome {
             .is_ok_and(|found| handled(found, &expected) == expected),
         "wrote {expected:?}, read {read:?}"
     );
-    Outcome { tag, read }
+    Id3v2Outcome { tag, read }
 }
 
 /// One frame of the recipe: its identifier, and its header and body as
@@ -539,5 +527,4 @@ mod tests {
             Tag::new(Version::V24).unsynchronised().footer().build()
         );
     }
->>>>>>> origin/wp/wp-010
 }
