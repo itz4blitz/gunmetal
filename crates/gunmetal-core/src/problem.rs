@@ -91,6 +91,10 @@ problems! {
     MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// A queue operation does not fit the queue as it is: it names an entry that is not there, adds an entry whose ID is taken, or has nothing to act on. It changed nothing.
+    QueueRefused = ("queue_refused", Some(409), "That change doesn't fit the queue as it is now, so it wasn't made."),
+    /// A queue operation was built on an older version of the queue. It changed nothing; the client rebuilds it on the current version.
+    QueueStale = ("queue_stale", Some(409), "The queue changed somewhere else first, so this change wasn't made."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
     WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
 }
@@ -128,7 +132,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 12] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 14] = [
         (
             "aiff_unreadable",
             None,
@@ -183,6 +187,16 @@ mod tests {
             "not_found",
             Some(404),
             "We couldn't find that. It may have been removed, or you may not have access to it.",
+        ),
+        (
+            "queue_refused",
+            Some(409),
+            "That change doesn't fit the queue as it is now, so it wasn't made.",
+        ),
+        (
+            "queue_stale",
+            Some(409),
+            "The queue changed somewhere else first, so this change wasn't made.",
         ),
         (
             "wav_unreadable",

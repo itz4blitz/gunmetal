@@ -22,6 +22,7 @@ pub mod parse;
 pub mod path;
 pub mod player;
 pub mod problem;
+pub mod queue;
 pub mod schema;
 pub mod shuffle;
 pub mod text;
