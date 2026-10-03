@@ -19,6 +19,7 @@
 
 pub mod base64;
 pub mod ebml;
+pub mod inflate;
 pub mod link;
 pub mod net;
 pub mod registry;

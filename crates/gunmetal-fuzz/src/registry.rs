@@ -52,6 +52,7 @@ macro_rules! harnesses {
 harnesses! {
     base64,
     ebml,
+    inflate,
     link,
     net,
     text,
