@@ -507,6 +507,89 @@ Export uses the same replay as the rebuild ([privacy section 9](../security/priv
   benchmark (WP-115) shows the log growing too fast, compaction would be a
   second sanctioned rewrite and needs its own record.
 
+## Review record
+
+Date: 2026-10-03. Reviewed by the author of WP-002, before a maintainer
+reviews the pull request.
+
+**What was checked.** That every R1 row in [api-needs](../plan/api-needs.md)
+marked "Feed", or that writes user data, has a home in this record, and
+that none is homed only in the cache. The table lists every R1 capability
+row once, the ones that store nothing included, so the check is complete.
+
+**Requirements reviewed, design part only:** SEC-IAM-004 and SEC-TM-051.
+The integration tests that prove them belong to WP-046 and WP-095. This
+record names them without a `Verifies:` line, so that the traceability
+check cannot count a design review as their proof.
+
+| Capabilities | Where their data lives |
+|---|---|
+| API-SYS-01 to API-SYS-09 | Nothing stored. The startup page, the emergency page and the public facts read the stores' state. |
+| API-SYS-10 | Nothing durable; single-use tickets are volatile rows or memory (section 2). |
+| API-AUTH-01 | The claim code is in `secrets/` (WP-047, WP-080), not in a store here. |
+| API-AUTH-02, API-AUTH-03 | Identity store: the claim state, the owner's account, profile and credential, recovery-code hashes, and the setup answers as server settings. The recovery key's public half is in `secrets/`. |
+| API-AUTH-04, API-AUTH-06, API-AUTH-13 | Identity store: credentials (passkey counters and last use, OIDC links, paired browsers' keys) and devices; the OIDC client secret as a sealed vault row; pairing requests volatile. |
+| API-AUTH-07 | Not user state: the limiter's counters are WP-064's; failures go to the audit log. |
+| API-AUTH-08 to API-AUTH-10 | Identity store, volatile rows: sessions, epochs, elevation. |
+| API-AUTH-11, API-AUTH-12, API-AUTH-15 | Identity store: recovery links as hashes, recovery holds, recovery-code hashes; events in the audit log. |
+| API-USR-01 | Identity store (the profile's name; the picture's reference); `durable/uploads/` (the re-encoded picture). |
+| API-USR-02 | The profile's stream (preferences with person or device scope); identity store (the privacy choices the server enforces). |
+| API-USR-03 | Identity store. |
+| API-USR-04 | Audit log. |
+| API-USR-05 | Reads both stores through the one export path (section 13); the archive is a single-use scratch file. |
+| API-USR-06 | The profile's stream: imported plays under their batch ID, the batch record and unmatched lines (section 5). |
+| API-USR-07 | Identity store, volatile: the private flag on the session. Nothing reaches the log. |
+| API-USR-09 | Nothing stored. |
+| API-USR-10 | Identity store (pending deletion), then the erasure of a whole profile (section 8). |
+| API-DEV-01, API-DEV-05 | Identity store: devices, sessions, notices waiting for delivery. |
+| API-DEV-02 | Identity store (the device's last sync time). The cursor stays on the device and is valid for one cache generation. |
+| API-DEV-03 | Not durable user state: the uploaded report falls under the diagnostic class of the retention schedule. |
+| API-SYNC-01 to API-SYNC-03 | Built from the cache, the identity store's grants and the projections of the profile's stream; the change log is in the cache. |
+| API-SYNC-04 | The profile's stream, through its projections. |
+| API-SYNC-05 | Derived: the generated sizes in the bounded derivative cache, with their metadata in the derived-data store (ADM-141). Nothing anyone authored. |
+| API-SYNC-06, API-SYNC-07 | Derived; cache. |
+| API-SYNC-10 | Erasure ledger (durable); tombstones in the cache's change log. A device that resnapshots after a rebuild receives a copy without the erased events. |
+| API-SYNC-11 | Nothing stored. |
+| API-LIB-01, API-LIB-03 to API-LIB-05, API-LIB-07 | Identity store: libraries, roots, root settings, grants, artist-splitting rules. A changed location keeps history because the log is keyed by content identity. |
+| API-LIB-02 | Nothing stored. |
+| API-LIB-06 | The rebuild (section 10). |
+| API-CAT-01 to API-CAT-10 | Cache, derived from the files at scan; analysis and provider results in the derived-data store. |
+| API-CAT-11 | Nothing stored. |
+| API-CAT-12 | Household stream. |
+| API-CAT-13 | Cache. |
+| API-STR-01 to API-STR-05 | Nothing stored here; signing keys in `secrets/`, sessions volatile. |
+| API-SES-01, API-SES-02 | Live playback sessions are in memory and end with the process; each admin read is recorded in the audit log (SEC-IAM-077). |
+| API-SES-03 | The profile's stream: the active device in the queue document. |
+| API-SES-04 | The profile's stream: play and skip events. |
+| API-SES-08 | Identity store: the limits, as server settings. Leases are in memory. |
+| API-QUE-01 to API-QUE-04 | The profile's stream: the queue document's operations, snapshots and coalesced positions. |
+| API-QUE-05 | The profile's stream: a new playlist document. |
+| API-PL-01, API-PL-02, API-PL-05, API-PL-08 | The profile's stream: playlist and rule-tree documents, pins and loves; a missing entry keeps its last known title. |
+| API-PL-03 | The profile's stream, or the household stream for a household playlist; the export is a download. |
+| API-PL-04 | Cache: read from the files, read-only. Their public IDs are in the mapping, and pins and loves on them are in the profile's stream. |
+| API-LOG-01, API-LOG-02, API-LOG-05 | The profile's stream. |
+| API-LOG-03 | The erasure of section 8: ledger, segment rewrite, tombstone. |
+| API-LOG-04 | Cache: projections of the profile's stream. |
+| API-HOME-01, API-HOME-02 | The profile's stream: the Home layout document and pins. |
+| API-HOME-03 | Identity store: the first-seen time in the public-ID mapping. |
+| API-HOME-04 | Derived, on the device or in the cache. |
+| API-HOME-05 | Nothing on the server (SEC-PRV-004). |
+| API-SHR-01, API-SHR-03 | Identity store: share links with secret hashes, limits and counters. |
+| API-SHR-02 | Volatile: the share session. |
+| API-SCAN-01 to API-SCAN-04 | Cache: scan and task state; nothing anyone authored. |
+| API-SCAN-05 | Cache (the activity log, which is derived) and the audit log. |
+| API-HLTH-01, API-HLTH-02, API-HLTH-05 | Cache: derived from the scan. |
+| API-HLTH-03 | Cache (pending decisions, which a rescan recreates); household stream (the answers). |
+| API-HLTH-04 | Cache. Identities, history and playlists stay keyed by content identity, so a file restored from the trash returns with everything (LIB-033). |
+| API-ADM-01 to API-ADM-03 | Identity store: accounts, roles, invitations as hashes, and the account and credential that redemption creates. |
+| API-SET-01 to API-SET-03, API-SET-06, API-SET-07, API-SET-09 | Identity store: settings and alert rules, with replayed secrets as sealed vault rows. Host-only settings are in the configuration file. |
+| API-SET-04, API-SET-05 | The backup and restore paths (sections 11 and 12); archives in `backups/`. |
+| API-SET-08 | Nothing durable; the bundle is a scratch file. |
+| API-SET-10 | Nothing stored. |
+| API-SET-11 | The importing administrator's stream, or the household stream for household playlists; another person's history waits in `durable/staged/` until that person accepts. |
+| API-SET-13 | `secrets/`; the vault rows in the identity store are sealed again. |
+| API-TOK-03 | Nothing stored. |
+
 ## Consequences
 
 - WP-034, WP-035, WP-046 and WP-068, and through them most of R1, can
