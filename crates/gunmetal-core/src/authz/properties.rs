@@ -153,8 +153,14 @@ fn allowed(result: &Result<Permit, Denial>) -> bool {
 }
 
 /// The libraries a scope reaches, written independently of the policy.
+/// Both answers are worked out on every call, so which of them the
+/// generated cases exercise does not change the coverage.
 fn scope_reaches(scope: &Scope, library: &PublicId) -> bool {
-    scope.capabilities.contains(Capability::LibraryAll) || scope.libraries.contains(library)
+    [
+        scope.capabilities.contains(Capability::LibraryAll),
+        scope.libraries.contains(library),
+    ]
+    .contains(&true)
 }
 
 proptest! {
@@ -261,7 +267,11 @@ proptest! {
             for n in 0..4 {
                 let library = library(n);
                 let seen = with_scope.libraries().contains(&library);
-                prop_assert!(!seen || (without.libraries().contains(&library) && scope_reaches(&scope, &library)));
+                let reached = [
+                    without.libraries().contains(&library),
+                    scope_reaches(&scope, &library),
+                ];
+                prop_assert!(!seen || reached == [true, true]);
             }
         }
         let credential = matches!(
