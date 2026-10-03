@@ -37,6 +37,8 @@ pub mod mp4_sample_table;
 pub mod mp4_structure;
 pub mod mpa;
 pub mod net;
+pub mod ogg;
+pub mod ogg_structure;
 pub mod opus;
 pub mod otp;
 pub mod path;

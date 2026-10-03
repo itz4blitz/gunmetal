@@ -18,6 +18,7 @@ pub mod id3v1;
 pub mod mp4;
 pub mod mp4_samples;
 pub mod mpa;
+pub mod ogg;
 pub mod opus;
 pub mod riff;
 pub mod tempdir;

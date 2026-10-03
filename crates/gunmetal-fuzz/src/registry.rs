@@ -70,6 +70,8 @@ harnesses! {
     mp4_structure,
     mpa,
     net,
+    ogg,
+    ogg_structure,
     opus,
     otp,
     path,
