@@ -17,7 +17,7 @@ Evidence in the "Rivals today" and "Demand" columns comes from
 `docs/research/`, mainly `live-tv-and-dvr.md` and `pain-points-and-demand.md`.
 Vote and reaction counts are as those files read them on 2026-10-02. "No
 evidence in research" means the research did not cover that rival for that
-feature; it does not mean the rival lacks it. Releases (R1, R2, R3, Later, No), the Demand scale, row ownership and the
+feature; it does not mean the rival lacks it. Releases (R1, R1.1, R1.2, R1.3, R2, R3, Later, No), the Demand scale, row ownership and the
 terms "the user log" and "the identity store" are defined once in the
 [feature map README](README.md). A row whose Release cell would differ
 between maps names one owning row; the other maps point at it.

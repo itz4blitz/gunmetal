@@ -15,9 +15,19 @@ follows the requirement, cites its ID and lists the change in its own
 player.md and design-language.md, in the text and open questions). Choices
 that go beyond the map are marked **Proposal** inside each document.
 
+The release values are R1, the point releases R1.1, R1.2 and R1.3, then
+R2, R3, Later and No. On 2026-10-02 the owner adopted the smaller R1 and
+its point releases exactly as the
+[decision register](../decisions.md#r1-scope) lists them (D-10), with HTTPS
+in R1 through the owner's own domain with automatic certificates, a
+tailnet, or the server's own machine, and remote use through the owner's
+reverse proxy or a tailnet. The project's per-server name service (D-07)
+and built-in remote access are R2. A row that left R1 ships in its point
+release with every security requirement that protects it.
+
 | Document | What it covers | Read it for |
 |---|---|---|
-| [surfaces.md](surfaces.md) | Every screen, panel, sheet and persistent control (SUR-000 to SUR-133), the navigation model per form factor, and a coverage check that every R1 and R2 feature has a home | The screen list, and which feature rows each screen serves |
+| [surfaces.md](surfaces.md) | Every screen, panel, sheet and persistent control (SUR-000 to SUR-133), the navigation model per form factor, and a coverage check that every feature from R1 to R3, the point releases included, has a home | The screen list, and which feature rows each screen serves |
 | [player.md](player.md) | The now-playing bar, full-screen player, queue, lyrics, sound path, handoff, video controls, live TV in the player, every player state, and the keyboard, remote, touch and OS media mappings | How playback looks and behaves, and what the player needs from the server and the core |
 | [design-language.md](design-language.md) | Principles, colour tokens for four themes (with a System setting that follows the operating system), artwork-derived tints, typography, spacing and density, focus on keyboard and TV, motion, icons and badges, empty, error and security states, accessibility requirements | The tokens and rules every screen is built from |
 | [flows.md](flows.md) | Twenty step-by-step journeys (F01 to F20), from first-run setup to live TV, each with what the person does, the screen, what the server does, and what goes wrong; plus twenty gaps the map does not settle (G1 to G20), several now settled by the baseline | The order a person meets screens, and the server behaviour behind each step |
@@ -31,22 +41,23 @@ The same destinations exist on every form factor and only their placement
 changes. R1 (a browser-only music release) has three destinations, Home,
 Search and Library, plus an account menu that leads to Settings, Account
 (with sessions and devices, security events, what admins can see, and
-recovery), History, Hidden and, for administrators on a personal device,
-Admin. On web and desktop the frame is a sidebar, a content area, a right
-pane that holds the queue, lyrics or track info at full height, and a
-now-playing bar along the bottom; it collapses through four width classes
-(compact, medium, expanded, wide) to a phone layout with a bottom tab bar,
-the bar above it, a full-screen player sheet and a queue sheet. Every list
-and search answers from the library synced to the device, Back returns to
-the exact place the person came from, and one context menu offers the same
-actions everywhere. A layout contract, pinned by visual regression tests,
-keeps the bar, queue access, lyrics, scrubber, device control and TV rail
-in fixed places, so R2 and R3 add things without moving anything: a Music
-and Watch switch at the top of Home and Library (absent in music-only
-mode), Downloads inside Library on native apps, a TV layout built around a
-left rail one press from anywhere whose first entry is always Now Playing,
-an Android tablet layout with a player side panel, and a Live destination
-that appears only when the live TV module is on. The desktop shell, with
+recovery), History and, for administrators on a personal device, Admin;
+R1.1 adds Hidden. On web and desktop the frame is a sidebar, a content
+area, a right pane that holds the queue, lyrics or track info at full
+height, and a now-playing bar along the bottom; it collapses through four
+width classes (compact, medium, expanded, wide) to a phone layout with a
+bottom tab bar, the bar above it, a full-screen player sheet and a queue
+sheet. Every list and search answers from the library synced to the
+device, Back returns to the exact place the person came from, and one
+context menu offers the same actions everywhere. A layout contract, pinned
+by visual regression tests, keeps the bar, queue access, lyrics, scrubber,
+device control and TV rail in fixed places, so the point releases, R2 and
+R3 add things without moving anything: a Music and Watch switch at the top
+of Home and Library (absent in music-only mode), Downloads inside Library
+on native apps, a TV layout built around a left rail one press from
+anywhere whose first entry is always Now Playing, an Android tablet layout
+with a player side panel, and a Live destination that appears only when
+the live TV module is on. The desktop shell, with
 its mini player, is Later; until then desktops use the web client.
 
 ## The player in one paragraph
@@ -55,14 +66,17 @@ The player is one model, owned by the shared Rust core, viewed through
 many surfaces: a versioned, per-profile queue with three lanes ("Up next"
 for the person's own picks, "From" for the album or playlist, and an
 optional "Continue with" lane of labelled suggestions that is off by
-default), the core's playback decision with a structured reason, and a
-player state machine. In R1 the browser plays the original file, gaplessly
-and with loudness levelling, shows a quality badge that tells the truth,
-dims tracks the browser cannot decode with the reason, keeps lyrics from
-the files, offers private listening and a sleep timer, explains stream
-limits, and works with the browser's media controls. Opening the client
-elsewhere offers "Continue on this device", and when two of a profile's
-devices press Play, the last one wins. R2 adds native players with
+default and arrives with library radio in R1.3), the core's playback
+decision with a structured reason, and a player state machine. In R1 the
+browser plays the original file, gaplessly and with loudness levelling,
+shows a quality badge that tells the truth, dims tracks the browser cannot
+decode with the reason, keeps lyrics from the files, offers private
+listening, explains stream limits, and works with the browser's media
+controls; when two of a profile's devices press Play, the last one wins.
+R1.1 adds the sleep timer, fades, the track info sheet, word-by-word
+lyrics, and "Continue on this device" when the client is opened
+elsewhere; R1.2 adds music share links and the admin's live view; R1.3
+adds library radio and measured loudness. R2 adds native players with
 background audio, a device picker with handoff, remote control and
 casting, the video player (a statistics overlay, client-rendered
 subtitles, skip markers, a pre-play sheet that opens only when there is a
@@ -80,7 +94,10 @@ to 12 settle the contradictions the first review listed, in its order.
 Decisions 13 to 23 settle contradictions that the security edits
 introduced or that the second check found. A decision marked **owner to
 confirm** is a product choice the owner may still reverse; the others are
-corrections that follow the feature map or the baseline.
+corrections that follow the feature map or the baseline. Where a decision
+below placed a row in R1 that the owner's adopted R1 scope (D-10) moved to
+a point release, the decision now names that release; decisions 2, 7, 8,
+9 and 14 were realigned this way.
 
 1. **Leaving the video player** (owner to confirm). surfaces.md returned
    the bar to the paused music context; player.md kept the paused film in
@@ -98,11 +115,12 @@ corrections that follow the feature map or the baseline.
 2. **Undo for queue removals in R1.** design-language.md listed "remove
    from queue" among the actions that offer Undo; player.md and
    surfaces.md put queue undo in R2. *Decided:* the feature map places
-   queue undo in R2 (MUS-121). In R1, removing one row acts at once with no
-   prompt, and "Clear Up next", "Clear queue" and removing a multi-selection
-   confirm first and say how many items will go; from R2 they all act at
-   once and offer Undo. Applied in design-language.md (section 11, rule 6),
-   player.md (The queue) and surfaces.md (SUR-011).
+   queue undo in R2 (MUS-121). Until then, removing one row acts at once
+   with no prompt, and "Clear Up next", "Clear queue" and removing a
+   multi-selection (possible from R1.1, DIS-110) confirm first and say how
+   many items will go; from R2 they all act at once and offer Undo.
+   Applied in design-language.md (section 11, rule 6), player.md (The
+   queue) and surfaces.md (SUR-011).
 3. **Swipe to remove a queue row.** player.md put it in R1 under MUS-119;
    surfaces.md in R2 under MUS-065. *Decided:* R2, with swipe actions on
    rows (MUS-065), which the feature map places in R2. In R1 a row is
@@ -136,31 +154,32 @@ corrections that follow the feature map or the baseline.
    question 1).
 7. **Where the sleep timer lives.** surfaces.md put it in the queue menu;
    player.md only in the player's options menu. *Decided:* both, as one
-   action from the one action list, because MUS-076 names the player menu
-   and the queue menu. Applied in player.md (the queue menu) and
-   surfaces.md (SUR-011).
+   action from the one action list, because MUS-076 (now R1.1) names the
+   player menu and the queue menu. Applied in player.md (the queue menu)
+   and surfaces.md (SUR-011).
 8. **A device control in the R1 bar** (owner to confirm). player.md
    proposed an R1 slot reading "Playing on *device*" with "Play here";
    surfaces.md gave R1 only the "Continue on this device" prompt.
-   *Decided:* the bar's device slot exists from R1 and keeps its place, but
-   in R1 it holds only the CLI-103 prompt, "Continue on this device" with
-   the item and position and no device name, when another of the profile's
-   sessions last played the queue; otherwise it is empty. The Devices
-   button fills the same slot from R2 (CLI-101, MUS-197). CLI-103 is the R1
-   row, and its prompt needs no device name. Applied in player.md (the bar,
-   the full player, the layout contract, device handoff, states) and
-   surfaces.md (SUR-002).
+   *Decided:* the bar's device slot exists from R1 and keeps its place. In
+   R1 it is empty; from R1.1 it holds only the CLI-103 prompt, "Continue on
+   this device" with the item and position and no device name, when
+   another of the profile's sessions last played the queue; otherwise it is
+   empty. The Devices button fills the same slot from R2 (CLI-101,
+   MUS-197). CLI-103 is an R1.1 row, and its prompt needs no device name.
+   Applied in player.md (the bar, the full player, the layout contract,
+   device handoff, states) and surfaces.md (SUR-002).
 9. **Two players on one queue in R1** (owner to confirm). player.md
    proposed an active-device field; flows.md (G11) proposed that the last
    tab to press Play takes the queue. *Decided:* flows.md's mechanism. Play
    and resume are ordinary operations on the versioned queue (MUS-122),
    which records the issuing session by an opaque identifier that is not a
    credential; the last Play wins, and any other session that sees this on
-   its next sync pauses at its point and shows the decision 8 prompt. There
-   is no separate active-device record. Only the profile's own sessions
-   can write its queue, and queue events reach only them (SEC-HIS-014,
-   SEC-API-016). Applied in player.md (the bar, device handoff, states,
-   what the player needs, open question 2) and flows.md (F05, F08, G11).
+   its next sync pauses at its point, where Play takes the queue back, and
+   from R1.1 shows the decision 8 prompt. There is no separate
+   active-device record. Only the profile's own sessions can write its
+   queue, and queue events reach only them (SEC-HIS-014, SEC-API-016).
+   Applied in player.md (the bar, device handoff, states, what the player
+   needs, open question 2) and flows.md (F05, F08, G11).
 10. **"Up next" means one thing** (owner to confirm). The queue lane, the
     video queue panel and autoplay surface (VID-181) and the Next Up row
     (DIS-025) shared the words. *Decided:* on screen, "Up next" names only
@@ -202,11 +221,14 @@ corrections that follow the feature map or the baseline.
     and MUS-102 under Later; desktops use the web client until the shell
     ships; and F08 hands playback to the web client on a laptop. Applied in
     all four documents.
-14. **The public share page's release** (owner to confirm, security
-    decision 7). player.md said surfaces.md still placed SUR-059 in R2;
-    surfaces.md already had it in R1. *Decided:* R1 for music in both
-    (SEC-API-097, SEC-PRV-031). Applied in player.md (Listening through a
-    share link).
+14. **The public share page's release** (security decision 7, settled by
+    the owner's D-10 answer). player.md said surfaces.md still placed
+    SUR-059 in R2; surfaces.md already had it in R1. *Decided:* the same
+    release in both, with the music share links it serves (SEC-API-097,
+    SEC-PRV-031). That release was R1; under the adopted R1 scope, music
+    share links (ACC-086 to ACC-089, MUS-151) and the page are R1.2, and
+    SEC-API-097 and SEC-STD-008 move with them. Applied in player.md
+    (Listening through a share link).
 15. **Private listening from the wide bar.** player.md gave the wide bar an
     Options button with Private session first, so private listening is two
     interactions from the bar (SEC-PRV-024); surfaces.md's SUR-002 had no

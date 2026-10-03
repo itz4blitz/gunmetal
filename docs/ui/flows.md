@@ -20,6 +20,19 @@ by its ID (SEC-<AREA>-<NNN>). Each such change is listed in
 and the ones that rest on an open owner decision in the baseline are marked
 "owner to confirm" there.
 
+Releases follow the owner's answers of 2026-10-02 in the
+[decision register](../decisions.md#owner-answers-2026-10-02). R1 is the
+smaller first release that the register's
+[R1 scope](../decisions.md#r1-scope) lists (D-10), and the rest of the
+earlier R1 arrives in three point releases, exactly as that section lists
+them: R1.1 (bring your music in), R1.2 (the household and the admin) and
+R1.3 (discovery and analysis). R1 gets HTTPS through the owner's own domain
+with automatic certificates, a tailnet name or the server's own machine,
+and remote use goes through the owner's reverse proxy or a tailnet; the
+project's per-server name service and built-in remote access are R2
+(D-07). Every requirement a moved step relies on moves with it and keeps
+all its protections.
+
 Nothing here is built yet. Speed figures are the map's proposed goals (open
 decision 16), not measurements. Rival behaviour comes from the research in
 `docs/research/` and the map's "Rivals today" cells, and carries
@@ -30,12 +43,17 @@ decision 16), not measurements. Rival behaviour comes from the research in
 Every flow has the same parts.
 
 - **Release.** The release in which the main path first works end to end on
-  at least one client. When an earlier release offers a reduced version, or
-  a later one changes the path, the release line says so and the flow has a
-  section for it.
+  at least one client: R1, a point release (R1.1, R1.2 or R1.3), R2, R3,
+  Later or No. When an earlier release offers a reduced version, or a later
+  one changes the path, the release line says so and the flow has a section
+  for it.
 - **Who and where.** The person, the device and the client.
 - **Starts and ends.** The state before the first step and after the last.
 - **Steps.** A table whose columns, after the step number, are:
+  - *Release* says in which release the step first works. When part of a
+    step arrives later, the cell names that part and its release, the
+    step's text marks it the same way ("from R1.2"), and the Features cell
+    puts the later rows after a semicolon with their release.
   - *The person* says what they do and what they see.
   - *Surface* names the screen or control, using the names in the map's UI
     surfaces column so the UI plan can collect them.
@@ -57,8 +75,8 @@ Every flow has the same parts.
 
 Three facts shape every R1 flow.
 
-1. **R1 clients are browsers only.** They are the web client and the
-   installable web app (CLI-001, CLI-003), with a phone-width layout
+1. **R1 clients are browsers only.** They are the web client (CLI-001),
+   installable as a web app from R1.1 (CLI-003), with a phone-width layout
    (CLI-149). Native Android, Android TV and Fire OS apps arrive in R2. The
    desktop shell is Later, because the baseline's release scope puts it
    there (SEC-TM-074, SEC-CLI-069; owner to confirm), so desktops use the
@@ -68,14 +86,17 @@ Three facts shape every R1 flow.
    context (CLI-150), and the baseline goes further: over plain HTTP, every
    peer except loopback gets a static redirect or help page that sets no
    cookie, and no sign-in, API or credential of any kind (SEC-NET-001). R1
-   browsers therefore use the per-server HTTPS name, the owner's own domain,
-   a tailnet name or localhost (SEC-NET-013). There is no plain-HTTP player
-   and no password.
+   browsers therefore use the owner's own domain, with a certificate the
+   server obtains and renews itself (ACC-099), a tailnet name, or localhost
+   (SEC-NET-013). The project's per-server name service (ADM-023) is R2, by
+   the owner's answer to D-07. There is no plain-HTTP player and no
+   password.
 3. **A new server is in the home posture.** Requests from addresses outside
    loopback and the private ranges get a static help page, and the owner is
    alerted (SEC-NET-024, SEC-NET-027, SEC-OPS-038). Remote use in R1 means
-   the owner declares a reverse proxy or a tailnet (security README, owner
-   decision 3). Requests through a public proxy get the internet posture,
+   the owner's own reverse proxy or a tailnet, declared to the server, as
+   the owner answered on 2026-10-02; built-in remote access over iroh, with
+   no open port, is R2. Requests through a public proxy get the internet posture,
    which refuses setup, and administration unless the owner has turned
    remote administration on (SEC-NET-019, SEC-NET-045).
 
@@ -99,8 +120,8 @@ them at every step; they cite them where a step depends on one.
   (SEC-IAM-067, SEC-IAM-070). Being on the home network never grants
   anything (SEC-IAM-013, SEC-HIS-004).
 - **No passwords.** People sign in with a passkey (with user verification),
-  through the household's own identity provider, or by approval from a
-  device where they are already signed in. There are no passwords,
+  through the household's own identity provider (from R1.2, ACC-057), or by
+  approval from a device where they are already signed in. There are no passwords,
   authenticator-app codes, security questions or emailed codes
   (SEC-IAM-025, SEC-IAM-108; owner decision 1).
 - **Two sessions and step-up.** A browser session lasts at most 30 days, or
@@ -147,12 +168,12 @@ children, third-party apps and live TV.
 | [F03](#f03-signing-in-on-a-new-device) | Signing in on a new device | R1 for browsers; native apps in R2 | Any member | Web client |
 | [F04](#f04-pairing-a-tv-by-scanning-a-code-with-a-phone) | Pairing a TV by scanning a code with a phone | R2 | Member with a signed-in phone | Android TV, Google TV or Fire OS app |
 | [F05](#f05-playing-an-album-and-editing-the-queue) | Playing an album and editing the queue | R1 | Listener | Web client |
-| [F06](#f06-building-a-playlist) | Building a playlist | R1 | Listener | Web client |
+| [F06](#f06-building-a-playlist) | Building a playlist | R1 for hand-built playlists; imports R1.1; smart playlists R1.3 | Listener | Web client |
 | [F07](#f07-downloading-for-offline-and-playing-on-a-plane) | Downloading for offline and playing on a plane | R2 | Listener or viewer | Android app |
-| [F08](#f08-moving-playback-from-the-phone-to-another-device) | Moving playback from the phone to another device | R2; R1 offers "continue on this device" | Listener | Android app, TV, web |
+| [F08](#f08-moving-playback-from-the-phone-to-another-device) | Moving playback from the phone to another device | R2; R1.1 offers "continue on this device" | Listener | Android app, TV, web |
 | [F09](#f09-searching-across-music-and-video) | Searching across music and video | R1 for music; video in R2 | Anyone | Web client |
-| [F10](#f10-sharing-a-library-with-a-friend) | Sharing a library with a friend | R1 through the owner's own address; no open ports in R2 | Owner and friend | Web client |
-| [F11](#f11-migrating-from-plex-or-jellyfin) | Migrating from Plex or Jellyfin | R1 for export files and playlists; rival databases Later | Owner | Web client (admin) |
+| [F10](#f10-sharing-a-library-with-a-friend) | Sharing a library with a friend | R1 through the owner's reverse proxy or a tailnet; built-in remote access in R2 | Owner and friend | Web client |
+| [F11](#f11-migrating-from-plex-or-jellyfin) | Migrating from Plex or Jellyfin | R1.1 for export files and playlists; rival databases Later | Owner | Web client (admin) |
 | [F12](#f12-recovering-from-a-failed-playback) | Recovering from a failed playback | R1 for music; video in R2 | Listener, then owner | Web client |
 | [F13](#f13-upgrading-the-server-and-rolling-back) | Upgrading the server and rolling back | R1 | Owner | Host, startup page, admin |
 | [F14](#f14-rebuilding-a-dead-server-from-a-backup) | Rebuilding a dead server from a backup | R1 | Owner | Host, welcome screen |
@@ -170,7 +191,9 @@ Journeys the project has placed in **Later** or **No** are listed in
 
 ## F01. First-run server setup
 
-**Release: R1.**
+**Release: R1.** The "Coming from another server?" step and the provider
+lookups in the privacy step arrive in R1.1; the language step, the
+server's name and linking an identity provider in R1.2.
 
 **Who and where.** The owner, first at the host (a terminal, or `docker
 logs` for a container), then in a browser.
@@ -179,22 +202,22 @@ logs` for a container), then in a browser.
 owner account holding a passkey, the recovery kit saved, setup closed for
 good, encrypted daily backups on and the first music library scanning.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Installs the single binary, the container image or the OS service, with media mounted read-only. Chooses how browsers will reach the server over HTTPS: the project's per-server name (the recommended default, owner to confirm), the owner's own domain, a tailnet name, or this machine only. | Install docs; download page; install prompt | Nothing yet. There is one self-contained binary per target, and container tags pin a version. The official unit and image run as a dedicated non-root account with no capabilities, no host networking and a read-only root filesystem (SEC-OPS-053, SEC-OPS-056, SEC-OPS-057), and every package starts in the home posture (SEC-OPS-038). | ADM-001, ADM-002, ADM-003, ADM-004, ADM-005, ADM-089, ADM-023 |
-| 2 | Starts the server. | Console; Startup page | Checks the config against a typed schema and reports mistakes with their line on the console and in the log. Refuses to run as root or with any capability, with no override (SEC-OPS-053), and refuses a data directory on a network filesystem. Generates its keys and root secret from the operating system's random source into files only the service account can read (SEC-OPS-011, SEC-OPS-012). Makes no outbound connection, except that an install that chose the name service registers its random label and obtains its certificate (SEC-OPS-007, SEC-NET-010). Keeps settings, log, cache and scratch space apart. Opens the HTTP listener before the database, so the startup page can say what is happening; that page shows no version, path or error detail (SEC-OPS-050). | ADM-007, ADM-006, ADM-079, ADM-090, ADM-032 |
-| 3 | Reads the claim link, its QR code and the one-time setup code on the console, or runs `gunmetal claim-code`. | Console and log message | Generates a single-use code of 128 bits that expires 24 hours after it is made and survives a restart. Shows it only on the host: the console and journal, a terminal QR code, a claim URL that carries the code in its fragment (`https://<name>/claim#<code>`), and a file only the service user can read (SEC-IAM-007). Until the claim it answers only the claim page, its assets and a health check, and accepts no sign-in (SEC-IAM-006, SEC-OPS-001, SEC-OPS-003). | ACC-001, ADM-018 |
-| 4 | Scans the QR code with a phone, or opens the claim link on a computer, and picks a language, region and time zone. | Welcome > Language | Serves the claim page only in a secure context: the server's HTTPS name, or localhost on the host itself or through an SSH tunnel (SEC-IAM-008). Refuses a Host it does not recognise, which defeats DNS rebinding (SEC-IAM-010). The page moves the code from the fragment into the request body and removes it from the address bar (SEC-CLI-013). The language choice is held by the page and saved with the claim. | ADM-027 |
-| 5 | Types the setup code, if it did not arrive in the link. | Welcome > Setup code | Checks the checksum on the page, so a typo costs no attempt, then compares the code in constant time. Wrong codes are delayed per source on one schedule, never from loopback, and never use up or change the code; each failure is printed on the host console with its address and time (SEC-IAM-008, SEC-API-056, SEC-OPS-004). | ACC-001, ACC-063 |
-| 6 | Chooses between setting up a new server and restoring from a backup. Restore continues in F14. | Welcome | Both paths sit behind the setup code (SEC-OPS-008). | ADM-029 |
-| 7 | Sees which address the passkey will belong to, and that the choice is permanent for passkeys. Opened on localhost while an HTTPS name exists, the page first moves to that name. With localhost as the only address, it says the passkey will work only on this machine and that one for the real address can be added later. If a reverse proxy is in front of the server without having been declared, the page asks "A reverse proxy at <address> is in front of Gunmetal. Trust it?" | Welcome > "Where will people reach this server?" panel; Welcome > HTTPS; Welcome > Proxy | Fixes the passkey relying-party ID to the configured origin (SEC-IAM-018) and explains its permanence (SEC-NET-072). For the owner's own domain, obtains the certificate by ACME DNS-01 and renews it automatically (SEC-NET-004, SEC-NET-013). A proxy declared here is authorised by the setup code and recorded as a private overlay or as public (SEC-NET-017, SEC-NET-019). Behind a container gateway or NAT, asks the owner to declare the topology (SEC-NET-068). | ADM-021, CLI-150, ADM-022, ACC-098, ACC-099 |
-| 8 | Creates the owner account: a name, then a passkey made with Face ID, a fingerprint, Windows Hello or a security key. Optionally links the household's own identity provider. | Welcome > Create owner | Consumes the code, creates the owner and stores the passkey in one transaction, so two claims at once cannot both win (SEC-IAM-009, SEC-OPS-005, SEC-STD-029). Requires a discoverable credential with user verification (SEC-IAM-020). Offers no password and no authenticator-app code (SEC-IAM-025). An identity-provider link never makes anyone the owner, and the owner always keeps a passkey (SEC-IAM-031, SEC-IAM-107). Starts an elevated owner session in a cookie page scripts cannot read (SEC-API-032, SEC-IAM-041). Prints "Claimed by '<passkey name>' from <address> at <time>" on the console and writes the claim to the audit log. | ACC-002, ADM-019, ACC-050, ACC-057, ACC-124 |
-| 9 | Saves the recovery kit, one printable page with the recovery codes and the backup recovery key, and confirms by typing its last four characters. Is offered a second passkey, such as a security key. | Welcome > Recovery kit | Issues 10 single-use recovery codes, stored only as peppered hashes (SEC-IAM-089), and the backup recovery key, generated in the browser so that only its public half reaches the server (SEC-PRV-040). If the owner moves on without confirming, the dashboard keeps a reminder until they do. | None yet ([G18](#gaps-and-questions-the-flows-expose)) |
-| 10 | Names the server and, if wanted, writes a short message. | Welcome (server name) | Stores two plain-text settings. Neither is shown to anyone who has not signed in: the sign-in page stays generic, each device shows the name after its first sign-in, and an invitation page may show it because the invitation authorises that (SEC-NET-047, SEC-API-005; owner to confirm). | ADM-140 |
-| 11 | Reviews privacy. Every feature that could reach the internet is listed, explained and off. Answers the required question about security fixes, choosing "Tell me about security fixes (recommended): fetches a public file, sends nothing about you" or "Not now"; neither is preselected. | Welcome > Privacy | Starts the egress gate with no grants and registers each outbound feature, so the network activity page can account for every connection (SEC-NET-032, SEC-PRV-007). Enables no metadata provider (SEC-PRV-013). Does not continue until the update question has an answer (SEC-OPS-047). | ADM-028, ACC-113, LIB-108, ADM-053, ADM-129 |
-| 12 | Answers "Coming from another server?" by skipping, or by handing over Last.fm or ListenBrainz export files and M3U playlists (F11). | Welcome > Import; upload dialog | Should hold the import jobs until the first scan has built enough of the library to match against. Takes files only through the upload route, with type and size limits (SEC-API-085, SEC-API-088). Imported listens go into the owner's own history only. | ADM-030, ADM-042, ADM-043 |
-| 13 | Adds music folders, as F02 describes, touching the passkey again if more than 5 minutes have passed. | Welcome > Libraries; step-up prompt | Browsing folders and adding a library root are step-up actions (SEC-IAM-041). Lists directories only, below allowed base paths (SEC-API-022), and refuses a filesystem root or a folder that holds the server's own data (SEC-MED-037). Checks access and storage type and registers the roots in durable settings. | ADM-025, LIB-005, LIB-001 |
-| 14 | Finishes and lands in the music library, which fills in while the scan runs. | Welcome > Done; Home; Admin > Dashboard | Removes the setup routes for good, including after a restart, a restore or a damaged identity store (SEC-IAM-009, SEC-OPS-006). Starts the scan in the sandboxed scan worker (SEC-MED-018), switches on daily backups encrypted to the server's backup key and the owner's recovery key (SEC-OPS-041, SEC-OPS-042), and shows the health summary, including the isolation tier and whether the server can be reached from the internet (SEC-MED-024, SEC-OPS-061). | ADM-020, ADM-031, LIB-021, ADM-065, ADM-109 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Installs the single binary, the container image or the OS service, with media mounted read-only. Chooses how browsers will reach the server over HTTPS: the owner's own domain, with a certificate the server obtains and renews itself or one the owner supplies; a tailnet name through Tailscale Serve; or this machine only, which another computer reaches through an SSH tunnel. The project's per-server name is not offered until R2. | Install docs; download page; install prompt | Nothing yet. There is one self-contained binary per target (Linux on x86-64 and AArch64 in R1, 32-bit ARM from R1.3), and container tags pin a version. The official unit and image run as a dedicated non-root account with no capabilities, no host networking and a read-only root filesystem (SEC-OPS-053, SEC-OPS-056, SEC-OPS-057), and every package starts in the home posture (SEC-OPS-038). An own-domain install names the domain and its DNS provider, whose credentials come from a file or a systemd credential, never a command-line argument (SEC-OPS-014). A tailnet install declares Tailscale Serve on the host with `gunmetal trust-proxy --overlay`, as a private overlay that reaches the server on a listener of its own (SEC-NET-017, SEC-NET-019). | ADM-001, ADM-002, ADM-003, ADM-005, ADM-089, ADM-022, ACC-099; ADM-004 (R1.3) |
+| 2 | R1 | Starts the server. | Console; Startup page | Checks the config against a typed schema and reports mistakes with their line on the console and in the log. Refuses to run as root or with any capability, with no override (SEC-OPS-053), and refuses a data directory on a network filesystem. Generates its keys and root secret from the operating system's random source into files only the service account can read (SEC-OPS-011, SEC-OPS-012). Before the claim it makes no outbound connection (SEC-OPS-007), except that an own-domain install obtains its certificate from the configured CA by ACME DNS-01, which the egress inventory allows before the claim (SEC-TM-075; the two disagree, see [G21](#gaps-and-questions-the-flows-expose)), and activates it only once its chain validates (SEC-NET-003). Keeps settings, log, cache and scratch space apart. Opens the HTTP listener before the database, so the startup page can say what is happening; that page shows no version, path or error detail (SEC-OPS-050). | ADM-007, ADM-006, ADM-079, ADM-090, ADM-032, ACC-099 |
+| 3 | R1 | Reads the claim link, its QR code and the one-time setup code on the console, or runs `gunmetal claim-code`. | Console and log message | Generates a single-use code of 128 bits that expires 24 hours after it is made and survives a restart. Shows it only on the host: the console and journal, a terminal QR code, a claim URL that carries the code in its fragment (`https://<name>/claim#<code>`, where the name is the owner's domain or tailnet name, or the same path on localhost for a machine-only install), and a file only the service user can read (SEC-IAM-007). Until the claim it answers only the claim page, its assets and a health check, and accepts no sign-in (SEC-IAM-006, SEC-OPS-001, SEC-OPS-003). | ACC-001, ADM-018 |
+| 4 | R1; language R1.2 | Scans the QR code with a phone, or opens the claim link on a computer: on the host itself, or through an SSH tunnel when the install is machine-only. From R1.2 the first screen also asks for a language, region and time zone. | Claim page; Welcome > Language (R1.2) | Serves the claim page only in a secure context: the owner's domain or tailnet name over HTTPS, or localhost on the host itself or through an SSH tunnel (SEC-IAM-008). Refuses a Host it does not recognise, which defeats DNS rebinding (SEC-IAM-010). The page moves the code from the fragment into the request body and removes it from the address bar (SEC-CLI-013). From R1.2 the language choice is held by the page and saved with the claim. | ACC-001; ADM-027 (R1.2) |
+| 5 | R1 | Types the setup code, if it did not arrive in the link. | Welcome > Setup code | Checks the checksum on the page, so a typo costs no attempt, then compares the code in constant time. Wrong codes are delayed per source on one schedule, never from loopback, and never use up or change the code; each failure is printed on the host console with its address and time (SEC-IAM-008, SEC-API-056, SEC-OPS-004). | ACC-001, ACC-063 |
+| 6 | R1 | Chooses between setting up a new server and restoring from a backup. Restore continues in F14. | Welcome | Both paths sit behind the setup code (SEC-OPS-008). | ADM-029 |
+| 7 | R1 | Sees which address the passkey will belong to, and that the choice is permanent for passkeys. Opened on localhost while an HTTPS name exists (the owner's domain or tailnet name), the page first moves to that name. With localhost as the only address, it says the passkey will work only on this machine and that one for the real address can be added later. If a reverse proxy is in front of the server without having been declared, the page asks "A reverse proxy at <address> is in front of Gunmetal. Trust it?" | Welcome > "Where will people reach this server?" panel; Welcome > HTTPS; Welcome > Proxy | Fixes the passkey relying-party ID to the configured origin (SEC-IAM-018) and explains its permanence (SEC-NET-072). For the owner's own domain, shows the certificate and that it renews automatically (SEC-NET-004, SEC-NET-013). A proxy declared here is authorised by the setup code and recorded as a private overlay or as public (SEC-NET-017, SEC-NET-019). Requests through a public proxy, such as the reverse proxy the owner may later run for use away from home, get the internet posture, which refuses setup (SEC-NET-019), so the claim happens on the home network, over the tailnet or on localhost. Behind a container gateway or NAT, asks the owner to declare the topology (SEC-NET-068). | ADM-021, CLI-150, ADM-022, ACC-098, ACC-099 |
+| 8 | R1; identity provider R1.2 | Creates the owner account: a name, then a passkey made with Face ID, a fingerprint, Windows Hello or a security key. From R1.2, optionally links the household's own identity provider. | Welcome > Create owner | Consumes the code, creates the owner and stores the passkey in one transaction, so two claims at once cannot both win (SEC-IAM-009, SEC-OPS-005, SEC-STD-029). Requires a discoverable credential with user verification (SEC-IAM-020). Offers no password and no authenticator-app code (SEC-IAM-025). From R1.2, an identity-provider link never makes anyone the owner, and the owner always keeps a passkey (SEC-IAM-031, SEC-IAM-107). Starts an elevated owner session in a cookie page scripts cannot read (SEC-API-032, SEC-IAM-041). Prints "Claimed by '<passkey name>' from <address> at <time>" on the console and writes the claim to the audit log. | ACC-002, ADM-019, ACC-050, ACC-124; ACC-057 (R1.2) |
+| 9 | R1 | Saves the recovery kit, one printable page with the recovery codes and the backup recovery key, and confirms by typing its last four characters. Is offered a second passkey, such as a security key. | Welcome > Recovery kit | Issues 10 single-use recovery codes, stored only as peppered hashes (SEC-IAM-089), and the backup recovery key, generated in the browser so that only its public half reaches the server (SEC-PRV-040). If the owner moves on without confirming, the dashboard keeps a reminder until they do. | ADM-143, ACC-137 |
+| 10 | R1.2 | Names the server and, if wanted, writes a short message. | Welcome (server name) | Stores two plain-text settings. Neither is shown to anyone who has not signed in: the sign-in page stays generic, each device shows the name after its first sign-in, and an invitation page may show it because the invitation authorises that (SEC-NET-047, SEC-API-005; owner to confirm). | ADM-140 |
+| 11 | R1; provider lookups R1.1 | Reviews privacy. Every feature that could reach the internet is listed, explained and off; from R1.1 that includes the MusicBrainz and Cover Art Archive lookups, each with the fields it would send. Answers the required question about security fixes, choosing "Tell me about security fixes (recommended): fetches a public file, sends nothing about you" or "Not now"; neither is preselected. | Welcome > Privacy | Starts the egress gate with no grants and registers each outbound feature, so the network activity page can account for every connection (SEC-NET-032, SEC-PRV-007). Enables no metadata provider (SEC-PRV-013); from R1.1, turning one on is the owner's choice here, with what each provider receives listed (SEC-PRV-014, SEC-PRV-015, SEC-PRV-017). Does not continue until the update question has an answer (SEC-OPS-047). | ADM-028, ACC-113, LIB-108, ADM-053, ADM-129; LIB-111, LIB-112 (R1.1) |
+| 12 | R1.1 | Answers "Coming from another server?" by skipping, or by handing over Last.fm or ListenBrainz export files and M3U playlists (F11). | Welcome > Import; upload dialog | Should hold the import jobs until the first scan has built enough of the library to match against. Takes files only through the upload route, with type and size limits (SEC-API-085, SEC-API-088). Imported listens go into the owner's own history only. | ADM-030, ADM-042, ADM-043 |
+| 13 | R1 | Adds music folders, as F02 describes, touching the passkey again if more than 5 minutes have passed. | Welcome > Libraries; step-up prompt | Browsing folders and adding a library root are step-up actions (SEC-IAM-041). Lists directories only, below allowed base paths (SEC-API-022), and refuses a filesystem root or a folder that holds the server's own data (SEC-MED-037). Checks access and storage type and registers the roots in durable settings. | ADM-025, LIB-005, LIB-001 |
+| 14 | R1; health summary R1.2 | Finishes and lands in the music library, which fills in while the scan runs. | Welcome > Done; Home; Admin > Dashboard | Removes the setup routes for good, including after a restart, a restore or a damaged identity store (SEC-IAM-009, SEC-OPS-006). Starts the scan in the sandboxed scan worker (SEC-MED-018), switches on daily backups encrypted to the server's backup key and the owner's recovery key (SEC-OPS-041, SEC-OPS-042), and shows the security summary, including the isolation tier and whether the server can be reached from the internet (SEC-MED-024, SEC-OPS-061); the wider health summary joins it in R1.2. | ADM-020, ADM-031, LIB-021, ADM-065, ADM-142; ADM-109 (R1.2) |
 
 **When it goes wrong.**
 
@@ -213,17 +236,21 @@ good, encrypted daily backups on and the first music library scanning.
   `http://192.168.1.7`. The server answers with a static page that
   redirects to the HTTPS address when one exists, and otherwise explains the
   ways in: open the page on the server itself, use an SSH tunnel to
-  localhost, or set up the per-server name, a domain or a tailnet name
-  (SEC-NET-001, SEC-NET-071). Setup never falls back to a password over
-  plain HTTP. This replaces the old password fallback and settles
-  [G2](#gaps-and-questions-the-flows-expose).
-- **The home router blocks the per-server name** through its DNS
-  rebinding protection. If the HTTPS page has not loaded within a few
-  seconds, the redirect page says how to allow the zone, or to use
-  localhost or a tailnet name instead (SEC-NET-001, SEC-NET-071).
-- **The name service refuses or cannot be reached.** The server keeps
-  working on localhost, an own domain or a tailnet, and the console and
-  help page say why (SEC-NET-071).
+  localhost, or set up a domain or a tailnet name (SEC-NET-001). Setup
+  never falls back to a password over plain HTTP. This replaces the old
+  password fallback and settles [G2](#gaps-and-questions-the-flows-expose).
+- **The certificate for the owner's domain cannot be obtained**, because
+  the DNS provider's credentials are wrong or the CA cannot be reached. The
+  server serves no web client, sign-in or API over plain HTTP to anyone but
+  loopback; the console, the log and the help page say what failed
+  (SEC-NET-005, SEC-NET-001). The owner can fix the configuration, or
+  claim on localhost and add a passkey for the domain later (step 7).
+- **From R2, with the per-server name.** The home router may block the name
+  through its DNS rebinding protection; if the HTTPS page has not loaded
+  within a few seconds, the redirect page says how to allow the zone, or to
+  use localhost or a tailnet name instead. If the name service refuses or
+  cannot be reached, the server keeps working on localhost, an own domain
+  or a tailnet, and the console and help page say why (SEC-NET-071).
 - **Someone else on the network reaches the claim page first.** Without the
   code they get nothing. Their guesses are delayed, shown on the host
   console, and cannot wear out the code (SEC-IAM-007, SEC-IAM-008). A web
@@ -257,28 +284,38 @@ ACC-001 and ADM-020 are rules rather than polish.
 
 **Other releases.**
 
-- R2: film and TV folders in the same step (ADM-026, LIB-002); setting up a
-  headless server from the Android app with a device key, which sidesteps
-  the secure-context problem (ADM-035). The app claims through a
-  password-authenticated key exchange keyed by the setup code and pins the
-  server's key, so watching the network reveals nothing (SEC-OPS-010). A TV
-  never claims a server: it is a limited device and can never hold owner or
-  administrator capabilities (SEC-CLI-024, SEC-IAM-059). Also declarative
-  setup from a file (ADM-024) and a next-steps checklist that ticks itself
-  (ADM-033).
 - R1, not Later: automatic certificates for the owner's domain (ACC-099),
   because the baseline needs own-domain ACME with automatic renewal
-  (SEC-NET-004, SEC-NET-013); and the per-server HTTPS name (ADM-023, open
-  decision 7) as the install-time default, launched only once its zone is on
-  the Public Suffix List and with Certificate Transparency monitoring
-  (SEC-NET-010, SEC-NET-069, SEC-NET-070; security README decision 2, owner
-  to confirm). If the list entry is not in place, R1 ships with the own
-  domain, tailnet and localhost paths only.
+  (SEC-NET-004, SEC-NET-013).
+- R1.1: the "Coming from another server?" step (ADM-030, step 12; F11);
+  the MusicBrainz and Cover Art Archive lookups in the privacy step, off
+  until the owner turns them on and each listing the fields it sends
+  (LIB-111, LIB-112, step 11).
+- R1.2: language, region and time zone (ADM-027, step 4); the server's name
+  and message (ADM-140, step 10); linking the household's identity
+  provider (ACC-057, step 8); the health summary on the dashboard (ADM-109,
+  step 14).
+- R1.3: builds for 32-bit ARM boards (ADM-004, step 1).
+- R2: the per-server HTTPS name from the project's name service (ADM-023),
+  with its naming client and Certificate Transparency monitoring, by the
+  owner's answer to D-07. It launches only once its zone is on the Public
+  Suffix List, needs an architecture record amending ADR 1 decisions 7 and
+  9, and brings the requirements that protect only it (SEC-NET-010 to
+  SEC-NET-012, SEC-NET-069 to SEC-NET-071). Also in R2: film and TV folders
+  in the same step (ADM-026, LIB-002); setting up a headless server from
+  the Android app with a device key, which sidesteps the secure-context
+  problem (ADM-035). The app claims through a password-authenticated key
+  exchange keyed by the setup code and pins the server's key, so watching
+  the network reveals nothing (SEC-OPS-010). A TV never claims a server: it
+  is a limited device and can never hold owner or administrator
+  capabilities (SEC-CLI-024, SEC-IAM-059). Also declarative setup from a
+  file (ADM-024) and a next-steps checklist that ticks itself (ADM-033).
 
 **Depends on.** ADR 3 for the identity store (open decision 1); the
-identity architecture record (SEC-STD-006); open decision 7 (HTTPS names)
-and security README decisions 1, 2, 4 and 14; open decision 15 (no
-telemetry).
+identity architecture record (SEC-STD-006); D-07, answered (own domain,
+tailnet or localhost in R1; the name service in R2), and security README
+decisions 1, 4 and 14; open decision 15 (no telemetry); G21 (own-domain
+certificates before the claim).
 
 ---
 
@@ -286,7 +323,7 @@ telemetry).
 
 **Release: R1.**
 
-**Who and where.** The owner or another admin (ACC-040) in the web client,
+**Who and where.** The owner, or from R1.2 another admin (ACC-040), in the web client,
 from Welcome > Libraries during F01 or from Admin > Libraries at any time,
 in an admin session (SEC-IAM-041).
 
@@ -294,20 +331,20 @@ in an admin session (SEC-IAM-041).
 browsable, playable library on every signed-in device that may see it, a
 health report, and background analysis running.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Chooses "Add library" and the Music kind. | Admin > Libraries; Welcome > Libraries | Admin > Libraries needs an admin session, created by a passkey check and ended after 15 idle minutes or 1 hour; a media session never opens an admin route (SEC-IAM-041). Creates a library record with its kind, roots and settings. R1 offers only music, but the record has room for other kinds, and a folder can be flagged as spoken word so audiobooks stay out of music. | LIB-001, LIB-004, LIB-011, LAT-010 |
-| 2 | Touches the passkey if the last check is more than 5 minutes old, then picks one or more folders in the server's folder browser and sees, for each, whether it is readable, what kind of storage it is, and that nothing will be written to it. | Step-up prompt; folder picker with live checks | Browsing the file system and adding a root are step-up actions, audited and announced to every admin (SEC-IAM-041, SEC-TM-017). Lists directories only, never file contents, below the configured browse roots, and only to admins (SEC-API-022). Refuses a filesystem root, a system directory, or a folder that holds the server's own data, cache, configuration or logs, and says why (SEC-MED-037). Checks read permission and storage type (local disk, network share, FUSE mount) and warns before an empty or unreadable folder. Opens roots read-only, and `doctor` warns when the service account could write to one (SEC-MED-038, SEC-OPS-054). Stores each root once, so every item is a root plus a relative path. | ADM-025, LIB-003, LIB-007, ADM-089, LIB-015 |
-| 3 | Optionally sets exclusions, how changes are detected and a safety-net schedule. | Library settings > Exclusions; "Watch for changes"; Library settings > Folder > Storage type; Library settings > Schedule | Stores a gitignore-style pattern list per root, a file watcher for local disks, a poll interval and read parallelism for shares and cloud drives, and a rescan schedule. | LIB-006, LIB-014, LIB-015, LIB-013 |
-| 4 | Chooses who may see the library. | Admin > Users > Libraries, or a step in the add-library sheet | Writes library grants into each person's policy. Until someone is granted it, a new library is visible only to the owner and administrators (deny by default; SEC-IAM-070). The grants filter the synced library and every fetch, apply from each person's next request (SEC-IAM-076), and an increase in anyone's access alerts the owner (SEC-OPS-032). | ACC-037, MUS-027 |
-| 5 | Saves, and the scan starts. | Admin > Dashboard scan card; Admin > Activity | Parses in separate scan-worker processes, never in the server, each single-threaded, reading only file descriptors the server opened, under memory, time and system-call limits (SEC-MED-018, SEC-MED-020 to SEC-MED-022). Runs the scan on a bounded worker pool with a memory ceiling and no helper process per file. Reads headers and indexes only, within a per-file read budget. Visits recently modified folders first, commits in batches and publishes progress events. | LIB-012, LIB-020, LIB-019, LIB-021, LIB-022, ADM-093 |
-| 6 | Watches the files found, the bytes read and an estimate of the time left. | Dashboard scan card; activity indicator in the admin header | Counts I/O per root, so the owner can see that the scan read headers, not whole files. | ADM-088, ADM-031 |
-| 7 | Opens Home or the album grid while the scan runs, and albums appear batch by batch. | Home (scanning empty state); library views; progress banner | Sends each batch through the library change feed; on the device, the client applies the deltas to its synced copy. | LIB-018, CLI-022, MUS-208, DIS-004, MUS-043 |
-| 8 | Plays an album that has already arrived, as F05 describes. | Album page; player | Serves bytes for any committed item under the usual capability URLs (SEC-API-026). | MUS-066, ACC-122 |
-| 9 | Sees the library take shape from tags, not folders: credits, release groups, discs and artwork. | Artist page; album page | Builds albums, artists and credits from multi-value tags in every format, splits artist strings with an exception list, uses MusicBrainz IDs as identity, and records the reason for every grouping. Takes embedded and folder artwork, decoded only in the worker by memory-safe decoders with pixel limits, and sends clients only re-encoded JPEG, PNG or WebP sized for each device class (SEC-TM-034, SEC-MED-044 to SEC-MED-046, SEC-CLI-005). Turns `.m3u` files in the folders into playlists whose entries resolve only to items already indexed in the same library; URLs and paths outside it are dropped and reported (SEC-MED-050). | LIB-045, MUS-034, MUS-035, MUS-036, LIB-098, LIB-134, LIB-135, LIB-142, LIB-143, LIB-192 |
-| 10 | Reads the summary and the health report when the scan ends. | Admin > Activity; Library health > Problems; Library health > Tag problems; Library health > Sidecar problems; Admin > Review queue | Records parse errors with their location, tag problems with their reasons, and files the supported browsers cannot decode. Holds doubtful groupings, such as two same-titled albums, for a yes. | LIB-193, LIB-194, MUS-044, MUS-229, LIB-099, LIB-051, LIB-068 |
-| 11 | Sees background analysis continue at low priority. | Admin > Tasks; Admin > Activity | Measures loudness for untagged tracks in the scan worker, with memory-safe decoders only (SEC-MED-018, SEC-MED-025), as a throttled, checkpointed job that survives restarts and yields to playback. Rebuilds the neighbour table that radio and "more like this" use. | MUS-086, LIB-024, ADM-095, DIS-060 |
-| 12 | Later copies new albums into the folder, and they appear on their own. | Recently added row on Home | Picks up the change by watcher or poll and rereads only what changed. Treats a better copy of an existing file as an upgrade, not a new arrival. | LIB-014, LIB-015, LIB-017, LIB-030, DIS-035, DIS-036, DIS-038, MUS-059 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1; spoken word R1.3 | Chooses "Add library" and the Music kind. | Admin > Libraries; Welcome > Libraries | Admin > Libraries needs an admin session, created by a passkey check and ended after 15 idle minutes or 1 hour; a media session never opens an admin route (SEC-IAM-041). Creates a library record with its kind, roots and settings. R1 offers only music, but the record has room for other kinds, and from R1.3 a folder can be flagged as spoken word so audiobooks stay out of music. | LIB-001, LIB-004, LIB-011; LAT-010 (R1.3) |
+| 2 | R1 | Touches the passkey if the last check is more than 5 minutes old, then picks one or more folders in the server's folder browser and sees, for each, whether it is readable, what kind of storage it is, and that nothing will be written to it. | Step-up prompt; folder picker with live checks | Browsing the file system and adding a root are step-up actions, audited and announced to every admin (SEC-IAM-041, SEC-TM-017). Lists directories only, never file contents, below the configured browse roots, and only to admins (SEC-API-022). Refuses a filesystem root, a system directory, or a folder that holds the server's own data, cache, configuration or logs, and says why (SEC-MED-037). Checks read permission and storage type (local disk, network share, FUSE mount) and warns before an empty or unreadable folder. Opens roots read-only, and `doctor` warns when the service account could write to one (SEC-MED-038, SEC-OPS-054). Stores each root once, so every item is a root plus a relative path. | ADM-025, LIB-003, LIB-007, ADM-089, LIB-015 |
+| 3 | R1; exclusions R1.1 | Optionally sets how changes are detected and a safety-net schedule, and from R1.1 exclusions. | Library settings > Exclusions (R1.1); "Watch for changes"; Library settings > Folder > Storage type; Library settings > Schedule | From R1.1, stores a gitignore-style pattern list per root. Stores a file watcher for local disks, a poll interval and read parallelism for shares and cloud drives, and a rescan schedule. | LIB-014, LIB-015, LIB-013; LIB-006 (R1.1) |
+| 4 | R1 | Chooses who may see the library. | Admin > Users > Libraries, or a step in the add-library sheet | Writes library grants into each person's policy. Until someone is granted it, a new library is visible only to the owner and administrators (deny by default; SEC-IAM-070). The grants filter the synced library and every fetch, apply from each person's next request (SEC-IAM-076), and an increase in anyone's access alerts the owner (SEC-OPS-032). | ACC-037, MUS-027 |
+| 5 | R1; task list R1.2 | Saves, and the scan starts. | Admin > Dashboard scan card; Admin > Activity; Admin > Tasks (R1.2) | Parses in separate scan-worker processes, never in the server, each single-threaded, reading only file descriptors the server opened, under memory, time and system-call limits (SEC-MED-018, SEC-MED-020 to SEC-MED-022). Runs the scan on a bounded worker pool with a memory ceiling and no helper process per file. Reads headers and indexes only, within a per-file read budget. Visits recently modified folders first, commits in batches and publishes progress events. | LIB-012, LIB-020, LIB-019, LIB-021, LIB-022; ADM-093 (R1.2) |
+| 6 | R1; bytes read R1.3 | Watches the files found and an estimate of the time left, and from R1.3 the bytes read. | Dashboard scan card; activity indicator in the admin header | Publishes progress from the scan's events. From R1.3, counts I/O per root, so the owner can see that the scan read headers, not whole files. | ADM-031; ADM-088 (R1.3) |
+| 7 | R1 | Opens Home or the album grid while the scan runs, and albums appear batch by batch. | Home (scanning empty state); library views; progress banner | Sends each batch through the library change feed; on the device, the client applies the deltas to its synced copy. | LIB-018, CLI-022, MUS-208, DIS-004, MUS-043 |
+| 8 | R1 | Plays an album that has already arrived, as F05 describes. | Album page; player | Serves bytes for any committed item under the usual capability URLs (SEC-API-026). | MUS-066, ACC-122 |
+| 9 | R1; release groups, reasons and playlist files R1.1 | Sees the library take shape from tags, not folders: credits, discs and artwork, and from R1.1 release groups. | Artist page; album page | Builds albums, artists and credits from multi-value tags in every format, splits artist strings with an exception list, uses MusicBrainz IDs as identity, and from R1.1 records the reason for every grouping. Takes embedded and folder artwork, decoded only in the worker by memory-safe decoders with pixel limits, and sends clients only re-encoded JPEG, PNG or WebP sized for each device class (SEC-TM-034, SEC-MED-044 to SEC-MED-046, SEC-CLI-005). From R1.1, turns `.m3u` files in the folders into playlists whose entries resolve only to items already indexed in the same library; URLs and paths outside it are dropped and reported (SEC-MED-050). | LIB-045, MUS-034, MUS-035, MUS-036, LIB-134, LIB-135, LIB-142, LIB-143; LIB-098, LIB-192 (R1.1) |
+| 10 | R1; tag problems R1.1; review queue R1.3 | Reads the summary and the health report when the scan ends. | Admin > Activity; Library health > Problems; Library health > Tag problems (R1.1); Library health > Sidecar problems; Admin > Review queue (R1.3) | Records parse errors with their location, tag problems with their reasons (from R1.1), and files the supported browsers cannot decode. Keeps two same-titled albums apart; from R1.3, holds doubtful groupings for a yes in the review queue. | LIB-193, MUS-044, MUS-229, LIB-051, LIB-068; LIB-194 (R1.1); LIB-099 (R1.3) |
+| 11 | R1.3 | Sees background analysis continue at low priority. | Admin > Tasks; Admin > Activity | Measures loudness for untagged tracks in the scan worker, with memory-safe decoders only (SEC-MED-018, SEC-MED-025), as a throttled, checkpointed job that survives restarts and yields to playback. Rebuilds the neighbour table that radio and "more like this" use. | MUS-086, LIB-024, ADM-095, DIS-060 |
+| 12 | R1 | Later copies new albums into the folder, and they appear on their own. | Recently added row on Home | Picks up the change by watcher or poll and rereads only what changed. Treats a better copy of an existing file as an upgrade, not a new arrival. | LIB-014, LIB-015, LIB-017, LIB-030, DIS-035, DIS-036, DIS-038, MUS-059 |
 
 **When it goes wrong.**
 
@@ -318,13 +355,13 @@ health report, and background analysis running.
   the trash never purges while a root is offline (LIB-032, ADM-108, ADM-116,
   LIB-033).
 - Files are moved or renamed. Identity follows them, keeping plays, ratings
-  and playlist positions (LIB-028, LIB-029). A file that vanished is listed
-  with its last known path (LIB-034).
+  and playlist positions (LIB-028, LIB-029). From R1.1, a file that vanished
+  is listed with its last known path (LIB-034).
 - A tag would split "AC/DC" into two artists. The exception list prevents
   it, and the split report shows any doubtful case (MUS-035, LIB-038).
-- An admin wonders why a track landed on an album. "Why is this here?" and
-  the file inspector show raw tags beside the interpreted values (LIB-098,
-  ADM-125, LIB-195).
+- An admin wonders why a track landed on an album. From R1.1 "Why is this
+  here?" gives the reasons (LIB-098), and from R1.2 the file inspector shows
+  raw tags beside the interpreted values (ADM-125, LIB-195).
 - A hostile or damaged file crashes or hangs the parser. Only the worker
   dies; the server keeps serving and finishes the scan. A file that fails
   twice is quarantined until it changes or an admin retries it, and appears
@@ -337,11 +374,11 @@ health report, and background analysis running.
   passkey again before it lists any folder (SEC-IAM-041).
 - The chosen folder holds the server's own data, or is a filesystem root.
   The picker refuses it and says why (SEC-MED-037).
-- Decoders for loudness measurement are not approved before R1 (open
-  decision 8). Whenever they are, they run only in the scan worker and only
-  as memory-safe code (SEC-MED-018, SEC-MED-025). Until then R1 uses
-  loudness tags plus a fallback gain, and step 11 measures nothing
-  (MUS-089).
+- Loudness measurement arrives in R1.3, and only if the decoder record is
+  accepted (open decision 8, ADR 5). Whenever it is, decoders run only in
+  the scan worker and only as memory-safe code (SEC-MED-018, SEC-MED-025).
+  Until then loudness tags plus a fallback gain apply, and step 11 measures
+  nothing (MUS-089).
 - A new library is visible only to the owner and administrators until
   someone is granted it, which the baseline's deny-by-default rule settles
   ([G4](#gaps-and-questions-the-flows-expose)).
@@ -359,12 +396,22 @@ exists (ADR 1).
 
 **Other releases.**
 
+- R1.1: exclusion rules (LIB-006); the reason recorded for every grouping
+  (LIB-098); `.m3u` files in music folders as playlists (LIB-192); tag
+  problems and the missing-files list (LIB-194, LIB-034); and the built-in
+  MusicBrainz and Cover Art Archive lookups (LIB-111, LIB-112), off until
+  the owner turns them on in the setup question that lists the fields each
+  provider receives, and run through the egress client (D-10; SEC-PRV-014,
+  SEC-PRV-015, SEC-PRV-017).
+- R1.2: the one task list with run, cancel and history (ADM-093); the file
+  inspector (ADM-125); a second administrator (ACC-040).
+- R1.3: loudness measured for untagged files and background analysis
+  (MUS-086, LIB-024), if the decoder record is accepted; the review queue
+  (LIB-099); bytes read per scan (ADM-088); the spoken-word flag (LAT-010);
+  the neighbour table behind radio and "more like this" (DIS-060).
 - R2: film and TV libraries (LIB-002); cancelling and reprioritising jobs
-  (LIB-023); opt-in, sandboxed lookups at MusicBrainz and the Cover Art
-  Archive (LIB-107, LIB-111, LIB-112), which the baseline recommends
-  building in for R1 behind the egress client and the setup question, each
-  listing the fields it sends (security README decision 22, owner to
-  confirm); editing in the app, with locks
+  (LIB-023); sandboxed provider plugins (LIB-107); editing in the app, with
+  locks
   (LIB-172, LIB-173); a duplicates report (LIB-196); CUE sheets (LIB-071,
   MUS-041); more formats (MUS-033); ratings read from tags (MUS-045);
   remapping a missing file by hand (LIB-035); an I/O profile per root
@@ -372,8 +419,8 @@ exists (ADR 1).
 - Later: acoustic fingerprinting in the review queue (LIB-106); missing
   albums on artist pages (LIB-201).
 
-**Depends on.** Open decision 8 (decoders for loudness); ADR 3 for the
-curation log that keeps review-queue answers (open decision 1).
+**Depends on.** Open decision 8 (decoders for loudness, R1.3); ADR 3 for
+the curation log that keeps review-queue answers (open decision 1).
 
 ---
 
@@ -388,17 +435,29 @@ or phone, reaching the server over HTTPS or on localhost.
 the person's list of sessions and devices, holding a synced copy of what
 they may see, and showing their home and queue.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Opens the server's address. | Sign-in page | Serves the sign-in page only over HTTPS on a configured name, or on localhost (SEC-NET-001). The page is generic: no list of users, no server name or message, no version (SEC-IAM-022, SEC-NET-047, SEC-API-005). Shows a notice if the browser lacks a feature the client needs (SEC-API-052). | ACC-007, CLI-002, CLI-150 |
-| 2 | Signs in with a passkey, or through the household's identity provider. | Sign-in; Sign-in > Continue with provider | Runs a usernameless WebAuthn ceremony with user verification required, checking type, challenge, origin, flags and signature (SEC-IAM-018 to SEC-IAM-022). Or completes OIDC with the server as a confidential client, using PKCE, state and nonce, so that no provider token reaches the browser (SEC-IAM-026, SEC-CLI-026). Failures look the same whatever the cause and are throttled per source; a passkey is never disabled by failures (SEC-API-056, SEC-API-058). Makes no outbound call except to the household's own identity provider. | ACC-050, ACC-057, ACC-007, ACC-063, ACC-003 |
-| 2a | If this browser cannot use a passkey (an old smart-TV browser, a borrowed laptop), chooses "Use another device". The browser shows an 8-character code and a QR code. On a phone where they are already signed in, the person scans the QR code or types the code, reads what is asking, and approves with Face ID or a fingerprint. | Sign-in > Use another device; approval sheet on the signed-in device | Opens a pairing request that holds a non-extractable key the browser generated (SEC-IAM-108). The code lasts 10 minutes, works once and dies after 5 wrong guesses (SEC-IAM-056). The approval sheet shows the browser's self-reported name marked as unverified, its type, "In this home" or "Somewhere else", how long ago it asked and exactly what it will get, and needs a passkey check in the previous 5 minutes (SEC-IAM-058). When the two devices are not on the same local network, the approver must type the code shown on the browser and confirm a matching code shown on both screens; a link or a QR picture is not enough (SEC-IAM-060). Approval always starts on the approving device, so nobody can push a prompt to it (SEC-STD-027). | ACC-062 |
-| 3 | Answers one plain question: is this your own device, or a shared one? | Sign-in > "Is this your own device?" | Issues a new session token in a `__Host-` cookie page scripts cannot read (SEC-IAM-038, SEC-API-032). Own device: the session lasts up to 30 days, ends after 7 days unused, and the library may be kept on the device. Shared: library data stays in memory, the cookie dies with the browser, and the session ends after 30 idle minutes (SEC-IAM-041, SEC-CLI-010). A browser signed in by approval is a limited device: it can browse and play, but never administer, approve other devices or change account security (SEC-IAM-108, SEC-CLI-024). Records the device, writes an audit entry, and tells the person's other devices that a new device signed in (SEC-IAM-098). | ACC-079, ACC-124, ACC-068, ADM-110, ACC-071 |
-| 4 | On a shared browser, sees a one-line note that nothing is kept after the tab closes. | Banner on first sign-in; Settings > About this connection | Nothing beyond step 3. | CLI-150 |
-| 5 | Waits while the device syncs, then sees Home. | Home; sync status indicator; Settings > Storage | Sends a snapshot and then deltas of the synced library, computed per person, so the payload holds nothing outside their grants and restrictions and no one else's history, queue or searches (SEC-API-015, SEC-CLI-020). On an own device the copy is kept per account and deleted at sign-out (SEC-IAM-017, SEC-CLI-009). Sends the profile's preferences and home layout from the user log. | CLI-022, ACC-037, ACC-030, ACC-012, CLI-030, DIS-002, DIS-007, CLI-024 |
-| 6 | Is offered the queue they left on another device. | Player bar prompt | Nothing more: the queue document arrived with the sync. | CLI-103, MUS-122 |
-| 7 | Optionally installs the web app on the home screen. | Install prompt | Serves the manifest, icons and service worker. The service worker never stores stream URLs (SEC-API-029). | CLI-003 |
-| 8 | Later finds this device in their list, with its type, network, rough location and last use, and can end it or every other session. | Account > Sessions and devices | Updates last use in the device registry (SEC-IAM-042). | ACC-068, ACC-069, ACC-070 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Opens the server's address. | Sign-in page | Serves the sign-in page only over HTTPS on a configured name, or on localhost (SEC-NET-001). The page is generic: no list of users, no server name or message, no version (SEC-IAM-022, SEC-NET-047, SEC-API-005). Shows a notice if the browser lacks a feature the client needs (SEC-API-052). | ACC-007, CLI-002, CLI-150 |
+| 2 | R1; identity provider R1.2 | Signs in with a passkey, or, from R1.2, through the household's identity provider. | Sign-in; Sign-in > Continue with provider (R1.2) | Runs a usernameless WebAuthn ceremony with user verification required, checking type, challenge, origin, flags and signature (SEC-IAM-018 to SEC-IAM-022). Or, from R1.2, completes OIDC with the server as a confidential client, using PKCE, state and nonce, so that no provider token reaches the browser (SEC-IAM-026, SEC-CLI-026). Failures look the same whatever the cause and are throttled per source; a passkey is never disabled by failures (SEC-API-056, SEC-API-058). Makes no outbound call, except, from R1.2, to the household's own identity provider. | ACC-050, ACC-007, ACC-063, ACC-003; ACC-057 (R1.2) |
+| 2a | R1 | If this browser cannot use a passkey (an old smart-TV browser, a borrowed laptop), chooses "Use another device". The browser shows an 8-character code and a QR code. On a phone where they are already signed in, the person scans the QR code or types the code, reads what is asking, and approves with Face ID or a fingerprint. | Sign-in > Use another device; approval sheet on the signed-in device | Opens a pairing request that holds a non-extractable key the browser generated (SEC-IAM-108). The code lasts 10 minutes, works once and dies after 5 wrong guesses (SEC-IAM-056). The approval sheet shows the browser's self-reported name marked as unverified, its type, "In this home" or "Somewhere else", how long ago it asked and exactly what it will get, and needs a passkey check in the previous 5 minutes (SEC-IAM-058). When the two devices are not on the same local network, the approver must type the code shown on the browser and confirm a matching code shown on both screens; a link or a QR picture is not enough (SEC-IAM-060). Approval always starts on the approving device, so nobody can push a prompt to it (SEC-STD-027). | ACC-062 |
+| 3 | R1 | Answers one plain question: is this your own device, or a shared one? | Sign-in > "Is this your own device?" | Issues a new session token in a `__Host-` cookie page scripts cannot read (SEC-IAM-038, SEC-API-032). Own device: the session lasts up to 30 days, ends after 7 days unused, and the library may be kept on the device. Shared: library data stays in memory, the cookie dies with the browser, and the session ends after 30 idle minutes (SEC-IAM-041, SEC-CLI-010). A browser signed in by approval is a limited device: it can browse and play, but never administer, approve other devices or change account security (SEC-IAM-108, SEC-CLI-024). Records the device, writes an audit entry, and tells the person's other devices that a new device signed in (SEC-IAM-098). | ACC-079, ACC-124, ACC-068, ADM-110, ACC-071 |
+| 4 | R1 | On a shared browser, sees a one-line note that nothing is kept after the tab closes. | Banner on first sign-in; Settings > About this connection | Nothing beyond step 3. | CLI-150 |
+| 5 | R1; sync status R1.1; layout R1.2 | Waits while the device syncs, then sees Home. | Home; sync status indicator; Settings > Storage (R1.1) | Sends a snapshot and then deltas of the synced library, computed per person, so the payload holds nothing outside their grants and restrictions and no one else's history, queue or searches (SEC-API-015, SEC-CLI-020). On an own device the copy is kept per account and deleted at sign-out (SEC-IAM-017, SEC-CLI-009). Sends the profile's preferences from the user log, and from R1.2 its home layout. | CLI-022, ACC-037, ACC-030, ACC-012, DIS-002; CLI-030, CLI-024 (R1.1); DIS-007 (R1.2) |
+| 6 | R1.1 | Is offered the queue they left on another device. | Player bar prompt | Nothing more: the queue document arrived with the sync. | CLI-103, MUS-122 |
+| 7 | R1.1 | Optionally installs the web app on the home screen. | Install prompt | Serves the manifest, icons and service worker. The service worker never stores stream URLs (SEC-API-029). | CLI-003 |
+| 8 | R1 | Later finds this device in their list, with its type, network, rough location and last use, and can end it or every other session. | Account > Sessions and devices | Updates last use in the device registry (SEC-IAM-042). | ACC-068, ACC-069, ACC-070 |
+
+**When the person is away from home (R1).** The browser reaches the server
+through the owner's reverse proxy on the owner's domain, or over the
+owner's tailnet; built-in remote access arrives in R2. The steps are the
+same. A request through a public proxy gets the internet posture, with
+stricter limits and no admin screens unless the owner turned remote
+administration on (SEC-NET-019, SEC-NET-045). A passkey works only on the
+address it was made for (SEC-IAM-018), so the name people use away from
+home should be the one they use at home: the owner's domain, answered by
+the home network at home and by the proxy outside, or the tailnet name,
+which is the same everywhere. Approving a browser from a phone on another
+network needs the typed and matching code (SEC-IAM-060).
 
 **When it goes wrong.**
 
@@ -409,7 +468,7 @@ they may see, and showing their home and queue.
   SEC-IAM-099, SEC-OPS-032).
 - **This browser cannot use passkeys and the person has no other signed-in
   device.** They can use a security key, a phone's cross-device passkey, the
-  household's identity provider, or the recovery steps below. There is no
+  household's identity provider (from R1.2), or the recovery steps below. There is no
   password to fall back to (SEC-IAM-025; security README decision 1, owner
   to confirm).
 - **The pairing code expires, or is guessed wrong five times.** The browser
@@ -433,13 +492,15 @@ they may see, and showing their home and queue.
 - **The person is away from home and the owner has set up no remote
   path.** The home posture shows them the static help page, and the owner
   is alerted if a forwarded port is letting outsiders reach the server
-  (SEC-NET-024, SEC-NET-027). Remote use in R1 needs the owner's reverse
-  proxy or tailnet (security README decision 3).
+  (SEC-NET-024, SEC-NET-027). Remote use in R1 goes through the owner's
+  reverse proxy or a tailnet; built-in remote access arrives in R2.
 - **The internet is down but the home network is up.** Sign-in and
   playback still work (ACC-003), provided the browser can still resolve the
   server's HTTPS name ([G20](#gaps-and-questions-the-flows-expose)).
-- **The server becomes unreachable after sign-in.** The device keeps
-  browsing and playing what it holds (CLI-025). A device that never finished
+- **The server becomes unreachable after sign-in.** The open tab keeps
+  browsing and searching the copy it holds and plays what it has already
+  buffered (CLI-022, DIS-084), and from R1.1 a personal browser also
+  reopens the installed app with the server down (CLI-025, CLI-003). A device that never finished
   its first sync has nothing to fall back on and must say so
   ([G12](#gaps-and-questions-the-flows-expose)).
 - **The session is ended elsewhere**, because the person signed out
@@ -464,6 +525,11 @@ sign in a second device. No media server in the research offers passkeys.
   step 2a) and the "new device signed in" notice (ACC-071, step 3). The
   baseline needs both in R1, because there is no password to fall back on
   (SEC-IAM-108) and every new device must be announced (SEC-IAM-098).
+- R1.1: the queue left on another device (CLI-103, step 6); installing the
+  web app (CLI-003, step 7); sync and storage status (CLI-024); settings
+  that follow the person (CLI-030).
+- R1.2: sign-in through the household's identity provider (ACC-057, step
+  2); the home layout following the person (DIS-007).
 - R2: native apps find the server on the home network (ACC-104), pin the
   server's key from the invitation or pairing and refuse any other
   (SEC-IAM-051), accept a custom address and proxy headers (CLI-028), and
@@ -482,8 +548,9 @@ sign in a second device. No media server in the research offers passkeys.
   one step (ACC-015).
 
 **Depends on.** ADR 3 (identity store and user log); the identity
-architecture record (SEC-STD-006); open decision 7 (HTTPS names) and
-security README decisions 1 to 3; open decision 16 (initial sync of 100,000
+architecture record (SEC-STD-006); D-07, answered (HTTPS in R1 through the
+owner's domain, a tailnet or localhost) and security README decisions 1 to
+3; open decision 16 (initial sync of 100,000
 tracks in under 2 minutes, proposed).
 
 ---
@@ -499,16 +566,16 @@ Google TV or Fire OS device with the Gunmetal app.
 holding its own device key, listed as the person's device or as a household
 device, and opening the right profile.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Installs and opens the TV app. | TV app first launch | Answers LAN discovery, so the TV finds the server with no address typed. Discovery is unauthenticated, so it advertises only a generic name and the server's key, and the TV pins the key it reached (SEC-NET-063). Away from home the person picks or types the address. | CLI-006, CLI-008, CLI-017, ACC-104 |
-| 2 | Sees a large QR code, an 8-character code beneath it, and the TV's name. | TV sign-in screen | On the device, the TV creates a non-exportable key pair in secure storage (SEC-IAM-048). The server opens a device authorisation holding the TV's public key, with a 256-bit device code bound to that key, so every poll must be signed by it (SEC-IAM-055). The user code is 8 characters from the base-20 alphabet, lasts 10 minutes and works once (SEC-IAM-056). The QR code carries the approval URL on the server's own HTTPS origin, the user code and the server's identity key (SEC-IAM-057). | ACC-061, CLI-027, ACC-051, ACC-063 |
-| 3 | Scans the QR code with the Gunmetal app, or with the phone's camera, which opens the approval page in the web client. | Phone approval sheet | The native app refuses if the server key in the QR code differs from the one it pinned, which exposes an impostor server; in a browser the passkey's origin binding does the same job (SEC-IAM-057). The code identifies the request only, so scanning grants nothing. A request nobody scanned never produces a prompt on anyone's phone (SEC-IAM-052, SEC-STD-027). | ACC-061, CLI-034 |
-| 4 | Reads what is asking, chooses "my TV" or "household TV", picks the profiles it may open, answers "Show continue-watching on the TV home screen?", and approves with Face ID or a fingerprint. | Phone approval sheet | Shows the TV's self-reported name marked as unverified, its type, "In this home" or "Somewhere else", how long ago it asked, and exactly which account or profiles it will get; approval needs a passkey or biometric check in the previous 5 minutes (SEC-IAM-058, SEC-CLI-059). Never grants owner or administrator capabilities; a household TV needs the approver to hold the household-device capability (SEC-IAM-059). Enrols the TV's public key against the person or the household, with the allowed profiles, and records its class and key protection level; a software-only key is capped below every administrator capability (SEC-IAM-049, SEC-CLI-031). Asks about the TV home screen once, defaulting to on for a single-profile TV and off when several profiles exist (SEC-CLI-061). Writes an audit entry and sends a new-device notice to the person's other devices (SEC-IAM-098). | ACC-021, ACC-016, ACC-071, ADM-110 |
-| 5 | Watches the TV move on by itself. | TV | Completes a challenge-response sign-in with the device key. Access tokens last 10 minutes, are bound to the key, and are renewed only by signing a fresh challenge, so there is no refresh token to steal (SEC-IAM-050). No password or token is typed on, or shown by, the TV. The TV is a limited device: it can never approve other devices, change account security or administer (SEC-CLI-024). | ACC-051 |
-| 6 | On a household TV, picks a profile; adult profiles ask for a PIN with hidden digits, or an approval from that adult's phone. | TV profile picker; PIN pad | Lists only the household profiles enabled for this TV, by name and picture, with no guest or account identifier (SEC-IAM-061, SEC-CLI-064). Checks the PIN on the server only, against an Argon2id hash; failures are delayed per TV and profile, never permanently, and after 10 the profile's owner gets one alert (SEC-IAM-062). A PIN only switches profiles and authorises nothing else (SEC-IAM-063). An adult profile's history and continue-watching stay hidden until the PIN or the phone unlocks it (SEC-IAM-110). | ACC-019, CLI-050, ACC-020, DIS-142 |
-| 7 | Waits while the TV syncs, then sees Home with the left rail. | TV Home; TV rail | Sends the profile's filtered synced library: all metadata, and artwork in TV sizes within the device's budget (SEC-CLI-020). A PIN-protected profile's data is kept on the TV only encrypted under a key the server releases after the PIN, which the TV forgets when it switches away (SEC-IAM-065). | CLI-023, LIB-142, DIS-144, CLI-035, CLI-038 |
-| 8 | Later finds or removes the TV. | Account > Sessions and devices; Admin > Household > Devices | On revocation, fails the TV's next request and closes its open connections and streams within 5 seconds (SEC-IAM-043, SEC-NET-034). The TV deletes its credentials and synced data when told (SEC-IAM-053). | ACC-068, ACC-069, ACC-122 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | Installs and opens the TV app. | TV app first launch | Answers LAN discovery, so the TV finds the server with no address typed. Discovery is unauthenticated, so it advertises only a generic name and the server's key, and the TV pins the key it reached (SEC-NET-063). Away from home the person picks or types the address. | CLI-006, CLI-008, CLI-017, ACC-104 |
+| 2 | R2 | Sees a large QR code, an 8-character code beneath it, and the TV's name. | TV sign-in screen | On the device, the TV creates a non-exportable key pair in secure storage (SEC-IAM-048). The server opens a device authorisation holding the TV's public key, with a 256-bit device code bound to that key, so every poll must be signed by it (SEC-IAM-055). The user code is 8 characters from the base-20 alphabet, lasts 10 minutes and works once (SEC-IAM-056). The QR code carries the approval URL on the server's own HTTPS origin, the user code and the server's identity key (SEC-IAM-057). | ACC-061, CLI-027, ACC-051, ACC-063 |
+| 3 | R2 | Scans the QR code with the Gunmetal app, or with the phone's camera, which opens the approval page in the web client. | Phone approval sheet | The native app refuses if the server key in the QR code differs from the one it pinned, which exposes an impostor server; in a browser the passkey's origin binding does the same job (SEC-IAM-057). The code identifies the request only, so scanning grants nothing. A request nobody scanned never produces a prompt on anyone's phone (SEC-IAM-052, SEC-STD-027). | ACC-061, CLI-034 |
+| 4 | R2 | Reads what is asking, chooses "my TV" or "household TV", picks the profiles it may open, answers "Show continue-watching on the TV home screen?", and approves with Face ID or a fingerprint. | Phone approval sheet | Shows the TV's self-reported name marked as unverified, its type, "In this home" or "Somewhere else", how long ago it asked, and exactly which account or profiles it will get; approval needs a passkey or biometric check in the previous 5 minutes (SEC-IAM-058, SEC-CLI-059). Never grants owner or administrator capabilities; a household TV needs the approver to hold the household-device capability (SEC-IAM-059). Enrols the TV's public key against the person or the household, with the allowed profiles, and records its class and key protection level; a software-only key is capped below every administrator capability (SEC-IAM-049, SEC-CLI-031). Asks about the TV home screen once, defaulting to on for a single-profile TV and off when several profiles exist (SEC-CLI-061). Writes an audit entry and sends a new-device notice to the person's other devices (SEC-IAM-098). | ACC-021, ACC-016, ACC-071, ADM-110 |
+| 5 | R2 | Watches the TV move on by itself. | TV | Completes a challenge-response sign-in with the device key. Access tokens last 10 minutes, are bound to the key, and are renewed only by signing a fresh challenge, so there is no refresh token to steal (SEC-IAM-050). No password or token is typed on, or shown by, the TV. The TV is a limited device: it can never approve other devices, change account security or administer (SEC-CLI-024). | ACC-051 |
+| 6 | R2 | On a household TV, picks a profile; adult profiles ask for a PIN with hidden digits, or an approval from that adult's phone. | TV profile picker; PIN pad | Lists only the household profiles enabled for this TV, by name and picture, with no guest or account identifier (SEC-IAM-061, SEC-CLI-064). Checks the PIN on the server only, against an Argon2id hash; failures are delayed per TV and profile, never permanently, and after 10 the profile's owner gets one alert (SEC-IAM-062). A PIN only switches profiles and authorises nothing else (SEC-IAM-063). An adult profile's history and continue-watching stay hidden until the PIN or the phone unlocks it (SEC-IAM-110). | ACC-019, CLI-050, ACC-020, DIS-142 |
+| 7 | R2 | Waits while the TV syncs, then sees Home with the left rail. | TV Home; TV rail | Sends the profile's filtered synced library: all metadata, and artwork in TV sizes within the device's budget (SEC-CLI-020). A PIN-protected profile's data is kept on the TV only encrypted under a key the server releases after the PIN, which the TV forgets when it switches away (SEC-IAM-065). | CLI-023, LIB-142, DIS-144, CLI-035, CLI-038 |
+| 8 | R2 | Later finds or removes the TV. | Account > Sessions and devices; Admin > Household > Devices | On revocation, fails the TV's next request and closes its open connections and streams within 5 seconds (SEC-IAM-043, SEC-NET-034). The TV deletes its credentials and synced data when told (SEC-IAM-053). | ACC-068, ACC-069, ACC-122 |
 
 **When the TV is somewhere else**, such as a grandparent's house, a QR
 picture is not enough, because anyone can send one ("scan this to fix
@@ -587,27 +654,27 @@ devices).
 **Release: R1.**
 
 **Who and where.** A listener in the web client, in a desktop browser or
-the installed web app on a phone.
+a phone's browser (installed as a web app from R1.1).
 
 **Starts** with the library synced to the device. **Ends** with the album
 playing gaplessly at an even level, the queue holding the listener's edits,
 and any of their signed-in devices able to pick it up.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Opens an album from Home, search or the artist page. | Album page | Nothing: the page renders on the device from the synced library, with discs and disc titles, other editions and credits. | MUS-054, MUS-012, MUS-008, MUS-001, MUS-208 |
-| 2 | Presses Play, or Play disc. | Album page; now-playing bar | On the device, the client builds the queue with the album in the "From" lane and a context ID, and the core marks any track this browser cannot decode. The server applies the queue operation, assigns a version and stores the queue document in the user log. | MUS-116, LAT-009, MUS-229, MUS-122 |
-| 3 | Hears the first track start, and sees a badge such as "Original FLAC, 24-bit, played directly". | Now-playing bar; quality badge | Issues a capability URL whose path carries an HMAC-signed token bound to the session, the item, the representation and an expiry of the track's length plus 10 minutes, at most 4 hours (SEC-API-026, SEC-API-027). Media routes accept only that capability, never the cookie (SEC-API-029), and every range request re-checks that the session is live and the person may still see the item (SEC-API-028, SEC-IAM-046). Serves one byte range per request of the original file (SEC-NET-050), or copies its audio frames into fragmented MP4 without re-encoding when the browser's Media Source Extensions need that; that repackaging parses the file, so it runs in a worker process, never in the server (SEC-MED-018). Records the decision and its reason. | ACC-122, MUS-066, MUS-230, MUS-099, ADM-100 |
-| 4 | Hears the album play without gaps and at a steady level. | Player; Track info "gain source" | Supplies encoder delay and padding, a seek index and gain values from the scan. On the device, the player fetches the next track early and applies album gain while the album plays in order. | MUS-067, MUS-069, MUS-070, MUS-071, MUS-084, MUS-085, MUS-087, MUS-088, MUS-089, MUS-090 |
-| 5 | Uses the lock screen, notification or media keys, and opens the full-screen player and the lyrics. | OS media panel; now-playing bar; full-screen player; lyrics view | Supplies embedded and sidecar lyrics inside the synced library, parsed into a timed-line model within size limits (SEC-MED-049, SEC-API-090). Clients render lyrics, titles and every other string from files as text, never as markup (SEC-CLI-001). | MUS-073, CLI-070, MUS-108, MUS-110, MUS-154, MUS-155, MUS-156, MUS-158 |
-| 6 | From another page, picks three songs one after another with "Play next". They will play in the order chosen. | Context menu | Each pick is a small operation against the last queue version the client saw. The server orders the operations and assigns versions. The picks go into the "Up next" lane in order. | MUS-117, MUS-062, DIS-111, MUS-122 |
-| 7 | Adds a playlist with "Add to queue" and drags an album to the end. | Context menu; queue drop zones | Applies the same kind of operation. A multi-item drop is one operation. | MUS-118, MUS-063, CLI-062 |
-| 8 | Opens the queue to reorder, remove and clear, and sees where each item is playing from. | Queue panel (full height on desktop, a sheet on phones) | Applies the same kind of operation. | MUS-119, MUS-123, CLI-060, CLI-149 |
-| 9 | Turns on shuffle (random, spread out, or by album), reorders while shuffled, then reshuffles the rest. | Shuffle button and menu; queue menu | Stores the shuffle seed and order on the queue, so every device sees the same order. | MUS-126, MUS-127, MUS-120, MUS-128 |
-| 10 | Switches on "Continue with" so music carries on after the queue, and sees what will play and why. | Queue panel toggle | Supplies the neighbour table. On the device, radio rules in the core pick the tracks. The lane is off by default. | MUS-129, DIS-070, DIS-062, DIS-060 |
-| 11 | Loves a track from the bar, sets a sleep timer and saves the session as a playlist. | Now-playing bar; player menu; queue menu | Writes love events to the user log. Saving the queue creates a playlist (F06). | MUS-109, MUS-180, MUS-076, MUS-077, MUS-125 |
-| 12 | Closes the tab, and later opens the client on the phone. | Player bar prompt "Continue on this device" | Nothing more: the queue and position are already in the phone's copy. | CLI-103, MUS-122 |
-| All | Listens. | None | Records each play with its real timestamp, plus counts and skips, unless a private session is on. A play event holds only the profile, the item, the device, times, position and completion: no address, location or user agent (SEC-PRV-002). Administrators who look at live sessions see that the listener is playing, on which device and how, but not the title unless the listener chose to show it (SEC-PRV-025). | MUS-182, MUS-183, ACC-117 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1; editions R1.1 | Opens an album from Home, search or the artist page. | Album page | Nothing: the page renders on the device from the synced library, with discs and disc titles and linked credits, and from R1.1 other editions. | MUS-054, MUS-012, MUS-001, MUS-208; MUS-008 (R1.1) |
+| 2 | R1 | Presses Play, or Play disc. | Album page; now-playing bar | On the device, the client builds the queue with the album in the "From" lane and a context ID, and the core marks any track this browser cannot decode. The server applies the queue operation, assigns a version and stores the queue document in the user log. | MUS-116, LAT-009, MUS-229, MUS-122 |
+| 3 | R1; reason for admins R1.2 | Hears the first track start, and sees a badge such as "Original FLAC, 24-bit, played directly". | Now-playing bar; quality badge | Issues a capability URL whose path carries an HMAC-signed token bound to the session, the item, the representation and an expiry of the track's length plus 10 minutes, at most 4 hours (SEC-API-026, SEC-API-027). Media routes accept only that capability, never the cookie (SEC-API-029), and every range request re-checks that the session is live and the person may still see the item (SEC-API-028, SEC-IAM-046). Serves one byte range per request of the original file (SEC-NET-050), or copies its audio frames into fragmented MP4 without re-encoding when the browser's Media Source Extensions need that; that repackaging parses the file, so it runs in a worker process, never in the server (SEC-MED-018). Records the decision and its reason, which administrators can read from R1.2. | ACC-122, MUS-066, MUS-230, MUS-099; ADM-100 (R1.2) |
+| 4 | R1; gain applied shown R1.1 | Hears the album play without gaps and at a steady level. | Player; Track details "gain source" (MUS-236); the track info sheet (R1.1) | Supplies encoder delay and padding, a seek index and gain values from the scan. On the device, the player fetches the next track early and applies album gain while the album plays in order. | MUS-067, MUS-069, MUS-070, MUS-071, MUS-084, MUS-085, MUS-087, MUS-088, MUS-089; MUS-090 (R1.1) |
+| 5 | R1; lyrics extras R1.1 | Uses the lock screen, notification or media keys, and opens the full-screen player and the lyrics, which from R1.1 stay open across tracks and follow word by word where the file has it. | OS media panel; now-playing bar; full-screen player; lyrics view | Supplies embedded and sidecar lyrics inside the synced library, parsed into a timed-line model within size limits (SEC-MED-049, SEC-API-090). Clients render lyrics, titles and every other string from files as text, never as markup (SEC-CLI-001). | MUS-073, CLI-070, MUS-108, MUS-110, MUS-154, MUS-155; MUS-156, MUS-158 (R1.1) |
+| 6 | R1 | From another page, picks three songs one after another with "Play next". They will play in the order chosen. | Context menu | Each pick is a small operation against the last queue version the client saw. The server orders the operations and assigns versions. The picks go into the "Up next" lane in order. | MUS-117, MUS-062, DIS-111, MUS-122 |
+| 7 | R1; drag R1.1 | Adds a playlist with "Add to queue" and, from R1.1, drags an album to the end. | Context menu; queue drop zones (R1.1) | Applies the same kind of operation. A multi-item drop is one operation. | MUS-118; MUS-063, CLI-062 (R1.1) |
+| 8 | R1 | Opens the queue to reorder, remove and clear, and sees where each item is playing from. | Queue panel (full height on desktop, a sheet on phones) | Applies the same kind of operation. | MUS-119, MUS-123, CLI-060, CLI-149 |
+| 9 | R1; by album, reorder and reshuffle R1.1 | Turns on shuffle (random or spread out; by album from R1.1), and from R1.1 reorders while shuffled, then reshuffles the rest. | Shuffle button and menu; queue menu | Stores the shuffle seed and order on the queue, so every device sees the same order. | MUS-126; MUS-127, MUS-120, MUS-128 (R1.1) |
+| 10 | R1.3 | Switches on "Continue with" so music carries on after the queue, and sees what will play and why. | Queue panel toggle | Supplies the neighbour table. On the device, radio rules in the core pick the tracks. The lane is off by default. | MUS-129, DIS-070, DIS-062, DIS-060 |
+| 11 | R1; sleep timer and saving R1.1 | Loves a track from the bar and, from R1.1, sets a sleep timer and saves the session as a playlist. | Now-playing bar; player menu; queue menu | Writes love events to the user log. From R1.1, saving the queue creates a playlist (F06). | MUS-109, MUS-180, MUS-077; MUS-076, MUS-125 (R1.1) |
+| 12 | R1.1 | Closes the tab, and later opens the client on the phone. | Player bar prompt "Continue on this device" | Nothing more: the queue and position are already in the phone's copy. | CLI-103, MUS-122 |
+| All | R1 | Listens. | None | Records each play with its real timestamp, plus counts and skips, unless a private session is on. A play event holds only the profile, the item, the device, times, position and completion: no address, location or user agent (SEC-PRV-002). Administrators who look at live sessions see that the listener is playing, on which device and how, but not the title unless the listener chose to show it (SEC-PRV-025). | MUS-182, MUS-183, ACC-117 |
 
 **When it goes wrong.**
 
@@ -632,13 +699,13 @@ and any of their signed-in devices able to pick it up.
   shows the sign-in page (SEC-IAM-043, SEC-API-028, SEC-CLI-009). A leaked
   stream URL stops working at the same moment.
 - **Two browser tabs on one profile both try to play the queue.** The last
-  Play wins: the other tab pauses at its point on its next sync and its
-  bar offers "Continue on this device" (CLI-103), using only the R1 queue
-  versions ([G11](#gaps-and-questions-the-flows-expose)).
+  Play wins: the other tab pauses at its point on its next sync, using only
+  the R1 queue versions, and from R1.1 its bar offers "Continue on this
+  device" (CLI-103) ([G11](#gaps-and-questions-the-flows-expose)).
 - **The page is plain HTTP on a LAN address.** There is no player there:
   the server answers with a redirect or help page (SEC-NET-001).
-- **A stream limit is reached**, server-wide, for a guest or for a share
-  link. The player says which limit and what to do, never failing silently;
+- **A stream limit is reached**, server-wide, for a guest or, from R1.2,
+  for a share link. The player says which limit and what to do, never failing silently;
   the next track's early fetch for gapless playback counts as the same
   playback (SEC-TM-068, SEC-API-031, ACC-075).
 - **iPhone browsers restrict background audio**, so R1's lock-screen and
@@ -654,6 +721,15 @@ picks in reverse order, which is what MUS-117 fixes.
 
 **Other releases.**
 
+- R1.1: other editions on the album page (MUS-008); the gain applied, in
+  track info (MUS-090, MUS-114); word-by-word lyrics and lyrics that stay
+  open (MUS-156, MUS-158); drag and drop and multi-select (MUS-063,
+  CLI-062); shuffle by album, reordering while shuffled and reshuffling
+  (MUS-127, MUS-120, MUS-128); the sleep timer (MUS-076); saving the queue
+  as a playlist (MUS-125); "Continue on this device" (CLI-103).
+- R1.2: the playback decision and its reason for administrators (ADM-100).
+- R1.3: the "Continue with" lane and its suggestions (MUS-129, DIS-070,
+  DIS-062, DIS-060).
 - R2: undoing queue edits (MUS-121); queue history (MUS-124); several
   saved queues (MUS-131); crossfade and album-aware fades (MUS-091,
   MUS-092); an equaliser (MUS-094); gapless and background playback in the
@@ -670,42 +746,44 @@ unverified.
 
 ## F06. Building a playlist
 
-**Release: R1.**
+**Release: R1 for hand-built playlists; M3U import and export arrive in
+R1.1, and smart playlists in R1.3.**
 
 **Who and where.** A listener in the web client. The flow covers a
-hand-built playlist, a smart playlist and an imported one.
+hand-built playlist (R1), a smart playlist (R1.3) and an imported one
+(R1.1).
 
 **Starts** with a synced library. **Ends** with playlists that follow the
 person to every device and survive moves, upgrades and cache rebuilds.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Creates a playlist from the sidebar. | Sidebar; playlist page | Writes a playlist-created event to the user log with a random public ID. | MUS-132, INT-008 |
-| 2 | Adds a track with "Add to playlist", searching their playlists, seeing where the track already is and adding it to several at once. | Add-to-playlist sheet | Writes playlist events that refer to tracks by content identity, not by path. | MUS-133, LIB-028 |
-| 3 | Is asked before adding a track that is already there. | Add sheet prompt | Nothing: the check runs on the device. | MUS-134 |
-| 4 | Selects twenty tracks across an album and search results and drags them onto the playlist in the sidebar. | Selection bar; sidebar drop target | Applies the batch as one operation. | DIS-110, MUS-063, CLI-062 |
-| 5 | Reorders, removes and renames; finds a song inside a long playlist; sorts by date added. | Playlist page search and sort | Writes reorder, remove and rename events. Finding and sorting run on the device. | MUS-132, MUS-135, DIS-091 |
-| 6 | Sees a cover made from the albums inside, pins the playlist, and adds it to the Home shortcuts. | Playlist tiles; sidebar; top of Home | Writes pin events. The client composes the cover from artwork it already holds. | MUS-137, MUS-139, DIS-013 |
-| 7 | Exports the playlist as M3U8 to use elsewhere. | Playlist menu: export | Writes an M3U8 with paths relative to the library root. | MUS-140 |
-| 8 | Starts a smart playlist. | Smart playlist editor | Nothing yet. | MUS-143, DIS-121 |
-| 9 | Builds rules from menus, such as "genre is jazz, not played in a year, rating at least four, 50 at random", and watches the matches update. | Rule editor sheet | Nothing while editing: on the device, the core evaluates the rules against the synced library, with seeded randomness so the list is the same on every device. | MUS-144, MUS-145, MUS-146, DIS-119, DIS-120, DIS-122 |
-| 10 | Saves, and the playlist keeps itself up to date. | Playlist page | Stores the rule tree in the rule store and syncs it. Evaluates rules on the server only for adapters and sync filters, and again when the library changes. | DIS-119, DIS-121 |
-| 11 | Alternatively saves a library filter as a smart playlist, or plays "Loved tracks", which already is one. | Filter sheet "Save as"; Library > Loved | Uses the same rule store. | DIS-105, MUS-149, DIS-046 |
-| 12 | Imports an M3U from another player and reads the match report. | Playlist menu: import; upload dialog; Admin > Migration > Review | Takes the file only through the upload route, with its type and size limits and a per-person quota (SEC-API-085, SEC-API-088), and parses it in the core within its budgets. Matches each entry by path relative to a library root, then by tags and duration, only against items in libraries this person can see (SEC-MED-051); URLs and paths outside the libraries are dropped and listed. Records the reason, and sends misses to the review queue. | MUS-140, ADM-043, ADM-044 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Creates a playlist from the sidebar. | Sidebar; playlist page | Writes a playlist-created event to the user log with a random public ID. | MUS-132, INT-008 |
+| 2 | R1 | Adds a track with "Add to playlist", searching their playlists, seeing where the track already is and adding it to several at once. | Add-to-playlist sheet | Writes playlist events that refer to tracks by content identity, not by path. | MUS-133, LIB-028 |
+| 3 | R1.1 | From R1.1, is asked before adding a track that is already there. | Add sheet prompt | Nothing: the check runs on the device. | MUS-134 |
+| 4 | R1.1 | Selects twenty tracks across an album and search results and drags them onto the playlist in the sidebar. | Selection bar; sidebar drop target | Applies the batch as one operation. | DIS-110, MUS-063, CLI-062 |
+| 5 | R1; find and sort R1.1 | Reorders, removes and renames; from R1.1 finds a song inside a long playlist and sorts by date added. | Playlist page search and sort (R1.1) | Writes reorder, remove and rename events. Finding and sorting run on the device. | MUS-132; MUS-135, DIS-091 (R1.1) |
+| 6 | R1.1; Home shortcuts R1.2 | Sees a cover made from the albums inside, pins the playlist, and from R1.2 adds it to the Home shortcuts. | Playlist tiles; sidebar; top of Home (R1.2) | Writes pin events. The client composes the cover from artwork it already holds. | MUS-137, MUS-139; DIS-013 (R1.2) |
+| 7 | R1.1 | Exports the playlist as M3U8 to use elsewhere. | Playlist menu: export | Writes an M3U8 with paths relative to the library root. | MUS-140 |
+| 8 | R1.3 | Starts a smart playlist. | Smart playlist editor | Nothing yet. | MUS-143, DIS-121 |
+| 9 | R1.3 | Builds rules from menus, such as "genre is jazz, not played in a year, rating at least four, 50 at random", and watches the matches update. | Rule editor sheet | Nothing while editing: on the device, the core evaluates the rules against the synced library, with seeded randomness so the list is the same on every device. | MUS-144, MUS-145, MUS-146, DIS-119, DIS-120, DIS-122 |
+| 10 | R1.3 | Saves, and the playlist keeps itself up to date. | Playlist page | Stores the rule tree in the rule store and syncs it. Evaluates rules on the server only for adapters and sync filters, and again when the library changes. | DIS-119, DIS-121 |
+| 11 | R1; saved filters R1.3 | Plays "Loved tracks", the list of their loves; from R1.3, alternatively saves a library filter as a smart playlist. | Library > Loved; filter sheet "Save as" (R1.3) | Builds Loved tracks from the person's loves. From R1.3, a saved filter uses the same rule store. | MUS-149, DIS-046; DIS-105 (R1.1, saved as a smart playlist from R1.3) |
+| 12 | R1.1 | Imports an M3U from another player and reads the match report. | Playlist menu: import; upload dialog; Admin > Migration > Review | Takes the file only through the upload route, with its type and size limits and a per-person quota (SEC-API-085, SEC-API-088), and parses it in the core within its budgets. Matches each entry by path relative to a library root, then by tags and duration, only against items in libraries this person can see (SEC-MED-051); URLs and paths outside the libraries are dropped and listed. Records the reason, and sends misses to the review queue. | MUS-140, ADM-043, ADM-044 |
 
 **When it goes wrong.**
 
-- An imported entry matches nothing. It waits in the unmatched queue with
-  its reason (ADM-044).
+- An imported entry matches nothing (from R1.1). It waits in the unmatched
+  queue with its reason (ADM-044).
 - A track in a playlist is moved or upgraded. The entry follows its
   identity (LIB-029, LIB-030).
 - A track is deleted. The entry survives the trash grace period and comes
   back with the file (LIB-033). What it shows after the file is purged is
   not settled ([G6](#gaps-and-questions-the-flows-expose)).
-- A rule matches nothing. The editor shows that live, before saving
-  (DIS-120).
-- An `.m3u` found in a music folder became a playlist (LIB-192), but media
-  is read-only (LIB-007), so an edit cannot be written back (G5).
+- A rule matches nothing (from R1.3). The editor shows that live, before
+  saving (DIS-120).
+- An `.m3u` found in a music folder became a playlist (LIB-192, from R1.1),
+  but media is read-only (LIB-007), so an edit cannot be written back (G5).
 - The playlist is edited on two devices. Both are online in R1, so the
   server orders the events; offline edits arrive in R2 (CLI-094).
 
@@ -725,13 +803,20 @@ now and download rules in R2.
   person's devices (SEC-IAM-083, SEC-EXT-008 to SEC-EXT-014; security README
   decision 8, owner to confirm). The web client still uses the same routes
   in R1.
+- R1.1: the duplicate prompt (MUS-134); multi-select and drag (DIS-110,
+  CLI-062); finding and sorting inside a playlist (MUS-135, DIS-091);
+  automatic covers and pinning (MUS-137, MUS-139); M3U import and export
+  (MUS-140, ADM-043, ADM-044).
+- R1.2: Home shortcuts (DIS-013).
+- R1.3: smart playlists and the rule editor (MUS-143 to MUS-146, DIS-119 to
+  DIS-122).
 - R2: playlist folders (MUS-136); a custom image (MUS-138); shared and
   collaborative playlists (ACC-091); offline edits that merge later
   (CLI-094); stable daily or weekly snapshots (MUS-147); keeping a smart
   playlist downloaded (CLI-080); pinning a list as a Home row (DIS-126);
   Navidrome smart playlist import (MUS-148). A share link to a playlist
-  (ACC-086) arrives earlier, in R1 for music (SEC-API-097; security README
-  decision 7, owner to confirm; see F10).
+  (ACC-086) arrives earlier, in R1.2 for music, with its baseline rules
+  (SEC-API-097; see F10).
 - Later: a playlist from a prompt (MUS-153); streaming-service playlist
   import (INT-153).
 - No: suggestions inserted into a person's own playlists (MUS-130,
@@ -752,18 +837,18 @@ music and, in this flow, a film and some episodes too.
 with downloads that play with no signal, and with plays, ratings and edits
 made in the air merged when the phone reconnects.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Taps the download switch on an album, an artist and a playlist. | Download toggle on album, artist and playlist pages | Checks the person's download right; guests have none by default (SEC-IAM-080). Issues capability URLs and an offline grant: a server-signed record bound to the device key and the list of items, expiring after the administrator's maximum (30 days by default) (SEC-IAM-054, SEC-CLI-036). | CLI-078, ACC-044, CLI-095 |
-| 2 | Sets rules: keep "Loved tracks" and one smart playlist downloaded, keep what was played recently, all within a 20 GB cap. | Downloads > Rules; "Keep downloaded" on any smart playlist; Settings > Storage | Supplies the rules in the shared rule language. On the device, eviction makes room for automatic downloads and never removes a hand-picked one. Downloads and the library live in app-private storage, out of device and cloud backups (SEC-CLI-033, SEC-CLI-035). | CLI-080, CLI-081, CLI-082, DIS-119 |
-| 3 | Chooses Opus copies to save space and Wi-Fi only. | Download quality setting; Settings > Downloads > Network | Encodes each Opus copy once in the sandboxed worker and caches it for the next device (SEC-MED-066, SEC-OPS-062). There is no SD-card option in R2: downloads stay in app-private internal storage (SEC-CLI-035), and removable storage waits for an encrypted format (SEC-CLI-072, Later; owner to confirm). | CLI-083, MUS-213, CLI-091 |
-| 4 | Downloads a film and keeps the next three episodes of a show. | Download button on films and episodes; Show page > Keep next episodes | Serves originals, or a remuxed copy where the device's player prefers another container. Skip markers, chapters, subtitles and fonts travel with each download. | CLI-084, CLI-085, CLI-087, CLI-088, VID-175 |
-| 5 | Closes the app. Downloads continue and resume after a dropped connection. | Notification; Downloads screen | Serves resumable ranges and refreshes URLs on request. Streams on other devices take priority over downloads. | CLI-090, ACC-110 |
-| 6 | Checks the downloads manager before leaving. | Downloads screen | Returns typed errors that the app turns into plain reasons. | CLI-089, MUS-215 |
-| 7 | On the plane, browses as usual; a "Downloaded" filter narrows any list. | All lists; "Downloaded" filter | Nothing: the synced library, the search index and the grant are on the phone. | CLI-026, MUS-209, CLI-025, DIS-084 |
-| 8 | Plays an album with lock-screen controls and lyrics, then the film with subtitles. | Player; lock screen; lyrics view | Nothing. | CLI-069, MUS-074, MUS-160, VID-175 |
-| 9 | Rates tracks, edits a playlist and stops the film halfway. | Context menu; playlist page; player | Nothing yet: on the device, the edits queue as operations. | CLI-094, MUS-214, VID-118 |
-| 10 | Lands and reconnects. | Sync status; History, showing the device | Ingests the offline plays with their real timestamps and removes duplicates. Applies the queued edits under the stated conflict rules, updates resume points and renews the grant. | CLI-093, CLI-094, VID-118, CLI-095 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | Taps the download switch on an album, an artist and a playlist. | Download toggle on album, artist and playlist pages | Checks the person's download right; guests have none by default (SEC-IAM-080). Issues capability URLs and an offline grant: a server-signed record bound to the device key and the list of items, expiring after the administrator's maximum (30 days by default) (SEC-IAM-054, SEC-CLI-036). | CLI-078, ACC-044, CLI-095 |
+| 2 | R2 | Sets rules: keep "Loved tracks" and one smart playlist downloaded, keep what was played recently, all within a 20 GB cap. | Downloads > Rules; "Keep downloaded" on any smart playlist; Settings > Storage | Supplies the rules in the shared rule language. On the device, eviction makes room for automatic downloads and never removes a hand-picked one. Downloads and the library live in app-private storage, out of device and cloud backups (SEC-CLI-033, SEC-CLI-035). | CLI-080, CLI-081, CLI-082, DIS-119 |
+| 3 | R2 | Chooses Opus copies to save space and Wi-Fi only. | Download quality setting; Settings > Downloads > Network | Encodes each Opus copy once in the sandboxed worker and caches it for the next device (SEC-MED-066, SEC-OPS-062). There is no SD-card option in R2: downloads stay in app-private internal storage (SEC-CLI-035), and removable storage waits for an encrypted format (SEC-CLI-072, Later; owner to confirm). | CLI-083, MUS-213, CLI-091 |
+| 4 | R2 | Downloads a film and keeps the next three episodes of a show. | Download button on films and episodes; Show page > Keep next episodes | Serves originals, or a remuxed copy where the device's player prefers another container. Skip markers, chapters, subtitles and fonts travel with each download. | CLI-084, CLI-085, CLI-087, CLI-088, VID-175 |
+| 5 | R2 | Closes the app. Downloads continue and resume after a dropped connection. | Notification; Downloads screen | Serves resumable ranges and refreshes URLs on request. Streams on other devices take priority over downloads. | CLI-090, ACC-110 |
+| 6 | R2 | Checks the downloads manager before leaving. | Downloads screen | Returns typed errors that the app turns into plain reasons. | CLI-089, MUS-215 |
+| 7 | R2 | On the plane, browses as usual; a "Downloaded" filter narrows any list. | All lists; "Downloaded" filter | Nothing: the synced library, the search index and the grant are on the phone. | CLI-026, MUS-209, CLI-025, DIS-084 |
+| 8 | R2 | Plays an album with lock-screen controls and lyrics, then the film with subtitles. | Player; lock screen; lyrics view | Nothing. | CLI-069, MUS-074, MUS-160, VID-175 |
+| 9 | R2 | Rates tracks, edits a playlist and stops the film halfway. | Context menu; playlist page; player | Nothing yet: on the device, the edits queue as operations. | CLI-094, MUS-214, VID-118 |
+| 10 | R2 | Lands and reconnects. | Sync status; History, showing the device | Ingests the offline plays with their real timestamps and removes duplicates. Applies the queued edits under the stated conflict rules, updates resume points and renews the grant. | CLI-093, CLI-094, VID-118, CLI-095 |
 
 **When it goes wrong.**
 
@@ -795,12 +880,14 @@ Jellyfin's most-voted request (1,820 votes). Gunmetal's edge is free,
 rule-driven downloads under a cap, offline that uses the same screens, and a
 grant the owner can revoke.
 
-**What R1 offers instead.** No downloads. The web client fetches upcoming
-tracks early on patchy signal (CLI-099). In a secure context, the installed
-web app can browse and search its synced copy with no server (CLI-025), but
-it plays only what it has already buffered. Downloads in the browser are
-Later (MUS-217). Open decision 5 recommends shipping the Android music app
-as an R1 point release, which would bring music downloads forward.
+**What R1 and its point releases offer instead.** No downloads. From R1.1
+the web client fetches upcoming tracks early on patchy signal (CLI-099),
+and in a secure context the installed web app can browse and search its
+synced copy with no server (CLI-003, CLI-025), but it plays only what it
+has already buffered. Downloads in the browser are Later (MUS-217). The
+native Android music app is not part of R1.1 to R1.3 (D-10); D-14
+recommends it after R1.3, with the R2 native-app requirements it needs,
+which would bring music downloads forward.
 
 **Other releases.**
 
@@ -820,7 +907,8 @@ decisions 4 and 5.
 
 ## F08. Moving playback from the phone to another device
 
-**Release: R2.** R1 offers "continue on this device" (see below).
+**Release: R2.** From R1.1 the web client offers "continue on this device"
+(see below).
 
 **Who and where.** A listener playing on the Android app, with a TV app
 or the web client on a laptop signed in to the same profile, or a
@@ -831,16 +919,16 @@ Chromecast speaker on the network. The desktop shell is Later
 lanes and position playing on the chosen device, and the phone acting as
 its remote.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Taps the device button. | Device picker in the player bar and Now Playing | Keeps a control channel per signed-in session, authenticated before any message, checked against the server's own origins, and closed when its session ends (SEC-IAM-016). Reports which of the profile's players are present. | CLI-101, MUS-197 |
-| 2 | Sees the living-room TV, the laptop and a Chromecast speaker, each with its state. A household TV that another profile is using shows only as "In use". | Device picker | Lists only this profile's own players; controlling another person's player is Later (ACC-047, SEC-HIS-014). Household devices this profile may use appear greyed as "In use", with no profile name or title, and the session events behind the list are filtered per recipient (SEC-PRV-022, SEC-API-016). | CLI-101, ACC-121 |
-| 3 | Picks the laptop. | Device picker; accept prompt on the target where needed | Sends a transfer command over the control channel, carrying item IDs and the position, never a stream URL or token. The target loads the queue document at the current version, with its lanes, shuffle order and position, asks for its own capability URLs under its own session (SEC-API-026), and starts. The phone stops. | CLI-101, MUS-122, MUS-116, LAT-009, VID-144 |
-| 4 | Controls the laptop from the phone, including its volume. | Remote mode in Now Playing | Relays play, pause, skip, seek and volume commands, each authorised per profile, from a closed set with no free text (SEC-HIS-014). | CLI-102, MUS-198 |
-| 5 | Edits the queue on the phone while the laptop plays. | Queue panel in remote mode | Applies queue operations to the shared, versioned document, and the target follows them. | MUS-122, MUS-119 |
-| 6 | Alternatively casts to the Chromecast speaker. | Cast button; device picker | Issues capability URLs scoped to one item and to the cast session the phone started, expiring within the item's length plus at most an hour (the stream lifetimes of SEC-API-027 stay inside that bound), revocable, and never carrying a session token (SEC-NET-064). The phone refreshes them; the receiver holds no credential of its own, because cast credentials are Later (SEC-TM-074, SEC-CLI-071). Only those representations may be read cross-origin (SEC-API-098). Picks a format the receiver can decode. Away from home, the phone relays. | CLI-106, MUS-203, CLI-110, CLI-111 |
-| 7 | Stops or adjusts casting from the notification. | Notification | Nothing beyond the control channel. | CLI-112 |
-| 8 | Takes playback back to the phone when leaving the house. | Device picker on the phone | Runs the same transfer in the other direction. | CLI-101 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | Taps the device button. | Device picker in the player bar and Now Playing | Keeps a control channel per signed-in session, authenticated before any message, checked against the server's own origins, and closed when its session ends (SEC-IAM-016). Reports which of the profile's players are present. | CLI-101, MUS-197 |
+| 2 | R2 | Sees the living-room TV, the laptop and a Chromecast speaker, each with its state. A household TV that another profile is using shows only as "In use". | Device picker | Lists only this profile's own players; controlling another person's player is Later (ACC-047, SEC-HIS-014). Household devices this profile may use appear greyed as "In use", with no profile name or title, and the session events behind the list are filtered per recipient (SEC-PRV-022, SEC-API-016). | CLI-101, ACC-121 |
+| 3 | R2 | Picks the laptop. | Device picker; accept prompt on the target where needed | Sends a transfer command over the control channel, carrying item IDs and the position, never a stream URL or token. The target loads the queue document at the current version, with its lanes, shuffle order and position, asks for its own capability URLs under its own session (SEC-API-026), and starts. The phone stops. | CLI-101, MUS-122, MUS-116, LAT-009, VID-144 |
+| 4 | R2 | Controls the laptop from the phone, including its volume. | Remote mode in Now Playing | Relays play, pause, skip, seek and volume commands, each authorised per profile, from a closed set with no free text (SEC-HIS-014). | CLI-102, MUS-198 |
+| 5 | R2 | Edits the queue on the phone while the laptop plays. | Queue panel in remote mode | Applies queue operations to the shared, versioned document, and the target follows them. | MUS-122, MUS-119 |
+| 6 | R2 | Alternatively casts to the Chromecast speaker. | Cast button; device picker | Issues capability URLs scoped to one item and to the cast session the phone started, expiring within the item's length plus at most an hour (the stream lifetimes of SEC-API-027 stay inside that bound), revocable, and never carrying a session token (SEC-NET-064). The phone refreshes them; the receiver holds no credential of its own, because cast credentials are Later (SEC-TM-074, SEC-CLI-071). Only those representations may be read cross-origin (SEC-API-098). Picks a format the receiver can decode. Away from home, the phone relays. | CLI-106, MUS-203, CLI-110, CLI-111 |
+| 7 | R2 | Stops or adjusts casting from the notification. | Notification | Nothing beyond the control channel. | CLI-112 |
+| 8 | R2 | Takes playback back to the phone when leaving the house. | Device picker on the phone | Runs the same transfer in the other direction. | CLI-101 |
 
 **When it goes wrong.**
 
@@ -870,11 +958,12 @@ without a vendor account. Gunmetal's edge is one versioned queue that any
 of the profile's devices can take over with the same lanes and position,
 with no central account.
 
-**What R1 offers instead.** R1's only players are browser tabs, so there is
-no device picker. The queue persists on the server, and opening the client
-elsewhere offers "Continue on this device" (CLI-103, MUS-122). When a
-second tab or device presses Play, the last Play wins and the first one
-pauses on its next sync, offering the same prompt
+**What R1 and R1.1 offer instead.** R1's only players are browser tabs, so
+there is no device picker. The queue persists on the server (MUS-122), so
+opening the client elsewhere picks up the same queue, and from R1.1 the bar
+offers "Continue on this device" (CLI-103). When a second tab or device
+presses Play, the last Play wins and the first one pauses on its next
+sync, offering the same prompt from R1.1
 ([G11](#gaps-and-questions-the-flows-expose)).
 
 **Other releases.**
@@ -902,25 +991,27 @@ from R2.
 **Starts** with a synced library. **Ends** with the person at, or playing,
 the thing they wanted.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Focuses the search field from any screen and sees recent searches. | Global search field; Search screen | Nothing. Recent searches live only on the device and can be cleared; the server never stores or logs what anyone searched for (SEC-PRV-004). | DIS-083, DIS-089 |
-| 2 | Types "amelie", and results appear with each keystroke, grouped by type with chips and with no cap. | Search screen; type chips | Nothing at query time. On the device, the core builds the index from the synced library. If that build is too slow on the reference low-end device, the server ships a prebuilt index segment instead. | DIS-084, DIS-083, MUS-061 |
-| 3 | Finds "Amélie" despite the missing accent, a typo and a straight apostrophe. | Search | Nothing. | DIS-085 |
-| 4 | Types "christmas" and gets the tag and the genre as well as titles. | Search; genre chips | Sends tags, genres and moods in the sync feed. | DIS-086, MUS-017, MUS-019 |
-| 5 | Types a composer's name and gets the person, with their roles. | Search; artist page role tabs | Sends credits with their roles in the sync feed. | DIS-087, MUS-005 |
-| 6 | Narrows the search to one library, or to Music. | Scope selector | Nothing. | DIS-088 |
-| 7 | Plays a result straight away, queues it, or opens it. | Context menu; album page | Nothing beyond F05. | DIS-111, CLI-034 |
-| 8 | Goes back and finds the results and scroll position as they were. | Navigation | Nothing. | DIS-112 |
-| All | Never sees anything this profile may not see. | Every result | Builds the sync payload from the person's grants and restrictions, so the index on the device never holds a blocked item, its artwork or its search terms (SEC-CLI-020, SEC-IAM-070). | ACC-030, ACC-037, DIS-140 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1; recent searches R1.1 | Focuses the search field from any screen, and from R1.1 sees recent searches. | Global search field; Search screen | Nothing. From R1.1, recent searches live only on the device and can be cleared; the server never stores or logs what anyone searched for (SEC-PRV-004). | DIS-083; DIS-089 (R1.1) |
+| 2 | R1 | Types "amelie", and results appear with each keystroke, grouped by type with chips and with no cap. | Search screen; type chips | Nothing at query time. On the device, the core builds the index from the synced library. If that build is too slow on the reference low-end device, the server ships a prebuilt index segment instead. | DIS-084, DIS-083, MUS-061 |
+| 3 | R1 | Finds "Amélie" despite the missing accent, a typo and a straight apostrophe. | Search | Nothing. | DIS-085 |
+| 4 | R1.1 | Types "christmas" and gets the tag and the genre as well as titles. | Search; genre chips | Sends tags, genres and moods in the sync feed. | MUS-017; DIS-086, MUS-019 (R1.1) |
+| 5 | R1.1 | Types a composer's name and gets the person, with their roles. | Search; artist page role tabs | Sends credits with their roles in the sync feed. | DIS-087, MUS-005 |
+| 6 | R1.1 | Narrows the search to one library, or to Music. | Scope selector | Nothing. | DIS-088 |
+| 7 | R1 | Plays a result straight away, queues it, or opens it. | Context menu; album page | Nothing beyond F05. | DIS-111; CLI-034 (R1.2) |
+| 8 | R1 | Goes back and finds the results and scroll position as they were. | Navigation | Nothing. | DIS-112 |
+| All | R1 | Never sees anything this profile may not see. | Every result | Builds the sync payload from the person's grants and restrictions, so the index on the device never holds a blocked item, its artwork or its search terms (SEC-CLI-020, SEC-IAM-070). | ACC-030, ACC-037, DIS-140 |
 
 **When it goes wrong.**
 
 - The person is on a plane or the server is down. Search still works from
-  the local copy on a device marked as the person's own (DIS-084, CLI-025).
+  the local copy in an open tab on a device marked as the person's own
+  (DIS-084), and from R1.1 after a reload too (CLI-025).
   A browser marked as shared keeps its copy only in memory, so search there
   needs the server after a reload (SEC-CLI-010).
-- Nothing matches. The empty state should offer to widen the scope.
+- Nothing matches. The empty state should offer to widen the scope, once
+  the scope selector exists in R1.1.
 - The library is large and the device cheap. Index size and build time are
   measured against the budget: under 50 ms per search at 100,000 tracks, a
   proposed goal (open decision 16).
@@ -934,8 +1025,10 @@ since September 2026, includes search.
 
 **Other releases.**
 
+- R1.1: tags, genres and moods (DIS-086), people by role (DIS-087),
+  scoping a search (DIS-088) and recent searches (DIS-089).
 - R2: one box covers films, shows, episodes and people (actor, director,
-  character) beside music, as the R1 rows DIS-083 and DIS-087 already
+  character) beside music, as DIS-083 (R1) and DIS-087 (R1.1) already
   promise for R2, with kind chips (LAT-013). A
   title held in two libraries or editions shows once with its versions
   (DIS-095). Music and Watch get separate homes (DIS-017), so search needs
@@ -954,8 +1047,9 @@ since September 2026, includes search.
 
 ## F10. Sharing a library with a friend
 
-**Release: R1, when the owner gives the server an outside address; the
-no-open-port path arrives in R2.**
+**Release: R1, through the owner's own reverse proxy or a tailnet; built-in
+remote access with no open port arrives in R2.** The owner's view of who
+is listening arrives in R1.2.
 
 **Who and where.** The owner in the web client's admin section, and a
 friend in another house with a browser.
@@ -965,17 +1059,17 @@ reachable from outside over HTTPS through their own reverse proxy or a
 tailnet. **Ends** with the friend holding an account limited to chosen
 libraries, signed in with their own passkey on their own device.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | The owner makes the server reachable from outside: a domain with HTTPS behind a reverse proxy, a tailnet name, or a path prefix next to other services. Touches the passkey to confirm. | Admin > Network; Admin > Network > HTTPS; step-up prompt | Declaring a trusted proxy, and so leaving the home posture, is an owner-only step-up action that is audited and announced (SEC-IAM-041, SEC-TM-017, SEC-OPS-038). Each proxy is declared as a private overlay or as public; requests through a public proxy get the internet posture, with stricter limits, no setup, and no administration unless the owner turns remote administration on (SEC-NET-019, SEC-NET-045). Ignores forwarding headers from anyone not on the list, and takes the client address from the right-most untrusted entry (SEC-NET-016). Serves under the configured base path and serves TLS with the owner's certificate. | ACC-097, ACC-134, ACC-098, ADM-022 |
-| 2 | The owner creates an invite: which libraries, how many uses, when it expires. | Admin > Invitations | Stores the invite as a capability with a 128-bit secret, an expiry (7 days by default), a use count (1 by default) and a preset that can be no greater than the inviter's own rights (SEC-IAM-073, SEC-IAM-078). | ACC-080, ACC-037 |
-| 3 | The owner sends the link or shows the QR code, and sees which address the link carries. | Admin > Invitations | Builds the link from the configured public address, never from the request's Host header (SEC-NET-015), and puts the secret in the fragment, so it never reaches a server log (SEC-NET-036). Warns when the address cannot be reached from outside ([G7](#gaps-and-questions-the-flows-expose)). | ACC-080 |
-| 4 | The friend opens the link and reads, on one screen, who is inviting them to which server, what will happen, and a short privacy notice: what is stored about them, who can see what, what leaves the server, and how to export and delete. | Invite landing in the web client | Serves the landing page only over HTTPS (SEC-IAM-078). The page removes the secret from the address bar before any request and redeems nothing until the friend confirms (SEC-CLI-013). Checks the invite in a POST body, rate-limited, with the same response whatever is wrong with it (SEC-API-096, SEC-API-058). The server's name may show here, because the invitation authorises it (owner to confirm). The privacy notice is generated from the server's real settings, at most five plain sentences (SEC-PRV-053). | ACC-080, ACC-120 |
-| 5 | The friend creates an account and enrols a passkey on the spot, or links their own identity provider if the owner offers one. | Invite landing; Account > Sign-in methods | Creates a local account from the invite's policy and enrols the friend's own credential in the same transaction; no password exists (SEC-IAM-079, SEC-IAM-025). Consumes one use of the invite atomically (SEC-STD-029). Logs the redemption and tells the inviter which device redeemed it. | ACC-080, ACC-006, ACC-050 |
-| 5a | For an invite that makes the friend a household member, or grants more than one library, the friend reads a short code from their screen to the owner, and the owner confirms it in Admin > Invitations after seeing the friend's device description. A guest invite for a single library skips this step. | Invite landing (waiting for confirmation); Admin > Invitations (pending confirmation) | Leaves the new account pending, with no grants, until the inviter confirms the matching code; a wrong code fails (SEC-IAM-079). This is what stops a forwarded link from quietly letting a stranger in. | ACC-080 |
-| 6 | The friend sees only the shared libraries. | Home; library views | Builds the friend's synced library from their grants and checks authorisation on every object fetch (SEC-IAM-070). A guest by default has no downloads, no household devices and no view of other people or their activity (SEC-IAM-080). | ACC-037, ACC-121, ACC-030, MUS-027 |
-| 7 | The owner sees that the friend is listening, on which device and how, but not what, unless the friend has chosen to show titles. | Admin > Dashboard (Now playing) | Lists live sessions from the session registry with the person, device, quality and playback method, and the title only by the friend's choice. Each admin look at live sessions is rate-limited and recorded in the friend's own security log (SEC-PRV-025, SEC-IAM-077; owner decision 5, owner to confirm). | ADM-099 |
-| 8 | The owner changes the friend's libraries, pauses the account, or removes it. | Admin > Users | Updates grants, which apply from the friend's next request, so the next sync removes what the friend may no longer see (SEC-IAM-076). Disabling ends the account's sessions at once and cuts streams in flight within 5 seconds (SEC-IAM-103, SEC-IAM-043). Deleting keeps the data for a 7-day grace period and offers the friend an export first (SEC-IAM-103). | ACC-037, ACC-008, ACC-122 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1; path prefix R1.2 | The owner makes the server reachable from outside: a reverse proxy the owner runs, such as Caddy, nginx or Traefik, with HTTPS on the owner's domain, or a tailnet name that the friend reaches by joining the owner's tailnet; from R1.2 also under a path prefix next to other services. Touches the passkey to confirm. | Admin > Network; Admin > Network > HTTPS; step-up prompt | Declaring a trusted proxy, and so leaving the home posture, is an owner-only step-up action that is audited and announced (SEC-IAM-041, SEC-TM-017, SEC-OPS-038). Each proxy is declared as a private overlay or as public; requests through a public proxy get the internet posture, with stricter limits, no setup, and no administration unless the owner turns remote administration on (SEC-NET-019, SEC-NET-045). Ignores forwarding headers from anyone not on the list, and takes the client address from the right-most untrusted entry (SEC-NET-016). The project ships tested recipes for Caddy, nginx, Traefik and Cloudflare Tunnel, and one for Tailscale Serve (SEC-NET-022). From R1.2, serves under the configured base path. | ACC-097, ACC-098, ADM-022; ACC-134 (R1.2) |
+| 2 | R1 | The owner creates an invite: which libraries, how many uses, when it expires. | Admin > Invitations | Stores the invite as a capability with a 128-bit secret, an expiry (7 days by default), a use count (1 by default) and a preset that can be no greater than the inviter's own rights (SEC-IAM-073, SEC-IAM-078). | ACC-080, ACC-037 |
+| 3 | R1 | The owner sends the link or shows the QR code, and sees which address the link carries. | Admin > Invitations | Builds the link from the configured public address, never from the request's Host header (SEC-NET-015), and puts the secret in the fragment, so it never reaches a server log (SEC-NET-036). Warns when the address cannot be reached from outside ([G7](#gaps-and-questions-the-flows-expose)). | ACC-080 |
+| 4 | R1; server name R1.2 | The friend opens the link and reads, on one screen, who is inviting them to which server, what will happen, and a short privacy notice: what is stored about them, who can see what, what leaves the server, and how to export and delete. | Invite landing in the web client | Serves the landing page only over HTTPS (SEC-IAM-078). The page removes the secret from the address bar before any request and redeems nothing until the friend confirms (SEC-CLI-013). Checks the invite in a POST body, rate-limited, with the same response whatever is wrong with it (SEC-API-096, SEC-API-058). From R1.2, the server's name may show here, because the invitation authorises it (ADM-140; owner to confirm). The privacy notice is generated from the server's real settings, at most five plain sentences (SEC-PRV-053). | ACC-080, ACC-120 |
+| 5 | R1; identity provider R1.2 | The friend creates an account and enrols a passkey on the spot, or, from R1.2, links their own identity provider if the owner offers one. | Invite landing; Account > Sign-in methods | Creates a local account from the invite's policy and enrols the friend's own credential in the same transaction; no password exists (SEC-IAM-079, SEC-IAM-025). Consumes one use of the invite atomically (SEC-STD-029). Logs the redemption and tells the inviter which device redeemed it. | ACC-080, ACC-006, ACC-050 |
+| 5a | R1 | For an invite that makes the friend a household member, or grants more than one library, the friend reads a short code from their screen to the owner, and the owner confirms it in Admin > Invitations after seeing the friend's device description. A guest invite for a single library skips this step. | Invite landing (waiting for confirmation); Admin > Invitations (pending confirmation) | Leaves the new account pending, with no grants, until the inviter confirms the matching code; a wrong code fails (SEC-IAM-079). This is what stops a forwarded link from quietly letting a stranger in. | ACC-080 |
+| 6 | R1 | The friend sees only the shared libraries. | Home; library views | Builds the friend's synced library from their grants and checks authorisation on every object fetch (SEC-IAM-070). A guest by default has no downloads, no household devices and no view of other people or their activity (SEC-IAM-080). | ACC-037, ACC-121, ACC-030, MUS-027 |
+| 7 | R1.2 | From R1.2, the owner sees that the friend is listening, on which device and how, but not what, unless the friend has chosen to show titles. | Admin > Dashboard (Now playing) | Lists live sessions from the session registry with the person, device, quality and playback method, and the title only by the friend's choice. Each admin look at live sessions is rate-limited and recorded in the friend's own security log (SEC-PRV-025, SEC-IAM-077; owner decision 5, owner to confirm). In R1 there is no live view. | ADM-099 |
+| 8 | R1 | The owner changes the friend's libraries, pauses the account, or removes it. | Admin > Users | Updates grants, which apply from the friend's next request, so the next sync removes what the friend may no longer see (SEC-IAM-076). Disabling ends the account's sessions at once and cuts streams in flight within 5 seconds (SEC-IAM-103, SEC-IAM-043). Deleting keeps the data for a 7-day grace period and offers the friend an export first (SEC-IAM-103). | ACC-037, ACC-008, ACC-122 |
 
 **When it goes wrong.**
 
@@ -985,8 +1079,9 @@ libraries, signed in with their own passkey on their own device.
   ([G7](#gaps-and-questions-the-flows-expose)).
 - **The owner forwarded a router port instead of setting up a proxy.** The
   friend gets the static help page, and the owner gets an exposure alert
-  with the fix and a "turn on remote access instead" button (SEC-NET-024,
-  SEC-NET-027).
+  with the fix: in R1 the reverse-proxy and tailnet recipes, and from R2 a
+  "turn on remote access instead" button (SEC-NET-024, SEC-NET-027,
+  SEC-NET-022).
 - **The link leaks or is forwarded.** It expires, has a use count and can be
   revoked, every redemption is logged, and for anything beyond a
   single-library guest the matching code stops a stranger at step 5a
@@ -995,8 +1090,9 @@ libraries, signed in with their own passkey on their own device.
   and server-wide, and every failure looks the same (SEC-IAM-101,
   SEC-API-058).
 - **The friend's browser cannot make a passkey and they have no other
-  device.** They can use a security key, or the owner's identity provider if
-  one is set up. There is no password path (SEC-IAM-025; owner decision 1).
+  device.** They can use a security key, or, from R1.2, the owner's
+  identity provider if one is set up. There is no password path
+  (SEC-IAM-025; owner decision 1).
 - **The friend wants to know what the owner can see.** Account > What admins
   can see shows it from R1, generated from the same policy the server
   enforces (SEC-IAM-104, SEC-PRV-027). This settles G8.
@@ -1015,53 +1111,60 @@ public share links for people with no account.
   them (ACC-115), because the baseline requires it from R1 (SEC-IAM-104,
   SEC-PRV-027). What admins see is fixed by the baseline: no server setting
   can add history or titles, and the only choice is each person's own, to
-  show titles (ACC-116, SEC-PRV-025).
-- R1, not R2: share links for a music track, album or playlist reach people
-  with no account (ACC-086, ACC-087, ACC-088, ACC-089; security README
-  decision 7, owner to confirm), always with the baseline's rules: a 128-bit
-  secret in the fragment, one object, the sharer taken from the session, 30
-  days by default, listen-only unless the owner allows downloads
-  server-wide, an optional password under the guessing delays, two streams
-  at once, a cap on uses or bytes, and a distinct-address count that
-  suspends the link and alerts the sharer; no link-preview metadata unless
-  the sharer turns it on; and a page that shows nothing of the sharer, other
-  people, the library or the server's name (SEC-API-097, SEC-PRV-031,
-  SEC-NET-047). Revoking a link stops it on the next request, streams
-  included (SEC-API-028). Managed profiles cannot create them. Video links
-  follow in R2, off by default (ACC-092).
+  show titles (ACC-116, SEC-PRV-025), which arrives with the admins' live
+  view in R1.2.
 - R1, not R2: stream limits that count playing, not browsing, server-wide
   and per guest, with a "too many streams" message (ACC-075, SEC-IAM-102,
   SEC-TM-068).
-- R2: native apps reach home over iroh with no open port, no account and no
-  fee, and the invite carries the server's node address and key, which the
-  app pins (ACC-096, ACC-083, ACC-100, ACC-101, SEC-IAM-051, SEC-NET-060).
-  Turning remote access on is an owner step-up action (SEC-IAM-041). An
-  onboarding page says "install this app, then tap here" (ACC-082).
-  Membership can end on a date (ACC-081). Remote access can be on or off
-  per person (ACC-103). Quality caps never transcode silently (ACC-107,
-  ACC-108). The house's upload is shared fairly (ACC-109). Policies can be
-  named and shared, each with its own stream limits (ACC-038). A
-  single-item guest link (ACC-135). Playlists can be collaborative
-  (ACC-091).
+- R1.2: serving under a path prefix (ACC-134, step 1); the owner's view of
+  who is listening (ADM-099, step 7); a second administrator (ACC-040);
+  signing in through the household's identity provider (ACC-057, step 5).
+- R1.2, not R2: share links for a music track, album or playlist reach
+  people with no account (ACC-086, ACC-087, ACC-088, ACC-089; D-10 places
+  them in R1.2, and SEC-API-097 and SEC-STD-008 ship with them), always
+  with the baseline's rules: a 128-bit secret in the fragment, one object,
+  the sharer taken from the session, 30 days by default, listen-only unless
+  the owner allows downloads server-wide, an optional password under the
+  guessing delays, two streams at once, a cap on uses or bytes, and a
+  distinct-address count that suspends the link and alerts the sharer; no
+  link-preview metadata unless the sharer turns it on; and a page that
+  shows nothing of the sharer, other people, the library or the server's
+  name (SEC-API-097, SEC-PRV-031, SEC-NET-047). Revoking a link stops it on
+  the next request, streams included (SEC-API-028). Managed profiles cannot
+  create them. Video links follow in R2, off by default (ACC-092).
+- R2: built-in remote access, by the owner's answer of 2026-10-02. Native
+  apps reach home over iroh with no open port, no account and no fee, and
+  the invite carries the server's node address and key, which the app pins
+  (ACC-096, ACC-083, ACC-100, ACC-101, SEC-IAM-051, SEC-NET-060). Turning
+  remote access on is an owner step-up action (SEC-IAM-041). An onboarding
+  page says "install this app, then tap here" (ACC-082). Membership can end
+  on a date (ACC-081). Remote access can be on or off per person
+  (ACC-103). Quality caps never transcode silently (ACC-107, ACC-108). The
+  house's upload is shared fairly (ACC-109). Policies can be named and
+  shared, each with its own stream limits (ACC-038). A single-item guest
+  link (ACC-135). Playlists can be collaborative (ACC-091).
 - Also R2: remote access in the browser with no domain, through the
   project's edge, which forwards only ciphertext so TLS ends on the owner's
   server, is off until the owner turns it on, and gives every edge request
-  the internet posture (ACC-102; SEC-NET-041 to SEC-NET-043; security
-  README decision 3, owner to confirm).
+  the internet posture (ACC-102; SEC-NET-041 to SEC-NET-043). It needs the
+  per-server name service, which is R2 too (D-07).
 - Later: asking to join (ACC-085); link previews in chat apps (ACC-090);
   and, with the importers for rival databases (SEC-TM-074; see F11),
   re-inviting people from an old server (ACC-084, ADM-048), through the
   same invitation rules.
 
-**Depends on.** Open decision 10 (who runs relays); open decision 13 (what
-admins can see) and security README decisions 3, 5 and 7.
+**Depends on.** The owner's answer on remote access (the owner's reverse
+proxy or a tailnet in R1; built-in remote access in R2); open decision 10
+(who runs relays, for R2); open decision 13 (what admins can see) and
+security README decisions 5 and 7.
 
 ---
 
 ## F11. Migrating from Plex or Jellyfin
 
-**Release: R1 for listening-service export files and M3U playlists;
-importing from the rival servers' own databases is Later.**
+**Release: R1.1 for listening-service export files and M3U playlists
+(moved from R1 with D-10); importing from the rival servers' own databases
+is Later.**
 
 **Who and where.** The owner, in the admin section, with the old server's
 files still to hand.
@@ -1070,23 +1173,23 @@ files still to hand.
 **Ends** with history and playlists attached to the right files, and a list
 of what did not match.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Answers "Coming from another server?" at setup, or opens Migration later. | Welcome > Import; Admin > Migration | Lists the importers this release has. | ADM-030 |
-| 2 | Uploads Last.fm or ListenBrainz export files. | Admin > Migration > Listening services; upload dialog | Takes the files through the upload route with its type, size and quota limits (SEC-API-085, SEC-API-088) and parses them in the core within its budgets, with no network grant. Writes them only into the uploader's own history; each other person imports their own from Account > Your data, because no admin may write, read or export another adult's history on their behalf (SEC-PRV-022, SEC-PRV-025). Marks each listen as imported, so a scrobbler never sends it back. | ADM-042, INT-107, MUS-189 |
-| 3 | Uploads a folder of M3U playlists exported from the old server, where it can export them. | Admin > Migration > Playlists | Parses M3U and M3U8, keeping only entries that match items in libraries the importer can see (SEC-MED-051). | ADM-043, MUS-140 |
-| 4 | Waits for matching. | Admin > Tasks; Admin > Activity | Runs the one matcher every importer shares: path relative to a remapped root, then MusicBrainz IDs, then tags and duration. Records a reason and a confidence for each match. | ADM-044 |
-| 5 | Reads the match report and works through the unmatched queue. | Admin > Migration > Review | Holds low-confidence matches for a yes. | ADM-044, LIB-099 |
-| 6 | Sees years of plays in history and the playlists in the sidebar. | History page; sidebar | Writes the imported plays and playlists to the user log, keyed by content identity. | MUS-183, MUS-132, LIB-028 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1.1 | Answers "Coming from another server?" at setup, or opens Migration later. | Welcome > Import; Admin > Migration | Lists the importers this release has. | ADM-030 |
+| 2 | R1.1 | Uploads Last.fm or ListenBrainz export files. | Admin > Migration > Listening services; upload dialog | Takes the files through the upload route with its type, size and quota limits (SEC-API-085, SEC-API-088) and parses them in the core within its budgets, with no network grant. Writes them only into the uploader's own history; each other person imports their own from Account > Your data, because no admin may write, read or export another adult's history on their behalf (SEC-PRV-022, SEC-PRV-025). Marks each listen as imported, so a scrobbler never sends it back. | ADM-042, INT-107, MUS-189 |
+| 3 | R1.1 | Uploads a folder of M3U playlists exported from the old server, where it can export them. | Admin > Migration > Playlists | Parses M3U and M3U8, keeping only entries that match items in libraries the importer can see (SEC-MED-051). | ADM-043, MUS-140 |
+| 4 | R1.1 | Waits for matching. | Admin > Tasks; Admin > Activity | Runs the one matcher every importer shares: path relative to a remapped root, then MusicBrainz IDs, then tags and duration. Records a reason and a confidence for each match. | ADM-044 |
+| 5 | R1.1; review queue R1.3 | Reads the match report and works through the unmatched queue. | Admin > Migration > Review | Holds low-confidence matches for a yes in the unmatched queue; from R1.3 the library's review queue shows them too. | ADM-044; LIB-099 (R1.3) |
+| 6 | R1.1 | Sees years of plays in history and the playlists in the sidebar. | History page; sidebar | Writes the imported plays and playlists to the user log, keyed by content identity. | MUS-183, MUS-132, LIB-028 |
 
 **When it goes wrong.**
 
 - Paths changed between servers. The matcher remaps roots and falls back to
   tags and duration (ADM-044).
-- An import goes badly. In R1, imported events are marked and can be removed
-  as a batch (INT-107); a full undo is R2 (ADM-046).
+- An import goes badly. From R1.1, imported events are marked and can be
+  removed as a batch (INT-107); a full undo is R2 (ADM-046).
 - The owner is leaving Plex. Plex has no built-in music playlist export
-  (one forum user spent weeks rebuilding 614 items), so in R1 a Plex
+  (one forum user spent weeks rebuilding 614 items), so in R1.1 a Plex
   owner's playlists depend on third-party tools. Play counts and ratings
   held only in Plex's database cannot come across until the Later
   importers. Whether Jellyfin exports playlists is unverified.
@@ -1142,48 +1245,48 @@ listener and the owner.
 This flow is a set of cases rather than one path. Each row is one way
 playback can fail, with what the listener should see.
 
-**Listener cases in R1.**
+**Listener cases (R1, with later parts marked).**
 
-| Case | What the listener sees | Surface | The server | Features |
-|---|---|---|---|---|
-| A. This browser cannot decode the format, for example ALAC in some browsers (unverified) | The track is dimmed with a reason before anyone presses play, and the queue skips it with a note. | Track rows; queue; Library health | Sends codec and container per file in the sync feed. On the device, the core's capability probe decides. The health report counts such files by format and browser. | MUS-229, MUS-032 |
-| B. The file is damaged | The player skips it with a notice that links to the health report, and never plays noise. | Notice; Library health > Problems | Flags the damage at scan time. The player keeps a true-peak ceiling. | MUS-079, LIB-193 |
-| C. The connection drops | Music carries on from what was fetched ahead, a quiet banner says the server is unreachable, and playback resumes when it returns. | Quiet status banner; player | Serves byte ranges, so the player resumes exactly where it stopped. | CLI-099, MUS-070, CLI-025 |
-| D. The stream URL expired during a long pause | Nothing visible: the player gets a fresh URL and resumes at the same position. | None | Issues a new capability URL while the session is valid; transparent refresh is a requirement (SEC-API-027). | ACC-122 |
-| E. An admin ended the session, the device was revoked, the account was disabled, or the library grant was withdrawn | Playback stops with a plain message (the admin's own words, when there are any), followed by the sign-in page. | Client banner; sign-in page | Refuses the next range request and closes the control socket within 5 seconds (SEC-IAM-043, SEC-API-028). The web client then deletes the account's cached data (SEC-CLI-009). | ADM-102, ACC-069, ACC-008, ACC-122 |
-| F. The drive holding the file is offline | The item is greyed out with an offline badge, and pressing play says why. | Greyed-out items | Checks root health, marks the root offline and alerts the admin. | LIB-032, ADM-108, ADM-116 |
-| G. The file was moved or deleted | A move inside the library roots changes nothing. A missing file is listed, and it returns with its history if restored within the grace period. | Library health > Missing files | Detects moves and keeps deleted entries in a trash with a grace period. | LIB-029, LIB-034, LIB-033 |
-| H. The server is restarting or upgrading | A status page instead of a refused connection, and the queue intact afterwards. | Startup page | Opens its listener before the database. The page shows the state and progress only, with no version, path or error detail (SEC-OPS-050). | ADM-032, MUS-122 |
+| Case | Release | What the listener sees | Surface | The server | Features |
+|---|---|---|---|---|---|
+| A. This browser cannot decode the format, for example ALAC in some browsers (unverified) | R1 | The track is dimmed with a reason before anyone presses play, and the queue skips it with a note. | Track rows; queue; Library health | Sends codec and container per file in the sync feed. On the device, the core's capability probe decides. The health report counts such files by format and browser. | MUS-229, MUS-032 |
+| B. The file is damaged | R1 | The player skips it with a notice that links to the health report, and never plays noise. | Notice; Library health > Problems | Flags the damage at scan time. The player keeps a true-peak ceiling. | MUS-079, LIB-193 |
+| C. The connection drops | R1; banner and fetch-ahead R1.1 | Music carries on from what was fetched ahead, the connection indicator says the server is unreachable (from R1.1 as a quiet banner), and playback resumes when it returns. | Connection indicator; quiet status banner (R1.1); player | Serves byte ranges, so the player resumes exactly where it stopped. From R1.1, the client fetches further ahead on patchy signal. | MUS-070, ACC-003; CLI-099, CLI-025 (R1.1) |
+| D. The stream URL expired during a long pause | R1 | Nothing visible: the player gets a fresh URL and resumes at the same position. | None | Issues a new capability URL while the session is valid; transparent refresh is a requirement (SEC-API-027). | ACC-122 |
+| E. An admin ended the session, the device was revoked, the account was disabled, or the library grant was withdrawn | R1; admin's message R1.2 | Playback stops with a plain message (from R1.2, the admin's own words when there are any), followed by the sign-in page. | Client banner; sign-in page | Refuses the next range request and closes the control socket within 5 seconds (SEC-IAM-043, SEC-API-028). The web client then deletes the account's cached data (SEC-CLI-009). In R1 an admin ends a person's sessions from Admin > Users (SEC-IAM-044). | ACC-006, ACC-069, ACC-008, ACC-122; ADM-102 (R1.2) |
+| F. The drive holding the file is offline | R1 | The item is greyed out with an offline badge, and pressing play says why. | Greyed-out items | Checks root health, marks the root offline and alerts the admin. | LIB-032, ADM-108, ADM-116 |
+| G. The file was moved or deleted | R1; missing-files list R1.1 | A move inside the library roots changes nothing. A missing file returns with its history if restored within the grace period, and from R1.1 it is listed. | Track rows; Library health > Missing files (R1.1) | Detects moves and keeps deleted entries in a trash with a grace period. | LIB-029, LIB-033; LIB-034 (R1.1) |
+| H. The server is restarting or upgrading | R1 | A status page instead of a refused connection, and the queue intact afterwards. | Startup page | Opens its listener before the database. The page shows the state and progress only, with no version, path or error detail (SEC-OPS-050). | ADM-032, MUS-122 |
 
 **Stream limits apply to music from R1.** Case L below is not only a video
-case: when a server-wide, per-guest or share-link stream limit refuses
-music, the listener sees "Too many streams are playing on this server right
-now" or the limit that applies, with what to do, never a silent failure.
+case: when a server-wide or per-guest stream limit, or from R1.2 a
+share-link limit, refuses music, the listener sees "Too many streams are
+playing on this server right now" or the limit that applies, with what to do, never a silent failure.
 The server checks the limit when stream URLs are issued and on every
 stream request and answers with a typed "too many" error, and the next
 track's early fetch for gapless playback counts as the same playback
 (SEC-TM-068, SEC-API-031, SEC-IAM-102, ACC-075). The player's "Not
 allowed" state in [player.md](player.md) shows it.
 
-**The owner investigates (R1).**
+**The owner investigates (R1.2; `gunmetal doctor` from R1).**
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Sees which sessions failed and the reason for each. | Admin > Sessions; session detail | Stores the structured reason from the core's decision engine per session, and exposes it in the API. The session list shows the person, device and delivery method, and the title only if that person chose to show it; each look is recorded in that person's own security log (SEC-PRV-025, SEC-IAM-077). | ADM-100, INT-134 |
-| 2 | Inspects the file, once the listener has said which one. | Admin > Diagnostics > Inspect a file; Item menu > File info | Runs the core's parsers in the worker through the inspect API and shows raw tags, structure, and any error with its location, all rendered as text (SEC-MED-018, SEC-CLI-001). | ADM-125, LIB-195, MUS-114 |
-| 3 | Asks the listener for a report. | Settings > Help > Diagnostics, on the listener's device | On the device, builds the report, redacted by default and shown in full before the listener chooses to send it. Adds a server log excerpt on request; diagnostic logs never hold titles, paths, search terms or secrets at the default level (SEC-PRV-043, SEC-OPS-029). | CLI-033 |
-| 4 | Runs the doctor and builds a bundle when asking the project for help. | Admin > Diagnostics; CLI | Runs the check registry, including `doctor --security` (SEC-OPS-061). Builds the bundle from an allowlist of fields, with no database, backups or secrets, and with paths, titles, user names and addresses replaced by pseudonyms; the admin sees all of it before downloading (SEC-PRV-046, SEC-OPS-030). Includes local crash records. | ADM-123, ADM-124, ADM-130 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1.2 | Sees which sessions failed and the reason for each. | Admin > Sessions; session detail | Stores the structured reason from the core's decision engine per session, and exposes it in the API. The session list shows the person, device and delivery method, and the title only if that person chose to show it; each look is recorded in that person's own security log (SEC-PRV-025, SEC-IAM-077). | ADM-100, INT-134 |
+| 2 | R1.2 | Inspects the file, once the listener has said which one. | Admin > Diagnostics > Inspect a file; Item menu > File info | Runs the core's parsers in the worker through the inspect API and shows raw tags, structure, and any error with its location, all rendered as text (SEC-MED-018, SEC-CLI-001). | ADM-125, LIB-195; MUS-114 (R1.1) |
+| 3 | R1.2 | Asks the listener for a report. | Settings > Help > Diagnostics, on the listener's device | On the device, builds the report, redacted by default and shown in full before the listener chooses to send it. Adds a server log excerpt on request; diagnostic logs never hold titles, paths, search terms or secrets at the default level (SEC-PRV-043, SEC-OPS-029). | CLI-033 |
+| 4 | R1 (doctor); bundle R1.2 | Runs the doctor, and from R1.2 builds a bundle when asking the project for help. | CLI; Admin > Diagnostics (R1.2) | Runs the check registry, including `doctor --security` (SEC-OPS-061). From R1.2, builds the bundle from an allowlist of fields, with no database, backups or secrets, and with paths, titles, user names and addresses replaced by pseudonyms; the admin sees all of it before downloading (SEC-PRV-046, SEC-OPS-030), with local crash records. | ADM-123; ADM-124, ADM-130 (R1.2) |
 
 **Video cases in R2.**
 
-| Case | What the viewer sees | Surface | The server | Features |
-|---|---|---|---|---|
-| I. The device cannot open the container | The film plays anyway, and the info overlay says it is being remuxed and why. | Player info overlay | The core's decision engine picks a remux, and the remuxer repackages without touching picture or sound. It runs in a worker process streaming over a pipe, under a step budget, a memory cap and a watchdog, not inside the server (SEC-MED-081; security README decision 9, owner to confirm). | VID-002, VID-003, VID-168, VID-169 |
-| J. The codec is unsupported and transcoding is off, unavailable, or not allowed for this person | An error card offers another version, a download for later, or another device. | Player error card | Treats policy as an input to the decision, so the refusal comes with its reason and the alternatives. The sandbox self-test says plainly when transcoding cannot run; when the jail is missing, transcoding is off rather than unconfined (SEC-MED-024, SEC-OPS-062). | VID-010, ACC-043, VID-009, ADM-133, VID-013, CLI-084, CLI-101 |
-| K. The link is too slow for the original | A short choice: the original with a bigger buffer, another version, an audio-only conversion, or a download. | Pre-play sheet | Compares the measured link with the file's peak bitrate per segment from the segment map. | VID-024, VID-014 |
-| L. Too many streams (music from R1, video from R2) | A card that names the limit. | Player limit card | Counts playing leases, not open apps, and answers the stream over the limit with a typed "too many" error (SEC-TM-068, SEC-API-031). | VID-173, ACC-075 |
-| M. A Dolby Vision file on a non-Dolby Vision device | The HDR10 base layer plays, and the overlay names the fallback. | Player info overlay | The remuxer handles the HEVC NAL units. | VID-040 |
-| N. A stall nobody can explain | One tap sends the owner a redacted report, and the owner opens the session trace. | Player error card; Admin > Sessions > Trace | Joins the server's decision and bytes sent with the client's buffering and error reports for a short time. The trace names the title only because the viewer chose to send the report; otherwise it shows what any live-session view shows (SEC-PRV-025). | VID-174, ADM-126 |
+| Case | Release | What the viewer sees | Surface | The server | Features |
+|---|---|---|---|---|---|
+| I. The device cannot open the container | R2 | The film plays anyway, and the info overlay says it is being remuxed and why. | Player info overlay | The core's decision engine picks a remux, and the remuxer repackages without touching picture or sound. It runs in a worker process streaming over a pipe, under a step budget, a memory cap and a watchdog, not inside the server (SEC-MED-081; security README decision 9, owner to confirm). | VID-002, VID-003, VID-168, VID-169 |
+| J. The codec is unsupported and transcoding is off, unavailable, or not allowed for this person | R2 | An error card offers another version, a download for later, or another device. | Player error card | Treats policy as an input to the decision, so the refusal comes with its reason and the alternatives. The sandbox self-test says plainly when transcoding cannot run; when the jail is missing, transcoding is off rather than unconfined (SEC-MED-024, SEC-OPS-062). | VID-010, ACC-043, VID-009, ADM-133, VID-013, CLI-084, CLI-101 |
+| K. The link is too slow for the original | R2 | A short choice: the original with a bigger buffer, another version, an audio-only conversion, or a download. | Pre-play sheet | Compares the measured link with the file's peak bitrate per segment from the segment map. | VID-024, VID-014 |
+| L. Too many streams (music from R1, video from R2) | R1 for music; R2 for video | A card that names the limit. | Player limit card | Counts playing leases, not open apps, and answers the stream over the limit with a typed "too many" error (SEC-TM-068, SEC-API-031). | VID-173, ACC-075 |
+| M. A Dolby Vision file on a non-Dolby Vision device | R2 | The HDR10 base layer plays, and the overlay names the fallback. | Player info overlay | The remuxer handles the HEVC NAL units. | VID-040 |
+| N. A stall nobody can explain | R2 | One tap sends the owner a redacted report, and the owner opens the session trace. | Player error card; Admin > Sessions > Trace | Joins the server's decision and bytes sent with the client's buffering and error reports for a short time. The trace names the title only because the viewer chose to send the report; otherwise it shows what any live-session view shows (SEC-PRV-025). | VID-174, ADM-126 |
 
 Before play, a "plays directly here" badge warns of a remux or transcode
 in advance (VID-015). Native players receive media only through a stream
@@ -1216,15 +1319,15 @@ with the remuxer in a worker (security README decision 9).
 **Starts** with a running server and a new release available. **Ends** with
 the new version serving, or the old one back, with nothing lost either way.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Learns that a new version exists, if the owner answered yes to the security-fix question at setup. | Admin > Updates; dashboard update card | Fetches a static signed feed daily through the egress gate with a plain request that sends no version, cookie or identifier (SEC-SUP-051), and verifies it against a trust root compiled into the binary, refusing a feed that is expired, rolled back or under-signed (SEC-OPS-019). Contacts nobody when the check is off, and the dashboard and `doctor` then say so quietly (SEC-OPS-047). After 7 days without a valid feed it says "Can't confirm you're up to date" (SEC-SUP-050). | ADM-053, ADM-028 |
-| 2 | Is told plainly if the running version has a known security problem or is out of support. | Admin banner; Admin > Updates | Compares the running version with the advisory ranges in the feed on the server, so the project never learns which version runs, and alerts the owner and administrators (SEC-OPS-032, SEC-OPS-070). The version is shown only to signed-in administrators (SEC-NET-047). | ADM-054, ACC-126 |
-| 3 | Reads whether this release migrates data, can be rolled back, and changes any security default. | Admin > Updates; release notes | Shows the release notes' upgrade block, which every release must carry (SEC-OPS-052). | ADM-060 |
-| 4 | Replaces the binary, or pulls the new container tag, and restarts. | Host | Nothing until it starts. The server never replaces its own binary or runs code it downloaded (SEC-OPS-046). | ADM-001, ADM-003 |
-| 5 | Sees the startup page while the server migrates. | Startup page | Takes a snapshot and checks its integrity before any migration, runs migrations in transactions, and on failure stays in maintenance mode on the untouched data (SEC-OPS-048). No migration makes the server less strict, and explicit owner choices are kept (SEC-OPS-049). Serves only after the migrations pass. The page shows progress, with no version or error detail (SEC-OPS-050). Upgrades from any older version in one step. | ADM-056, ADM-057, ADM-058, ADM-032 |
-| 6 | Is back in, with no full rescan. | Admin > Activity, for example "Re-reading MP4 files after a parser update" | Rereads only files whose parser version changed and keeps derived data such as loudness. | LIB-025, ADM-141 |
-| 7 | If the new version misbehaves, stops it and restores the pre-upgrade snapshot, then starts the previous binary. | Console; Startup page ("restore the snapshot first") | An older binary may discard a newer cache and rebuild it from the files, but it refuses to open durable state written in a newer, incompatible format and prints how to restore the pre-upgrade snapshot; it never discards identity, audit or security configuration to start (SEC-OPS-051). | ADM-059, ADM-077, ADM-056 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Learns that a new version exists, if the owner answered yes to the security-fix question at setup. | Admin > Updates; dashboard update card | Fetches a static signed feed daily through the egress gate with a plain request that sends no version, cookie or identifier (SEC-SUP-051), and verifies it against a trust root compiled into the binary, refusing a feed that is expired, rolled back or under-signed (SEC-OPS-019). Contacts nobody when the check is off, and the dashboard and `doctor` then say so quietly (SEC-OPS-047). After 7 days without a valid feed it says "Can't confirm you're up to date" (SEC-SUP-050). | ADM-053, ADM-028 |
+| 2 | R1 | Is told plainly if the running version has a known security problem or is out of support. | Admin banner; Admin > Updates | Compares the running version with the advisory ranges in the feed on the server, so the project never learns which version runs, and alerts the owner and administrators (SEC-OPS-032, SEC-OPS-070). The version is shown only to signed-in administrators (SEC-NET-047). | ADM-054, ACC-126 |
+| 3 | R1 | Reads whether this release migrates data, can be rolled back, and changes any security default. | Admin > Updates; release notes | Shows the release notes' upgrade block, which every release must carry (SEC-OPS-052). | ADM-060 |
+| 4 | R1 | Replaces the binary, or pulls the new container tag, and restarts. | Host | Nothing until it starts. The server never replaces its own binary or runs code it downloaded (SEC-OPS-046). | ADM-001, ADM-003 |
+| 5 | R1 | Sees the startup page while the server migrates. | Startup page | Takes a snapshot and checks its integrity before any migration, runs migrations in transactions, and on failure stays in maintenance mode on the untouched data (SEC-OPS-048). No migration makes the server less strict, and explicit owner choices are kept (SEC-OPS-049). Serves only after the migrations pass. The page shows progress, with no version or error detail (SEC-OPS-050). Upgrades from any older version in one step. | ADM-056, ADM-057, ADM-058, ADM-032 |
+| 6 | R1.1; derived data R1.3 | Is back in, with no full rescan. | Admin > Activity, for example "Re-reading MP4 files after a parser update" | Rereads only files whose parser version changed, and from R1.3 keeps derived data such as loudness. In R1, before this step exists, a release whose parsers change rescans every file. | LIB-025; ADM-141 (R1.3) |
+| 7 | R1 | If the new version misbehaves, stops it and restores the pre-upgrade snapshot, then starts the previous binary. | Console; Startup page ("restore the snapshot first") | An older binary may discard a newer cache and rebuild it from the files, but it refuses to open durable state written in a newer, incompatible format and prints how to restore the pre-upgrade snapshot; it never discards identity, audit or security configuration to start (SEC-OPS-051). | ADM-059, ADM-077, ADM-056 |
 
 **When it goes wrong.**
 
@@ -1233,10 +1336,12 @@ the new version serving, or the old one back, with nothing lost either way.
   console and log say what failed (ADM-057, SEC-OPS-048).
 - The power goes during a write. The user log recovers from a torn write
   (ADM-078).
-- The main client will not load. The emergency page still offers status,
-  recent log lines, a backup and a restart, after the owner or an
-  administrator signs in with a passkey (ADM-113, SEC-IAM-041). Downloading
-  the backup there is an owner step-up action (SEC-OPS-045).
+- The main client will not load. In R1 the owner works on the host, with
+  the console, `gunmetal doctor` and `gunmetal restore` (ADM-123, ADM-071).
+  From R1.2 the emergency page also offers status, recent log lines, a
+  backup and a restart, after the owner or an administrator signs in with
+  a passkey (ADM-113, SEC-IAM-041). Downloading the backup there is an
+  owner step-up action (SEC-OPS-045).
 - The new version changed a security default. Existing installs keep their
   stricter setting, and the release notes say what changed (SEC-OPS-049,
   SEC-OPS-052).
@@ -1254,8 +1359,10 @@ reinstalling the older build has fixed past regressions. Plex can also
 email owners of a vulnerable version, which Gunmetal cannot do without a
 central account; the advisory banner in step 2 is the substitute.
 
-**Other releases.** R2: release channels with free release candidates
-(ADM-055), withdrawn releases flagged (ADM-061), and a plugin check before
+**Other releases.** R1.1: upgrades that reread only what a parser change
+touches (LIB-025). R1.2: the emergency page (ADM-113) and restarting from
+the admin screens (ADM-112). R1.3: derived data kept across rebuilds
+(ADM-141). R2: release channels with free release candidates (ADM-055), withdrawn releases flagged (ADM-061), and a plugin check before
 upgrading (ADM-063). Later: opt-in automatic updates with a health-check
 rollback (ADM-064), which can never mean the server rewriting its own
 binary (SEC-OPS-046).
@@ -1278,14 +1385,14 @@ playlists and settings on the new machine, every library root pointed at
 its new path, fresh keys, and every restored device waiting for its owner
 to confirm it.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Before anything breaks, has daily backups that are verified, explained, encrypted and signed. | Admin > Backups; backup detail; dashboard health card | Backs up a consistent snapshot of the user log, the identity store, settings and the audit log with its latest signed checkpoint, never by copying a live database file (SEC-OPS-041, SEC-OPS-024). Encrypts each backup to the server's backup key and the owner's recovery key, and signs it (SEC-OPS-042, SEC-OPS-043, SEC-PRV-039). Never writes backups under a web-served path or into a media root, keeps them 14 days by default, verifies each after writing and alerts on failure (SEC-OPS-045, SEC-PRV-041). Downloading one is an owner step-up action that is audited and alerted (SEC-OPS-045). | ADM-065, ADM-066, ADM-072, ADM-069, ADM-116 |
-| 2 | Installs Gunmetal on the new machine, starts it, and enters the setup code. | Console; Welcome > Setup code | As in F01, steps 1 to 5. A restore needs the same setup code as a claim, so nobody else on the network can restore their own backup onto a fresh install (SEC-OPS-008). | ADM-001, ACC-001 |
-| 3 | Chooses "Restore from a backup", uploads or picks the file, and enters or scans the backup recovery key from the recovery kit. | Welcome > Restore | Checks the signature before anything else, then decrypts and parses the archive as a stream within limits on size, entry count and expansion, refusing absolute paths, `..`, links and duplicate entries (SEC-OPS-043). Opens any database inside it read-only in a jailed worker (SEC-STD-031). Shows which server made the backup and when, and the signing key's fingerprint; a backup signed by a key this install has never used needs the owner to type that fingerprint (SEC-OPS-043). Checks that the audit log extends the backup's checkpoint (SEC-OPS-024). The recovery key stays in memory only for the restore (SEC-PRV-040). | ADM-029 |
-| 4 | Sees where each library root used to be and points it at its new path. | Welcome > Restore > "Where are your libraries now?" | Checks every root is reachable and offers to remap moved roots, with a dry run. Refuses a root that is a filesystem root or holds the server's own data (SEC-MED-037). | ADM-051, LIB-031 |
-| 5 | Watches the restore. | Restore progress page | Restores the log and the identity store, then rebuilds the cache from the files, reusing derived data when the backup includes it. Then rotates every symmetric key and invalidates every session and stream URL (SEC-OPS-044). Every restored setting passes the live validators, and anything less strict than today's defaults, such as a trusted-proxy list, is held until the owner confirms it; the server stays in the home posture (SEC-OPS-044, SEC-OPS-038). | ADM-029, ADM-077, ADM-141 |
-| 6 | Signs in, and works through the "review devices and access" alert. | Sign-in page; owner alert; Account > Sessions and devices | Uses the restored identity store, with every restored device and credential suspended until its holder or the owner confirms it. The alert lists every restored device, credential, administrator and share, and says that removals made after the backup was taken have been undone (SEC-OPS-044). Writes the restore to the audit log and alerts the owner (SEC-OPS-032). | ACC-050 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Before anything breaks, has daily backups that are verified, explained, encrypted and signed. | Admin > Backups; backup detail; dashboard security card (health card from R1.2) | Backs up a consistent snapshot of the user log, the identity store, settings and the audit log with its latest signed checkpoint, never by copying a live database file (SEC-OPS-041, SEC-OPS-024). Encrypts each backup to the server's backup key and the owner's recovery key, and signs it (SEC-OPS-042, SEC-OPS-043, SEC-PRV-039). Never writes backups under a web-served path or into a media root, keeps them 14 days by default, verifies each after writing and alerts on failure (SEC-OPS-045, SEC-PRV-041). Downloading one is an owner step-up action that is audited and alerted (SEC-OPS-045). | ADM-065, ADM-066, ADM-072, ADM-069, ADM-116 |
+| 2 | R1 | Installs Gunmetal on the new machine, starts it, and enters the setup code. | Console; Welcome > Setup code | As in F01, steps 1 to 5. A restore needs the same setup code as a claim, so nobody else on the network can restore their own backup onto a fresh install (SEC-OPS-008). | ADM-001, ACC-001 |
+| 3 | R1 | Chooses "Restore from a backup", uploads or picks the file, and enters or scans the backup recovery key from the recovery kit. | Welcome > Restore | Checks the signature before anything else, then decrypts and parses the archive as a stream within limits on size, entry count and expansion, refusing absolute paths, `..`, links and duplicate entries (SEC-OPS-043). Opens any database inside it read-only in a jailed worker (SEC-STD-031). Shows which server made the backup and when, and the signing key's fingerprint; a backup signed by a key this install has never used needs the owner to type that fingerprint (SEC-OPS-043). Checks that the audit log extends the backup's checkpoint (SEC-OPS-024). The recovery key stays in memory only for the restore (SEC-PRV-040). | ADM-029 |
+| 4 | R1.1 | Sees where each library root used to be and points it at its new path. | Welcome > Restore > "Where are your libraries now?" | Checks every root is reachable and offers to remap moved roots, with a dry run. Refuses a root that is a filesystem root or holds the server's own data (SEC-MED-037). In R1, before the remap exists, the restore checks each root at its old path and names any it cannot reach, so the media must be mounted where it was. | ADM-051, LIB-031 |
+| 5 | R1; derived data R1.3 | Watches the restore. | Restore progress page | Restores the log and the identity store, then rebuilds the cache from the files, and from R1.3 reuses derived data when the backup includes it. Then rotates every symmetric key and invalidates every session and stream URL (SEC-OPS-044). Every restored setting passes the live validators, and anything less strict than today's defaults, such as a trusted-proxy list, is held until the owner confirms it; the server stays in the home posture (SEC-OPS-044, SEC-OPS-038). | ADM-029, ADM-077; ADM-141 (R1.3) |
+| 6 | R1 | Signs in, and works through the "review devices and access" alert. | Sign-in page; owner alert; Account > Sessions and devices | Uses the restored identity store, with every restored device and credential suspended until its holder or the owner confirms it. The alert lists every restored device, credential, administrator and share, and says that removals made after the backup was taken have been undone (SEC-OPS-044). Writes the restore to the audit log and alerts the owner (SEC-OPS-032). | ACC-050 |
 
 **When it goes wrong.**
 
@@ -1312,11 +1419,13 @@ to confirm it.
 - **Someone on the network tries to restore their own backup onto the
   fresh install.** Without the setup code they cannot (SEC-OPS-008). This
   settles [G15](#gaps-and-questions-the-flows-expose).
-- **A root cannot be found.** The restore names it and offers the remap
-  (ADM-051).
-- **A restore on a running server fails.** The UI restore is an owner
-  step-up action (SEC-IAM-041). It takes a restore point first and shows a
-  preview (ADM-070).
+- **A root cannot be found.** The restore names it, and from R1.1 offers
+  the remap (ADM-051); before that, the media must be mounted at its old
+  path.
+- **A restore on a running server fails.** From R1.2, the UI restore is an
+  owner step-up action (SEC-IAM-041). It takes a restore point first and
+  shows a preview (ADM-070). Until then the owner restores at setup or with
+  `gunmetal restore` on the host (ADM-029, ADM-071).
 - **A device was revoked after the backup was taken.** It comes back
   suspended and stays so; its old session already failed when keys were
   rotated (SEC-OPS-044).
@@ -1333,7 +1442,10 @@ remap cannot be undone.
 
 **Other releases.** Encrypted backups (ADM-068) move from R2 to R1: the
 baseline allows no unencrypted backup, local or exported (SEC-PRV-039,
-SEC-OPS-042, SEC-IAM-105). R2: off-site destinations (ADM-073), which
+SEC-OPS-042, SEC-IAM-105). R1.1: remapping library roots during a restore
+(ADM-051, LIB-031). R1.2: restoring from the admin screens with a restore
+point and preview (ADM-070). R1.3: reusing derived data from the backup
+(ADM-141). R2: off-site destinations (ADM-073), which
 receive only the encrypted file; an optional cache snapshot for a faster
 restore (ADM-067). Later: point-in-time recovery from the log (ADM-076).
 
@@ -1354,13 +1466,13 @@ them.
 phone unable to reach the server, and in R2 its downloads revoked on next
 contact.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Signs in elsewhere and opens their sessions and devices. | Account > Sessions and devices | Lists every session and device (and from R2 every API key and app password) with its name, device class and key level, network type, rough location and last use (SEC-IAM-042). | ACC-068 |
-| 2 | Removes the lost phone, or signs out of everything except this device. | Account > Sessions and devices > Remove; "Sign out everywhere else" | Revokes the device so its next request fails and its open streams and sockets close within 5 seconds; its stream URLs stop working at the same moment (SEC-IAM-043, SEC-API-028). "Everywhere else" ends every session but the current one (SEC-IAM-042). | ACC-069, ACC-070, ACC-122 |
-| 3 | If the phone held a passkey of its own (one that was not synced), removes that passkey, confirming with another passkey. | Account > Sign-in methods; step-up prompt | Removing a credential needs a passkey check in the previous 5 minutes, is refused for the last credential, tells the account's other devices, and offers to end all other sessions (SEC-IAM-023, SEC-IAM-024, SEC-IAM-042). A synced passkey lives in the phone maker's account, so the screen also says to secure or remove the phone there. | ACC-065, ACC-055, ACC-056 |
-| 4 | Checks their security events. | Account > Security events | Shows every audit entry about the person's own account, devices and credentials, with full addresses (SEC-IAM-097, SEC-OPS-027). | ACC-078, ADM-110 |
-| 5 | The owner sees the alerts and, if needed, ends the person's sessions or pauses the account. | Owner alert; Admin > Security log; Admin > Users | Disabling ends every session at once (SEC-IAM-103). Administrators can end any session of a non-owner account; only the owner can end the owner's (SEC-IAM-044). Each alert about a device or credential offers "This wasn't me", which revokes it, ends its sessions and makes its stream URLs fail (SEC-OPS-033). | ADM-110, ACC-008 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Signs in elsewhere and opens their sessions and devices. | Account > Sessions and devices | Lists every session and device (and from R2 every API key and app password) with its name, device class and key level, network type, rough location and last use (SEC-IAM-042). | ACC-068 |
+| 2 | R1 | Removes the lost phone, or signs out of everything except this device. | Account > Sessions and devices > Remove; "Sign out everywhere else" | Revokes the device so its next request fails and its open streams and sockets close within 5 seconds; its stream URLs stop working at the same moment (SEC-IAM-043, SEC-API-028). "Everywhere else" ends every session but the current one (SEC-IAM-042). | ACC-069, ACC-070, ACC-122 |
+| 3 | R1 | If the phone held a passkey of its own (one that was not synced), removes that passkey, confirming with another passkey. | Account > Sign-in methods; step-up prompt | Removing a credential needs a passkey check in the previous 5 minutes, is refused for the last credential, tells the account's other devices, and offers to end all other sessions (SEC-IAM-023, SEC-IAM-024, SEC-IAM-042). A synced passkey lives in the phone maker's account, so the screen also says to secure or remove the phone there. | ACC-065, ACC-055, ACC-056 |
+| 4 | R1 | Checks their security events. | Account > Security events | Shows every audit entry about the person's own account, devices and credentials, with full addresses (SEC-IAM-097, SEC-OPS-027). | ACC-078, ADM-110 |
+| 5 | R1 | The owner sees the alerts and, if needed, ends the person's sessions or pauses the account. | Owner alert; Admin > Security log; Admin > Users | Disabling ends every session at once (SEC-IAM-103). Administrators can end any session of a non-owner account; only the owner can end the owner's (SEC-IAM-044). Each alert about a device or credential offers "This wasn't me", which revokes it, ends its sessions and makes its stream URLs fail (SEC-OPS-033). | ADM-110, ACC-008 |
 
 **When it goes wrong.**
 
@@ -1413,16 +1525,16 @@ lifetime).
 person having played something unrecorded, removed a play, dismissed an
 item, checked what admins can see and taken a full export.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Turns on a private session from the player's menu, at most two taps away, then plays something. | Player > Private session; private indicator | Plays through the "not recorded" path: no history, no recommendation signals, and from R2 no scrobbles. Any live-session view an administrator opens omits the title (SEC-PRV-024). From R2, nothing is handed to the operating system's recents or home-screen rows either (SEC-PRV-058). | ACC-117, MUS-185, DIS-053 |
-| 2 | Turns it off, and plays are recorded again. | Private indicator | Returns to normal recording. A private session also ends by itself after a stretch without playback that the person picks, 6 hours by default, so nobody stays private by accident for weeks. | ACC-117 |
-| 3 | Opens history by date and finds last March. | History page | Nothing at read time: history is in the profile's log on the device. | MUS-183, DIS-050 |
-| 4 | Removes a play, or a range of dates, or everything. | History row menu; History > Delete | Writes a removal event, and counts, statistics and recommendations follow. Within 24 hours the play is gone from the database, the history log, derived tables, indexes and caches, and the deletion is re-applied if an older backup is ever restored (SEC-PRV-049, SEC-PRV-050). Devices learn of it through tombstones that carry only IDs (SEC-PRV-052). | MUS-184, ACC-118, DIS-052 |
-| 5 | Dismisses an album from Continue listening, then undoes it. | Card context menu; undo toast; Hidden page | Writes a dismiss event, then its reversal. | DIS-022, DIS-023 |
-| 6 | Opens "What admins can see about me" and reads, in plain words, that admins can see that they are streaming, on which device and at what quality, and the title only if they choose to show it; that admins cannot see their history, ratings or private playlists in Gunmetal; and that whoever controls the computer could read its files directly. | Account > What admins can see; Account > Privacy (show titles to admins, off by default) | Generates the page from the same policy table the server enforces, so it cannot drift from the truth (SEC-IAM-104, SEC-PRV-027). The title switch starts off (SEC-PRV-023, SEC-PRV-025). | ACC-115, ACC-116 |
-| 7 | Reads their own security events, including any time an administrator looked at their live sessions. | Account > Security events | Shows the audit entries about the person's account, devices and credentials, with full addresses, and every admin read of their live sessions or data (SEC-IAM-077, SEC-IAM-097, SEC-OPS-027). | ACC-078 |
-| 8 | Exports everything they have told the server, touching the passkey first. | Account > Your data; step-up prompt | Needs a passkey check in the previous 5 minutes and limits how often exports run (SEC-PRV-048). Builds an export from the user log in a documented, versioned format: history, loves, ratings, playlists, hides, layouts and rules, with no other person's data and no secrets (SEC-PRV-047). The download works once, only in this session, and expires within an hour (SEC-PRV-048). | ACC-010, DIS-058, MUS-188, INT-151, LAT-007 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R1 | Turns on a private session from the player's menu, at most two taps away, then plays something. | Player > Private session; private indicator | Plays through the "not recorded" path: no history, no recommendation signals, and from R2 no scrobbles. Any live-session view an administrator opens omits the title (SEC-PRV-024). From R2, nothing is handed to the operating system's recents or home-screen rows either (SEC-PRV-058). | ACC-117, MUS-185, DIS-053 |
+| 2 | R1 | Turns it off, and plays are recorded again. | Private indicator | Returns to normal recording. A private session also ends by itself after a stretch without playback that the person picks, 6 hours by default, so nobody stays private by accident for weeks. | ACC-117 |
+| 3 | R1 | Opens history by date and finds last March. | History page | Nothing at read time: history is in the profile's log on the device. | MUS-183, DIS-050 |
+| 4 | R1 | Removes a play, or a range of dates, or everything. | History row menu; History > Delete | Writes a removal event, and counts, statistics and recommendations follow. Within 24 hours the play is gone from the database, the history log, derived tables, indexes and caches, and the deletion is re-applied if an older backup is ever restored (SEC-PRV-049, SEC-PRV-050). Devices learn of it through tombstones that carry only IDs (SEC-PRV-052). | MUS-184, ACC-118, DIS-052 |
+| 5 | R1.1 | From R1.1, dismisses an album from Continue listening, then undoes it. | Card context menu; undo toast; Hidden page | Writes a dismiss event, then its reversal. | DIS-022, DIS-023 |
+| 6 | R1; title switch R1.2 | Opens "What admins can see about me" and reads, in plain words, what this release lets admins see: in R1, their account, its device count and last sign-in, with no live view of what anyone plays; from R1.2, that they are streaming, on which device and at what quality, and the title only if they choose to show it. In every release admins cannot see their history, ratings or private playlists in Gunmetal, and whoever controls the computer could read its files directly. | Account > What admins can see; Account > Privacy (show titles to admins, off by default; R1.2) | Generates the page from the same policy table the server enforces, so it cannot drift from the truth (SEC-IAM-104, SEC-PRV-027). From R1.2 the title switch starts off (SEC-PRV-023, SEC-PRV-025). | ACC-115; ACC-116 (R1.2) |
+| 7 | R1; admin reads R1.2 | Reads their own security events, including, from R1.2, any time an administrator looked at their live sessions. | Account > Security events | Shows the audit entries about the person's account, devices and credentials, with full addresses, and every admin read of their live sessions or data (SEC-IAM-077, SEC-IAM-097, SEC-OPS-027). | ACC-078 |
+| 8 | R1 | Exports everything they have told the server, touching the passkey first. | Account > Your data; step-up prompt | Needs a passkey check in the previous 5 minutes and limits how often exports run (SEC-PRV-048). Builds an export from the user log in a documented, versioned format: history, loves, ratings, playlists, hides, layouts and rules, with no other person's data and no secrets (SEC-PRV-047). The download works once, only in this session, and expires within an hour (SEC-PRV-048). | ACC-010, DIS-058, MUS-188, INT-151, LAT-007 |
 
 **When it goes wrong.**
 
@@ -1443,7 +1555,9 @@ date 2,035; Jellyfin's dismiss-with-undo request has 1,725. No media server
 the research checked documents private sessions (unverified).
 
 **Other releases.** The page showing what admins can see (ACC-115) moves
-from R2 to R1, as step 6 (SEC-IAM-104). R2: scrobble filters that honour
+from R2 to R1, as step 6 (SEC-IAM-104). R1.1: dismissing from Continue rows
+with undo, and the Hidden page (DIS-022, DIS-023, step 5). R1.2: the switch
+to show titles to admins (ACC-116, step 6). R2: scrobble filters that honour
 private listening (INT-105), with scrobbling off until each person links
 their own account and only plays after the link time sent (SEC-PRV-033,
 SEC-PRV-035); charts and a year in review (MUS-186, MUS-187); hide and
@@ -1463,16 +1577,16 @@ snooze (DIS-054).
 **Starts** with a film library and a signed-in TV. **Ends** with the film
 played as the original, resumed later on another device.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Picks a row from Continue Watching or "Next to watch" (the feature map's Next Up), or browses Films with the left rail. | TV Home; TV rail | Builds the rows from the watch log and the synced library. | DIS-024, DIS-025, CLI-035, CLI-036 |
-| 2 | Opens a film and sees a badge saying it plays directly here, its versions and its tracks. | Title detail page; pre-play sheet | Nothing: on the device, the core runs the playback decision against the synced stream index and the TV's capability report. | VID-015, VID-013, VID-014, VID-053, CLI-047, VID-002 |
-| 3 | Presses play, and the picture appears at the film's own frame rate. | Player | Issues a session-bound capability URL and serves byte ranges of the original (SEC-API-026, SEC-API-028). The TV's libmpv player decodes it, receiving bytes only through a stream callback for this one item, with scripts, playlists and external references off (SEC-CLI-047, SEC-CLI-048). A container the core did not parse at scan time is remuxed or transcoded on the server instead of handed to libmpv, unless an admin allows direct play for that library (SEC-CLI-049). | VID-001, VID-011, VID-176, CLI-046, VID-012 |
-| 4 | Sees styled subtitles in the preferred language, drawn with the player's bundled fonts, or exactly as authored where the library has opted in to embedded fonts. | Player subtitle quick menu | Serves the subtitle stream, parsed into a cue model within limits (SEC-MED-052). Serves no font attached to the file by default; a library may opt in, and each font is then parsed and rewritten by a memory-safe parser in the worker, never passed through (SEC-MED-054; security README decision 12, owner to confirm). | VID-069, VID-068, VID-071, VID-051, VID-052 |
-| 5 | Skips the intro. | Player skip button | Supplies skip markers from chapter titles or analysis, stored as logged data. | VID-110, VID-111, VID-112, VID-114 |
-| 6 | Checks how it is playing. | Player info overlay | Supplies the decision trace, redacted by role. | VID-168, VID-169 |
-| 7 | Stops halfway, then resumes later on the phone. | Resume prompt | Records the position as an event, so resume works on any device, offline included. | VID-118, VID-119 |
-| 8 | At the credits, sees the next item or a post-play screen. | Post-play screen; countdown card | Counts the film as watched when its credits start. | VID-122, VID-123 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | Picks a row from Continue Watching or "Next to watch" (the feature map's Next Up), or browses Films with the left rail. | TV Home; TV rail | Builds the rows from the watch log and the synced library. | DIS-024, DIS-025, CLI-035, CLI-036 |
+| 2 | R2 | Opens a film and sees a badge saying it plays directly here, its versions and its tracks. | Title detail page; pre-play sheet | Nothing: on the device, the core runs the playback decision against the synced stream index and the TV's capability report. | VID-015, VID-013, VID-014, VID-053, CLI-047, VID-002 |
+| 3 | R2 | Presses play, and the picture appears at the film's own frame rate. | Player | Issues a session-bound capability URL and serves byte ranges of the original (SEC-API-026, SEC-API-028). The TV's libmpv player decodes it, receiving bytes only through a stream callback for this one item, with scripts, playlists and external references off (SEC-CLI-047, SEC-CLI-048). A container the core did not parse at scan time is remuxed or transcoded on the server instead of handed to libmpv, unless an admin allows direct play for that library (SEC-CLI-049). | VID-001, VID-011, VID-176, CLI-046, VID-012 |
+| 4 | R2 | Sees styled subtitles in the preferred language, drawn with the player's bundled fonts, or exactly as authored where the library has opted in to embedded fonts. | Player subtitle quick menu | Serves the subtitle stream, parsed into a cue model within limits (SEC-MED-052). Serves no font attached to the file by default; a library may opt in, and each font is then parsed and rewritten by a memory-safe parser in the worker, never passed through (SEC-MED-054; security README decision 12, owner to confirm). | VID-069, VID-068, VID-071, VID-051, VID-052 |
+| 5 | R2 | Skips the intro. | Player skip button | Supplies skip markers from chapter titles or analysis, stored as logged data. | VID-110, VID-111, VID-112, VID-114 |
+| 6 | R2 | Checks how it is playing. | Player info overlay | Supplies the decision trace, redacted by role. | VID-168, VID-169 |
+| 7 | R2 | Stops halfway, then resumes later on the phone. | Resume prompt | Records the position as an event, so resume works on any device, offline included. | VID-118, VID-119 |
+| 8 | R2 | At the credits, sees the next item or a post-play screen. | Post-play screen; countdown card | Counts the film as watched when its credits start. | VID-122, VID-123 |
 
 **When it goes wrong.** F12 covers cases I to N.
 
@@ -1506,16 +1620,16 @@ living-room TV.
 can see only what it is allowed, on every device, with nothing leaking
 through search, artwork or screensavers.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | Creates a household and adds a child with a name and picture, and no email or credential. Names the child's guardians. | Admin > Household > Add a child | Creates a managed profile linked to a policy, with the designated guardians. Needs the household-profile capability, which parents can be granted (identity design, section 3). A managed profile can never link outside accounts, enable outbound sharing or create share links (SEC-PRV-029). | ACC-016, ACC-018, ACC-011 |
-| 2 | Picks a preset: younger child, older child or teen. | Add a child > preset chooser | Copies a built-in policy template. | ACC-023 |
-| 3 | Adjusts it: no explicit music, a film and TV rating ceiling for their country, only items labelled for the children, and listening hours. | Child-profile settings, with the rule editor | Stores the rules in the shared rule language, the ceiling per country system, the explicit flag from tags, and the schedule. Enforces all of it inside the one visibility predicate, so it applies to every list, search, recommendation, artwork, lyric, subtitle, stream, share and sync payload alike (SEC-IAM-064). | ACC-024, ACC-026, ACC-027, ACC-028, ACC-025, ACC-032 |
-| 4 | Locks the adult profiles with PINs; adding an adult profile to a TV preselects "Add a PIN". | Profile settings; PIN pad | Checks PINs only on the server, against Argon2id hashes; failures are delayed per TV and profile, never permanently (SEC-IAM-062). A PIN only gates switching profiles (SEC-IAM-063), and an adult profile's history stays hidden on the TV until its PIN or its owner's phone unlocks it (SEC-IAM-110). | ACC-020 |
-| 5 | The child picks their profile on the TV. | TV profile picker; Kids home | Builds the child's sync payload with blocked items removed before it reaches the device, and checks stream URLs again (SEC-CLI-020, SEC-API-028). A TV locked to the child's profile leaves it only with another profile's PIN or an approval from a guardian's phone (SEC-IAM-066). | ACC-019, DIS-144, ACC-030, DIS-152 |
-| 6 | Outside the allowed hours, the child sees a clear message. | Blocked-time message | Enforces the schedule when URLs are issued and in offline grants. | ACC-032 |
-| 7 | A parent allows one album without loosening the profile. | Item menu > Allow for a child | Adds the item to the policy's exception list. | ACC-029 |
-| 8 | A guardian sees what the child played, and the child's own screens say, in words for their age, that guardians can see it. | Household > child > History | Lets the child's designated guardians, and nobody else, read the child's history (SEC-PRV-029, SEC-PRV-022, SEC-IAM-097). Other household adults do not see it. | ACC-034 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | Creates a household and adds a child with a name and picture, and no email or credential. Names the child's guardians. | Admin > Household > Add a child | Creates a managed profile linked to a policy, with the designated guardians. Needs the household-profile capability, which parents can be granted (identity design, section 3). A managed profile can never link outside accounts, enable outbound sharing or create share links (SEC-PRV-029). | ACC-016, ACC-018, ACC-011 |
+| 2 | R2 | Picks a preset: younger child, older child or teen. | Add a child > preset chooser | Copies a built-in policy template. | ACC-023 |
+| 3 | R2 | Adjusts it: no explicit music, a film and TV rating ceiling for their country, only items labelled for the children, and listening hours. | Child-profile settings, with the rule editor | Stores the rules in the shared rule language, the ceiling per country system, the explicit flag from tags, and the schedule. Enforces all of it inside the one visibility predicate, so it applies to every list, search, recommendation, artwork, lyric, subtitle, stream, share and sync payload alike (SEC-IAM-064). | ACC-024, ACC-026, ACC-027, ACC-028, ACC-025, ACC-032 |
+| 4 | R2 | Locks the adult profiles with PINs; adding an adult profile to a TV preselects "Add a PIN". | Profile settings; PIN pad | Checks PINs only on the server, against Argon2id hashes; failures are delayed per TV and profile, never permanently (SEC-IAM-062). A PIN only gates switching profiles (SEC-IAM-063), and an adult profile's history stays hidden on the TV until its PIN or its owner's phone unlocks it (SEC-IAM-110). | ACC-020 |
+| 5 | R2 | The child picks their profile on the TV. | TV profile picker; Kids home | Builds the child's sync payload with blocked items removed before it reaches the device, and checks stream URLs again (SEC-CLI-020, SEC-API-028). A TV locked to the child's profile leaves it only with another profile's PIN or an approval from a guardian's phone (SEC-IAM-066). | ACC-019, DIS-144, ACC-030, DIS-152 |
+| 6 | R2 | Outside the allowed hours, the child sees a clear message. | Blocked-time message | Enforces the schedule when URLs are issued and in offline grants. | ACC-032 |
+| 7 | R2 | A parent allows one album without loosening the profile. | Item menu > Allow for a child | Adds the item to the policy's exception list. | ACC-029 |
+| 8 | R2 | A guardian sees what the child played, and the child's own screens say, in words for their age, that guardians can see it. | Household > child > History | Lets the child's designated guardians, and nobody else, read the child's history (SEC-PRV-029, SEC-PRV-022, SEC-IAM-097). Other household adults do not see it. | ACC-034 |
 
 **When it goes wrong.**
 
@@ -1540,8 +1654,8 @@ profiles. Plex removes folder view while restrictions are on, and Jellyfin
 filters home artwork but declined a screensaver filter.
 
 **Other releases.** R1 has per-person library access (ACC-037, MUS-027)
-and reads the explicit flag (MUS-047), so a separate children's library is
-possible, but there are no managed profiles, presets or PINs (security
+and, from R1.1, reads the explicit flag (MUS-047), so a separate children's
+library is possible, but there are no managed profiles, presets or PINs (security
 README decision 17). Later: a daily time allowance (ACC-033), asking a
 parent (ACC-035), guest mode (ACC-022). Encrypted per-profile stores on
 shared devices (ACC-132) move from Later to R2, because the baseline
@@ -1565,13 +1679,13 @@ owners, whose native app is Later (CLI-130).
 third-party app browsing and playing, its plays counted in the same
 history, and a key the listener can revoke.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | The owner turns on the OpenSubsonic adapter, touching the passkey to confirm. | Admin > Compatibility; step-up prompt | Enabling an adapter is an owner step-up action (SEC-EXT-051, SEC-IAM-041). The adapter listens on its own port, never reads or sets cookies, and changes nothing about the native API (SEC-EXT-052, SEC-EXT-053). Registers only the reviewed allowlist of adapter routes, with no administrative, user-management, file-browsing or share-management endpoint, behind the same policy layer, limiter and cross-user tests as the native API (SEC-EXT-054, SEC-EXT-055). Nobody is enrolled automatically. | INT-086, ACC-130, INT-094 |
-| 2 | The listener creates a key for the app. | Account > Apps and tokens ("Connect a music app", with a QR code) | Mints a random app key of at least 128 bits, shown once and stored only as a keyed hash, scoped at most to browsing, playing, the listener's own playlists, ratings and favourites, and scrobbling (SEC-EXT-056, SEC-EXT-058). It expires and appears with the listener's devices (SEC-IAM-083, SEC-EXT-014). The listener's passkey never reaches the app (SEC-EXT-057). | INT-087, ACC-129, INT-024 |
-| 3 | Enters the server's HTTPS address and the key in the app. | Third-party app | Refuses every credential over plain HTTP from any peer but loopback; the setup screen gives the app only the HTTPS address (SEC-EXT-066, SEC-NET-001). Validates the key, with one generic error whatever is wrong and the same limiter as interactive sign-in (SEC-EXT-064, SEC-EXT-015). Serves browsing, search, streaming, cover art, playlists, stars, ratings, scrobbles and the play queue from the native music model through an ID translation layer that exposes no paths, host names, version or other people's names (SEC-EXT-059, SEC-EXT-060). "Now playing" lists only the listener's own sessions (SEC-PRV-032). Advertises only the extensions it implements. | INT-086, INT-089, INT-090 |
-| 4 | Plays music. | Third-party app; History (shows which app) | Writes adapter plays to the user log with the device and app, honouring a private session (SEC-EXT-056). | INT-093 |
-| 5 | Sees, and later revokes, the connected app. | Account > Apps and tokens; Admin > Compatibility | Lists connected apps with their last use and rough address, and revokes keys one by one or all at once, from the next request (SEC-EXT-014). Disabling the adapter ends all its sessions at once (SEC-EXT-051). | INT-096, INT-021 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R2 | The owner turns on the OpenSubsonic adapter, touching the passkey to confirm. | Admin > Compatibility; step-up prompt | Enabling an adapter is an owner step-up action (SEC-EXT-051, SEC-IAM-041). The adapter listens on its own port, never reads or sets cookies, and changes nothing about the native API (SEC-EXT-052, SEC-EXT-053). Registers only the reviewed allowlist of adapter routes, with no administrative, user-management, file-browsing or share-management endpoint, behind the same policy layer, limiter and cross-user tests as the native API (SEC-EXT-054, SEC-EXT-055). Nobody is enrolled automatically. | INT-086, ACC-130, INT-094 |
+| 2 | R2 | The listener creates a key for the app. | Account > Apps and tokens ("Connect a music app", with a QR code) | Mints a random app key of at least 128 bits, shown once and stored only as a keyed hash, scoped at most to browsing, playing, the listener's own playlists, ratings and favourites, and scrobbling (SEC-EXT-056, SEC-EXT-058). It expires and appears with the listener's devices (SEC-IAM-083, SEC-EXT-014). The listener's passkey never reaches the app (SEC-EXT-057). | INT-087, ACC-129, INT-024 |
+| 3 | R2 | Enters the server's HTTPS address and the key in the app. | Third-party app | Refuses every credential over plain HTTP from any peer but loopback; the setup screen gives the app only the HTTPS address (SEC-EXT-066, SEC-NET-001). Validates the key, with one generic error whatever is wrong and the same limiter as interactive sign-in (SEC-EXT-064, SEC-EXT-015). Serves browsing, search, streaming, cover art, playlists, stars, ratings, scrobbles and the play queue from the native music model through an ID translation layer that exposes no paths, host names, version or other people's names (SEC-EXT-059, SEC-EXT-060). "Now playing" lists only the listener's own sessions (SEC-PRV-032). Advertises only the extensions it implements. | INT-086, INT-089, INT-090 |
+| 4 | R2 | Plays music. | Third-party app; History (shows which app) | Writes adapter plays to the user log with the device and app, honouring a private session (SEC-EXT-056). | INT-093 |
+| 5 | R2 | Sees, and later revokes, the connected app. | Account > Apps and tokens; Admin > Compatibility | Lists connected apps with their last use and rough address, and revokes keys one by one or all at once, from the next request (SEC-EXT-014). Disabling the adapter ends all its sessions at once (SEC-EXT-051). | INT-096, INT-021 |
 
 **When it goes wrong.** The app supports only the old password-derived
 sign-in. Which Subsonic apps support API keys is unverified (open decision
@@ -1606,18 +1720,18 @@ app.
 **Ends** with filtered channels matched to a guide, playing as broadcast on
 the TV, and a recording scheduled.
 
-| # | The person | Surface | The server | Features |
-|---|---|---|---|---|
-| 1 | The owner switches on the Live TV module. | Admin > Modules toggle | Registers live TV routes and jobs only when the module is on. | LIV-001 |
-| 2 | Starts the guided set-up and chooses an IPTV playlist. | Admin > Live TV > Set-up wizard | Probes sources and computes guide coverage, saving everything in one transaction at the end. | LIV-002 |
-| 3 | Adds an M3U by URL, with headers if the provider needs them, touching the passkey to confirm. | Admin > Live TV > Sources > Add playlist; Source > Advanced; step-up prompt | Each source URL is an egress grant, which is an owner step-up action (SEC-EXT-075, SEC-IAM-041). Fetches through the egress gate with connect-time address checks, refusing loopback, link-local, the server's own and cloud metadata addresses unless the owner allows one named LAN tuner (SEC-NET-067). Keeps provider credentials encrypted as integration secrets where clients never see them (SEC-EXT-050). | LIV-003, LIV-007, LIV-015, LIV-014 |
-| 4 | Tests before saving: channel count, a test tune and any HTTP error. | Add-source wizard: test results panel | Probes with the demuxer and writes nothing until confirmed. | LIV-016 |
-| 5 | Filters a 20,000-line playlist down to the groups wanted. | Source > Filters, with a live match count | Applies ordered include and exclude rules, with a preview. | LIV-008, LIV-009 |
-| 6 | Adds an XMLTV guide and reviews the automatic matches. | Admin > Live TV > Guide sources; Admin > Channels > Mapping | Parses the guide and matches channels in the core, with a confidence for each. | LIV-035, LIV-051, LIV-050 |
-| 7 | Decides who may watch and who may record. | Admin > Users > Live TV | Adds live TV capabilities to each policy. | ACC-048 |
-| 8 | The viewer opens the guide on the TV. | Guide grid (TV) | Syncs a compact guide to the device, so it browses instantly even when the server is unreachable. | LIV-064, LIV-065 |
-| 9 | Picks a channel, and it plays as broadcast. | Live player | Serves the transport stream from a fan-out buffer through the server; clients never fetch a provider's URL or logo themselves, and channel names and programme text are shown as text (SEC-CLI-067). The native client decodes it, so the server does not transcode. | LIV-078, LIV-080 |
-| 10 | Records a programme from the guide, free. | Guide and details "Record" | Creates a recording object for the scheduler and recorder, which writes only to a dedicated recordings folder with a quota, apart from the read-only media and the server's state (SEC-OPS-063). | LIV-102 |
+| # | Release | The person | Surface | The server | Features |
+|---|---|---|---|---|---|
+| 1 | R3 | The owner switches on the Live TV module. | Admin > Modules toggle | Registers live TV routes and jobs only when the module is on. | LIV-001 |
+| 2 | R3 | Starts the guided set-up and chooses an IPTV playlist. | Admin > Live TV > Set-up wizard | Probes sources and computes guide coverage, saving everything in one transaction at the end. | LIV-002 |
+| 3 | R3 | Adds an M3U by URL, with headers if the provider needs them, touching the passkey to confirm. | Admin > Live TV > Sources > Add playlist; Source > Advanced; step-up prompt | Each source URL is an egress grant, which is an owner step-up action (SEC-EXT-075, SEC-IAM-041). Fetches through the egress gate with connect-time address checks, refusing loopback, link-local, the server's own and cloud metadata addresses unless the owner allows one named LAN tuner (SEC-NET-067). Keeps provider credentials encrypted as integration secrets where clients never see them (SEC-EXT-050). | LIV-003, LIV-007, LIV-015, LIV-014 |
+| 4 | R3 | Tests before saving: channel count, a test tune and any HTTP error. | Add-source wizard: test results panel | Probes with the demuxer and writes nothing until confirmed. | LIV-016 |
+| 5 | R3 | Filters a 20,000-line playlist down to the groups wanted. | Source > Filters, with a live match count | Applies ordered include and exclude rules, with a preview. | LIV-008, LIV-009 |
+| 6 | R3 | Adds an XMLTV guide and reviews the automatic matches. | Admin > Live TV > Guide sources; Admin > Channels > Mapping | Parses the guide and matches channels in the core, with a confidence for each. | LIV-035, LIV-051, LIV-050 |
+| 7 | R3 | Decides who may watch and who may record. | Admin > Users > Live TV | Adds live TV capabilities to each policy. | ACC-048 |
+| 8 | R3 | The viewer opens the guide on the TV. | Guide grid (TV) | Syncs a compact guide to the device, so it browses instantly even when the server is unreachable. | LIV-064, LIV-065 |
+| 9 | R3 | Picks a channel, and it plays as broadcast. | Live player | Serves the transport stream from a fan-out buffer through the server; clients never fetch a provider's URL or logo themselves, and channel names and programme text are shown as text (SEC-CLI-067). The native client decodes it, so the server does not transcode. | LIV-078, LIV-080 |
+| 10 | R3 | Records a programme from the guide, free. | Guide and details "Record" | Creates a recording object for the scheduler and recorder, which writes only to a dedicated recordings folder with a quota, apart from the read-only media and the server's state (SEC-OPS-063). | LIV-102 |
 
 **When it goes wrong.** Watching in a browser costs the server CPU, because
 browsers need a remux or a sandboxed conversion, and the docs must say so
@@ -1657,7 +1771,7 @@ No.
 | The same music in several rooms, in step | Later | It needs clock sync and group sessions. | CLI-105, MUS-201 |
 | Saving music for offline inside a browser | Later | No rival does it, and browser storage can be evicted. | MUS-217 |
 | Using an iPhone app, CarPlay, Apple TV or AirPlay | Later; R2 if the App Store licence decision allows | The blocker is the App Store terms and the AGPL with no contributor agreement, not engineering (open decision 3). | CLI-005, CLI-007, CLI-117, CLI-109 |
-| Remote access from a browser with no proxy | R2 (moved from Later) | Not walked through here yet. The baseline places the browser edge in R2 (security README decision 3), and the feature map now does too; a flow should be added once the edge design exists. Every byte through the edge costs relay bandwidth, which is affordable for music, not for video. | ACC-102 |
+| Remote access from a browser with no proxy | R2 (moved from Later) | Not walked through here yet. The baseline places the browser edge in R2 (security README decision 3), the owner's answer of 2026-10-02 puts built-in remote access in R2, and the edge needs the per-server name service, also R2 (D-07); a flow should be added once the edge design exists. Every byte through the edge costs relay bandwidth, which is affordable for music, not for video. | ACC-102 |
 | Removing an item from the library | Later | The item is hidden and trashed with undo and audit; the file stays on disk, and the owner deletes it on the host. The server never writes to a media root (SEC-TM-042). | ADM-139 |
 | Signing in with Google or Apple | No | It needs a central account. | ACC-067 |
 | Skipping sign-in because you are at home | No | Header spoofing let remote attackers look local in Emby's 2023 compromise. The baseline forbids it outright (SEC-HIS-004, SEC-IAM-013). | ACC-066 |
@@ -1673,7 +1787,8 @@ No.
 ## Surfaces the flows pass through
 
 This is the screen list the flows imply, grouped by where it lives, with
-the release that first needs it. Names follow the map's UI surfaces column.
+the release that first needs it and, after a semicolon, the parts that
+arrive in a later release. Names follow the map's UI surfaces column.
 
 | Surface | First needed | Flows |
 |---|---|---|
@@ -1682,15 +1797,15 @@ the release that first needs it. Names follow the map's UI surfaces column.
 | Command line: `gunmetal claim-code`, `doctor`, `admin recover`, `restore`, `rebuild` | R1 | F01, F03, F12, F13, F14 |
 | Startup page (state and progress only) | R1 | F01, F12, F13 |
 | Plain-HTTP redirect and help page; home-posture help page | R1 | F01, F03, F05, F10 |
-| Emergency page, after an admin passkey sign-in | R1 | F13 |
+| Emergency page, after an admin passkey sign-in | R1.2 | F13 |
 | **First run** | | |
-| Welcome > Language; Welcome > Setup code; the new-or-restore choice | R1 | F01, F14 |
+| Welcome > Language; Welcome > Setup code; the new-or-restore choice | R1; Welcome > Language R1.2 | F01, F14 |
 | Welcome > Create owner, with the "Where will people reach this server?" panel, Welcome > HTTPS and Welcome > Proxy | R1 | F01 |
 | Welcome > Recovery kit | R1 | F01, F14 |
 | Welcome > Privacy, with the required security-fix question | R1 | F01 |
-| Welcome > Import | R1 | F01, F11 |
+| Welcome > Import | R1.1 | F01, F11 |
 | Welcome > Libraries (folder picker with live checks) | R1 | F01, F02 |
-| Welcome > Restore, with signature check, recovery key, root remapping and a progress page | R1 | F14 |
+| Welcome > Restore, with signature check, recovery key, root remapping and a progress page | R1; root remapping R1.1 | F14 |
 | Welcome > Done | R1 | F01 |
 | **Sign-in and account** | | |
 | Sign-in page (generic, with "Use another device" and "Is this your own device?") | R1 | F03, F10, F14 |
@@ -1700,40 +1815,40 @@ the release that first needs it. Names follow the map's UI surfaces column.
 | Account > Sign-in methods; Account > Recovery | R1 | F01, F03, F10, F15 |
 | Account > Sessions and devices | R1 | F03, F04, F15 |
 | Account > Security events | R1 | F15, F16 |
-| Account > What admins can see; Account > Privacy | R1 | F10, F16 |
+| Account > What admins can see; Account > Privacy | R1; the title switch in Account > Privacy R1.2 | F10, F16 |
 | Step-up prompt (passkey check for sensitive and host-equivalent actions) | R1 | F01, F02, F10, F14, F15, F16, F19, F20 |
 | Notice centre with security alerts and "This wasn't me" | R1 | F03, F04, F14, F15 |
 | Account > Your data | R1 | F16 |
 | Account > Apps and tokens | R2 (security README decision 8) | F19 |
 | **Listening and browsing** | | |
-| Home, including the scanning empty state, shortcuts and Continue listening | R1 | F02, F03, F05, F06, F16 |
-| Library views with filter sheet, sort, view toggle and folder view | R1 | F02, F06, F09 |
+| Home, including the scanning empty state, shortcuts and Continue listening | R1; shortcuts R1.2 | F02, F03, F05, F06, F16 |
+| Library views with filter sheet, sort, view toggle and folder view | R1; filter sheet and view toggle R1.1; folder view R1.3 | F02, F06, F09 |
 | Artist page; album page | R1 | F02, F05, F09 |
 | Playlist page; sidebar | R1 | F06 |
 | Add-to-playlist sheet | R1 | F05, F06 |
-| Rule editor sheet | R1 | F06; download rules in F07 and restrictions in F18 from R2 |
-| Context menu; selection bar | R1 | F05, F06, F09 |
-| Share sheet and public share page, for music | R1 | F06, F10 |
+| Rule editor sheet | R1.3 | F06; download rules in F07 and restrictions in F18 from R2 |
+| Context menu; selection bar | R1; selection bar R1.1 | F05, F06, F09 |
+| Share sheet and public share page, for music | R1.2 | F06, F10 |
 | Search screen and global search field | R1 | F09 |
 | Now-playing bar; full-screen player; queue panel or sheet; lyrics view | R1 | F05, F08 |
-| Track info sheet | R1 | F05, F12 |
-| "Continue on this device" prompt | R1 | F03, F05, F08 |
-| History page; Hidden page; undo toast | R1 | F11, F16 |
-| Quiet status banner; dimmed and greyed-out items; client banner | R1 | F12 |
-| Settings > Storage; Settings > Help > Diagnostics; install prompt | R1 | F03, F07, F12 |
+| Track details; track info sheet | R1; the full track info sheet R1.1 | F05, F12 |
+| "Continue on this device" prompt | R1.1 | F03, F05, F08 |
+| History page; Hidden page; undo toast | R1; Hidden page and undo toast R1.1 | F11, F16 |
+| Quiet status banner; dimmed and greyed-out items; client banner | R1; quiet banner R1.1 | F12 |
+| Settings > Storage; Settings > Help > Diagnostics; install prompt | R1.1; Diagnostics R1.2 | F03, F07, F12 |
 | **Admin** | | |
-| Admin > Dashboard (scan card, health summary, now playing, update card) | R1 | F01, F02, F10, F13 |
+| Admin > Dashboard (scan card, security card, health summary, now playing, update card) | R1; health summary and now playing R1.2 | F01, F02, F10, F13 |
 | Admin > Libraries and library settings | R1 | F02, F14 |
-| Library health (problems, tag problems, missing files, sidecar problems) | R1 | F02, F12 |
-| Admin > Review queue | R1 | F02, F06, F11 |
-| Admin > Activity; Admin > Tasks | R1 | F02, F11, F13, F15 |
+| Library health (problems, tag problems, missing files, sidecar problems) | R1; tag problems and missing files R1.1 | F02, F12 |
+| Admin > Review queue | R1.3 | F02, F06, F11 |
+| Admin > Activity; Admin > Tasks | R1; Admin > Tasks R1.2 | F02, F11, F13, F15 |
 | Admin > Users; Admin > Invitations (with pending confirmations) | R1 | F02, F10, F15 |
-| Admin > Network (trusted proxies, posture, exposure status) | R1 | F01, F10 |
-| Admin > Sessions (no titles unless the person chose to show them) | R1 | F10, F12 |
-| Admin > Diagnostics (doctor, bundle, inspect a file) | R1 | F12 |
+| Admin > Network (trusted proxies, posture, exposure status, HTTPS for the owner's domain) | R1; path prefix R1.2; per-server name R2 | F01, F10 |
+| Admin > Sessions (no titles unless the person chose to show them) | R1.2 | F10, F12 |
+| Admin > Diagnostics (doctor, bundle, inspect a file) | R1.2 (`gunmetal doctor` on the host from R1) | F12 |
 | Admin > Backups | R1 | F14 |
 | Admin > Updates; admin banner | R1 | F13 |
-| Admin > Migration | R1 | F11 |
+| Admin > Migration | R1.1 | F11 |
 | Admin > Alerts | R1 | F02, F12, F14 |
 | Admin > Security log | R1 | F15 |
 | **R2 additions** | | |
@@ -1758,25 +1873,27 @@ of work, which flows lean on each, and what blocks them.
 | Server capability | Features | Flows | First release | Blocked by |
 |---|---|---|---|---|
 | Setup state machine (fresh, unclaimed, claimed, locked), the claim code and restore-at-setup (SEC-IAM-006 to SEC-IAM-009, SEC-OPS-003 to SEC-OPS-008) | ACC-001, ADM-020 | F01, F14 | R1 | |
-| Path classes and postures: the cleartext help page, the home posture, trusted proxies and exposure detection, all from one classifier (SEC-NET-001, SEC-NET-016, SEC-NET-024, SEC-OPS-037) | ACC-097, ACC-134 | F01, F03, F05, F10 | R1 | |
-| Identity store and sessions: accounts, passkeys, OIDC links, cookie sessions, the separate admin session and step-up tags, revocation on the next request, the device registry, the shared limiter (SEC-IAM-037, SEC-IAM-041, SEC-IAM-043, SEC-IAM-101) | ACC-002, ACC-050, ACC-057, ACC-063, ACC-065, ACC-068, ACC-079, ACC-124 | F01, F03, F10, F14, F15 | R1 | ADR 3; the identity record (SEC-STD-006) |
+| Path classes and postures: the cleartext help page, the home posture, trusted proxies and exposure detection, all from one classifier (SEC-NET-001, SEC-NET-016, SEC-NET-024, SEC-OPS-037) | ACC-097, ACC-134 | F01, F03, F05, F10 | R1 (path prefix R1.2) | |
+| HTTPS for the owner's domain by ACME DNS-01 with automatic renewal and expiry alerts, a supplied certificate, a tailnet name or localhost (SEC-NET-003, SEC-NET-004, SEC-NET-013, SEC-NET-072) | ACC-098, ACC-099, ADM-021, ADM-022 | F01, F03, F10 | R1 | G21 (own-domain certificates before the claim) |
+| The per-server name service and its naming client, with Certificate Transparency monitoring (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071) | ADM-023 | F01 | R2 | D-07; an architecture record amending ADR 1 decisions 7 and 9; the zone on the Public Suffix List |
+| Identity store and sessions: accounts, passkeys, OIDC links, cookie sessions, the separate admin session and step-up tags, revocation on the next request, the device registry, the shared limiter (SEC-IAM-037, SEC-IAM-041, SEC-IAM-043, SEC-IAM-101) | ACC-002, ACC-050, ACC-057, ACC-063, ACC-065, ACC-068, ACC-079, ACC-124 | F01, F03, F10, F14, F15 | R1 (OIDC links R1.2) | ADR 3; the identity record (SEC-STD-006) |
 | Browser pairing: codes, the approval sheet, the typed and matching code, limited-class browsers (SEC-IAM-056 to SEC-IAM-060, SEC-IAM-108) | ACC-062 | F03, F04 | R1 | The identity record |
 | One authorisation function and route table, the visibility predicate and the generated cross-user suite (SEC-IAM-067 to SEC-IAM-071) | ACC-120, ACC-121, ACC-030 | Every flow | R1 | |
 | The audit log, each person's security events, owner alerts with "This wasn't me", and notices to an account's devices (SEC-OPS-020 to SEC-OPS-034, SEC-IAM-097, SEC-IAM-098) | ADM-110, ADM-116, ACC-071, ACC-078 | F01, F03, F04, F10, F14, F15, F16 | R1 | |
 | Recovery: recovery codes, admin recovery links, the recovery hold and host-only owner recovery (SEC-IAM-089 to SEC-IAM-092, SEC-IAM-106) | ACC-004, ACC-064, ADM-034 | F01, F03, F14, F15 | R1 | |
-| The admin-visibility policy, "What admins can see" and private sessions (SEC-PRV-024, SEC-PRV-025, SEC-PRV-027) | ACC-115, ACC-117, ADM-099 | F05, F10, F12, F16 | R1 | Security README decision 5 |
+| The admin-visibility policy, "What admins can see" and private sessions (SEC-PRV-024, SEC-PRV-025, SEC-PRV-027) | ACC-115, ACC-117, ADM-099 | F05, F10, F12, F16 | R1 (the admins' live view R1.2) | Security README decision 5 |
 | The user log, with typed, versioned, exportable events | LAT-007, ADM-078, MUS-122, ACC-010 | F05, F06, F07, F11, F13, F14, F16 | R1 | ADR 3 |
-| Scan pipeline, job registry and progress events, with parsing in the sandboxed scan worker (SEC-MED-018 to SEC-MED-024) | LIB-019, LIB-020, LIB-021, LIB-022, ADM-093, ADM-095 | F02, F11, F13 | R1 | Open decision 8, for loudness |
-| Change feed and sync endpoints, filtered by grants and restrictions | LIB-018, CLI-022, INT-006, ACC-030, ACC-037 | F02, F03, F04, F05, F09, F10, F18 | R1 | |
+| Scan pipeline, job registry and progress events, with parsing in the sandboxed scan worker (SEC-MED-018 to SEC-MED-024) | LIB-019, LIB-020, LIB-021, LIB-022, ADM-093, ADM-095 | F02, F11, F13 | R1 (the task list R1.2; loudness R1.3) | Open decision 8, for loudness |
+| Change feed and sync endpoints, filtered by grants and restrictions | LIB-018, CLI-022, INT-006, ACC-030, ACC-037 | F02, F03, F04, F05, F09, F10, F18 | R1 (the change feed for tools, INT-006, R2) | |
 | Byte serving through short-lived, session-bound, revocable capability URLs (SEC-API-026 to SEC-API-029) | MUS-066, ACC-122 | F05, F07, F08, F12, F15, F17 | R1 | |
 | The audio-only packager for browsers, in a worker (SEC-MED-018) | MUS-230 | F05, F12 | R1 | Open decision 9 |
 | The queue document and its versioned operations | MUS-122, MUS-116, LAT-009 | F05, F06, F08 | R1 | ADR 3 |
-| The playback decision engine with structured reasons, in the core | MUS-099, ADM-100, INT-134, VID-002 | F05, F08, F12, F17 | R1 for audio; R2 for video | |
-| The rule engine, in the core | DIS-119 | F06, F07, F18 | R1 | |
-| The matcher, in the core | ADM-044, MUS-140 | F06, F11 | R1 | |
+| The playback decision engine with structured reasons, in the core | MUS-099, ADM-100, INT-134, VID-002 | F05, F08, F12, F17 | R1 for audio (reasons shown to admins from R1.2); R2 for video | |
+| The rule engine, in the core | DIS-119 | F06, F07, F18 | R1.3 | |
+| The matcher, in the core | ADM-044, MUS-140 | F06, F11 | R1.1 | |
 | The egress gate and its activity log | ADM-028, ADM-129, LIV-015 | F01, F13, F20 | R1 | |
-| Backup, restore and rebuild, with encrypted and signed backups, the recovery kit and key rotation after restore (SEC-OPS-041 to SEC-OPS-045, SEC-PRV-039, SEC-PRV-040) | ADM-065, ADM-068, ADM-070, ADM-077, ADM-141 | F13, F14 | R1 | ADR 3 |
-| Health records, diagnostics and the inspect API | LIB-193, ADM-108, ADM-123, ADM-124, ADM-125 | F02, F12 | R1 | |
+| Backup, restore and rebuild, with encrypted and signed backups, the recovery kit and key rotation after restore (SEC-OPS-041 to SEC-OPS-045, SEC-PRV-039, SEC-PRV-040) | ADM-065, ADM-068, ADM-070, ADM-077, ADM-141 | F13, F14 | R1 (UI restore R1.2; derived data R1.3) | ADR 3 |
+| Health records, diagnostics and the inspect API | LIB-193, ADM-108, ADM-123, ADM-124, ADM-125 | F02, F12 | R1 (the bundle and the inspect API R1.2) | |
 | Invitations as capabilities, with the privacy notice and the matching-code confirmation (SEC-IAM-078, SEC-IAM-079, SEC-PRV-053) | ACC-080 | F10 | R1 | ADR 3 |
 | TV device authorisation and device keys, on the same pairing protocol as browsers (SEC-IAM-048 to SEC-IAM-055) | ACC-061, ACC-051, CLI-027 | F04 | R2 | |
 | The control channel and its conflict rule | CLI-101, CLI-102 | F08 | R2 | Its own design |
@@ -1799,30 +1916,30 @@ own interactive action, re-signing in with a known passkey on a known
 device raises nothing, and non-critical alerts are batched into a daily
 summary. Alerts never carry another person's activity (SEC-PRV-030).
 
-| Alert | Raised in | Who gets it | Muting |
-|---|---|---|---|
-| A new device or credential on an account | F03, F04, F15 | That person's other devices; the owner for managed profiles; every admin when the account is an admin (SEC-IAM-098, SEC-OPS-032) | Never on owner or admin accounts |
-| A device enrolled remotely by typed code | F04 | Every adult in the household (SEC-IAM-059) | Not set by the baseline |
-| Repeated failed sign-ins: 10 for one account or 30 from one source within 15 minutes | F03 | The owner and admins; the account holder for their own account (SEC-OPS-032) | Yes |
-| A passkey whose signature counter went backwards | F03 | As for a new credential on that account (SEC-IAM-021) | As for a new credential |
-| A new user, an invitation redeemed, or a rise in someone's role or library access | F02, F10 | The owner and admins (SEC-OPS-032) | Never for a new admin; otherwise yes |
-| An invitation waiting for the inviter's matching code | F10 | The inviter (SEC-IAM-079) | Not an alert; a task until confirmed or expired |
-| A share link suspended for spreading too widely | F10 | The sharer (SEC-API-097) | Not set by the baseline |
-| Recovery by code or admin link, and the hold it starts | F03, F15 | Every existing device of that account, with one-tap cancel (SEC-IAM-090, SEC-IAM-106) | Never on owner or admin accounts |
-| Owner recovery from the host | F01 | Every admin (SEC-IAM-092, SEC-OPS-009) | Never |
-| A request from the internet reached the home posture, or a proxy that was never declared | F01, F03, F10 | The owner, at most once per listener per day with a count (SEC-NET-027, SEC-NET-017) | Never, until acknowledged |
-| The posture was left: a public proxy declared or remote access turned on | F10 | Every admin, at the first internet-posture request (SEC-OPS-038, SEC-TM-017) | Not set by the baseline |
-| A host-equivalent action (trusted proxies, naming, egress, plugins, adapters, backup download or restore, key rotation, new admin) | F01, F02, F10, F14, F19, F20 | Every admin (SEC-TM-017) | Never for a new admin or a plugin change |
-| A backup downloaded or restored, and the "review devices and access" list after a restore | F14 | The owner (SEC-OPS-032, SEC-OPS-044) | Never |
-| Keys rotated | F14 | The owner and admins (SEC-OPS-018) | Yes |
-| A security setting loosened outside the app (a file edit) | F13 | The owner (SEC-OPS-031) | Not set by the baseline |
-| The certificate expires in 30 or 7 days, with "renew now" | F01 | The owner (SEC-NET-072) | Not set by the baseline |
-| A certificate for the server's name that the server did not request | F01 | The owner, as a critical alert (SEC-NET-069) | Not set by the baseline |
-| The audit log failed verification | F13, F14 | The owner (SEC-OPS-023, SEC-OPS-075) | Never |
-| The running version is affected by an advisory, or out of support | F13 | The owner and admins (SEC-OPS-032, SEC-OPS-070) | Banner until updated |
-| The recovery kit is not yet confirmed; the security-fix check is off | F01, F13 | The owner, as a dashboard reminder (SEC-PRV-040, SEC-OPS-047) | Until done |
-| A PIN guessed wrong 10 times on one TV | F04, F18 | The profile's owner or guardian, in the daily summary (SEC-IAM-062) | Yes |
-| A household TV seen on another network | F04 | Every adult in the household (SEC-IAM-109) | Not set by the baseline |
+| Alert | Release | Raised in | Who gets it | Muting |
+|---|---|---|---|---|
+| A new device or credential on an account | R1 | F03, F04, F15 | That person's other devices; the owner for managed profiles; every admin when the account is an admin (SEC-IAM-098, SEC-OPS-032) | Never on owner or admin accounts |
+| A device enrolled remotely by typed code | R2 | F04 | Every adult in the household (SEC-IAM-059) | Not set by the baseline |
+| Repeated failed sign-ins: 10 for one account or 30 from one source within 15 minutes | R1 | F03 | The owner and admins; the account holder for their own account (SEC-OPS-032) | Yes |
+| A passkey whose signature counter went backwards | R1 | F03 | As for a new credential on that account (SEC-IAM-021) | As for a new credential |
+| A new user, an invitation redeemed, or a rise in someone's role or library access | R1 | F02, F10 | The owner and admins (SEC-OPS-032) | Never for a new admin; otherwise yes |
+| An invitation waiting for the inviter's matching code | R1 | F10 | The inviter (SEC-IAM-079) | Not an alert; a task until confirmed or expired |
+| A share link suspended for spreading too widely | R1.2 | F10 | The sharer (SEC-API-097) | Not set by the baseline |
+| Recovery by code or admin link, and the hold it starts | R1 | F03, F15 | Every existing device of that account, with one-tap cancel (SEC-IAM-090, SEC-IAM-106) | Never on owner or admin accounts |
+| Owner recovery from the host | R1 | F01 | Every admin (SEC-IAM-092, SEC-OPS-009) | Never |
+| A request from the internet reached the home posture, or a proxy that was never declared | R1 | F01, F03, F10 | The owner, at most once per listener per day with a count (SEC-NET-027, SEC-NET-017) | Never, until acknowledged |
+| The posture was left: a public proxy declared or remote access turned on | R1 (remote access R2) | F10 | Every admin, at the first internet-posture request (SEC-OPS-038, SEC-TM-017) | Not set by the baseline |
+| A host-equivalent action (trusted proxies, naming, egress, plugins, adapters, backup download or restore, key rotation, new admin) | R1 (plugins and adapters R2) | F01, F02, F10, F14, F19, F20 | Every admin (SEC-TM-017) | Never for a new admin or a plugin change |
+| A backup downloaded or restored, and the "review devices and access" list after a restore | R1 | F14 | The owner (SEC-OPS-032, SEC-OPS-044) | Never |
+| Keys rotated | R1 | F14 | The owner and admins (SEC-OPS-018) | Yes |
+| A security setting loosened outside the app (a file edit) | R1 | F13 | The owner (SEC-OPS-031) | Not set by the baseline |
+| The certificate expires in 30 or 7 days, with "renew now" | R1 | F01 | The owner (SEC-NET-072) | Not set by the baseline |
+| A certificate for the server's name that the server did not request | R2, with the name service | F01 | The owner, as a critical alert (SEC-NET-069) | Not set by the baseline |
+| The audit log failed verification | R1 | F13, F14 | The owner (SEC-OPS-023, SEC-OPS-075) | Never |
+| The running version is affected by an advisory, or out of support | R1 | F13 | The owner and admins (SEC-OPS-032, SEC-OPS-070) | Banner until updated |
+| The recovery kit is not yet confirmed; the security-fix check is off | R1 | F01, F13 | The owner, as a dashboard reminder (SEC-PRV-040, SEC-OPS-047) | Until done |
+| A PIN guessed wrong 10 times on one TV | R2 | F04, F18 | The profile's owner or guardian, in the daily summary (SEC-IAM-062) | Yes |
+| A household TV seen on another network | R2 | F04 | Every adult in the household (SEC-IAM-109) | Not set by the baseline |
 
 Children and other managed profiles never receive security alerts; the
 owner does. On a TV, alerts appear only on an admin's profile, as a banner
@@ -1902,8 +2019,9 @@ says so and keeps its number.
     profile can both play, so the last Play wins: play and resume are
     ordinary operations on the versioned queue, which records the issuing
     session by an opaque identifier that is not a credential; the other tab
-    sees the new queue version on its next sync, pauses at its point, and
-    its bar offers "Continue on this device" (CLI-103), naming no device.
+    sees the new queue version on its next sync and pauses at its point,
+    and from R1.1 its bar offers "Continue on this device" (CLI-103), naming
+    no device.
     This needs only the R1 queue versions, and only the profile's own
     sessions can write its queue (SEC-HIS-014, SEC-API-016). player.md's
     separate active-device field is withdrawn in favour of this.
@@ -1933,19 +2051,21 @@ says so and keeps its number.
     that kind's chip, which one tap clears.
 17. **G17. The R1 phone gap (F05, F07, F08).** Most R1 compromises in these
     flows come from phones having only the web app: no downloads, no
-    dependable background audio on iPhone, no handoff. *Recommendation:*
-    settle open decision 5 early. Shipping the native Android music app as
-    an R1 point release changes F05, F07 and F08 more than any other single
-    decision. It would also bring device keys, offline grants and their
-    requirements forward with it (SEC-IAM-048 to SEC-IAM-054).
+    dependable background audio on iPhone, no handoff. The adopted R1
+    scope keeps the native Android music app out of R1.1 to R1.3 (D-10),
+    and D-14 recommends it after R1.3, with the R2 native-app requirements
+    it needs moved with it in the release-scope table (device keys, offline
+    grants and their requirements, SEC-IAM-048 to SEC-IAM-054).
+    *Recommendation:* settle D-14 early, because it changes F05, F07 and F08
+    more than any other single decision.
 18. **G18. The recovery kit has no feature row (F01, F14; owner ACC-004).**
-    The baseline requires one printable recovery kit with the owner's
-    recovery codes and the backup recovery key, a dashboard reminder until
-    it is confirmed, and a step-up check to show it again (SEC-PRV-040,
-    SEC-IAM-089). The feature map's only recovery-code row is tied to
-    two-factor codes (ACC-053), which the baseline removes.
-    *Recommendation:* add an R1 accounts row for the recovery kit and
-    Account > Recovery, owned with ACC-004.
+    *Settled by the feature map.* The baseline requires one printable
+    recovery kit with the owner's recovery codes and the backup recovery
+    key, a dashboard reminder until it is confirmed, and a step-up check to
+    show it again (SEC-PRV-040, SEC-IAM-089). The map now has R1 rows for
+    them: the recovery kit at setup (ADM-143), recovery codes (ACC-137) and
+    the recovery hold (ACC-138). F01 step 9 and surfaces.md SUR-133 cite
+    them.
 19. **G19. Phones on the home Wi-Fi with global IPv6 addresses (F01, F03;
     owner ACC-097).** The home posture counts only loopback, private and
     link-local addresses as local (SEC-NET-024), and many home networks give
@@ -1956,12 +2076,32 @@ says so and keeps its number.
     when this is happening and how to fix it, and the R1 test matrix
     includes a dual-stack home network.
 20. **G20. Signing in while the internet is down (F03; owner ACC-003).**
-    With the per-server name, the browser must resolve a public name before
-    it can reach the server, which can fail while the internet is down unless
-    the answer is cached (unverified). *Recommendation:* the docs say so, and
-    recommend a local DNS entry, an own-domain name served by the home
-    router, or a tailnet name for households that need sign-in during
-    outages; native apps over iroh in R2 avoid the problem.
+    The browser must resolve the server's HTTPS name before it can reach
+    it. In R1 that is the owner's domain or a tailnet name: a domain
+    resolved through public DNS can fail while the internet is down unless
+    the answer is cached, and whether a tailnet name still resolves then
+    depends on the tailnet (both unverified). The per-server name in R2 has
+    the same problem. *Recommendation:* the docs say so, and recommend a
+    local DNS entry or an own-domain name served by the home router for
+    households that need sign-in during outages; native apps over iroh in
+    R2 avoid the problem.
+21. **G21. Own-domain certificates before the claim (F01; owners ADM-022
+    and ACC-099).** With the name service in R2, the owner's own domain is
+    the R1 way to give a phone a secure claim page, and that needs a
+    certificate before the claim. The baseline disagrees with itself here.
+    The egress inventory allows ACME issuance with own-domain naming before
+    the claim (SEC-TM-075, which also makes the inventory what the egress
+    tests assert), but SEC-OPS-007's wording allows a pre-claim connection
+    only on the name-service path, and its test expects none at all with
+    own-domain, tailnet or localhost naming. Neither names the DNS
+    provider's API, which DNS-01 must call to publish its challenge.
+    *Recommendation:* amend SEC-OPS-007 to allow, with own-domain naming
+    only, the ACME exchange with the configured CA and the DNS provider's
+    API before the claim, and add the DNS provider to the egress inventory.
+    Until the owner settles it, F01 shows the path the inventory allows. If
+    SEC-OPS-007 stands as worded, an own-domain owner claims on localhost or
+    through an SSH tunnel, the server obtains the certificate after the
+    claim, and the owner then adds a passkey for the domain (ADM-021).
 
 ## How these flows feed the next steps
 
@@ -1989,7 +2129,9 @@ says so and keeps its number.
 - **For order**, the map's R1 build order still applies: the music model
   and scan (F02), the player (F05, F12), the queue and playlists (F05,
   F06), lyrics, search and home (F09), then sign-in, backups and the rest
-  of the security baseline (F01, F03, F10, F13 to F16). The flows add two
+  of the security baseline (F01, F03, F10, F13 to F16). Steps and parts
+  marked R1.1, R1.2 or R1.3 are built after R1, in that order, and the
+  requirements they rely on ship with them. The flows add two
   constraints. F01's claim and owner account are needed before any flow
   with more than one person can be tested end to end. And the route table,
   the authorisation function, the cleartext rule and the audit log have to
@@ -2010,7 +2152,7 @@ the owner to confirm them.
 |---|---|---|---|---|
 | Every flow; F01, F03, F10, F14, F15 | Passwords with authenticator-app codes where passkeys could not work | No passwords; passkeys, OIDC, and approval from a signed-in device | SEC-IAM-025, SEC-IAM-108 | Yes, decision 1 |
 | R1 facts; F01, F03, F05, F09 | Over plain HTTP, an online-only player with password sign-in | Over plain HTTP, only a redirect or help page for every peer except loopback | SEC-NET-001, SEC-NET-024 | No (decision 2 covers how HTTPS is provided) |
-| F01 | Per-server HTTPS name and own-domain certificates in Later | Both in R1, the name service only once its zone is on the Public Suffix List | SEC-NET-004, SEC-NET-010, SEC-NET-013, SEC-NET-070 | Yes, decision 2 |
+| F01 | Per-server HTTPS name and own-domain certificates in Later | Both in R1, the name service only once its zone is on the Public Suffix List (the name-service part is superseded by D-07; see the next section) | SEC-NET-004, SEC-NET-010, SEC-NET-013, SEC-NET-070 | Yes, decision 2 |
 | F01 | Refuses to run as root unless overridden | Refuses root and any capability, with no override | SEC-OPS-053 | Yes, decision 14 |
 | F01 | Update check "decided"; setup code with an expiry | A required question with no preselection; a 24-hour code that survives restarts and is reissued with `gunmetal claim-code` | SEC-OPS-047, SEC-IAM-007 | Yes, decision 4 |
 | F01, F03 | Sign-in page shows the server's name and message | Generic sign-in page; the name appears after sign-in and on invitations | SEC-NET-047, SEC-API-005 | Yes, decision 25 (web decision 5) |
@@ -2025,7 +2167,7 @@ the owner to confirm them.
 | F10 | One-step invitation redemption | Matching-code confirmation for members and multi-library invites; privacy notice first | SEC-IAM-079, SEC-PRV-053 | No |
 | F10, F16 | "What admins can see" in R2 | R1 | SEC-IAM-104, SEC-PRV-027 | No |
 | F10 | ACC-116 let the owner choose full history for admins | No setting adds history or titles; each person alone chooses to show titles | SEC-PRV-025 | Yes, decision 5 |
-| F10, F06 | Music share links in R2 | R1 for music, with per-link limits and a page that reveals nothing of the sharer or server | SEC-API-097, SEC-PRV-031, SEC-NET-047 | Yes, decision 7 |
+| F10, F06 | Music share links in R2 | R1 for music, with per-link limits and a page that reveals nothing of the sharer or server (now R1.2 under D-10; see the next section) | SEC-API-097, SEC-PRV-031, SEC-NET-047 | Yes, decision 7 |
 | F11 | Admins import listening history for the household; rival-database importers in R2 | Each person imports their own; rival-database importers Later, as the baseline's release table places them | SEC-PRV-022, SEC-PRV-025, SEC-STD-031, SEC-TM-074 | Yes, decision 5 |
 | F12 | The in-process remuxer | The remuxer in a worker process | SEC-MED-081 | Yes, decision 9 |
 | F13 | An older binary rebuilds from a newer log, skipping unknown events | An older binary refuses newer durable state and points to the snapshot | SEC-OPS-051 | No |
@@ -2046,3 +2188,30 @@ The interface documents were then made consistent with each other. The
 decisions that changed these flows (F05's two-tab rule and G11, F08's
 laptop target, F17's "Next to watch" row) are recorded in the
 [interface README](README.md#decisions-that-made-the-four-documents-consistent).
+
+## Changes made to follow the owner's answers
+
+On 2026-10-03 these flows were changed to follow the owner's answers of
+2026-10-02 in the [decision register](../decisions.md#owner-answers-2026-10-02).
+Every requirement a moved step relies on moves with it and keeps all its
+protections; no security requirement was weakened, and every flow,
+gap and step keeps its number.
+
+| Where | Was | Now | Decision |
+|---|---|---|---|
+| How to read a flow; every step and case table; owner alerts | Release values R1, R2, R3, Later and No, given per flow only | R1.1, R1.2 and R1.3 added; every step, case and alert carries its release, and later parts of a step are marked in its text and Features cell | D-10 |
+| R1 facts; F01 steps 1 to 4 and 7, When it goes wrong, Other releases, Depends on; F03; server work table; G20 | The per-server HTTPS name as the R1 install-time default, once its zone is on the Public Suffix List | R1 HTTPS through the owner's own domain with automatic certificates, a tailnet name or localhost; the name service, its naming client and its Certificate Transparency monitoring are R2, with the requirements that protect only them (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071) | D-07 |
+| R1 facts; F03 (new "When the person is away from home" section and When it goes wrong); F10 step 1 and When it goes wrong; Journeys not designed here | Remote use in R1 through a declared proxy or tailnet, owner to confirm | The owner's reverse proxy or a tailnet in R1, with the shipped recipes (SEC-NET-022), and signing in from outside on the same name as at home; built-in remote access, relays and the browser edge in R2 | Remote access answer |
+| F01 | Language, the server's name, an identity-provider link and the import step in R1 | Import and provider lookups R1.1; language, server name, identity-provider link and the health summary R1.2; 32-bit ARM builds R1.3 | D-10 |
+| F02 | Exclusions, grouping reasons, playlist files, tag problems, the task list, bytes read, the review queue and loudness analysis in R1; provider lookups in R2 | Each marked R1.1, R1.2 or R1.3; the built-in MusicBrainz and Cover Art Archive lookups R1.1, behind the setup question that lists what each provider receives | D-10 |
+| F05, F09 | Editions, track info, lyrics extras, drag, shuffle extras, the sleep timer, saving the queue, "Continue on this device", tag and role search, scope and recent searches in R1; the suggestions lane in R1 | Marked R1.1; the suggestions lane R1.3; reasons for admins R1.2 | D-10 |
+| F06 | One R1 flow for hand-built, smart and imported playlists | Hand-built R1, imported R1.1, smart R1.3; playlist share links R1.2 | D-10 |
+| F07, F08, G17 | The installed web app, fetch-ahead and "Continue on this device" in R1; the Android music app proposed as an R1 point release | Those web features R1.1; the Android app outside R1.1 to R1.3, as D-10 and D-14 say | D-10, D-14 |
+| F10 | Share links in R1; the owner's view of who is listening in R1; path prefix in R1 | Share links, the live view and the path prefix R1.2; an R1 server has no admin live view | D-10 |
+| F11 | R1 | R1.1, with the importers and the matcher | D-10 |
+| F12 | The owner's investigation (sessions, inspector, diagnostics, bundle) in R1; an admin's stop message in R1 | R1.2, with `gunmetal doctor` on the host from R1; in R1 an admin ends sessions from Admin > Users (SEC-IAM-044) | D-10 |
+| F13, F14 | Rereads after a parser update, derived data, the emergency page, root remapping and UI restore in R1 | Marked R1.1, R1.2 or R1.3; in R1 a parser change rescans every file, a restore needs the media at its old path, and the owner restores at setup or on the host | D-10 |
+| F16 | The title switch and admin reads of live sessions in R1 | R1.2; dismissing and the Hidden page R1.1 | D-10 |
+| Surfaces the flows pass through; server work the flows share | First release R1 for every R1-line surface and capability | Point releases marked; two server rows added, one for R1 HTTPS and one for the R2 name service | D-07, D-10 |
+| G18 | No feature row for the recovery kit | Settled by ADM-143, ACC-137 and ACC-138, which F01 step 9 cites | Consistency |
+| G21 (new) | None | Own-domain certificates before the claim, where SEC-OPS-007 and the egress inventory disagree | D-07 |

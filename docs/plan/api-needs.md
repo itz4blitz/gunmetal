@@ -2,7 +2,10 @@
 
 Written on 2026-10-02. Status: draft for the project owner's review.
 Revised on 2026-10-02 to follow the security baseline in
-[docs/security](../security/README.md).
+[docs/security](../security/README.md). Revised on 2026-10-03 for the
+owner's answers of 2026-10-02 in [the decision register](../decisions.md#owner-answers-2026-10-02):
+the smaller R1 with point releases R1.1 to R1.3 (D-10), and HTTPS in R1
+without the project name service (D-07).
 
 This is a list of capabilities, not an API specification. It reads the
 four interface documents in [docs/ui](../ui/README.md) and the
@@ -25,13 +28,21 @@ the inputs could not confirm are marked "(unverified)".
 ### Releases
 
 The release values are the feature map's: **R1** (music, server and web
-client, no remuxer or transcoder), **R2** (video, the remuxer, sandboxed
-transcoding, native TV, phone and desktop clients), **R3** (M3U and live
-TV), **Later** (wanted, not scheduled) and **No** (deliberately not doing).
+client, no remuxer or transcoder; HTTPS through the owner's own domain, a
+tailnet or the same machine, and remote use only through the owner's
+reverse proxy or tailnet), **R1.1**, **R1.2** and **R1.3** (the point
+releases after R1 that the owner adopted on 2026-10-02, decision D-10:
+bring your music in; the household and the admin; discovery and
+analysis), **R2** (video, the remuxer, sandboxed transcoding, native TV,
+phone and desktop clients, built-in remote access, and the project-run
+per-server name service with its naming client and certificate-transparency
+monitoring, decision D-07), **R3** (M3U and live TV), **Later** (wanted,
+not scheduled) and **No** (deliberately not doing).
 A capability is placed in the first release whose screens need it, or the
-first release in which the baseline requires it, whichever is earlier. The
-baseline's release-scope table (SEC-TM-074) decides which surfaces exist in
-each release.
+first release in which the baseline requires it, whichever is earlier.
+Where part of a capability arrives later, the release cell names each
+release with the part it covers in brackets. The baseline's release-scope
+table (SEC-TM-074) decides which surfaces exist in each release.
 
 ### Columns of the capability tables
 
@@ -44,7 +55,7 @@ Every capability table has the same columns.
 | **What it does** | The behaviour, in a sentence or two. |
 | **Surfaces** | The screens that need it, by SUR-ID from [surfaces.md](../ui/surfaces.md), or a flow from [flows.md](../ui/flows.md). |
 | **Features** | The owning feature rows. |
-| **Rel.** | R1, R2, R3, Later or No. |
+| **Rel.** | R1, R1.1, R1.2, R1.3, R2, R3, Later or No; several values, each with the part it covers, when part of the capability arrives later. |
 | **Offline** | How it behaves with the server gone. **Local**: answered from the device's own copy. **Queue**: the device records the write and sends it later (in R1 this is true only for play events, CLI-093; edits join in R2, CLI-094). **Server**: needs the server at that moment. **Host**: runs on the server for administrators; there is no offline case. |
 | **Live** | Whether connected clients must learn of a change without asking. **Push**: the server tells them over a live channel. **Feed**: the change arrives through the sync change feed, nudged by a push when connected. **No**: the client asks when it needs it. |
 
@@ -164,9 +175,10 @@ stated once here and not repeated in every row.
   appear only in admin types (SEC-API-068). Errors are problem-details
   objects from a closed catalogue (SEC-API-072).
 - **Protocol.** The protocol is versioned in the core and in the path
-  (`/api/v1`), and the server keeps the previous version for older clients
-  (CLI-032, SEC-API-092). The OpenAPI description is generated from the
-  route table (SEC-API-091).
+  (`/api/v1`) from R1 (SEC-API-092). In R1 the web client always loads the
+  server's own build (SEC-CLI-011); from R2, when native apps arrive, the
+  server also keeps the previous version for older clients (CLI-032). The
+  OpenAPI description is generated from the route table (SEC-API-091).
 - **One writer.** One writer owns the database (ADM-080), so high-rate
   client reports (positions, heartbeats) must be batched rather than
   written one by one.
@@ -207,9 +219,9 @@ checked-in file under CODEOWNERS that the route table is tested against
    context; they answer 404 for good once claimed (SEC-IAM-006,
    SEC-IAM-008, SEC-IAM-009, SEC-OPS-003).
 5. **Sign-in ceremonies**: the passkey challenge and assertion, the OIDC
-   start and callback, and redeeming a recovery code or recovery link to
-   enrol a new credential (SEC-API-002, SEC-IAM-089, SEC-IAM-091,
-   SEC-IAM-092).
+   start and callback (from R1.2), and redeeming a recovery code or
+   recovery link to enrol a new credential (SEC-API-002, SEC-IAM-089,
+   SEC-IAM-091, SEC-IAM-092).
 6. **Token refresh**: in R1, a paired browser renewing its session by
    signing a fresh server challenge (SEC-IAM-108); from R2, native token
    renewal by device-key signature (SEC-IAM-050).
@@ -217,7 +229,7 @@ checked-in file under CODEOWNERS that the route table is tested against
    fragment and then the `POST` body (SEC-API-096, SEC-PRV-053).
 8. **Device-pairing request and poll** (SEC-IAM-056). Approval itself is a
    signed-in action.
-9. **Share-link landing and redemption** for music (SEC-TM-004,
+9. **Share-link landing and redemption** for music, from R1.2 (SEC-TM-004,
    SEC-API-097, SEC-PRV-031).
 10. **Capability routes**: signed media and image URLs and the WebSocket
     ticket, authenticated by the capability rather than a session
@@ -253,12 +265,12 @@ features (see [The sync model](#the-sync-model)).
 |---|---|---|---|---|---|---|---|
 | API-SYS-01 | Health check | Answers liveness for containers and uptime monitors, and lets clients tell "server down" from "network down". Liveness only: no readiness detail, no version, nothing about the library. | SUR-003, SUR-111 | CLI-025, INT-013, ADM-128 | R1 | Server | No |
 | API-SYS-02 | Cleartext help page | Over plain HTTP, every peer but loopback gets only a static redirect to the HTTPS address or a help page that sets no cookie and explains in plain words how to reach it; there is no reduced web client on a plain-HTTP address. In the default home posture, non-local peers get only a static help page. The client itself checks for a secure context at start and shows "unsupported" without one. | SUR-070, SUR-077, SUR-082 | CLI-150, ADM-021 | R1 | Server | No |
-| API-SYS-03 | Protocol negotiation | `GET /api/v1/server` gives the supported version range, so a client learns which update it needs while what still works keeps working. A web bundle whose build differs from the server's gets a typed "reload required" error on its next call. | SUR-003 | CLI-032 | R1 | Server | No |
+| API-SYS-03 | Protocol negotiation | `GET /api/v1/server` gives the supported version range, so a client learns which update it needs while what still works keeps working. A web bundle whose build differs from the server's gets a typed "reload required" error on its next call. Both are required in R1 (SEC-API-005, SEC-CLI-011); keeping older versions working for older native clients (CLI-032) matters from R2. | SUR-003 | CLI-032 | R1 | Server | No |
 | API-SYS-04 | Capability discovery | For a signed-in caller: the API version, enabled modules, adapters and extensions, and the scopes the caller holds. Unauthenticated callers get only API-SYS-06. | SUR-112 | INT-005 | R1 | Server | No |
 | API-SYS-05 | Who am I | Returns the caller's account, profile, device, device class and token scope, for clients and tools. | SUR-006 | INT-026 | R1 | Local | No |
-| API-SYS-06 | Public sign-in facts | Before sign-in, only what `GET /api/v1/server` returns: protocol range, instance ID, whether claimed, enabled sign-in methods. The server's display name and sign-in message are shown after sign-in; a returning client shows the name it remembers, and the invitation landing page may show it because the invitation secret authorises that. | SUR-070 | ADM-140, ACC-007 | R1 | Server | No |
+| API-SYS-06 | Public sign-in facts | Before sign-in, only what `GET /api/v1/server` returns: protocol range, instance ID, whether claimed, enabled sign-in methods. The server's display name and sign-in message (from R1.2) are shown after sign-in; a returning client shows the name it remembers, and the invitation landing page may show it because the invitation secret authorises that. | SUR-070 | ADM-140, ACC-007 | R1 | Server | No |
 | API-SYS-07 | Startup status page | While the server starts, migrates, rebuilds or restores, every request gets one static "starting, try again shortly" page with no version, build, path, step or error. The detail (each step, estimates, the snapshot location) goes to the host console, the journal and `gunmetal doctor`, and to signed-in admins once the database is open. Refusals (running as root or with capabilities, a data directory on a network filesystem, newer durable state than the binary understands) stop the server with a console message and serve nothing. | SUR-080 | ADM-032, ADM-006, ADM-007, ADM-056 to ADM-059, ADM-078, ADM-079 | R1 | Server | Push (it refreshes itself) |
-| API-SYS-08 | Emergency page | A minimal server-rendered admin page, without the client bundle and under the same CSP, behind the admin session: status, recent diagnostic-log lines, back up now and restart. Downloading a backup from it needs the owner and fresh user verification. It is not reachable signed out; the host route to the same help is `gunmetal doctor` and the host commands. | SUR-081 | ADM-113 | R1 | Server | No |
+| API-SYS-08 | Emergency page | A minimal server-rendered admin page, without the client bundle and under the same CSP, behind the admin session: status, recent diagnostic-log lines, back up now and restart. Downloading a backup from it needs the owner and fresh user verification. It is not reachable signed out; the host route to the same help is `gunmetal doctor` and the host commands. | SUR-081 | ADM-113 | R1.2 | Server | No |
 | API-SYS-09 | API reference | The reference generated from the route table, served by each server to signed-in callers so it matches that version. | SUR-112 | INT-001 | R1 | Server | No |
 | API-SYS-10 | Client event channel | One authenticated WebSocket per signed-in session that the server uses to push the events marked "Push" in this document: sync nudges, scan progress, a stopped session, a revoked device, a new device, the active player changing. Every event is built per recipient by the authorisation layer; there is no broadcast. See [Flags](#ui-requirements-the-architecture-makes-hard-or-impossible), item 12. **Proposal** for R1. | SUR-002, SUR-003, SUR-083, SUR-084, SUR-100 | ADM-099, ADM-102, LIB-021, CLI-103 | R1 | Server | Push |
 
@@ -280,20 +292,20 @@ features (see [The sync model](#the-sync-model)).
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
 | API-AUTH-01 | Unclaimed-server guard | While no owner exists, answers only the setup page and its assets, the claim and restore-at-setup endpoints and the health check, and accepts no sign-in. Issues a 128-bit, single-use claim code that lasts 24 hours, shown only on host channels: the console and journal, a terminal QR code, a claim URL with the code in its fragment, a file only the service user can read, and `gunmetal claim-code`, which mints a new code once the old one has expired. The code never appears in a network response, and failed attempts never rotate it. | SUR-082, SUR-110, F01 | ACC-001, ADM-018 | R1 | Server | No |
-| API-AUTH-02 | Setup state | The claim comes first: it creates the owner, binds the first passkey and consumes the code in one transaction, and from then on every setup route answers 404 for good, including after a restart, a failed migration or a restore. The remaining welcome steps (locale, server name, the required update-and-advisory question, the required provider step, privacy, import, libraries) are ordinary owner settings behind the admin session, so a half-finished setup simply resumes there, and an expired code is replaced by `gunmetal claim-code` (flows G1). | SUR-082 | ADM-020, ADM-027, ADM-140, ADM-028 | R1 | Server | No |
-| API-AUTH-03 | Owner creation | Claiming creates the owner in the identity store with a passkey, refused unless the page is a secure context or loopback (on a headless box, an SSH tunnel to localhost). It issues the printable recovery kit (the owner's recovery codes and the backup recovery key) and may then link an OIDC provider, which never makes anyone the owner. There is no password and no TOTP; ACC-052 and ACC-053 are to be withdrawn from the feature map (owner decision 1). | SUR-082 | ACC-002, ADM-019, ACC-050, ACC-057 | R1 | Server | No |
+| API-AUTH-02 | Setup state | The claim comes first: it creates the owner, binds the first passkey and consumes the code in one transaction, and from then on every setup route answers 404 for good, including after a restart, a failed migration or a restore. The remaining welcome steps (in R1 the required update-and-advisory question, privacy and libraries; from R1.1 the required provider step and import; from R1.2 locale and server name) are ordinary owner settings behind the admin session, so a half-finished setup simply resumes there, and an expired code is replaced by `gunmetal claim-code` (flows G1). | SUR-082 | ADM-020, ADM-027, ADM-140, ADM-028 | R1 | Server | No |
+| API-AUTH-03 | Owner creation | Claiming creates the owner in the identity store with a passkey, refused unless the page is a secure context or loopback (on a headless box, an SSH tunnel to localhost). It issues the printable recovery kit (the owner's recovery codes and the backup recovery key) and, from R1.2, may then link an OIDC provider, which never makes anyone the owner. There is no password and no TOTP; ACC-052 and ACC-053 are to be withdrawn from the feature map (owner decision 1). | SUR-082 | ACC-002, ADM-019, ACC-050, ACC-057 | R1 | Server | No |
 | API-AUTH-04 | Passkey sign-in | Runs a usernameless WebAuthn ceremony with user verification required, against a relying-party ID fixed at setup. | SUR-070 | ACC-050 | R1 | Server | No |
 | API-AUTH-05 | Password and two-factor sign-in | Not built. There are no account passwords and no TOTP codes, for sign-in or recovery (owner decision 1). A browser that cannot use a passkey signs in by approval from the person's phone (API-AUTH-13); a person with no passkey-capable device uses a hardware key or the household's help. | SUR-070 | ACC-052, ACC-053, ACC-007 | No | Server | No |
-| API-AUTH-06 | Single sign-on | Completes OIDC with the household's own provider as a confidential client: authorization code with PKCE, state and nonce, an exact redirect URI, identities keyed by issuer and subject, auto-registration off by default, provider claims never conferring the owner role; no other outbound call. An OIDC sign-in never satisfies a fresh-uv action. | SUR-070, SUR-092 | ACC-057, ACC-003 | R1 | Server | No |
-| API-AUTH-07 | Guessing limiter | One limiter. Guessable secrets (the claim code, pairing codes, share-link passwords and, in R2, PINs) follow one delay schedule per target and source, never permanent; a pairing code dies after 5 wrong guesses; the claim code and share links are never disabled by failures. Passkey and device-key failures are throttled per source and alerted, never locked. High-entropy secrets (invitations, recovery codes) are rate-limited per source and server-wide. Every failure also writes a fail2ban-friendly line. | SUR-070, SUR-092, SUR-101 | ACC-063, ADM-122 | R1 | Server | No |
+| API-AUTH-06 | Single sign-on | Completes OIDC with the household's own provider as a confidential client: authorization code with PKCE, state and nonce, an exact redirect URI, identities keyed by issuer and subject, auto-registration off by default, provider claims never conferring the owner role; no other outbound call. An OIDC sign-in never satisfies a fresh-uv action. | SUR-070, SUR-092 | ACC-057, ACC-003 | R1.2 | Server | No |
+| API-AUTH-07 | Guessing limiter | One limiter. Guessable secrets (the claim code, pairing codes, share-link passwords from R1.2 and PINs from R2) follow one delay schedule per target and source, never permanent; a pairing code dies after 5 wrong guesses; the claim code and share links are never disabled by failures. Passkey and device-key failures are throttled per source and alerted, never locked. High-entropy secrets (invitations, recovery codes) are rate-limited per source and server-wide. Every failure also writes a fail2ban-friendly line. | SUR-070, SUR-092, SUR-101 | ACC-063, ADM-122 | R1 | Server | No |
 | API-AUTH-08 | Browser sessions | Issues the `__Host-gm_session` cookie (Secure, HttpOnly, SameSite=Lax, an opaque 256-bit token stored only as a hash). At sign-in the client asks whether the browser is personal or shared. Personal sessions end after 7 days unused or 30 days in total; shared sessions use a cookie that ends with the browser, end after 30 minutes idle and keep library data in memory only. A new token is issued at sign-in, at elevation and at every profile switch. The device and its class are recorded. | SUR-070, SUR-092 | ACC-124, ACC-079, ACC-068 | R1 | Server | No |
 | API-AUTH-09 | Session epoch and revocation | Every session-derived credential (session token, capability URL, WebSocket, in-flight range response) is checked against the live session on every request. A credential change, "sign out everywhere", a disabled account, a revoked device or a key rotation makes them fail on the next request, and closes open sockets and in-flight responses within 5 seconds. Signing out invalidates the session on the server and answers with `Clear-Site-Data`. | SUR-078, SUR-090, player "Signed out" state | ACC-065, ACC-069, ACC-070, ACC-008, ACC-122 | R1 | Server | Push (the signed-out device is told) |
-| API-AUTH-10 | Admin session and fresh verification | Administrator rights need a separate admin session (its own `__Host-` cookie, SameSite=Strict, 15 minutes idle, 1 hour in total), started only by a user-verifying passkey, or, for an account with no passkey, by a fresh provider sign-in less than 5 minutes old. Fresh-uv routes also need a passkey or device-key verification in the previous 5 minutes. A media session never authorises an admin route. | SUR-008 | ACC-056 | R1 | Server | No |
+| API-AUTH-10 | Admin session and fresh verification | Administrator rights need a separate admin session (its own `__Host-` cookie, SameSite=Strict, 15 minutes idle, 1 hour in total), started only by a user-verifying passkey, or, from R1.2 and for an account with no passkey, by a fresh provider sign-in less than 5 minutes old. Fresh-uv routes also need a passkey or device-key verification in the previous 5 minutes. A media session never authorises an admin route. | SUR-008 | ACC-056 | R1 | Server | No |
 | API-AUTH-11 | Owner recovery from the host | `gunmetal owner recover`, run on the host, reaches the server over a local socket only the service account can open and prints a single-use enrolment link valid for 15 minutes. It works from the locked state, ends every owner session, alerts every administrator, and raises a banner and an audit entry. | SUR-110, SUR-070, SUR-083 | ACC-004, ADM-034 | R1 | Host | No |
 | API-AUTH-12 | Help a locked-out user | An admin issues a single-use recovery enrolment link (with a QR code) for a member or guest; the owner issues them for administrators; nobody can issue one for the owner. It is redeemed in person (the QR code on the issuer's screen, with the person present) or on a device the person already approved. The credential it enrols starts a 72-hour recovery hold, during which it cannot remove other credentials, elevate, export or invite, the person's existing devices can cancel it with one tap, and the person's history and private data stay hidden from it. | SUR-090 | ACC-064 | R1 | Server | No |
 | API-AUTH-13 | Pairing and device keys | One pairing protocol. **R1, browsers:** a browser that cannot use a passkey shows an 8-character code and a QR code carrying the server's identity key; the person approves from a signed-in personal-class device, which shows the request's claimed name marked unverified, its type and whether it is in this home; a remote approval needs the code typed from the requesting device. The browser then makes a non-extractable Web Crypto key and gets a limited-class session renewed only by signing a fresh challenge; it can never administer, approve devices or change account security. **R2, native:** phones and TVs enrol their own hardware-backed key pair and sign in by challenge and response; TVs use the device authorisation flow. | SUR-061, F04 | ACC-061, ACC-062, ACC-051, CLI-027, INT-027, INT-028 | R1 (browsers); R2 (native devices) | Server | Push (the waiting device moves on) |
 | API-AUTH-14 | Profile switch and PIN | Lists the profiles a shared device may open (names and avatars only) and checks a PIN on the server under the limiter; a PIN gates switching into a profile and nothing else. A new session token is issued at each switch. | SUR-006, SUR-079 | ACC-019, ACC-020, ACC-021 | R2 | Server | No |
-| API-AUTH-15 | Recovery codes | Ten single-use recovery codes of at least 80 bits, offered to owners and administrators when they enrol and available to everyone under Account > Recovery, stored only as peppered hashes. A code opens a session that can only enrol a new credential, which starts the recovery hold of API-AUTH-12; every device of the account is alerted and shown every credential to review. | SUR-078, SUR-082 | No feature row yet; required by the baseline | R1 | Server | No |
+| API-AUTH-15 | Recovery codes | Ten single-use recovery codes of at least 80 bits, offered to owners and administrators when they enrol and available to everyone under Account > Recovery, stored only as peppered hashes. A code opens a session that can only enrol a new credential, which starts the recovery hold of API-AUTH-12; every device of the account is alerted and shown every credential to review. | SUR-078, SUR-082 | ACC-137 | R1 | Server | No |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
 |---|---|---|---|---|---|
@@ -317,16 +329,16 @@ features (see [The sync model](#the-sync-model)).
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-USR-01 | Profile identity | Name and picture per profile, separate from the sign-in account. Pictures go through the upload path, are decoded in a worker, re-encoded with all metadata removed, and SVG is refused. | SUR-006, SUR-079 | ACC-011, ACC-017, ACC-125 | R1 | Local (read); Server (write) | Feed |
-| API-USR-02 | Settings that follow the person | Settings records with a person scope and a device scope (audio output, storage, theme override), kept outside the rebuildable cache. Privacy settings start at their most private value. | SUR-073 to SUR-077 | ACC-012, CLI-030, CLI-141 | R1 | Local (read); Server (write in R1) | Feed |
-| API-USR-03 | Sign-in methods | List, add and remove passkeys and OIDC links, with user verification in the previous 5 minutes; the last credential cannot be removed; the account's other devices are told. There is no password or two-factor to manage (owner decision 1). Refused while a recovery hold is on. | SUR-078 | ACC-055, ACC-050 | R1 | Server | No |
+| API-USR-01 | Profile identity | Name and picture per profile, separate from the sign-in account. Pictures go through the upload path, are decoded in a worker, re-encoded with all metadata removed, and SVG is refused. | SUR-006, SUR-079 | ACC-011, ACC-017, ACC-125 | R1 (the profile record, separate from sign-in, with its account's display name, ACC-017); R1.1 (a chosen name and picture, ACC-011) | Local (read); Server (write) | Feed |
+| API-USR-02 | Settings that follow the person | Settings records with a person scope and a device scope (audio output, storage, theme override), kept outside the rebuildable cache. Privacy settings start at their most private value. | SUR-073 to SUR-077 | ACC-012, CLI-030, CLI-141 | R1; R1.1 (device-scope settings) | Local (read); Server (write in R1) | Feed |
+| API-USR-03 | Sign-in methods | List, add and remove passkeys and (from R1.2) OIDC links, with user verification in the previous 5 minutes; the last credential cannot be removed; the account's other devices are told. There is no password or two-factor to manage (owner decision 1). Refused while a recovery hold is on. | SUR-078 | ACC-055, ACC-050 | R1 | Server | No |
 | API-USR-04 | Sign-in history | The person's own security events, with full addresses, including every time an administrator accessed their data. | SUR-078 | ACC-078, ADM-110 | R1 | Server | No |
 | API-USR-05 | Export your data | Builds a documented, versioned export of everything the person told the server (history, loves, ratings, playlists, hides, layouts and rules) and nothing about anyone else. Starting it needs authentication in the previous 5 minutes and is refused during a recovery hold; the download is single use, bound to the requesting session and expires within an hour. | SUR-078, F16 | ACC-010, DIS-058, MUS-188, INT-151, LAT-007 | R1 | Server | No |
-| API-USR-06 | History import | Takes Last.fm or ListenBrainz export files through the upload path, parses them under budgets outside the server process, matches them into the person's own profile, and marks every imported listen so a scrobbler never sends it back. Imports can be removed as a batch. | SUR-078, SUR-097, SUR-009 | MUS-189, ADM-042, INT-107 | R1 | Server | Push (job progress) |
+| API-USR-06 | History import | Takes Last.fm or ListenBrainz export files through the upload path, parses them under budgets outside the server process, matches them into the person's own profile, and marks every imported listen so a scrobbler never sends it back. Imports can be removed as a batch. | SUR-078, SUR-097, SUR-009 | MUS-189, ADM-042, INT-107 | R1.1 | Server | Push (job progress) |
 | API-USR-07 | Private session flag | Starts from the player in at most two interactions. While it is on, the device records no history events, recommendation signals or scrobbles and queues nothing for later upload, the server records no play from that session, and anyone else's live-session view omits the title. It ends when the person turns it off or after a period without playback that the person picks (default 6 hours, from the privacy design guidance). | SUR-002, SUR-010, SUR-006 | ACC-117, MUS-185, DIS-053 | R1 | Local | No |
 | API-USR-08 | Household and child profiles | Managed profiles linked to policies, presets, rating ceilings, allow and block rules, schedules and the guardian's view of a child's history. Content policy is enforced inside the shared visibility predicate. | SUR-079, SUR-091, F18 | ACC-016, ACC-018, ACC-023 to ACC-029, ACC-032, ACC-034 | R2 | Server | Feed |
 | API-USR-09 | What the admin can see | A page listing what administrators and guardians can see about this person, generated from the same policy the server enforces. | SUR-078 | ACC-115 | R1 | Server | No |
-| API-USR-10 | Delete my account | Needs authentication in the previous 5 minutes and offers an export first. Disables the account, ends every session and device grant at once, keeps it restorable for 7 days, then erases it through the history-deletion pipeline; the confirmation states the date. | SUR-078 | No feature row yet; required by the baseline | R1 | Server | Push (the account's devices are signed out) |
+| API-USR-10 | Delete my account | Needs authentication in the previous 5 minutes and offers an export first. Disables the account, ends every session and device grant at once, keeps it restorable for 7 days, then erases it through the history-deletion pipeline; the confirmation states the date. | SUR-078 | ACC-136 | R1 | Server | Push (the account's devices are signed out) |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
 |---|---|---|---|---|---|
@@ -346,8 +358,8 @@ features (see [The sync model](#the-sync-model)).
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
 | API-DEV-01 | Device registry | Lists each of the person's sessions and devices with client name, device class, key level, network type, coarse location and last use; ends one, or all but the current one. From R2 the list also holds API keys and app passwords. | SUR-078, F15 | ACC-068, ACC-069, ACC-070 | R1 | Server | No |
-| API-DEV-02 | Sync status per device | The device's sync cursor and last sync time, for the storage screen and for admins. | SUR-075 | CLI-024 | R1 | Local | No |
-| API-DEV-03 | Diagnostics from a device | Accepts a report the person built and reviewed on the device, through the upload path. An excerpt of the server log is attached only when the person sending it is an administrator, and is masked like a diagnostic bundle. | SUR-077, F12 | CLI-033 | R1 | Server | No |
+| API-DEV-02 | Sync status per device | The device's sync cursor and last sync time, for the storage screen and for admins. | SUR-075 | CLI-024 | R1 (the cursor and last sync time, kept by sync, WP-084); R1.1 (the storage screen, CLI-024) | Local | No |
+| API-DEV-03 | Diagnostics from a device | Accepts a report the person built and reviewed on the device, through the upload path. An excerpt of the server log is attached only when the person sending it is an administrator, and is masked like a diagnostic bundle. | SUR-077, F12 | CLI-033 | R1.2 | Server | No |
 | API-DEV-04 | Device capability report | What this device can decode and output, used by the decision engine and shown to the person. It is validated and bounded, and is never used for an authorisation decision. | SUR-048, SUR-077 | CLI-047 | R2 | Local | No |
 | API-DEV-05 | New-device notice | Tells the person's other devices that a device enrolled or a credential was added or removed, with a one-step "This wasn't me" that revokes it. In the app only: over the event channel when connected, otherwise at the next sync; there is no remote push (CLI-077 is Later). | SUR-003 | ACC-071 | R1 | Server | Push |
 | API-DEV-06 | Server picker support | Each server holds its own device key, credentials, library copy and pins for a client that uses several servers. | SUR-072 | CLI-018, ACC-014 | R2 | Local | No |
@@ -371,9 +383,9 @@ These are the capabilities it needs.
 | API-SYNC-01 | Snapshot | The first full copy of the profile's synced library and user data, computed for that principal from its grants and restrictions as it is built. Proposed budget: 100,000 tracks in under 2 minutes (open decision 16). | SUR-000, SUR-020, SUR-022, F03 | CLI-022, ACC-030, ACC-037, DIS-140 | R1 | Server | No |
 | API-SYNC-02 | Delta from a cursor | Everything that changed for this principal since the device's cursor, in one ordered request, so a device away for a month catches up at once. The cursor is opaque or MAC-protected and bound to the principal. A cursor older than the compaction horizon gets a fresh snapshot. | All browse surfaces | LIB-018, CLI-022, INT-006 | R1 | Server | Feed |
 | API-SYNC-03 | Grant changes as removals | When a person loses access to a library or an item, the next delta removes it from the device, carrying only identifiers, never metadata. | SUR-022, F10 step 8 | ACC-037, ACC-030 | R1 | Server | Feed |
-| API-SYNC-04 | Profile data in the sync | The profile's slice of the user log (queue, playlists, loves, ratings, hides, layouts, rules, settings, history) travels with the library, and nothing of anyone else's. See the size note in the sync model. | SUR-020, SUR-029, SUR-011 | DIS-002, DIS-007, MUS-122, ACC-012 | R1 | Server | Feed |
+| API-SYNC-04 | Profile data in the sync | The profile's slice of the user log (queue, playlists, loves, ratings, hides, layouts, rules, settings, history) travels with the library, and nothing of anyone else's. Each kind joins in the release that ships it: ratings and dismissals in R1.1, Home layouts in R1.2, rules in R1.3. See the size note in the sync model. | SUR-020, SUR-029, SUR-011 | DIS-002, DIS-007, MUS-122, ACC-012 | R1 | Server | Feed |
 | API-SYNC-05 | Artwork in fixed sizes | Images in a fixed set of sizes per device class, fetched by capability URL, with a tiny placeholder in the metadata so tiles never show a spinner. | SUR-023 | LIB-142, MUS-040, LIB-143 | R1 | Local once cached | No |
-| API-SYNC-06 | Neighbour table | A table of each visible track's, album's and artist's nearest neighbours from credits, genres, era and the profile's own listening, within a size budget per device, for radio and "More like this". Other people's listening contributes only from those who opted in, and only for items at least three of them played. | SUR-024, SUR-011 | DIS-060, DIS-067, MUS-165 | R1 | Local | Feed |
+| API-SYNC-06 | Neighbour table | A table of each visible track's, album's and artist's nearest neighbours from credits, genres, era and the profile's own listening, within a size budget per device, for radio and "More like this". Other people's listening contributes only from those who opted in, and only for items at least three of them played. | SUR-024, SUR-011 | DIS-060, DIS-067, MUS-165 | R1.3 | Local | Feed |
 | API-SYNC-07 | Prebuilt search index | A fallback: if building the index on the device misses the budget on the reference low-end device, the server ships an index segment built for that principal instead. | SUR-032 | DIS-084, DIS-019 | R1 (if needed) | Local | Feed |
 | API-SYNC-08 | Partial sync | All metadata, but artwork within a budget with eviction, for TVs and small devices. | SUR-075 | CLI-023 | R2 | Local | Feed |
 | API-SYNC-09 | Restricted profiles at sync | Kids profiles receive nothing they may not see, so nothing leaks through search, artwork, screensavers or launcher rows. | SUR-055, SUR-060 | DIS-144, DIS-155 | R2 | Server | Feed |
@@ -398,11 +410,11 @@ These are the capabilities it needs.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-LIB-01 | Create and configure a library | A library record with a kind (music in R1, room for others), one or more roots, a spoken-word flag, and "keep off Home". Roots are opened read-only, never a filesystem root. A new library is visible to the owner and administrators only until someone grants it (flows G4). | SUR-085, SUR-082 | LIB-001, LIB-003, LIB-004, LIB-011, LAT-010, DIS-012 | R1 | Host | Feed |
+| API-LIB-01 | Create and configure a library | A library record with a kind (music in R1, room for others), one or more roots, a spoken-word flag, and "keep off Home". Roots are opened read-only, never a filesystem root. A new library is visible to the owner and administrators only until someone grants it (flows G4). | SUR-085, SUR-082 | LIB-001, LIB-003, LIB-004, LIB-011, LAT-010, DIS-012 | R1; R1.2 ("keep off Home"); R1.3 (spoken-word flag) | Host | Feed |
 | API-LIB-02 | Folder browser with live checks | Lists directories only, never file contents, inside admin-configured browse roots after canonicalising and resolving symlinks, and checks readability, emptiness and storage type before saving. | SUR-082, SUR-085 | ADM-025, LIB-015, ADM-089 | R1 | Host | No |
-| API-LIB-03 | Root settings | Exclusion patterns, watch for changes, poll interval and parallelism for shares, a safety-net schedule, read-only declared, and symlinks followed only into approved roots. | SUR-085 | LIB-006, LIB-013, LIB-014, LIB-015, LIB-007 | R1 | Host | No |
+| API-LIB-03 | Root settings | Exclusion patterns, watch for changes, poll interval and parallelism for shares, a safety-net schedule, read-only declared, and symlinks followed only into approved roots. | SUR-085 | LIB-006, LIB-013, LIB-014, LIB-015, LIB-007 | R1; R1.1 (exclusion patterns) | Host | No |
 | API-LIB-04 | Library grants | Who may see each library; the grants filter sync, events and every fetch from the next request. By default a new library is granted to no member or guest. An increase in someone's library access raises an owner alert. | SUR-085, SUR-090 | ACC-037, MUS-027 | R1 | Host | Feed |
-| API-LIB-05 | Change location | Points a root at a new path with a preview, keeping identity and history. | SUR-085, SUR-082 | LIB-031, ADM-051 | R1 | Host | Feed |
+| API-LIB-05 | Change location | Points a root at a new path with a preview, keeping identity and history. | SUR-085, SUR-082 | LIB-031, ADM-051 | R1.1 | Host | Feed |
 | API-LIB-06 | Rebuild a library | Rebuilds from the files plus the curation log, stating that fixes are kept. | SUR-085 | LIB-179, ADM-077 | R1 | Host | Push (progress) |
 | API-LIB-07 | Artist splitting rules | Per-library separator and exception rules for artist strings. | SUR-085, SUR-086 | MUS-035, LIB-038 | R1 | Host | Feed |
 | API-LIB-08 | Video and other kinds | Film, show and home-video kinds, tag and precedence choices, metadata language, provider order, locks, I/O profiles. | SUR-085 | LIB-002, LIB-010, LIB-055, LIB-128, LIB-183, ADM-087 | R2 | Host | Feed |
@@ -427,18 +439,18 @@ rendered as text.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-CAT-01 | Credits and roles | Every credited artist linked, the display credit as tagged, album artist apart from track artist, roles (composer, conductor, lyricist, producer, remixer, performer), "Appears on", disambiguation for same-name artists. | SUR-023 to SUR-025, SUR-013 | MUS-001 to MUS-006, LIB-187 | R1 | Local | Feed |
-| API-CAT-02 | Release model | Release groups and editions, release types, compilations, discs with titles, work groupings, original and release dates, sort names. | SUR-024, SUR-025 | MUS-008, MUS-010 to MUS-013, MUS-020, LIB-045, LIB-051, LIB-056 | R1 | Local | Feed |
-| API-CAT-03 | Tags for browse | Multi-valued genres, moods, styles, labels and grouping, the explicit flag, MusicBrainz IDs. | SUR-023, SUR-028 | MUS-017, MUS-019, MUS-047, MUS-036, INT-009 | R1 | Local | Feed |
-| API-CAT-04 | Technical and quality data | Codec, container, sample rate, bit depth, channels and bitrate, as data the client turns into badges. | SUR-013, SUR-023, SUR-002 | MUS-021, LIB-146, MUS-099 | R1 | Local | Feed |
-| API-CAT-05 | Playback data per file | Encoder delay and padding, ReplayGain or R128 values (track and album), true peak, measured loudness where available, and the seek index. The player clamps gain taken from tags. See the size note in the sync model. | Player | MUS-069, MUS-071, MUS-084, MUS-085, MUS-086, MUS-088, LIB-064 | R1 | Local | Feed |
-| API-CAT-06 | Lyrics | Embedded lyrics and `.lrc` sidecars, plain, line-timed and word-timed, parsed at scan into a capped timed-line model, with where they came from. | SUR-012 | MUS-154, MUS-155, MUS-156, LIB-067, LIB-068 | R1 | Local | Feed |
+| API-CAT-01 | Credits and roles | Every credited artist linked, the display credit as tagged, album artist apart from track artist, roles (composer, conductor, lyricist, producer, remixer, performer), "Appears on", disambiguation for same-name artists. | SUR-023 to SUR-025, SUR-016, SUR-013 | MUS-001 to MUS-006, LIB-187 | R1; R1.1 (roles, one artist page across libraries) | Local | Feed |
+| API-CAT-02 | Release model | Release groups and editions, release types, compilations, discs with titles, work groupings, original and release dates, sort names. | SUR-024, SUR-025 | MUS-008, MUS-010 to MUS-013, MUS-020, LIB-045, LIB-051, LIB-056 | R1; R1.1 (release groups, editions, release types, original dates); R2 (work groupings) | Local | Feed |
+| API-CAT-03 | Tags for browse | Multi-valued genres, moods, styles, labels and grouping, the explicit flag, MusicBrainz IDs. | SUR-023, SUR-028 | MUS-017, MUS-019, MUS-047, MUS-036, INT-009 | R1; R1.1 (moods, styles, labels, grouping, explicit flag) | Local | Feed |
+| API-CAT-04 | Technical and quality data | Codec, container, sample rate, bit depth, channels and bitrate, as data the client turns into badges. | SUR-016, SUR-013, SUR-023, SUR-002 | MUS-021, LIB-146, MUS-099, MUS-236 | R1 | Local | Feed |
+| API-CAT-05 | Playback data per file | Encoder delay and padding, ReplayGain or R128 values (track and album), true peak, measured loudness where available, and the seek index. The player clamps gain taken from tags. See the size note in the sync model. | Player | MUS-069, MUS-071, MUS-084, MUS-085, MUS-086, MUS-088, LIB-064 | R1; R1.3 (measured loudness) | Local | Feed |
+| API-CAT-06 | Lyrics | Embedded lyrics and `.lrc` sidecars, plain, line-timed and word-timed, parsed at scan into a capped timed-line model, with where they came from. | SUR-012 | MUS-154, MUS-155, MUS-156, LIB-067, LIB-068 | R1; R1.1 (word-timed lyrics) | Local | Feed |
 | API-CAT-07 | Artwork palette | Up to three colour candidates per album computed from the same decode that makes the fixed sizes, for the artwork tint. | SUR-010, SUR-024, SUR-025 | MUS-110 | R1 | Local | Feed |
 | API-CAT-08 | Provenance | How each field was read and where it came from, and "Upgraded on" when a better copy replaced the file. No file paths for non-admins. | SUR-013 | MUS-034, MUS-037, LIB-030 | R1 | Local | Feed |
 | API-CAT-09 | Availability | Per item: playable, drive offline, damaged, missing; the client adds "cannot decode here" from its own capability probe. | SUR-023, SUR-011, SUR-003 | LIB-032, MUS-079, MUS-229, LIB-193 | R1 | Local | Feed |
-| API-CAT-10 | Folder paths | Paths relative to each library root, for folder view and breadcrumbs. Absolute paths never enter the synced copy, for anyone; admins read them through API-CAT-11. | SUR-022, SUR-025 | LIB-008 | R1 | Local | Feed |
-| API-CAT-11 | Inspect a file | For admins: every raw tag, the structure the parsers read, the identification decision and "Why is this here?", errors with their location. Shared by the file inspector, the track info sheet's admin fields and the CLI. | SUR-088, SUR-013, SUR-110 | ADM-125, LIB-195, LIB-059, LIB-097, LIB-098 | R1 | Server | No |
-| API-CAT-12 | Merge, split and alias | Admin corrections to artists and albums, stored as curation-log events that survive rescans and rebuilds. | SUR-089, SUR-004 | MUS-007, LIB-041, LIB-058, LIB-179 | R1 | Server | Feed |
+| API-CAT-10 | Folder paths | Paths relative to each library root, for folder view and breadcrumbs. Absolute paths never enter the synced copy, for anyone; admins read them through API-CAT-11. | SUR-022, SUR-025 | LIB-008 | R1 (relative paths stored by the scan, WP-024, WP-102); R1.3 (folder view and breadcrumbs, LIB-008) | Local | Feed |
+| API-CAT-11 | Inspect a file | For admins: every raw tag, the structure the parsers read, the identification decision and "Why is this here?", errors with their location. Shared by the file inspector, the track info sheet's admin fields and the CLI. | SUR-088, SUR-013, SUR-110 | ADM-125, LIB-195, LIB-059, LIB-097, LIB-098 | R1.2 (file inspector, CLI and the track info sheet's admin fields, WP-156); the R1.1 track info sheet shows only synced fields and the grouping reasons WP-146 records, with no admin inspect fields until R1.2 | Server | No |
+| API-CAT-12 | Merge, split and alias | Admin corrections to artists and albums, stored as curation-log events that survive rescans and rebuilds. | SUR-089, SUR-004 | MUS-007, LIB-041, LIB-058, LIB-179 | R1.3 | Server | Feed |
 | API-CAT-13 | Rescan one item | Re-reads one file or folder on request. | SUR-004, SUR-088 | LIB-012 | R1 | Server | Feed |
 | API-CAT-14 | Metadata editing | The edit sheet with field locks and sources, bulk edit, labels, artwork picker, fix match, item history with undo. Edits live in the database, never in media folders. | SUR-089 | LIB-172 to LIB-178, LIB-138 to LIB-141 | R2 | Server | Feed |
 
@@ -480,8 +492,8 @@ rendered as text.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-SES-01 | Session registry | Records who is playing on which device, the delivery path, bitrate and the decision reason. The decision is computed by the core on the device (F17 step 2) and reported; the server records what it actually served. Admin views show the title only for people who opted in to showing titles, and never for a private session. | SUR-083, SUR-084 | ADM-099, ADM-100, INT-134 | R1 | Server | Push (admin views) |
-| API-SES-02 | Stop a session with a message | An admin ends a session; new requests fail, in-flight responses are cut, and the client shows the message as plain text. | SUR-084, SUR-003, player "Stopped by the owner" | ADM-102, ACC-073 | R1 | Server | Push |
+| API-SES-01 | Session registry | Records who is playing on which device, the delivery path, bitrate and the decision reason. The decision is computed by the core on the device (F17 step 2) and reported; the server records what it actually served. Admin views show the title only for people who opted in to showing titles, and never for a private session. R1 needs only the playing leases that stream limits count (API-SES-08). | SUR-083, SUR-084 | ADM-099, ADM-100, INT-134 | R1 (playing leases and the registry, WP-104); R1.2 (admin views) | Server | Push (admin views) |
+| API-SES-02 | Stop a session with a message | An admin ends a session; new requests fail, in-flight responses are cut, and the client shows the message as plain text. In R1 an administrator already ends any or all of a non-owner's sessions, without a message or the live view, from Admin > Users > person (API-DEV-01, API-AUTH-09, SEC-IAM-044). | SUR-084, SUR-003, player "Stopped by the owner" | ADM-102, ACC-073 | R1.2 | Server | Push |
 | API-SES-03 | Active player of a queue | Which of the person's own devices is currently playing a profile's queue, so a second browser shows "Playing on *device*" and "Play here" and the first stops when the second takes over. Two mechanisms are proposed (player open question 2, flows G11); pick one. **Proposal.** | SUR-002, player "Playing elsewhere" | CLI-103, MUS-122 | R1 | Server | Push |
 | API-SES-04 | Play reporting | Each play with its real timestamp, counts and skips, carrying only the profile, the item's content identity, the device, timestamps, position and completion; nothing from a private session. | Player, SUR-029 | MUS-182, MUS-183, CLI-093, ACC-117 | R1 | Queue | Feed |
 | API-SES-05 | Control channel | A WebSocket per signed-in session; a closed command set (transfer, play, pause, seek, skip, volume, tracks, speed) with no free text, each authorised per profile and limited to the person's own sessions unless control was granted; a written and tested conflict rule. | SUR-014, F08 | CLI-101, CLI-102, MUS-197, MUS-198, VID-144, VID-145 | R2 | Server | Push |
@@ -507,10 +519,10 @@ rendered as text.
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
 | API-QUE-01 | Queue document | One versioned queue per profile with three lanes, named listening contexts from the first version, an insertion cursor, a seeded shuffle order, repeat and stop-after modes, and the position. Stored in the user log so a rebuild keeps it. Items that stop being visible to the profile drop out of it. | SUR-011, SUR-002, SUR-010 | MUS-116, MUS-122, LAT-009, MUS-126, MUS-077 | R1 | Local (read) | Feed |
-| API-QUE-02 | Queue operations | Small operations (play, play next, add, play last, start radio, move, remove, clear, shuffle, reshuffle) applied optimistically on the device against the last version seen; the server orders them and assigns versions; a multi-item drop is one operation, refused whole if any item is not visible. The verbs' rules live in the core. | SUR-011, SUR-004, SUR-005 | MUS-117 to MUS-120, MUS-128, MUS-063 | R1 | Server in R1; Queue in R2 | Push |
+| API-QUE-02 | Queue operations | Small operations (play, play next, add, play last, start radio, move, remove, clear, shuffle, reshuffle) applied optimistically on the device against the last version seen; the server orders them and assigns versions; a multi-item drop is one operation, refused whole if any item is not visible. The verbs' rules live in the core. | SUR-011, SUR-004, SUR-005 | MUS-117 to MUS-120, MUS-128, MUS-063, MUS-165 | R1; R1.1 (reshuffle, reorder while shuffled, multi-item drops); R1.3 (start radio) | Server in R1; Queue in R2 | Push |
 | API-QUE-03 | Stale-version rejection and rebase | Rejects an operation built on an old version; the client rebases and shows the result. Must be written and tested before handoff. | SUR-011 | MUS-122 | R1 | Server | Push |
 | API-QUE-04 | Position updates | The playing device writes its position at play, pause, seek and track change, and periodically while playing, batched to respect the single writer. | SUR-002, CLI-103 prompt | MUS-122, CLI-103 | R1 | Queue | Feed |
-| API-QUE-05 | Save queue as playlist | Creates a playlist from the current queue. | SUR-011 | MUS-125 | R1 | Server | Feed |
+| API-QUE-05 | Save queue as playlist | Creates a playlist from the current queue. | SUR-011 | MUS-125 | R1.1 | Server | Feed |
 | API-QUE-06 | Undo, history and saved queues | Undo of queue edits, history above the current item, several queues with a switcher, and the music and video contexts side by side. | SUR-011, SUR-049 | MUS-121, MUS-124, MUS-131, VID-181 | R2 | Queue | Feed |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
@@ -522,11 +534,11 @@ rendered as text.
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
 | API-PL-01 | Manual playlists | Create, rename, add, reorder and remove, as user-log events that refer to tracks by content identity, not path. | SUR-026, SUR-015, SUR-001 | MUS-132, MUS-133, LIB-028 | R1 | Server in R1; Queue in R2 | Feed |
-| API-PL-02 | Pin and love playlists | Pin and love events for the sidebar and Home shortcuts. | SUR-001, SUR-020 | MUS-139, DIS-013 | R1 | Server in R1; Queue in R2 | Feed |
-| API-PL-03 | M3U import and export | Imports M3U and M3U8 through the upload path and the shared matcher, resolving entries only to items in libraries the playlist owner can read and dropping URLs, outside paths and artwork directives; exports M3U8 with paths relative to a library root, as a download. | SUR-026, SUR-009, SUR-097 | MUS-140, ADM-043, ADM-044 | R1 | Server | Push (import progress) |
-| API-PL-04 | Playlists from music folders | `.m3u` files found in media folders appear as playlists to people granted that library, with entries resolved only to items already indexed in the same library. Media is read-only, so they need a read-only rule (flows G5). | SUR-022 | LIB-192, LIB-007 | R1 | Local | Feed |
-| API-PL-05 | Rule store | Saved rule trees in the one rule language, for smart playlists, Home rows and saved filters, synced to devices; the core evaluates them on the device with seeded randomness. | SUR-027, SUR-026, SUR-023 | DIS-119 to DIS-122, MUS-143 to MUS-146, DIS-105, MUS-149 | R1 | Local (evaluate); Server (save in R1) | Feed |
-| API-PL-06 | Server-side rule evaluation | Evaluates rules on the server when the library changes, for tools reading a smart playlist through the API, for adapters and for download rules. Moves to R2 with API keys (owner decision 8); in R1 every rule is evaluated on the device. | SUR-026 | DIS-121, INT-138 | R2 | Host | Feed |
+| API-PL-02 | Pin and love playlists | Pin and love events for the sidebar and Home shortcuts. | SUR-001, SUR-020 | MUS-139, DIS-013 | R1.1; R1.2 (Home shortcuts) | Server until R2; Queue in R2 | Feed |
+| API-PL-03 | M3U import and export | Imports M3U and M3U8 through the upload path and the shared matcher, resolving entries only to items in libraries the playlist owner can read and dropping URLs, outside paths and artwork directives; exports M3U8 with paths relative to a library root, as a download. | SUR-026, SUR-009, SUR-097 | MUS-140, ADM-043, ADM-044 | R1.1 | Server | Push (import progress) |
+| API-PL-04 | Playlists from music folders | `.m3u` files found in media folders appear as playlists to people granted that library, with entries resolved only to items already indexed in the same library. Media is read-only, so they need a read-only rule (flows G5). | SUR-022 | LIB-192, LIB-007 | R1.1 | Local | Feed |
+| API-PL-05 | Rule store | Saved rule trees in the one rule language, for smart playlists, Home rows and saved filters, synced to devices; the core evaluates them on the device with seeded randomness. Loved tracks are a fixed query over love events until the rule engine arrives (MUS-149). | SUR-027, SUR-026, SUR-023 | DIS-119 to DIS-122, MUS-143 to MUS-146, DIS-105, MUS-149 | R1.1 (the core rule format and its parser budgets, with saved filters stored in it in the settings records; register D-85); R1.2 (saved filters as Home rows, DIS-003); R1.3 (the rule editor, smart playlists and rule-backed rows) | Local (evaluate); Server (save until R2) | Feed |
+| API-PL-06 | Server-side rule evaluation | Evaluates rules on the server when the library changes, for tools reading a smart playlist through the API, for adapters and for download rules. The evaluation and its re-evaluation jobs arrive with smart playlists in R1.3 (WP-092, WP-113), on the rule format that ships in R1.1 (WP-027); tools, adapters and download rules read the results only from R2, with API keys (owner decision 8), and until then devices evaluate every rule they show. | SUR-026 | DIS-121, INT-138 | R1.3 (evaluation and re-evaluation jobs); R2 (tools, adapters and download rules) | Host | Feed |
 | API-PL-07 | Playlist write API for tools | Tools create and edit playlists with a scoped API key that never holds an administrator scope; they appear like any other playlist. Moves to R2 with API keys (owner decision 8). | SUR-026, SUR-094 | INT-138, ACC-049 | R2 | Server | Feed |
 | API-PL-08 | Missing entries | What a playlist shows when a track is purged from the trash. **Proposal** (flows G6): keep the entry as "missing" with its last known title so a later copy rematches. | SUR-026 | MUS-132, LIB-033 | R1 | Local | Feed |
 | API-PL-09 | Folders, images, sharing and collaboration | Playlist folders, a custom image, sharing with people on the server and collaborators, offline edits. Each viewer sees only the entries they may see. | SUR-026, SUR-058 | MUS-136, MUS-138, ACC-091, MUS-150, MUS-152 | R2 | Queue | Feed |
@@ -546,11 +558,11 @@ rendered as text.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-LOG-01 | Append user events | One write path for every event a person authors: plays, loves, ratings, dismissals and their reversals. Each event has a client-generated ID, the device ID and a hybrid logical clock, so replays are idempotent, and carries only the fields the privacy baseline allows. | SUR-002, SUR-004, SUR-013, SUR-020 | MUS-180, MUS-181, DIS-045, DIS-047, DIS-022, LAT-006, LAT-007 | R1 | Queue for plays; Server for the rest in R1 | Feed |
+| API-LOG-01 | Append user events | One write path for every event a person authors: plays, loves, ratings, dismissals and their reversals. Each event has a client-generated ID, the device ID and a hybrid logical clock, so replays are idempotent, and carries only the fields the privacy baseline allows. | SUR-002, SUR-004, SUR-013, SUR-020 | MUS-180, MUS-181, DIS-045, DIS-047, DIS-022, LAT-006, LAT-007 | R1; R1.1 (ratings, dismissals) | Queue for plays; Server for the rest in R1 | Feed |
 | API-LOG-02 | Offline plays merge | Ingests plays recorded while disconnected with their real timestamps and removes duplicates. Plays from a private session were never queued, so none arrive. | SUR-029 | CLI-093 | R1 | Queue | Feed |
 | API-LOG-03 | Delete history | Deletes one play, a time range or all history. The erasure pipeline removes the data from the database, the history log, derived tables, indexes and caches within 24 hours; devices get a tombstone (API-SYNC-10) and purge it; the deletion is re-applied if an older backup is restored. The screen says plays already sent to Last.fm cannot be recalled. See Flags, item 8. | SUR-029, SUR-004 | MUS-184, ACC-118, DIS-052 | R1 | Server in R1 | Feed |
 | API-LOG-04 | Derived counts | Play counts, last played and skips per item, derived from the profile's own log. | SUR-023, SUR-024 | MUS-182, DIS-051 | R1 | Local | Feed |
-| API-LOG-05 | Hidden and dismissed | Dismiss from Continue rows with undo and a Hidden page; hide and snooze in R2. | SUR-020, SUR-030 | DIS-022, DIS-023, DIS-054, MUS-170 | R1 | Server in R1 | Feed |
+| API-LOG-05 | Hidden and dismissed | Dismiss from Continue rows with undo and a Hidden page; hide and snooze in R2. | SUR-020, SUR-030 | DIS-022, DIS-023, DIS-054, MUS-170 | R1.1; R2 (hide and snooze) | Server until R2 | Feed |
 | API-LOG-06 | Statistics and year in review | Charts by period computed from the person's own log. | SUR-031 | MUS-186, MUS-187 | R2 | Local | Feed |
 | API-LOG-07 | Resume points | Positions as events so resume works on any device, offline included, and survives replacing or renaming the file. | SUR-049 | VID-118, VID-120, VID-121 | R2 | Queue | Feed |
 
@@ -564,10 +576,10 @@ rendered as text.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-HOME-01 | Home layout | Each person's rows, their order, names and rule sources, synced so Home is the same on every device; rows are evaluated on the device. | SUR-020, SUR-021 | DIS-003, DIS-007, MUS-049, DIS-009 | R1 | Local (read); Server (write in R1) | Feed |
-| API-HOME-02 | Pinned shortcuts | Pins for items and playlists at the top of Home and in the sidebar. | SUR-020, SUR-001 | DIS-013 | R1 | Local (read) | Feed |
+| API-HOME-01 | Home layout | Each person's rows, their order, names and rule sources, synced so Home is the same on every device; rows are evaluated on the device. | SUR-020, SUR-021 | DIS-003, DIS-007, MUS-049, DIS-009 | R1.2 | Local (read); Server (write until R2) | Feed |
+| API-HOME-02 | Pinned shortcuts | Pins for items and playlists at the top of Home and in the sidebar. | SUR-020, SUR-001 | DIS-013 | R1.2 | Local (read) | Feed |
 | API-HOME-03 | Recently added without upgrades | An "added" date per album that a better copy does not reset, grouped by album. | SUR-020 | DIS-035, DIS-036, DIS-038, MUS-059 | R1 | Local | Feed |
-| API-HOME-04 | Reasons on suggestions | Every suggested row and pick carries a reason the client can show. A reason never names another person or reveals what they played. | SUR-020, SUR-011 | DIS-061, DIS-062 | R1 | Local | Feed |
+| API-HOME-04 | Reasons on suggestions | Every suggested row and pick carries a reason the client can show. A reason never names another person or reveals what they played. | SUR-020, SUR-011 | DIS-061, DIS-062 | R1 (a reason on each built-in Home row, WP-059); R1.3 (suggestions, DIS-061, DIS-062) | Local | Feed |
 | API-HOME-05 | Search | Nothing at query time: the core builds the index from the synced copy. Recent searches stay on the device (design-language section 11), so the server stores none and never logs a query. | SUR-032 | DIS-083 to DIS-089 | R1 | Local | No |
 | API-HOME-06 | Household defaults and curation | Default Home layouts, offering a layout to someone (who accepts it), genre merges, the owner's picks. | SUR-107, SUR-021 | DIS-005, DIS-006, DIS-108, DIS-127 | R2 | Server | Feed |
 | API-HOME-07 | Follows and alerts | Follow records in the user log and an in-app inbox that syncs like the library. Delivery to the person's own ntfy topic is a webhook the person sets up, under the webhook rules and the egress gate. | SUR-003, SUR-024 | INT-050 | R2 | Local (inbox) | Feed |
@@ -581,14 +593,16 @@ rendered as text.
 
 ### Share links
 
-The baseline makes share links for music an R1 feature (owner decision 7),
-which the feature map had in R2 (ACC-086 to ACC-088).
+The baseline made share links for music an R1 feature (security owner
+decision 7), which the feature map had in R2 (ACC-086 to ACC-088). The
+owner's adopted R1 scope (D-10) puts them in R1.2, and SEC-API-097 and
+SEC-STD-008 ship with them; video share links stay R2, off by default.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-SHR-01 | Create and manage share links | A person shares one track, album or playlist they can see. The link carries a 128-bit secret in its fragment, is listen-only by default (downloads only where the owner allows them server-wide), expires after 30 days by default, may have a password, and is visible and editable only by its creator and admins. Managed profiles cannot create them. Revocation bites on the next request. | SUR-058, SUR-078 | ACC-086, ACC-087, ACC-088 | R1 (music); R2 (films and episodes, off by default) | Server | No |
-| API-SHR-02 | Public share page | The landing page reads the secret from the fragment and posts it; it shows the shared item and nothing about the sharer, other users, the library or anyone's activity, sends no link-preview metadata unless the sharer turned it on, and is marked noindex. | SUR-059 | ACC-086, ACC-092 | R1 (music); R2 (video) | Server | No |
-| API-SHR-03 | Share-link limits | Per link: 2 concurrent streams by default, a total-bytes or uses cap, and a distinct-address count that suspends the link and alerts the sharer when exceeded. Password guesses follow the guessable-secret schedule and never disable the link. | SUR-058, SUR-059 | ACC-087 | R1 | Server | Push (the sharer's alert) |
+| API-SHR-01 | Create and manage share links | A person shares one track, album or playlist they can see. The link carries a 128-bit secret in its fragment, is listen-only by default (downloads only where the owner allows them server-wide), expires after 30 days by default, may have a password, and is visible and editable only by its creator and admins. Managed profiles cannot create them. Revocation bites on the next request. | SUR-058, SUR-078 | ACC-086, ACC-087, ACC-088 | R1.2 (music); R2 (films and episodes, off by default) | Server | No |
+| API-SHR-02 | Public share page | The landing page reads the secret from the fragment and posts it; it shows the shared item and nothing about the sharer, other users, the library or anyone's activity, sends no link-preview metadata unless the sharer turned it on, and is marked noindex. | SUR-059 | ACC-086, ACC-092 | R1.2 (music); R2 (video) | Server | No |
+| API-SHR-03 | Share-link limits | Per link: 2 concurrent streams by default, a total-bytes or uses cap, and a distinct-address count that suspends the link and alerts the sharer when exceeded. Password guesses follow the guessable-secret schedule and never disable the link. | SUR-058, SUR-059 | ACC-087 | R1.2 | Server | Push (the sharer's alert) |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
 |---|---|---|---|---|---|
@@ -602,8 +616,8 @@ which the feature map had in R2 (ACC-086 to ACC-088).
 |---|---|---|---|---|---|---|---|
 | API-SCAN-01 | Start a scan | A full or library scan on request; a repeated request joins the running scan. | SUR-085 | LIB-012 | R1 | Host | Push |
 | API-SCAN-02 | Path-scoped refresh | Refreshes one path inside a configured root. **R1:** for admins. **R2:** also for tools such as Lidarr with a scoped API key limited to named roots (owner decision 8). | SUR-094, SUR-100 | INT-011 | R1 (admins); R2 (API keys) | Server | Push |
-| API-SCAN-03 | Scan progress | For admins: files found, bytes read per root, an estimate, and batches committed. For everyone else: their granted libraries filling in while the scan runs, with no paths or root detail. | SUR-083, SUR-100, SUR-022, SUR-003 | LIB-021, LIB-022, ADM-088, ADM-031, MUS-043 | R1 | Host | Push |
-| API-SCAN-04 | Task list | One list of tasks (backup, scan, purge, analysis, rebuild, retention, erasure, key rotation) with run, cancel, progress, last run, duration and errors. | SUR-100 | ADM-093, ADM-095 | R1 | Host | Push |
+| API-SCAN-03 | Scan progress | For admins: files found, bytes read per root, an estimate, and batches committed. For everyone else: their granted libraries filling in while the scan runs, with no paths or root detail. | SUR-083, SUR-100, SUR-022, SUR-003 | LIB-021, LIB-022, ADM-088, ADM-031, MUS-043 | R1; R1.3 (bytes read per root) | Host | Push |
+| API-SCAN-04 | Task list | One list of tasks (backup, scan, purge, analysis, rebuild, retention, erasure, key rotation) with run, cancel, progress, last run, duration and errors. | SUR-100 | ADM-093, ADM-095 | R1 (the task engine and reading tasks, ADM-095, WP-070, WP-100); R1.2 (the task list with run and cancel, ADM-093) | Host | Push |
 | API-SCAN-05 | Activity and audit log | Two views. The activity log (scans, "0 changed" rescans, moves, re-reads after a parser update, imports) for admins. The security audit log (sign-in, admin and recovery events), tamper-evident, readable in full only by the owner and holders of `audit.read`, with other people's addresses shortened. | SUR-100, SUR-083 | ADM-110, LIB-016, LIB-017, LIB-025, LIB-029, ACC-078 | R1 | Host | Push |
 | API-SCAN-06 | Reprioritise, schedule and pause | Cancel and reprioritise jobs, a maintenance window, concurrency and pause. | SUR-100 | LIB-023, ADM-094, ADM-096 | R2 | Host | Push |
 
@@ -620,11 +634,11 @@ which the feature map had in R2 (ACC-086 to ACC-088).
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-HLTH-01 | Health report | Damaged and unreadable files, files quarantined after crashing the parse worker, tag problems with fixes, same-name collisions, sidecar problems, files the supported browsers cannot decode, missing files, moved files, offline roots, watch warnings. | SUR-086 | MUS-044, LIB-193, LIB-194, LIB-034, LIB-032, LIB-014, MUS-229 | R1 | Host | Feed |
+| API-HLTH-01 | Health report | Damaged and unreadable files, files quarantined after crashing the parse worker, tag problems with fixes, same-name collisions, sidecar problems, files the supported browsers cannot decode, missing files, moved files, offline roots, watch warnings. | SUR-086 | MUS-044, LIB-193, LIB-194, LIB-034, LIB-032, LIB-014, MUS-229 | R1; R1.1 (tag problems, missing-files list) | Host | Feed |
 | API-HLTH-02 | Root health | Each root's reachability and state, offline detection that greys items rather than removing them. | SUR-083, SUR-085 | ADM-108, LIB-032 | R1 | Host | Push |
-| API-HLTH-03 | Review queue | Doubtful decisions with evidence and a proposal; accept, reject or choose another; answers kept in the curation log. | SUR-087 | LIB-099, LIB-051 | R1 | Host | Feed |
+| API-HLTH-03 | Review queue | Doubtful decisions with evidence and a proposal; accept, reject or choose another; answers kept in the curation log. | SUR-087 | LIB-099, LIB-051 | R1.3 | Host | Feed |
 | API-HLTH-04 | Trash | Items whose files went missing, with when they will be purged; restore and purge now; never purges while a root is offline. | SUR-105 | LIB-033, ADM-086 | R1 | Host | Feed |
-| API-HLTH-05 | Health summary | The admin home's roll-up: backups and verification, roots, free space, scan state, alerts, advisories, token expiry, recovery used, and the security state: root or capability refusal, internet exposure and listeners on public addresses, trusted proxies, the isolation tier of each sandbox profile, audit-log verification, certificate expiry and version support. | SUR-083 | ADM-109, ADM-065, ADM-072, ADM-083, ACC-127, INT-019, ADM-034 | R1 | Host | Push |
+| API-HLTH-05 | Health summary | The admin home's roll-up: backups and verification, roots, free space, scan state, alerts, advisories, token expiry, recovery used, and the security state: root or capability refusal, internet exposure and listeners on public addresses, trusted proxies, the isolation tier of each sandbox profile, audit-log verification, certificate expiry and version support. The security state is the R1 security summary (ADM-142); the full roll-up around it is R1.2. | SUR-083 | ADM-142, ADM-109, ADM-065, ADM-072, ADM-083, ACC-127, INT-019, ADM-034 | R1 (security summary); R1.2 (health roll-up) | Host | Push |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
 |---|---|---|---|---|---|
@@ -635,9 +649,9 @@ which the feature map had in R2 (ACC-086 to ACC-088).
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-ADM-01 | Local users | List users with their libraries; enable or disable without deleting (sessions end at once); create, promote and demote administrators (owner only); move ownership only by an explicit transfer that the owner and the recipient each confirm with user verification in the previous 5 minutes, so exactly one owner exists at all times. | SUR-090 | ACC-006, ACC-008, ACC-040, ADM-052 | R1 | Host | No |
+| API-ADM-01 | Local users | List users with their libraries; enable or disable without deleting (sessions end at once); create, promote and demote administrators (owner only); move ownership only by an explicit transfer that the owner and the recipient each confirm with user verification in the previous 5 minutes, so exactly one owner exists at all times. | SUR-090 | ACC-006, ACC-008, ACC-040, ADM-052 | R1; R1.2 (creating, promoting and demoting administrators) | Host | No |
 | API-ADM-02 | Invitations | An invite is a capability with libraries, a preset no greater than the inviter's own rights, a use count (default 1) and an expiry (default 7 days); the secret travels in the link's fragment; a link and a QR code carry the server's configured public address, never one taken from the request; redemption is logged and the inviter is told. An invitation that confers member level or more than one library stays pending until the inviter confirms a short code with the new person. The invite screen should show and check that address (flows G7). | SUR-090, SUR-071 | ACC-080 | R1 | Host | No |
-| API-ADM-03 | Invite landing | Before redeeming, shows a privacy notice generated from the server's configuration, and nothing else about the server or its people. Redemption enrols the invitee's own passkey or OIDC link in the same transaction and creates the account from the invite's policy; it works only in a secure context. | SUR-071 | ACC-080, ACC-006 | R1 | Server | No |
+| API-ADM-03 | Invite landing | Before redeeming, shows a privacy notice generated from the server's configuration, and nothing else about the server or its people. Redemption enrols the invitee's own passkey or (from R1.2) OIDC link in the same transaction and creates the account from the invite's policy; it works only in a secure context. | SUR-071 | ACC-080, ACC-006 | R1 | Server | No |
 | API-ADM-04 | Policies and rights | Named policies; playback, download, quality, device and remote-access rights; memberships that end on a date; stream and transcode limits. | SUR-090, SUR-091 | ACC-038, ACC-043, ACC-044, ACC-081, ACC-103, ACC-107, ACC-108, ACC-111 | R2 | Host | Feed |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
@@ -651,19 +665,19 @@ which the feature map had in R2 (ACC-086 to ACC-088).
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-SET-01 | Network settings | The posture (home by default), trusted reverse proxies each declared "private overlay" or "public", the configured origins and public URL, a path prefix, HTTPS with the owner's certificate or the per-server name, remote administration (off by default). | SUR-093, SUR-082 | ACC-097, ACC-134, ACC-098, ADM-022 | R1 | Host | No |
-| API-SET-02 | Privacy and the egress gate | Every outbound feature listed and off by default; the required provider step; a proxy for all egress and an offline mode; grants recorded; the network activity page accounts for every connection. | SUR-093, SUR-082 | ADM-028, ACC-113, LIB-108, ADM-129 | R1 | Host | No |
-| API-SET-03 | Sign-in settings | OIDC provider configuration with a test, the limiter's state, and session lifetimes, which may be shortened but never lengthened past the baseline's. | SUR-092 | ACC-057, ACC-063, ACC-079 | R1 | Host | No |
-| API-SET-04 | Backups | List with status and verification, back up now, contents in plain words, download, upload, restore with a restore point and preview, and the owner's server export (settings without secrets, library roots, the curation log, household data and the owner's own data, never another adult's history; SEC-PRV-025). Every backup is encrypted and signed; restore verifies the signature, opens the archive in a jailed worker under limits, re-applies history deletions made since, then rotates every key, ends every session and asks the owner to review devices and access. | SUR-098, SUR-082 | ADM-065, ADM-066, ADM-069, ADM-070, ADM-072, ADM-074, ACC-013, ADM-141 | R1 | Host | Push (progress) |
-| API-SET-05 | Restore at setup | Restore from the welcome screen behind the same claim code as claiming, with a dry-run remap of library roots and a warning when the domain changed (flows G3, G15), under the restore rules of API-SET-04. | SUR-082, F14 | ADM-029, ADM-051 | R1 | Host | Push (progress) |
+| API-SET-01 | Network settings | The posture (home by default), trusted reverse proxies each declared "private overlay" or "public", the configured origins and public URL, a path prefix, HTTPS with a certificate the owner supplies or one the server obtains and renews for the owner's domain by ACME DNS-01, remote administration (off by default). In R1 remote use goes through the owner's reverse proxy or a tailnet. The per-server name from the project name service is a choice here only from R2. | SUR-093, SUR-082 | ACC-097, ACC-134, ACC-098, ADM-022, ADM-023 | R1; R1.2 (path prefix); R2 (per-server name) | Host | No |
+| API-SET-02 | Privacy and the egress gate | Every outbound feature listed and off by default; the required provider step (from R1.1, with the built-in providers); a proxy for all egress and an offline mode; grants recorded; the network activity page accounts for every connection. | SUR-093, SUR-082 | ADM-028, ACC-113, LIB-108, ADM-129 | R1 | Host | No |
+| API-SET-03 | Sign-in settings | OIDC provider configuration with a test, the limiter's state, and session lifetimes, which may be shortened but never lengthened past the baseline's. | SUR-092 | ACC-057, ACC-063, ACC-079 | R1; R1.2 (OIDC provider) | Host | No |
+| API-SET-04 | Backups | List with status and verification, back up now, contents in plain words, download, upload, restore with a restore point and preview, and the owner's server export (settings without secrets, library roots, the curation log, household data and the owner's own data, never another adult's history; SEC-PRV-025). Every backup is encrypted and signed; restore verifies the signature, opens the archive in a jailed worker under limits, re-applies history deletions made since, then rotates every key, ends every session and asks the owner to review devices and access. | SUR-098, SUR-082 | ADM-065, ADM-066, ADM-069, ADM-070, ADM-072, ADM-074, ACC-013, ADM-141 | R1; R1.2 (restore from the UI, full export) | Host | Push (progress) |
+| API-SET-05 | Restore at setup | Restore from the welcome screen behind the same claim code as claiming, with a dry-run remap of library roots and a warning when the domain changed (flows G3, G15), under the restore rules of API-SET-04. | SUR-082, F14 | ADM-029, ADM-051 | R1; R1.1 (remapping moved roots) | Host | Push (progress) |
 | API-SET-06 | Updates | The update and advisory check is a required first-run question with two explicit answers and no preselection. When on, a plain GET of a signed static feed verified against a root compiled into the binary; advisories against the running version and the rollback-safety field per release are shown to admins. The feed can never disable, change or run anything on the server. | SUR-099, SUR-083 | ADM-053, ADM-054, ADM-060, ACC-126 | R1 | Host | No |
 | API-SET-07 | Alerts and logs | In-app owner alerts in R1, non-critical ones batched into a daily summary; security alerts the baseline lists can never be switched off; every alert about a device or credential offers "This wasn't me". Outbound alert destinations come in R2, opt-in, through the egress gate, carrying only the event type, the time and a link. Log settings with rotation; debug level switches itself off within 24 hours. | SUR-101 | ADM-116, ADM-083, ADM-119 | R1 (in-app); R2 (outbound destinations) | Host | Push |
-| API-SET-08 | Diagnostics | Run the doctor, build a masked bundle (no database, backups or secrets; paths, titles, names and addresses replaced by pseudonyms) shown in full before download, list local crash records, show the write queue and the derived-data store, rebuild the cache. | SUR-102, SUR-110 | ADM-123, ADM-124, ADM-130, ADM-080, ADM-141, ADM-077 | R1 | Host | Push (progress) |
-| API-SET-09 | Server identity and about | Server name and sign-in message, storage locations, version, build, target and live footprint, for signed-in admins. | SUR-103 | ADM-140, ADM-090, ADM-001, ADM-010 | R1 | Host | No |
-| API-SET-10 | Restart and shut down | From the UI and the emergency page. | SUR-083, SUR-081 | ADM-112, ADM-113 | R1 | Host | Push (clients see the startup page) |
-| API-SET-11 | Migration imports | Listening-service files and playlists in R1, into the admin's own profile or as server playlists; iTunes library files, dry runs and undo in R2; Plex, Jellyfin, Emby and Navidrome databases Later, opened read-only in a jailed worker. One matcher with reasons and an unmatched queue. Another person's history is imported only into a pending import that person accepts. | SUR-097 | ADM-030, ADM-042 to ADM-044; ADM-036 to ADM-049 in R2 and Later | R1; R2 (iTunes, dry runs, undo); Later (rival databases) | Host | Push (progress) |
-| API-SET-12 | Remote access | iroh with no open ports, self-hosted and default relays, upload budget; publishes relay records only by default. | SUR-093 | ACC-096, ACC-100, ACC-101, ACC-109 | R2 | Host | No |
-| API-SET-13 | Rotate server secrets | One owner action, from the dashboard and the CLI, that rotates every server secret, re-encrypts stored secrets, invalidates every session and signed URL, and is audited and alerted, without forcing devices with valid keys to pair again. | SUR-092 | No feature row yet; required by the baseline | R1 | Host | Push (every client is signed out) |
+| API-SET-08 | Diagnostics | Run the doctor, build a masked bundle (no database, backups or secrets; paths, titles, names and addresses replaced by pseudonyms) shown in full before download, list local crash records, show the write queue and the derived-data store, rebuild the cache. | SUR-102, SUR-110 | ADM-123, ADM-124, ADM-130, ADM-080, ADM-141, ADM-077 | R1; R1.2 (diagnostic bundle, crash records); R1.3 (derived-data store) | Host | Push (progress) |
+| API-SET-09 | Server identity and about | Server name and sign-in message, storage locations, version, build, target and live footprint, for signed-in admins. | SUR-103 | ADM-140, ADM-090, ADM-001, ADM-010 | R1; R1.2 (server name and sign-in message, footprint) | Host | No |
+| API-SET-10 | Restart and shut down | From the UI and the emergency page. | SUR-083, SUR-081 | ADM-112, ADM-113 | R1.2 | Host | Push (clients see the startup page) |
+| API-SET-11 | Migration imports | Listening-service files and playlists in R1.1, into the admin's own profile or as server playlists; iTunes library files, dry runs and undo in R2; Plex, Jellyfin, Emby and Navidrome databases Later, opened read-only in a jailed worker. One matcher with reasons and an unmatched queue. Another person's history is imported only into a pending import that person accepts. | SUR-097 | ADM-030, ADM-042 to ADM-044; ADM-036 to ADM-049 in R2 and Later | R1.1; R2 (iTunes, dry runs, undo); Later (rival databases) | Host | Push (progress) |
+| API-SET-12 | Remote access | iroh with no open ports, self-hosted and default relays, upload budget; publishes relay records only by default. Built in from R2; until then remote use goes through the owner's reverse proxy or a tailnet (API-SET-01). | SUR-093 | ACC-096, ACC-100, ACC-101, ACC-109 | R2 | Host | No |
+| API-SET-13 | Rotate server secrets | One owner action, from the dashboard and the CLI, that rotates every server secret, re-encrypts stored secrets, invalidates every session and signed URL, and is audited and alerted, without forcing devices with valid keys to pair again. | SUR-092 | ADM-144 | R1 | Host | Push (every client is signed out) |
 
 | ID | Who, and the object check | Auth | Rate | Capability URL | Security |
 |---|---|---|---|---|---|
@@ -687,7 +701,7 @@ which the feature map had in R2 (ACC-086 to ACC-088).
 |---|---|---|---|---|---|---|---|
 | API-TOK-01 | Scoped tokens | API keys scoped by an explicit list of scopes (library, root), with expiry (365 days by default), automatic disabling after 180 days unused, last use, an audit trail, per-key rate limits, and revoke one or all; never an administrator scope, never more than the creator holds, and no key can manage keys. Moves to R2 (owner decision 8). | SUR-094, SUR-078 | ACC-049, INT-017 to INT-022, INT-012 | R2 | Host | No |
 | API-TOK-02 | Change feed for tools | The same change log that syncs devices, with a cursor per key, filtered by the key's scope and its owner's current visibility. Moves to R2 with API keys. | SUR-094 | INT-006 | R2 | Server | Feed |
-| API-TOK-03 | Stable deep links | Links to an album, artist or playlist that open the app or the web client and never grant access on their own. | SUR-004, SUR-057 | CLI-034, INT-147 | R1 | Local | No |
+| API-TOK-03 | Stable deep links | Links to an album, artist or playlist that open the app or the web client and never grant access on their own. | SUR-004, SUR-057 | CLI-034, INT-147 | R1 (the parser and R1's links, WP-089); R1.2 (deep links into the app, WP-159) | Local | No |
 | API-TOK-04 | Webhooks and event stream | Webhooks with event picker, templates, Standard Webhooks signing, delivery log (success or failure only) and retry; a server-sent event stream for tools. Private listening emits nothing. | SUR-094 | INT-030 to INT-049 | R2 | Host | Push |
 | API-TOK-05 | Plugin host | WebAssembly plugins with grants, a network allowlist and log, per-user secrets; providers, scrobblers, lyrics lookup. No plugin code loads until the plugin sandbox requirements pass. | SUR-095 | INT-054 to INT-069, MUS-162 | R2 | Host | No |
 | API-TOK-06 | Compatibility adapters | OpenSubsonic and the Jellyfin music subset, off by default with no listener bound, on their own port, behind the same policy layer, with per-app keys and no plaintext LAN exception. | SUR-096, F19 | INT-086, INT-087, INT-098, ACC-130 | R2 | Server | No |
@@ -767,7 +781,7 @@ where the device may keep it.
 
 - **The catalogue** (Library class) for every library the profile may
   see: the fields in API-CAT-01 to API-CAT-10, the neighbour table
-  (API-SYNC-06) and, in R1, the lyrics as a parsed timed-line model and
+  (API-SYNC-06, from R1.3) and, in R1, the lyrics as a parsed timed-line model and
   the per-file playback data the player needs (player.md, "What the player
   needs from the server and the core").
 - **Artwork** in the device class's fixed sizes, fetched on first display
@@ -776,7 +790,8 @@ where the device may keep it.
 - **The profile's own data** (Activity class) from the user log: the queue
   document, manual playlists, saved rules, Home layout and pins, loves,
   ratings, dismissals, settings (person scope and this device's scope) and
-  history.
+  history. Each kind joins the copy in the release that ships it (see
+  API-SYNC-04).
 - **Facts about the server** the client needs offline: its name, the
   capabilities it reported, and the protocol version.
 
@@ -971,16 +986,16 @@ and are off until the owner turns them on (SEC-TM-048).
 
 | Job | Trigger | What it produces | Features | Rel. | Security |
 |---|---|---|---|---|---|
-| Library scan | Manual, after adding a library, at first run | The catalogue, identity, health records and change-log entries, committed in batches; header-only reads in the worker; no helper process per file; bytes read per root | LIB-012, LIB-019, LIB-020, LIB-021, ADM-088 | R1 | SEC-MED-018, SEC-MED-033, SEC-MED-038, SEC-API-064, SEC-NET-053 |
+| Library scan | Manual, after adding a library, at first run | The catalogue, identity, health records and change-log entries, committed in batches; header-only reads in the worker; no helper process per file; bytes read per root | LIB-012, LIB-019, LIB-020, LIB-021, ADM-088 | R1; R1.3 (bytes read per root) | SEC-MED-018, SEC-MED-033, SEC-MED-038, SEC-API-064, SEC-NET-053 |
 | Change detection | File watcher on local disks; polling on shares and cloud drives; a scheduled safety-net scan | Rescans of only what changed; moves and renames that keep identity; better copies recorded as upgrades | LIB-013 to LIB-017, LIB-029, LIB-030 | R1 | SEC-MED-034, SEC-MED-041, SEC-TM-069 |
 | Path-scoped refresh | An admin; from R2 a tool with a scoped key | A rescan of one path inside a configured root | INT-011 | R1 (admins); R2 (keys) | SEC-API-064, SEC-MED-033 |
-| Parser-upgrade re-read | Startup after an upgrade | Re-reads only files whose parser version changed, keeping derived data | LIB-025, ADM-141 | R1 | SEC-MED-018 |
+| Parser-upgrade re-read | Startup after an upgrade | Re-reads only files whose parser version changed, keeping derived data | LIB-025, ADM-141 | R1.1 | SEC-MED-018 |
 | Artwork processing | During scan | Fixed sizes per device class, the tiny placeholder and the palette, from one safe decode in the worker, re-encoded with metadata removed | LIB-142, LIB-143, MUS-110 | R1 | SEC-MED-018, SEC-MED-044, SEC-MED-045, SEC-API-086, SEC-TM-034 |
-| Loudness analysis | After scan, at low priority, throttled and checkpointed | Measured loudness for untagged tracks; depends on the decoder decision (open decision 8), otherwise nothing runs and the fallback gain applies | MUS-086, MUS-089, LIB-024, ADM-095 | R1 | SEC-MED-018, SEC-MED-026 |
-| Neighbour table rebuild | Nightly and after a scan | The table radio and "More like this" read, from metadata and each profile's own listening; no household co-listening in R1 or R2 (Later, only from people who opted in and only for items at least three of them played) | DIS-060 | R1 | SEC-PRV-022, SEC-PRV-023 |
+| Loudness analysis | After scan, at low priority, throttled and checkpointed | Measured loudness for untagged tracks; depends on the decoder decision (open decision 8), otherwise nothing runs and the fallback gain applies | MUS-086, MUS-089, LIB-024, ADM-095 | R1.3 | SEC-MED-018, SEC-MED-026 |
+| Neighbour table rebuild | Nightly and after a scan | The table radio and "More like this" read, from metadata and each profile's own listening; no household co-listening in R1 or R2 (Later, only from people who opted in and only for items at least three of them played) | DIS-060 | R1.3 | SEC-PRV-022, SEC-PRV-023 |
 | Server-side rule evaluation | When the library or a rule changes | Smart playlist contents for API keys, adapters and download rules | DIS-121, INT-138 | R2 | SEC-EXT-011, SEC-MED-051 |
-| Playlist files in folders | During scan | Playlists from `.m3u` files found in music folders, entries resolved only within the same library | LIB-192 | R1 | SEC-MED-050, SEC-HIS-018 |
-| Import matching | After an upload of history or playlists | Matches with reasons and confidence; misses sent to the review queue | ADM-042 to ADM-044, MUS-140 | R1 | SEC-API-088, SEC-HIS-018 |
+| Playlist files in folders | During scan | Playlists from `.m3u` files found in music folders, entries resolved only within the same library | LIB-192 | R1.1 | SEC-MED-050, SEC-HIS-018 |
+| Import matching | After an upload of history or playlists | Matches with reasons and confidence; misses sent to the import's unmatched queue (ADM-044; the library review queue, LIB-099, is R1.3) | ADM-042 to ADM-044, MUS-140 | R1.1 | SEC-API-088, SEC-HIS-018 |
 | Change-log compaction | Scheduled | A bounded log; cursors older than the horizon are told to resnapshot | LIB-018, INT-006 | R1 | SEC-API-015 |
 | Root health | Continuous and on access | Offline roots marked, items greyed, alerts raised; trash purges held | LIB-032, ADM-108 | R1 | SEC-TM-069 |
 | Trash purge | After the grace period | Entries for missing files removed, never while a root is offline | LIB-033 | R1 | SEC-TM-069 |
@@ -994,7 +1009,7 @@ and are off until the owner turns them on (SEC-TM-048).
 | Log rotation | Scheduled | Structured logs, readable only by the service account, rotated and deleted on the retention schedule | ADM-119 | R1 | SEC-PRV-005, SEC-PRV-045 |
 | Expiry sweeps | Scheduled, and checked on every use | Lapsed claim codes (24 hours), WebAuthn challenges (5 minutes), WebSocket tickets (30 seconds), pairing codes (10 minutes), browser sessions (7 days unused, 30 in total; shared mode 30 minutes idle), admin sessions (15 minutes idle, 1 hour in total), invitations (7 days; purged 30 days after expiry), recovery and owner-recovery links, export downloads (1 hour), diagnostic bundles (24 hours), ended recovery holds; token-expiry banners | ACC-001, ACC-080, ACC-064, ACC-079, INT-019 | R1 | SEC-IAM-007, SEC-IAM-019, SEC-IAM-041, SEC-IAM-056, SEC-IAM-078, SEC-IAM-092, SEC-IAM-106, SEC-API-042, SEC-CLI-010, SEC-PRV-048 |
 | Open-response tracking | Continuous | Range responses and sockets per session, aborted within 5 seconds of revocation | ACC-122 | R1 | SEC-IAM-043, SEC-API-017 |
-| Crash records | On a crash | A local record for the diagnostics page, with no core dump of the server process | ADM-130 | R1 | SEC-STD-023, SEC-PRV-046 |
+| Crash records | On a crash | A local record for the diagnostics page, with no core dump of the server process; core dumps are off from R1 (SEC-STD-023) | ADM-130 | R1 (core dumps off); R1.2 (crash records) | SEC-STD-023, SEC-PRV-046 |
 | Signing-key rotation | Automatic every 24 hours for stream-URL and request-forgery keys; on the owner's "rotate everything"; after every restore | New key IDs; the previous key kept only for the longest lifetime of what it signed; after a full rotation or restore, every session and signed URL invalidated and the owner alerted | None; required by the baseline | R1 | SEC-OPS-015, SEC-OPS-018, SEC-OPS-044, SEC-API-030 |
 | Audit checkpoints | Every 1,000 records or every hour, whichever comes first | A signed checkpoint over the hash chain, which backups carry and admins' clients anchor | None; required by the baseline | R1 | SEC-OPS-023, SEC-OPS-024, SEC-OPS-075, SEC-IAM-094 |
 | Retention purge | At least daily, idempotent | Security events removed after 365 days; addresses in them coarsened after 30 days and removed at 90; session addresses removed when the session ends; diagnostic logs after 14 days or 100 MB; backups after 14 days; each prune recorded as a signed checkpoint | None; required by the baseline | R1 | SEC-PRV-003, SEC-PRV-005, SEC-PRV-041, SEC-OPS-026 |
@@ -1002,11 +1017,11 @@ and are off until the owner turns them on (SEC-TM-048).
 | Account deletion | 7 days after a deletion request | The account erased through the erasure job, unless restored during the grace period | None; required by the baseline | R1 | SEC-IAM-103, SEC-PRV-051 |
 | Startup security checks | Every start | Refusal to run as root or with capabilities; secrets directory permissions repaired or refused; configuration changes made outside the server audited and alerted when less strict; each sandbox profile self-tested and its isolation tier shown; listeners on public addresses reported | ADM-032 | R1 | SEC-OPS-012, SEC-OPS-031, SEC-OPS-053, SEC-MED-024, SEC-NET-028 |
 | Exposure detection | Continuous | A security event and an admin alert within one minute when a non-local request reaches a home-posture listener or an untrusted peer sends forwarding headers | None; required by the baseline | R1 | SEC-NET-017, SEC-NET-027, SEC-OPS-037 |
-| Certificates | Two-thirds through each certificate's life, or as the CA's renewal information says; continuously for CT | Renewed certificates; owner alerts 30 and 7 days before expiry; Certificate Transparency watched for the server's own label when it uses the project name service | ADM-022 | R1 | SEC-NET-004, SEC-NET-069, SEC-NET-072 |
+| Certificates | Two-thirds through each certificate's life, or as the CA's renewal information says; from R2, continuously for CT | Renewed certificates for the owner's domain; owner alerts 30 and 7 days before expiry; from R2, Certificate Transparency watched for the server's own label when it uses the project name service | ADM-022, ADM-023 | R1 (renewal and expiry alerts); R2 (CT monitoring for the name-service label) | SEC-NET-004, SEC-NET-069, SEC-NET-072 |
 | Debug-level timer | When debug logging is switched on | Debug logging switched off again within 24 hours, both changes audited | ADM-119 | R1 | SEC-OPS-029 |
 | Worker quarantine | When a file crashes or times out the worker twice | The file skipped until its size or modification time changes or an admin retries it, listed in the health report | MUS-044 | R1 | SEC-MED-019 |
 | Derivative cache bound | Continuous | Generated image sizes evicted least-recently-used first within a byte budget | LIB-142 | R1 | SEC-MED-048 |
-| Metadata providers and lookups | On scan and refresh only, and only for providers the owner turned on in the required setup step | MusicBrainz and cover-art lookups built in for R1, sending only normalised lookup evidence; other providers in the sandboxed plugin host from R2 | LIB-107, LIB-111, LIB-112 | R1 (built-in providers); R2 (plugins) | SEC-PRV-013 to SEC-PRV-017, SEC-API-079 to SEC-API-081, SEC-EXT-001 to SEC-EXT-005 |
+| Metadata providers and lookups | On scan and refresh only, and only for providers the owner turned on in the required setup step | MusicBrainz and cover-art lookups built in from R1.1, sending only normalised lookup evidence; other providers in the sandboxed plugin host from R2 | LIB-107, LIB-111, LIB-112 | R1.1 (built-in providers); R2 (plugins) | SEC-PRV-013 to SEC-PRV-017, SEC-API-079 to SEC-API-081, SEC-EXT-001 to SEC-EXT-005 |
 | Opus encoding | On demand, cached | Opus streams and download copies in the sandbox | MUS-106, MUS-213 | R2 | SEC-OPS-062, SEC-MED-024 |
 | Remux and transcode workers | On demand | Segments for browsers, TVs and casting; remuxing in a worker, transcodes in the jail only | VID-003, VID-005 | R2 | SEC-MED-081, SEC-TM-044 |
 | Transcode sandbox self-test | Startup and on request | Whether transcoding can run, shown to the owner; transcoding off when the jail is missing | VID-009, ADM-132 | R2 | SEC-MED-024, SEC-OPS-062 |
@@ -1050,25 +1065,31 @@ that gets in its way, and what the documents propose.
    third-party crate, which ADR 1 (decision 3) and the pure-Rust parsing
    rule do not yet allow (open decision 8), and which the baseline admits
    only after a recorded review and only in the worker (SEC-MED-026,
-   SEC-MED-018). Without that decision R1 shows only "tagged" or
-   "estimated".
+   SEC-MED-018). The adopted scope puts measured loudness in R1.3, and only
+   if that review passes (D-10); until then the player shows only "tagged"
+   or "estimated", in the R1 track details view (MUS-236, D-83) and, from
+   R1.1, in the track info sheet.
 4. **A track the browser cannot play.** The UI dims it with the reason
    (MUS-229). ADR 2 (decision 2) means R1 has no transcoder, and the
    baseline confirms no native transcoding in R1 (security owner decision
    11), so R1 can only explain, never fix (flows G13). Which core formats
    each browser lacks is unverified.
-5. **Passkeys, offline loading and installation in R1.** All need a secure
-   context (CLI-150). The baseline removes passwords and TOTP (SEC-IAM-025,
-   security owner decision 1) and gives plain-HTTP peers other than
-   loopback nothing but a help page (SEC-NET-001). A plain-HTTP LAN
-   install therefore has no web client at all off the server itself; the
-   household needs HTTPS through the per-server name service, their own
-   domain, a tailnet or a reverse proxy (SEC-NET-013; security owner
-   decision 2, feature map open decision 7). This replaces the earlier
-   reading, in which a plain-HTTP install fell back to a password sent
-   unencrypted on the home network (flows G2). ADR 1 (decision 7) rules out
-   a central account, and a project-issued HTTPS name (ADM-023) needs its
-   own ADR.
+5. **Passkeys in R1, offline loading and installation from R1.1.** All
+   need a secure context (CLI-150). The baseline removes passwords and TOTP
+   (SEC-IAM-025, security owner decision 1) and gives plain-HTTP peers
+   other than loopback nothing but a help page (SEC-NET-001). A plain-HTTP
+   LAN install therefore has no web client at all off the server itself.
+   In R1 the household needs HTTPS through their own domain with automatic
+   certificates (ACC-099), a tailnet, a reverse proxy, or the same machine
+   (SEC-NET-013; owner answer to D-07, 2026-10-02). This replaces the
+   earlier reading, in which a plain-HTTP install fell back to a password
+   sent unencrypted on the home network (flows G2). The project-run
+   per-server name service (ADM-023), its naming client and its
+   certificate-transparency monitoring are R2: ADR 1 (decision 7) rules out
+   a central account, so a project-issued HTTPS name needs its own ADR
+   first. A household with neither a domain nor a tailnet can therefore
+   use the web client in R1 only on the server's own machine, or through an
+   SSH tunnel to localhost.
 6. **Passkeys after a move.** A passkey belongs to its domain. Restoring a
    backup under a new address breaks every member's passkeys (flows G3).
    The proposed remedy is a warning at restore and one-time sign-in links,
@@ -1110,11 +1131,13 @@ that gets in its way, and what the documents propose.
    events such as reminders can be local notifications from synced data
    (LIV-075); unexpected failures such as a recording that broke cannot.
 10. **Remote access from a browser.** iroh (ADR 1, decision 7) reaches only
-    native apps; browsers would be relay-only (ACC-102, Later). In R1 and
-    for the web client in R2, remote use depends on the owner's reverse
-    proxy or tailnet (security owner decision 3), and admin operations are
-    refused on internet-posture paths unless the owner turns remote
-    administration on (SEC-NET-045). An invite carries the configured
+    native apps; a browser reaches a server without a domain only through
+    the project's TLS-passthrough edge (ACC-102, R2), which depends on the
+    per-server name service (ADM-023, R2). In R1, remote use goes through
+    the owner's reverse proxy or a tailnet (owner answer, 2026-10-02;
+    security owner decision 3), built-in remote access arrives in R2
+    (API-SET-12), and admin operations are refused on internet-posture
+    paths unless the owner turns remote administration on (SEC-NET-045). An invite carries the configured
     public URL, never one taken from the request (SEC-API-069), but that
     address may still be one the friend cannot reach (flows G7).
 11. **One React Native codebase under a strict content security policy.**
@@ -1127,11 +1150,12 @@ that gets in its way, and what the documents propose.
     The Linux desktop shell has no first-party React Native target (open
     decision 21, unverified).
 12. **Live updates in R1.** Several R1 screens need the server to speak
-    first: stopping a session with a message (ADM-102), cutting a revoked
-    device (ACC-069), the "Playing on *device*" note (player.md), the first
-    scan filling the library in (LIB-021), new-device notices (SEC-IAM-098,
-    now R1) and the admin's now-playing list (ADM-099, whose server need
-    names an event stream). The map places the public event stream
+    first: cutting a revoked device (ACC-069), an administrator ending a
+    person's sessions (SEC-IAM-044), the "Playing on *device*" note
+    (player.md), the first scan filling the library in (LIB-021) and
+    new-device notices (SEC-IAM-098, now R1). R1.2 adds stopping a session
+    with a message (ADM-102) and the admin's now-playing list (ADM-099,
+    whose server need names an event stream). The map places the public event stream
     (INT-048) and the control channel (CLI-101) in R2. This is a gap in the
     release cut rather than an ADR conflict. **Proposal:** a private,
     first-party client event channel in R1 (API-SYS-10), meeting the
@@ -1142,7 +1166,9 @@ that gets in its way, and what the documents propose.
     decision 2). The proposed budgets (Home under 200 ms, search under
     50 ms at 100,000 tracks on the reference low-end device; open decision
     16) are unmeasured, and the reference devices are not yet named. The
-    prebuilt index (API-SYNC-07) is the only stated fallback. In a shared
+    budget tests are enforced in the R1 gate all the same, and only the
+    published numbers wait for R1.1 (register D-87). The prebuilt index
+    (API-SYNC-07) is the only stated fallback. In a shared
     browser the copy lives in memory only (SEC-CLI-010), so every visit
     starts with a sync.
 14. **Third-party apps and credentials in URLs.** The OpenSubsonic adapter
@@ -1210,7 +1236,7 @@ which the owner must confirm.
 | API-LOG-03 and Flags, item 8 | A removal event that hides the play | Erasure within 24 hours with tombstones; needs an ADR extending ADR 1 decision 5 | SEC-PRV-049, SEC-PRV-050, SEC-PRV-052 | Yes (ADR change) |
 | API-PL-06, API-PL-07, API-TOK-01, API-TOK-02, API-SCAN-02 (keys) | Scoped tokens and tool APIs in R1 | R2, never with administrator scopes | SEC-IAM-083, SEC-EXT-008 to SEC-EXT-013 | Yes (decision 8) |
 | API-HOME-07 | Delivery to the person's ntfy topic | A webhook under the webhook rules and the egress inventory | SEC-EXT-045, SEC-TM-075 | No |
-| API-SHR-01 to API-SHR-03 (new) | No share links in this list; feature map has them R2 | Music share links R1 with per-link limits; video R2, off by default | SEC-API-097, SEC-PRV-031 | Yes (decision 7) |
+| API-SHR-01 to API-SHR-03 (new) | No share links in this list; feature map has them R2 | Music share links with per-link limits, R1 in the baseline and R1.2 in the adopted scope (D-10); video R2, off by default | SEC-API-097, SEC-PRV-031 | Yes (decision 7) |
 | API-ADM-01 | Admins make administrators; ownership handed over by adding an admin and removing yourself | Owner-only administrator changes with fresh-uv; explicit two-party transfer | SEC-IAM-003, SEC-IAM-075, SEC-IAM-041 | No |
 | API-ADM-02, API-ADM-03 | Invite with libraries, uses and expiry; landing reveals nothing | Preset capped at the inviter's rights; member or multi-library invites pending a code check; privacy notice before redeeming | SEC-IAM-078, SEC-IAM-079, SEC-PRV-053 | No |
 | API-SET-01, API-SET-02 | Admin settings | Owner-only, fresh-uv | SEC-IAM-041, SEC-IAM-075 | No |
@@ -1219,6 +1245,6 @@ which the owner must confirm.
 | API-SET-07 | Alert destinations the owner chose, R1 | In-app only in R1; outbound destinations R2, opt-in | SEC-OPS-032, SEC-OPS-035 | Yes (decision 25, outbound alert channels) |
 | API-SET-11 | Plex, Jellyfin, Emby, Navidrome imports R2 | Later, through a jailed read-only worker; others' history only by their acceptance | SEC-TM-074, SEC-STD-031, SEC-PRV-026 | No |
 | API-SET-13 (new) | No secret rotation | Owner rotates every secret in one action, R1 | SEC-OPS-018 | No |
-| Background jobs: metadata providers | R2, in the plugin host | Built-in MusicBrainz and cover art in R1, off until the owner turns them on | SEC-PRV-013 to SEC-PRV-015 | Yes (decision 22) |
+| Background jobs: metadata providers | R2, in the plugin host | Built-in MusicBrainz and cover art, off until the owner turns them on; R1 in the baseline and R1.1 in the adopted scope (D-10) | SEC-PRV-013 to SEC-PRV-015 | Yes (decision 22) |
 | Background jobs: sandbox self-test | R2 | R1 for the scan worker profile; R2 for the transcode jail | SEC-MED-024 | No |
 | Background jobs: security | None listed | Key rotation, audit checkpoints, retention purge, erasure, account deletion, startup checks, exposure detection, certificates, debug timer, quarantine, cache bound | SEC-OPS-015, SEC-OPS-023, SEC-PRV-005, SEC-PRV-049, SEC-IAM-103, SEC-OPS-031, SEC-NET-027, SEC-NET-004, SEC-OPS-029, SEC-MED-019, SEC-MED-048 | No |

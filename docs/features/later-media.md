@@ -32,33 +32,35 @@ satisfy for each row; a dash means none beyond the baseline's general
 rules. [Security notes](#security-notes) at the end name the threats that
 matter most for this area.
 
-Releases (R1, R2, R3, Later, No), the Demand scale, row ownership and the
-terms "the user log" and "the identity store" are defined once in the
-[feature map README](README.md). A row whose Release cell would differ
-between maps names one owning row; the other maps point at it.
+Releases (R1, R1.1, R1.2, R1.3, R2, R3, Later, No), the Demand scale, row
+ownership and the terms "the user log" and "the identity store" are
+defined once in the [feature map README](README.md). A row whose Release
+cell would differ between maps names one owning row; the other maps point
+at it.
 
 ### Shared foundations
 
-These rows are the cheap insurance the research asks for. Only the
-schema-only parts ship in R1 (LAT-001, LAT-002's role column, LAT-006,
-LAT-007, LAT-008's relation table, LAT-009 and a simple LAT-010 folder flag),
-so later types arrive without a migration. New parsers (LAT-003 to LAT-005)
-wait for the types that need them, because no parser is cheap under the
-100% mutation gate. LAT-010 and LAT-011 (through MUS-078, now R2) are the
-only rows R1 users would notice.
+These rows are the cheap insurance the research asks for. Only
+schema-only parts ship before the later types: R1 carries LAT-001, LAT-006,
+LAT-007 and LAT-009, and R1.3 adds LAT-002's typed roles, LAT-008's relation
+table and a simple LAT-010 folder flag, so later types arrive without a
+migration. New parsers (LAT-003 to LAT-005) wait for the types that need
+them, because no parser is cheap under the 100% mutation gate. LAT-010
+(R1.3) and LAT-011 (through MUS-078, R2) are the only rows users would
+notice before the later types ship.
 
 | ID | Feature | What the user gets | Rivals today | Demand | Release | How Gunmetal does it better | Server needs | UI surfaces | Security |
 |---|---|---|---|---|---|---|---|---|---|
 | LAT-001 | Item kinds in the data model | New media types arrive later without a schema migration or a full rescan | Jellyfin: separate library types including books, photos and music videos; Plex: no audiobook type | High: fragile upgrades are a top pain point (Jellyfin 10.11 migration failures, #15027, 121 comments) | R1 | Every item carries a kind (track, audiobook, podcast episode, video, photo, book, comic) from the first schema, so SQLite stays a rebuildable cache across releases | Kind field on items; versioned kind enum in the core protocol types | None in R1 | SEC-API-024, SEC-TM-051, SEC-OPS-048, SEC-OPS-049 |
-| LAT-002 | People with typed roles | Browse by author, narrator, host, guest, writer or penciller, not only "artist" | ABS: several narrators per book; Plex: narrator only by tag convention; Jellyfin: authors tab (12.0) | Medium: Plex users rely on tag conventions for narrators | R1 | One person record with a role on each credit, shared with music's composer and performer roles, so a narrator who also records music is one person | R1: the role column on credits (shared with music's composer and performer roles). OPF and ComicInfo role mapping arrives with books. | None in R1; person pages from R2 | SEC-TM-031, SEC-API-048, SEC-TM-036, SEC-TM-039 |
+| LAT-002 | People with typed roles | Browse by author, narrator, host, guest, writer or penciller, not only "artist" | ABS: several narrators per book; Plex: narrator only by tag convention; Jellyfin: authors tab (12.0) | Medium: Plex users rely on tag conventions for narrators | R1.3 | One person record with a role on each credit, shared with music's composer and performer roles, so a narrator who also records music is one person | R1.3: the later kinds' roles (author, narrator, host, guest, writer, penciller) on the role column of credits, which music's roles use from R1.1 (MUS-005). OPF and ComicInfo role mapping arrives with books. | None in R1.3; person pages from R2 | SEC-TM-031, SEC-API-048, SEC-TM-036, SEC-TM-039 |
 | LAT-003 | Series with a free-form sequence | Books numbered "1.5", "0" or "Prequel" sort correctly in their series | ABS: sequence numbers; Kavita and Komga: yes; Jellyfin: series from filenames (12.0) | Medium: ABS missing-books request (26); Jellyfin series request (4, Sept 2026) | Later | The sequence is kept as the original string plus a sort key computed by one tested core function Arrives with books; nothing in R1 needs it. | Series and membership tables; sort-key function | None in R1 | SEC-MED-001, SEC-TM-032, SEC-API-048 |
 | LAT-004 | One item spanning many files | A 40-file rip is one book with one timeline | ABS: yes; Plex: no; Jellyfin: one folder per book, with requests to handle split books better | Medium: Jellyfin commenters (2023) | Later | An item is an ordered manifest of files with durations read at scan, giving one global timeline; positions are global milliseconds Arrives with audiobooks; R1 multi-file items are albums. | Manifest table; per-file duration and gapless data from the core parsers | None in R1 | SEC-API-018, SEC-MED-012, SEC-TM-043, SEC-MED-014 |
 | LAT-005 | Chapters as a shared structure | A chapter list and chapter skip for any audio file that has chapters, such as a DJ mix or a live set | Plex and Plexamp: ignore M4B chapters; Jellyfin: chapter extraction (12.0); ABS: yes | Medium: Plex chapter complaints; Jellyfin auto-advance request (26) | Later | Chapters parsed at scan in pure Rust (MP4 `chpl` and QuickTime chapter tracks, ID3v2 `CHAP` and `CTOC`, Vorbis comments, Matroska through the existing EBML code), never by FFmpeg; one structure (start, end, title, image, link) serves books, podcasts, concerts and films. A chapter image is re-encoded like any artwork, and a chapter link is kept as inert text, shown as a link only after it parses as http or https, and never fetched. Later, with the media types that need chapters: new parsers are not cheap under the 100% mutation gate, and R1 music does not need them. | Chapter table keyed to item, file and offset; parser fuzzing | Chapter list in now playing; chapter ticks on the seek bar | SEC-TM-032, SEC-MED-027, SEC-MED-075, SEC-MED-016, SEC-MED-058, SEC-TM-035 |
 | LAT-006 | Typed positions in the user log | Your place is kept for audio, text and pages alike, and survives any rebuild | Komga: KOReader and Kobo sync keep only chapter starts; Kavita: encodes OPDS progress in titles | Medium: ABS read-along requests (91, 55) depend on it | R1 | The user log from record 1 stores a position as a time offset, a Readium-style text locator, a page of a total, or a percentage, and each position event carries device and time and nothing else (no address, location or free text). The log is append-only for ordinary writes, but a person can erase their own events, and the erasure reaches devices as tombstones that name only the erased IDs | Typed position events; event schema versioning | None beyond music resume in R1 | SEC-PRV-002, SEC-PRV-001, SEC-PRV-024, SEC-PRV-049, SEC-PRV-052 |
 | LAT-007 | All user-made data in the user log | Bookmarks, notes, finished dates, subscriptions, albums and hidden items survive upgrades and can be exported | Immich: its database backup excludes the photos themselves; Jellyfin 12.0: one-way upgrade that needs a backup first | High: fragile upgrades are a top pain point | R1 | Every user-made fact is a user-log event, never only a SQLite row, so "rebuild from files plus user log" stays true. Each person exports or erases their own events without an admin; exports use OPML, KOReader progress or JSON, need a sign-in within the last 5 minutes, and download once from a link that expires within an hour | Event types added per kind as each ships; export, import and erasure jobs | Export page in settings | SEC-PRV-047, SEC-PRV-048, SEC-PRV-049, SEC-TM-055, SEC-PRV-001 |
-| LAT-008 | Typed links between items | A song links to its video, an ebook to its audiobook, an interview to its artist | Plex: links videos to tracks by file name; Jellyfin: no; read-along needs a separate app (Storyteller) | Medium: Jellyfin requests (38, 9); ABS read-along (91) | R1 | A relation table with typed edges (video of, audio of, extra for) in the first schema; scanners and users fill it later; a link is shown only to someone who may see both items | R1: the relation table only. Inference jobs per kind arrive with each kind. | None in R1 | SEC-TM-024, SEC-IAM-070, SEC-MED-051 |
+| LAT-008 | Typed links between items | A song links to its video, an ebook to its audiobook, an interview to its artist | Plex: links videos to tracks by file name; Jellyfin: no; read-along needs a separate app (Storyteller) | Medium: Jellyfin requests (38, 9); ABS read-along (91) | R1.3 | A relation table with typed edges (video of, audio of, extra for) in the schema from R1.3, before any kind that uses it; scanners and users fill it later; a link is shown only to someone who may see both items | R1.3: the relation table only. Inference jobs per kind arrive with each kind. | None in R1.3 | SEC-TM-024, SEC-IAM-070, SEC-MED-051 |
 | LAT-009 | Listening contexts in the queue protocol | Nothing visible in R1; later, a book and an album each keep their own queue and place | ABS: no; Jellyfin: one music queue; Symfonium (a client): several queues | Medium: ABS queue request (99) | R1 | The cross-device queue from record 2 carries named contexts from its first version, so LAT-039 needs no protocol break | Context id on queue state and hand-off messages | None in R1 | SEC-HIS-014, SEC-API-016, SEC-API-043 |
-| LAT-010 | Spoken word kept out of music | Audiobooks found in an R1 library stay out of shuffles, radio and album grids | Plex: no book type, so books live in music libraries; Spotify: "hide podcasts" idea has 8,815 votes | Medium: Spotify 8,815 votes; a Jellyfin commenter wants a book resume that does not hijack music | R1 | R1 keeps this to a simple per-folder flag set by the admin, which music surfaces filter on; automatic classification of M4B files and audiobook tags arrives with audiobooks. | Per-folder kind flag | Library settings toggle; a plain "Spoken word" list in R1 | SEC-API-019, SEC-TM-027 |
+| LAT-010 | Spoken word kept out of music | Audiobooks found in a music library stay out of shuffles, radio and album grids | Plex: no book type, so books live in music libraries; Spotify: "hide podcasts" idea has 8,815 votes | Medium: Spotify 8,815 votes; a Jellyfin commenter wants a book resume that does not hijack music | R1.3 | R1.3 keeps this to a simple per-folder flag set by the admin, which music surfaces filter on; automatic classification of M4B files and audiobook tags arrives with audiobooks. | Per-folder kind flag | Library settings toggle; a plain "Spoken word" list in R1.3 | SEC-API-019, SEC-TM-027 |
 | LAT-011 | Long audio remembers its place | See MUS-078, which owns this feature. Later-media specifics: a resume threshold per kind. | Plexamp: resumes long audio; Jellyfin: partial | Medium: discovery research; Jellyfin chapter auto-advance request (26) | R2 | See MUS-078. | Per-kind resume threshold; otherwise none beyond MUS-078 | Resume prompt in the player; Continue row | SEC-PRV-002, SEC-PRV-024 |
 | LAT-012 | Choose which media kinds you see | Someone who only wants music never sees books or podcasts | Spotify: no (8,815-vote idea, under consideration); Apple: podcasts live in a separate app | High: Spotify 8,815 and 5,223 votes | R2 | Visible kinds are a per-user setting applied when the device's synced library is built, so on a device used by one person hidden kinds are not even downloaded | Per-user kind filter in the sync feed | Settings toggle; navigation and Home adapt | SEC-API-015, SEC-CLI-020, SEC-CLI-015 |
 | LAT-013 | Kind chips in search and library | One search over songs, books and episodes, narrowed with a tap | Spotify: chips for music and podcasts; Jellyfin: separate libraries | Medium: music UX research | R2 | Search runs on the synced library on the device, so it works offline across kinds | Kind facet in the synced index | Search chips; library chips | SEC-PRV-004, SEC-CLI-020, SEC-API-015 |
@@ -182,7 +184,7 @@ account, your own archive, and one app for music, books and podcasts.
 
 Rivals: Plex, Jellyfin and Emby. Plex is good here; the aim is to match it,
 beat Jellyfin, and stay free. All of it needs the R2 video path; only the
-relationships (LAT-008) exist from R1.
+relationships (LAT-008) exist before it, from R1.3.
 
 | ID | Feature | What the user gets | Rivals today | Demand | Release | How Gunmetal does it better | Server needs | UI surfaces | Security |
 |---|---|---|---|---|---|---|---|---|---|
@@ -489,8 +491,8 @@ These are the features in this area most likely to make someone switch.
 - **Scope and people.** This map has 181 features against a strict
   test-first gate. ABS's single maintainer has kept the iOS app in beta for
   years, Booklore entered maintenance mode, and Jellyfin's leader stepped
-  down from burnout in July 2026. Only the R1 and R2 rows should be planned
-  now.
+  down from burnout in July 2026. Only the rows for R1, its point releases
+  (R1.1 to R1.3) and R2 should be planned now.
 - **Rivals are moving.** Jellyfin 12.0 improved books, comics and
   audiobooks; ABS ships steadily (v2.37.1 on 29 Sept 2026); Immich is very
   active. Parity claims here will age.
@@ -499,13 +501,15 @@ These are the features in this area most likely to make someone switch.
 
 1. **When audiobooks ship (LAT-015 to LAT-057).** Options: in R1 (web only),
    with R2, or as their own release alongside the first native mobile app.
-   *Decided in the feature map README:* R1 carries only the schema-only
-   foundations (LAT-001, LAT-002's role column, LAT-006 to LAT-009, and a
-   simple LAT-010 folder flag). The audiobook experience (LAT-015 to
-   LAT-057), lectures (LAT-056) and the home video library (LAT-104 to
-   LAT-111) are Later, because ADR 2 puts M3U and live TV first and books
-   after. Pulling books ahead of live TV would need an ADR that changes that
-   order.
+   *Decided in the feature map README, with the smaller R1 the owner
+   adopted ([D-10](../decisions.md#d-10-r1-scope-and-the-release-table)):*
+   R1 carries only the schema-only foundations LAT-001, LAT-006, LAT-007
+   and LAT-009; LAT-002's typed roles, LAT-008's relation table and a
+   simple LAT-010 folder flag follow in R1.3. The audiobook experience
+   (LAT-015 to LAT-057), lectures (LAT-056) and the home video library
+   (LAT-104 to LAT-111) are Later, because ADR 2 puts M3U and live TV first
+   and books after. Pulling books ahead of live TV would need an ADR that
+   changes that order.
 2. **Spoken word as a library type or an item kind (LAT-010, LAT-056).**
    *Recommendation:* a kind on each item, defaulted by library and
    overridable per folder, so lectures, audio dramas and courses get book

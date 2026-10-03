@@ -18,8 +18,14 @@ the thin layer that hands the core to the web client. It turns the
 and the capability list in [api-needs.md](api-needs.md) into work packages
 that many coding agents can build at the same time, each under the rules in
 [CONTRIBUTING.md](../../CONTRIBUTING.md) and [AGENTS.md](../../AGENTS.md).
-Release R1 (music) is planned in full. Release R2 (video) is planned in
-outline at the end.
+Release R1 (music) is planned in full, and waves 1 to 6 build exactly the
+R1 the owner adopted on 2026-10-02 (register decision D-10): the smaller
+R1 in the register's [R1 scope](../decisions.md#r1-scope) section. The
+packages that serve only the point releases R1.1, R1.2 and R1.3, or a
+later release, are kept with their full specifications in
+[After R1](#after-r1-point-releases-and-later), grouped by release, so
+they can be scheduled later. Release R2 (video) is planned in outline at
+the end.
 
 The client itself (React Native, TypeScript) is not in this plan. Where a
 package exists only so the client can call the core on the device, it says
@@ -46,10 +52,11 @@ are marked **Proposal**, and the ones that need the owner are collected in
 12. [Wave 4: scanning and the features that need it](#wave-4-scanning-and-the-features-that-need-it)
 13. [Waves 5 and 6: health, jobs, benchmark and acceptance](#waves-5-and-6-health-jobs-benchmark-and-acceptance)
 14. [Coverage check: every R1 capability has an owner](#coverage-check-every-r1-capability-has-an-owner)
-15. [R2 (video) in outline](#r2-video-in-outline)
-16. [Decisions the owner must make](#decisions-the-owner-must-make)
-17. [Review notes](#review-notes)
-18. [Security coverage: every R1 requirement has a package](#security-coverage-every-r1-requirement-has-a-package)
+15. [After R1: point releases and later](#after-r1-point-releases-and-later)
+16. [R2 (video) in outline](#r2-video-in-outline)
+17. [Decisions the owner must make](#decisions-the-owner-must-make)
+18. [Review notes](#review-notes)
+19. [Security coverage: every R1 requirement has a package](#security-coverage-every-r1-requirement-has-a-package)
 
 ## How to use this plan
 
@@ -285,7 +292,8 @@ package under the merge protocol.
 **Proposal.** Fourteen crates under `crates/`, each with a reason to exist.
 `gunmetal-fuzz` already exists; `gunmetal-names` was added for the
 project's name service when the plan was aligned with the security
-baseline.
+baseline, and is created only in R2, because the owner moved the name
+service out of R1 (register D-07), so R1 builds thirteen.
 ADR 1 decision 2 puts protocol types, the decision engine, the parsers and
 the remuxer in one core crate, so the core stays one crate. Everything that
 does I/O is split by the boundary it guards, because the security baseline
@@ -306,7 +314,7 @@ request"), and because separate crates let parallel agents own whole
 | `gunmetal-worker` | library, I/O | The worker host loop, the IPC framing, the Linux sandbox, the worker pool and quarantine, the probe, artwork and loudness jobs | `std::process::Command` is allowed only here (SEC-MED-063); the image decoder and any audio decoder link only here. |
 | `gunmetal-http` | library | The route table type, the request pipeline, security headers, body limits and the problem renderer | The route table is the single source for the allow-list, role-matrix and header tests and for the API reference (web-and-api-security.md, "The route table"). |
 | `gunmetal-egress` | library, I/O | The only outbound HTTP client, with the egress gate and its record of connections | Makes the ban on other outbound clients enforceable (SEC-API-076). |
-| `gunmetal-names` | library plus a service binary | The per-server name service: the label codec, the pure DNS-answer function and the registration rules (WP-129) | A project service, not part of the server binary; the server's naming client (WP-135) reuses its label codec, so both sides agree by construction. |
+| `gunmetal-names` (R2) | library plus a service binary | The per-server name service: the label codec, the pure DNS-answer function and the registration rules (WP-129, R2) | A project service, not part of the server binary; the server's naming client (WP-135, R2) reuses its label codec, so both sides agree by construction. Not built in R1. |
 | `gunmetal-server` | library plus the `gunmetal` binary | Application state, every route handler, jobs, the command line | The composition root. Each feature package owns one module directory in it. |
 | `gunmetal-wasm` | library, `cdylib` | A thin `wasm-bindgen` facade over the core for the web client | Keeps WASM bindings out of the core so the core stays dependency-light. |
 | `xtask` | binary, dev-only | Repository checks: the harness registry, the lockfile-age check, the docs lints and requirement traceability (WP-127), repository-settings and release checks (WP-124, WP-136), the limits register check (WP-130), the benchmark runner | The security baseline asks for these checks as Rust under the same gate (supply-chain-and-release.md). |
@@ -345,7 +353,7 @@ section 2: `secrets/`, `durable/`, `cache/`, `snapshots/` and `backups/`, with
 | **The cache** | `cache/library.db` | SQLite, WAL mode | Never migrated. If its schema digest differs from the binary's, it is discarded and rebuilt from the files, the user log and the derived-data store (ADM-058, ADM-077). | Nothing; it is rebuildable by definition (ADR 1, decision 5). |
 | **The identity store** | `durable/identity.db` | SQLite, WAL mode, `synchronous=FULL` | Numbered forward migrations after R1 ships; a snapshot before every migration; invariants checked before commit; an older binary refuses a newer file (SEC-OPS-051). | Everything. Backed up. |
 | **The user log** | `durable/log/<stream>/<yyyy-mm>.seg` | Append-only segment files of framed, checksummed records (WP-035) | Only appended. Unknown record types are kept and passed through. Erasure is the one sanctioned rewrite (privacy-and-data-protection.md, section 4). | Everything. Backed up. |
-| **The derived-data store** | `derived/derived.db` | SQLite | Keyed by content identity, producer kind and producer version, so it never needs migrating: a new producer version simply writes new keys. | Rebuilds. Optional in backups (ADM-141). |
+| **The derived-data store** (from R1.1, WP-071) | `derived/derived.db` | SQLite | Keyed by content identity, producer kind and producer version, so it never needs migrating: a new producer version simply writes new keys. R1 has no producer that needs it (provider lookups, the parser-upgrade re-read and loudness analysis are all after R1), so R1 creates the empty `derived/` directory (WP-126) and no file in it. | Rebuilds. Optional in backups (ADM-141, R1.3). |
 
 The audit log is a fifth, simpler store: JSON-lines segments of 16 MB in
 `durable/audit/`, with `fsync` before critical actions return
@@ -448,7 +456,7 @@ pinned here; WP-001 pins them once the owner approves the list.
 | `proptest` | all, dev | Already in use for property tests. | None. |
 | `serde` (with derive) | core, server | Protocol types must serialise to JSON for the public API and to a compact binary form for sync and IPC. Derived code is not hand-written code, so it adds nothing to the mutation burden. | A hand-written codec for every type, which multiplies the code under the gate. |
 | `postcard` | core | Compact, `no_std`, serde-based binary encoding for sync frames and worker messages, decoded inside the core's 32 MiB frame cap and then revalidated through typed constructors (SEC-MED-023). | A hand-written length-prefixed codec (owner decision 4). |
-| `serde_json` | server, durable, worker | JSON for the HTTP API, the audit log and exports. Uploaded history exports are hostile input, so they are decoded only in the worker's import job (WP-108), never in the server process (SEC-MED-018). | None reasonable. |
+| `serde_json` | server, durable, worker | JSON for the HTTP API, the audit log and exports. Uploaded history exports are hostile input, so from R1.1 they are decoded only in the worker's import job (WP-145), never in the server process (SEC-MED-018). | None reasonable. |
 | `sha2` (RustCrypto) | core (only in `crypto.rs`, WP-122), secrets (only in `crypto/`, WP-047) | SHA-256 for content identity windows and the schema digest. Pure Rust. `sha1` was dropped: it was only for TOTP, which the security baseline rules out (SEC-IAM-025). | `ring`, which includes C and assembly. |
 | `hmac` (RustCrypto) | secrets (only in `crypto/`, WP-047) | HMAC-SHA-256 for capability URLs, token hashes and the recovery-code pepper. It left the core: core functions take a `MacProvider` (WP-031) and never compute a MAC themselves, so the core needs no MAC crate (SEC-STD-018). | `ring`. |
 | `unicode-normalization` | core | Diacritic-insensitive search and natural sort (DIS-085, MUS-020) need canonical decomposition. Pure Rust tables. | A hand-maintained folding table, which is smaller but will be wrong for scripts nobody tested. |
@@ -459,7 +467,7 @@ pinned here; WP-001 pins them once the owner approves the list.
 | `rustix` | fs, worker | Safe wrappers for `pread`, `fstat`, descriptor passing with `SCM_RIGHTS`, rlimits and `prctl`, with no `unsafe` in Gunmetal's code. | `nix`, which is broader. |
 | `landlock` | worker | Filesystem and network confinement of the worker (SEC-MED-022). Maintained under the Landlock project. | None. |
 | `seccompiler` | worker | Pure-Rust seccomp-bpf filters (SEC-MED-022). It does not support 32-bit ARM (media-and-parser-safety.md, section 4). | `libseccomp`, which is C. |
-| `argon2` (RustCrypto) | secrets (only in `crypto/`) | Argon2id (RFC 9106) at or above the second recommended parameter set, for the one human-chosen secret R1 has: an optional share-link password (SEC-STD-008, SEC-STD-024). There are no account passwords (SEC-IAM-025). | None. |
+| `argon2` (RustCrypto) | secrets (only in `crypto/`) | Argon2id (RFC 9106) at or above the second recommended parameter set, for any key or verifier derived from a human-chosen secret (SEC-STD-024). R1 has no such secret: there are no account passwords (SEC-IAM-025), backups need no passphrase (ADM-068), and the one human-chosen secret, the optional share-link password (SEC-STD-008), arrives with share links in R1.2 (WP-134). The helper and its parameter floor still land in R1 (WP-047), because SEC-STD-024 stays an R1 requirement and the floor must be in one place before any caller exists. | None. |
 | `hkdf`, `chacha20poly1305` (RustCrypto) | secrets (only in `crypto/`) | Deriving purpose keys from the root secret; encrypting third-party secrets at rest with XChaCha20-Poly1305 and 192-bit random nonces, the nonce strategy SEC-STD-020 allows. | `ring`. |
 | `ed25519-dalek` | secrets (only in `crypto/`) | Signing backups and audit checkpoints; verifying the update feed's TUF metadata through a keyless verify function the server calls. As first written the server used it directly, outside any crypto module (SEC-STD-018). | `ring`. |
 | `age` (or a reviewed age v1 implementation) | secrets (only in `crypto/`) | Backups encrypted in age v1 to the server's backup key and the owner's recovery key, which the baseline requires (SEC-OPS-042, SEC-PRV-039). The backup package (WP-090) calls the wrapper. | A new envelope format, which the baseline rules out. |
@@ -471,16 +479,16 @@ pinned here; WP-001 pins them once the owner approves the list.
 | `notify` | fs | File-change notification on Linux, macOS and Windows (LIB-014). | `rustix` inotify, Linux only (owner decision 18). |
 | `rustls`, `tokio-rustls` | server, egress; provider and configuration constructors only in secrets' `crypto/` | HTTPS with the owner's certificate (ACC-098) and outbound TLS, verified against the WebPKI with no "dangerous" configuration (SEC-NET-009). The crypto provider comes from the cryptography allow-list record (WP-125, SEC-STD-019; owner decision 8), and the server and egress client receive ready-made `ServerConfig` and `ClientConfig` values from the secrets crate rather than choosing a provider themselves (SEC-STD-018). | None in pure Rust. |
 | `wasm-bindgen` | wasm | The web client calls the core through it (ADR 1, decision 2). | None. |
-| `symphonia` | worker | Only if ADR 5 is accepted: decoding untagged FLAC, MP3, AAC and Vorbis for loudness measurement. The research notes it lacks Opus and HE-AAC (music.md, MUS-086). | No measurement in R1; tags plus the fallback gain (MUS-089). |
+| `symphonia` | worker | Only if ADR 5 is accepted, and not before R1.3, where loudness measurement lands (WP-029, WP-114): decoding untagged FLAC, MP3, AAC and Vorbis for loudness measurement. The research notes it lacks Opus and HE-AAC (music.md, MUS-086). | No measurement in R1; tags plus the fallback gain (MUS-089). |
 
-**Missing from this table, and needed.** Three R1 packages need something
-the table does not list. Each is part of owner decision 4 or the decision
-named:
+**Missing from this table, and needed.** Two R1 packages and one R1.2
+package need something the table does not list. Each is part of owner
+decision 4 or the decision named:
 
-- **RSA signature verification for single sign-on (WP-096).** The OpenID
+- **RSA signature verification for single sign-on (WP-096, R1.2).** The OpenID
   Connect Core specification makes RS256 the algorithm providers must
   support, and common self-hosted providers sign ID tokens with it by
-  default (unverified per provider). Without an RSA verifier, R1's single
+  default (unverified per provider). Without an RSA verifier, R1.2's single
   sign-on works only with providers configured for ES256 or EdDSA. The
   candidate is the RustCrypto `rsa` crate, used for verification only;
   its past timing advisory concerned decryption (unverified whether it
@@ -592,28 +600,49 @@ proposes how the gate itself scales once the workspace grows.
 
 | Wave | Packages | Count | What it produces |
 |---|---|---:|---|
-| 0 | WP-001 to WP-008, WP-122, WP-125, WP-126 | 11 | Lints and merge rules, ADR 3 to 6, the security architecture records, the parse contract, text and typed values, identifiers and the problem catalogue, the testkit, the fuzz harness registry, the schema digest with data classes, the data-root handle |
-| 1 | WP-009 to WP-047, WP-124, WP-127 to WP-129, WP-138 | 44 | Every R1 container parser, lyrics and M3U, the pure logic of the queue, shuffle, rules, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the name service |
-| 2 | WP-048 to WP-058, WP-060 to WP-062, WP-064 to WP-071, WP-118, WP-119, WP-130 | 25 | The egress client (moved from wave 1, because its TLS configuration comes from the secrets crate's crypto module, WP-047); tag mapping, the file probe, search, the decision engine, the audio packager, radio; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, task runner and derived-data store; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
-| 3 | WP-059, WP-063, WP-072 to WP-087, WP-089, WP-090, WP-092 to WP-100, WP-120, WP-131, WP-132 | 32 | Home rows, recovery codes, web assets, owner HTTPS, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, backups, rules, playlists, users, startup, SSO, alerts, triggers, library administration, tasks; the route-table security suites; postures and the cleartext rule |
-| 4 | WP-088, WP-101 to WP-108, WP-121, WP-133, WP-134 | 12 | The WASM facade, ACME, the scan pipeline and what needs it (artwork serving, session control, the packaging route and its worker job, account recovery, curation, history import and export), release builds and service install, history deletion and retention, music share links |
-| 5 | WP-109 to WP-115, WP-123, WP-135 to WP-137 | 11 | Restore (moved from wave 4, because it offers WP-106's recovery links after a domain change), library health, review and trash, playlist files, derived jobs, loudness analysis, the scan benchmark, the parser-upgrade re-read, the naming client and CT monitoring, release provenance and signing, metadata providers (conditional) |
-| 6 | WP-116 to WP-117 | 2 | Doctor and diagnostics, and the R1 flow acceptance tests |
+| 0 | WP-001 to WP-008, WP-122, WP-125, WP-126 | 11 | Lints and merge rules, ADR 3 to 6, the security architecture records, the parse contract, text and typed values, identifiers and the problem catalogue, the testkit, the fuzz harness registry, the schema digest with data classes, the data-root handle (unchanged by the adopted R1) |
+| 1 | WP-009 to WP-021, WP-023 to WP-026, WP-028, WP-030 to WP-047, WP-124, WP-127, WP-128, WP-138, WP-139 | 41 | Every R1 container parser and lyrics, the pure logic of the queue, shuffle, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the project site's security files |
+| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130 | 23 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
+| 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132 | 30 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
+| 4 | WP-101 to WP-106, WP-108, WP-121, WP-133 | 9 | ACME for the owner's own domain, the scan pipeline and what needs it (artwork serving, the playback registry and stream limits, the packaging route and its worker job, account recovery), each person's data export, release builds and service install, history deletion and retention |
+| 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark and the speed budget tests, release provenance and signing |
+| 6 | WP-116, WP-117 | 2 | Doctor and the security summary, and the R1 flow acceptance tests |
+
+121 packages build R1. The 40 packages that serve only R1.1, R1.2, R1.3
+or R2 (18 moved whole, counting WP-091, which was already R2, and 22 new
+packages split from R1 packages, WP-140 to WP-161) are in
+[After R1](#after-r1-point-releases-and-later), grouped by release; R2's
+video packages are in [R2 (video) in outline](#r2-video-in-outline).
+
+The adopted R1 (register D-10, D-07) changed the waves in four ways. The
+packages that serve only a point release or R2 left the waves.
+Thirty-three R1 packages kept their R1 part and gave their later part to
+a split package or to a moved one (for example WP-024's exclusion patterns to WP-140, WP-104's admin live
+view to WP-153, WP-116's diagnostic bundle to WP-155). WP-059 (Home rows)
+moved back to wave 2 and WP-088 (the WASM facade) back to wave 3, because
+the radio and rule packages that held them a wave later left R1. And
+WP-129's project-site files split off to WP-139 in wave 1, while the name
+service itself went to R2. WP-101 (ACME) stays in wave 4: it is now the
+R1 path to HTTPS for an owner's own domain, but setup (WP-080) needs only
+a secure context and does not call it, and WP-101 hands certificates to
+WP-073's listener configuration, which is in wave 3.
 
 WP-091 (scoped tokens) moved to R2 when the plan was aligned with the
-security baseline; its entry stays in the wave 3 section so its number
-keeps its place.
+security baseline, and its entry is now in the R2 group of
+[After R1](#after-r1-point-releases-and-later).
 
-Wave 1 is the widest point: forty-four packages that need nothing but wave 0.
+Wave 1 is the widest point: forty-one packages that need nothing but wave 0.
 That is where most parallel agents are useful. The critical path to a
 running music server is WP-004 → WP-012 → WP-052 → WP-075 → WP-102, with the
 worker chain WP-045 → WP-061 → WP-078 → WP-102 and the store chain
 WP-122 → WP-042 → WP-067 → WP-102 beside it.
 
-WP-048 (the egress client) is numbered in the wave 1 section but now runs
-in wave 2, WP-109 (restore) is numbered in the wave 4 section but now runs
-in wave 5, and WP-138 (the retention schedule), added in the second
-security pass, is at the end of the wave 1 section.
+WP-048 (the egress client) is numbered in the wave 1 section but runs in
+wave 2, WP-059 (Home rows) is numbered in the wave 2 section and runs in
+wave 2, WP-088 (the WASM facade) is numbered in the wave 3 section and
+runs in wave 3, WP-109 (restore) is numbered in the wave 4 section but
+runs in wave 5, and WP-138 (the retention schedule) and WP-139 (the
+project site's security files) are at the end of the wave 1 section.
 
 **Wave 0 and the lints.** WP-004 to WP-008, WP-122 and WP-126 run beside WP-001,
 which turns on the core's deny-level lints. They write their code to the
@@ -1635,7 +1664,10 @@ returns the whole expected value.
 
 - **Wave** 1 · **Size** M · **Depends on** WP-004, WP-005.
 - **Owns** `crates/gunmetal-core/src/lyrics.rs`.
-- **Serves** MUS-154, MUS-155, MUS-156; API-CAT-06.
+- **Serves** MUS-154, MUS-155; API-CAT-06. Word stamps are parsed
+  because R1 libraries already contain Enhanced LRC files and the parser
+  must handle them as untrusted input either way; showing lyrics word by
+  word (MUS-156) is R1.1 and needs only the client.
 - **Security.** Boundaries TB6, TB9; threats TM-T07, TM-T20. Verifies
   SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007, SEC-MED-008,
   SEC-TM-032, SEC-HIS-036, SEC-MED-049, SEC-API-090.
@@ -1664,37 +1696,13 @@ returns the whole expected value.
   monotonic as the time increases (on its own this would pass for a
   function that always returned `None`, so the examples carry the weight).
 
-### WP-022 M3U and M3U8 parser and writer
-
-- **Wave** 1 · **Size** M · **Depends on** WP-004, WP-005.
-- **Owns** `crates/gunmetal-core/src/m3u.rs`.
-- **Serves** MUS-140, LIB-192; API-PL-03, API-PL-04.
-- **Security.** Boundaries TB6, TB9; threats TM-T22, TM-T30. Verifies
-  SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007, SEC-MED-008,
-  SEC-TM-032, SEC-HIS-036, SEC-MED-050, SEC-MED-016.
-- **Scope.** Parse M3U and M3U8 with `#EXTM3U` and `#EXTINF` duration and
-  title, into entries that are either a relative path, an absolute path or
-  a URL, each classified so the caller can drop what SEC-MED-050 forbids.
-  A URL entry is kept only as a dropped entry with its reason; nothing
-  ever fetches it (SEC-MED-016).
-  Normalise separators and `.` segments; flag `..` escapes. Write M3U8
-  with paths relative to a library root.
-- **Not in scope.** Resolving entries to items (WP-112 uses the matcher).
-  IPTV M3U (R3).
-- **Interface sketch.** `pub fn parse(bytes: &[u8], limits: &Limits) -> Result<Playlist, M3uError>`;
-  `pub enum EntryTarget { Relative(Vec<Vec<u8>>), Absolute(Vec<u8>), Url, Dropped(DropReason) }`;
-  `pub fn write(entries: &[ExportEntry]) -> String`.
-- **Tests.** Windows separators; a UTF-8 BOM; Latin-1 in a `.m3u`;
-  `#EXTALBUMARTURL` and `#EXTIMG` dropped; `file://` URLs; `../../etc`;
-  100,001 entries; an 8 KiB line. Property: writing then parsing returns
-  the same relative paths and titles.
-
 ### WP-023 HTTP header parsers
 
 - **Wave** 1 · **Size** M · **Depends on** WP-004, WP-005.
 - **Owns** `crates/gunmetal-core/src/http/` (`crates/gunmetal-core/src/http/mod.rs`, `crates/gunmetal-core/src/http/range.rs`,
   `crates/gunmetal-core/src/http/forwarded.rs`).
-- **Serves** ACC-097, ACC-134; API-STR-03, API-SET-01.
+- **Serves** ACC-097; API-STR-03, API-SET-01. (ACC-134, the path prefix,
+  is R1.2, WP-151; it reuses these parsers unchanged.)
 - **Security.** Boundaries TB1, TB2; threats TM-T05, TM-T09. Verifies
   SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007, SEC-MED-008,
   SEC-TM-032, SEC-HIS-036, SEC-MED-060, SEC-NET-050, SEC-NET-016,
@@ -1731,50 +1739,60 @@ returns the whole expected value.
 
 ### WP-024 Path rules
 
-- **Wave** 1 · **Size** M · **Depends on** WP-005.
+- **Wave** 1 · **Size** S (was M; the exclusion pattern language moved to
+  WP-140 in R1.1, because exclusion rules, LIB-006, are R1.1) · **Depends
+  on** WP-005.
 - **Owns** `crates/gunmetal-core/src/path.rs`.
-- **Serves** LIB-006, LIB-008; API-CAT-10, API-LIB-02.
+- **Serves** ADM-025 (the root refusal behind the live checks), LIB-007,
+  LIB-204 (containment for links); API-CAT-10, API-LIB-02. (LIB-006 is
+  R1.1, WP-140; folder view, LIB-008, is R1.3 and reuses the display
+  names.)
 - **Security.** Boundaries TB9; threats TM-T22, TM-T25, TM-T56. Verifies
   SEC-MED-034, SEC-MED-037, SEC-MED-039, SEC-MED-040, SEC-TM-043,
-  SEC-HIS-015, SEC-STD-011.
+  SEC-HIS-015.
 - **Scope.** Paths as raw byte components: relative-path normalisation,
   containment ("is this chain beneath that root"), the root refusal rules
-  (filesystem root, system directories, the data directory, overlaps),
-  display names decoded lossily with controls escaped, and the exclusion
-  pattern language (a small glob subset: `*`, `**`, `?`, literal names,
-  case-insensitive option).
-- **Not in scope.** Touching the filesystem (WP-060).
+  (filesystem root, system directories, the data directory, overlaps), and
+  display names decoded lossily with controls escaped.
+- **Not in scope.** Touching the filesystem (WP-060). The exclusion
+  pattern language (WP-140, R1.1).
 - **Interface sketch.** `pub struct RelPath(Vec<Vec<u8>>)`;
   `pub fn normalise(components: &[&[u8]]) -> Result<RelPath, PathError>`;
-  `pub fn refuse_root(candidate: &RawPath, data_dirs: &[RawPath]) -> Option<RootRefusal>`;
-  `pub struct Exclusions; impl Exclusions { pub fn parse(lines: &str) -> Result<Self, PatternError>; pub fn excludes(&self, p: &RelPath) -> bool; }`.
+  `pub fn refuse_root(candidate: &RawPath, data_dirs: &[RawPath]) -> Option<RootRefusal>`.
 - **Tests.** Non-UTF-8 names; names with newlines and escape characters;
   `.` and `..` at every position; a root that equals, contains and lies
-  inside the data directory; `/`, `/etc`, `/proc`; patterns `**/*.tmp`,
-  `Extras/`, `?.flac`. Property: a normalised path never contains `..` and
-  containment agrees with an independent prefix-on-components oracle.
+  inside the data directory; `/`, `/etc`, `/proc`. Property: a normalised
+  path never contains `..` and containment agrees with an independent
+  prefix-on-components oracle.
 
 ### WP-025 Queue document and verbs
 
 - **Wave** 1 · **Size** L · **Depends on** WP-005, WP-006.
 - **Owns** `crates/gunmetal-core/src/queue/`.
-- **Serves** MUS-116 to MUS-120, MUS-122, MUS-123, MUS-077, MUS-129, LAT-009,
-  CLI-103; API-QUE-01 to API-QUE-03.
+- **Serves** MUS-116 to MUS-119, MUS-122, MUS-123, MUS-077, LAT-009;
+  API-QUE-01 to API-QUE-03. (Reordering while shuffled, MUS-120, is R1.1,
+  WP-142; the suggestions that fill the Continue with lane, MUS-129, and
+  the start-radio verb are R1.3, WP-058; handing playback to another
+  device, CLI-103, is R1.1 and uses the active-device field below
+  unchanged.)
 - **Security.** Boundaries TB4; threats TM-T09, TM-T17. Verifies no
   requirement of its own: it holds no security control, and the rules it
   relies on are proved by the packages that own them.
 - **Scope.** The versioned queue document: three lanes (Up next, From with
   its source, Continue with), named listening contexts, the insertion
   cursor, repeat and stop-after modes, the current item and position, and
-  the active device. The verbs from player.md (play, play next, add, play
-  last, start radio, move, remove, clear, clear Up next) as operations
+  the active device (so two of a person's devices never both play one
+  queue; owner decision 14). In R1 the Continue with lane stays empty,
+  because the suggestions that fill it (MUS-129) are R1.3.
+  The verbs from player.md (play, play next, add, play last, move, remove,
+  clear, clear Up next) as operations
   applied to a version, including multi-item operations as one. Stale
   operations are rejected with the current version so the client can
   rebase, and the rebase function itself, so client and server agree.
   "Picks survive a new Play" is implemented as the player.md proposal
   (owner decision 28).
-- **Not in scope.** Shuffle orders (WP-026); radio picks (WP-058); storage
-  (WP-085).
+- **Not in scope.** Shuffle orders (WP-026); the start-radio verb and
+  radio picks (WP-058, R1.3); storage (WP-085).
 - **Interface sketch.**
 
   ```rust
@@ -1802,19 +1820,21 @@ returns the whole expected value.
 
 ### WP-026 Shuffle modes
 
-- **Wave** 1 · **Size** M · **Depends on** WP-005.
+- **Wave** 1 · **Size** S (was M; shuffle by album and reshuffle the rest
+  moved to WP-142 in R1.1) · **Depends on** WP-005.
 - **Owns** `crates/gunmetal-core/src/shuffle.rs`.
-- **Serves** MUS-126, MUS-127, MUS-128, MUS-120.
+- **Serves** MUS-126 (random and spread out). (MUS-127, MUS-128 and
+  MUS-120 are R1.1, WP-142.)
 - **Security.** Boundaries TB4; threats TM-T09. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
 - **Scope.** A small seeded generator owned by the core (so the order is
-  the same on every device and every platform), and three modes over the
-  From lane: random, spread out (the same artist or album never bunches,
-  recent plays later), and by album (random albums, each in order).
-  Reshuffle the rest re-seeds from the current item. Turning shuffle off
-  restores source order from the current item.
-- **Not in scope.** Lane mechanics (WP-025).
+  the same on every device and every platform), and the two R1 modes over
+  the From lane: random, and spread out (the same artist or album never
+  bunches, recent plays later). Turning shuffle off restores source order
+  from the current item.
+- **Not in scope.** Lane mechanics (WP-025). Shuffle by album, reshuffle
+  the rest and reordering while shuffled (WP-142, R1.1).
 - **Interface sketch.** `pub fn order(items: &[ShuffleItem], mode: Mode, seed: u64, recent: &RecentPlays) -> Vec<usize>`.
 - **Tests.** The generator is a published algorithm with published
   reference outputs (for example SplitMix64; which algorithms publish
@@ -1824,46 +1844,18 @@ returns the whole expected value.
   from a run of the code under test are not used, because that derives the
   expected value from the code (CONTRIBUTING.md rule 4). Properties: the output is a
   permutation; spread out never puts the same artist adjacent when another
-  artist is available at that point; by album keeps each album's tracks in
-  order and contiguous; the same seed and input give the same order.
+  artist is available at that point; the same seed and input give the
+  same order.
 - **Risks.** "Spread out" as default is a proposal from player.md.
-
-### WP-027 Rule language
-
-- **Wave** 1 · **Size** L · **Depends on** WP-005.
-- **Owns** `crates/gunmetal-core/src/rules/`.
-- **Serves** DIS-119 to DIS-122, MUS-143 to MUS-146, MUS-149, DIS-105;
-  API-PL-05, API-HOME-01.
-- **Security.** Boundaries TB4; threats TM-T09. Verifies SEC-STD-011.
-- **Scope.** A versioned rule tree (all, any, not; comparisons on typed
-  fields; "in the last N days"; membership in playlists and loved items;
-  limits by count, duration or percentage; sorts; seeded random order),
-  its validation (depth, node count, known fields for this version),
-  forward-compatible serialisation that keeps unknown nodes so a rule
-  written by a newer client survives an older one, and evaluation over any
-  record type that implements a field-access trait.
-- **Not in scope.** The music field catalogue binding, which WP-059 and
-  WP-092 provide. The visual editor (client).
-- **Same-wave note.** WP-040 is in the same wave, so this package defines
-  `FieldId` as a plain `u16` newtype and the value types it compares, and
-  imports nothing from `catalog/`. WP-040's field table lists numeric codes
-  without importing `rules/`; the binding packages join the two.
-- **Interface sketch.** `pub enum Rule { All(Vec<Rule>), Any(Vec<Rule>), Not(Box<Rule>), Cmp { field: FieldId, op: CmpOp, value: Value }, Unknown(RawNode) }`;
-  `pub trait Fields { fn get(&self, f: FieldId) -> FieldValue<'_>; }`;
-  `pub fn evaluate<'a, R: Fields>(q: &Query, items: impl Iterator<Item = &'a R>, ctx: &EvalCtx) -> Vec<usize>`.
-- **Tests.** Each operator on each value type, including missing fields and
-  multi-valued fields ("genre is Jazz" on a track with three genres);
-  percentage limits rounding; "last 30 days" at the boundary using an
-  injected `now`; seeded random limit. Properties: `All([r])` equals `r`;
-  `Not(Not(r))` equals `r`; evaluation is deterministic; a rule with an
-  unknown node round-trips byte for byte; validation rejects trees deeper
-  than the limit without recursing past it.
 
 ### WP-028 Gain decision
 
 - **Wave** 1 · **Size** S · **Depends on** WP-005.
 - **Owns** `crates/gunmetal-core/src/gain.rs`.
-- **Serves** MUS-084, MUS-085, MUS-087, MUS-088, MUS-089, MUS-090, CLI-151.
+- **Serves** MUS-084, MUS-085, MUS-087, MUS-088, MUS-089. (The decision
+  already reports its source and clamp, so showing the gain applied,
+  MUS-090, and mono and balance, CLI-151, both R1.1, need only the
+  client.)
 - **Security.** Boundaries TB9; threats TM-T20. Verifies SEC-MED-015.
 - **Scope.** Given a track's tag gains and peaks, its Opus header gain, the
   mode (auto, track, album, off), the target level and whether the
@@ -1871,7 +1863,8 @@ returns the whole expected value.
   the gain to apply, its source (tagged, measured, estimated) and the
   clamp that was applied. Implements RFC 7845's rule that the Opus header
   gain always applies and R128 tags add to it.
-- **Not in scope.** Measuring loudness (WP-029). Applying gain (client).
+- **Not in scope.** Measuring loudness (WP-029, R1.3). Applying gain
+  (client).
 - **Interface sketch.** `pub fn decide(input: &GainInput, mode: Mode, target: Lufs) -> GainDecision`.
 - **Tests.** A grid of gain and peak values, each row with its literal
   expected decision worked out by hand from RFC 7845 and the feature map's
@@ -1881,33 +1874,14 @@ returns the whole expected value.
   Opus header gain plus R128 track gain. Property: applied gain never
   takes the recorded peak above full scale.
 
-### WP-029 Loudness meter (conditional on ADR 5)
-
-- **Wave** 1 · **Size** M · **Depends on** WP-003 (accepted), WP-005.
-- **Owns** `crates/gunmetal-core/src/loudness.rs`.
-- **Serves** MUS-086; LIB-024.
-- **Security.** Boundaries TB6; threats TM-T20. Verifies SEC-MED-001.
-- **Scope.** ITU-R BS.1770 integrated loudness with K-weighting and gating
-  over blocks of samples fed incrementally, and true peak by oversampling,
-  with a checkpointable state so a long analysis can resume.
-- **Not in scope.** Decoding (WP-114 in the worker).
-- **Interface sketch.** `pub struct Meter; impl Meter { pub fn new(rate: SampleRate, channels: Channels) -> Self; pub fn push(&mut self, frames: &[f32]); pub fn checkpoint(&self) -> MeterState; pub fn finish(self) -> Loudness; }`.
-- **Tests.** Synthetic sine waves generated in the test at known amplitudes
-  and frequencies, with expected values taken from the standard's
-  published conformance description (for example a 997 Hz sine at a given
-  level on one channel); silence (gated out entirely, result "too quiet");
-  a checkpoint and resume giving the same result as one pass; a true-peak
-  case where the sample peak and true peak differ. The expected numbers
-  must come from the standard or EBU Tech 3341, not from this code.
-- **Risks.** Floating-point results across platforms must be compared with
-  a stated tolerance; WASM is not a target for this module.
-
 ### WP-030 Player state machine
 
 - **Wave** 1 · **Size** S · **Depends on** WP-001.
 - **Owns** `crates/gunmetal-core/src/player.rs`.
 - **Serves** player.md "One playback model" (a proposal); MUS-079,
-  ADM-102, ACC-069.
+  ACC-069. The "stopped by the owner" transition is part of player.md's
+  diagram and stays here; the admin action that triggers it (ADM-102) is
+  R1.2, WP-153.
 - **Security.** Boundaries TB4; threats TM-T16. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
@@ -2001,8 +1975,10 @@ returns the whole expected value.
 
 - **Wave** 1 · **Size** M · **Depends on** WP-006.
 - **Owns** `crates/gunmetal-core/src/authz/`.
-- **Serves** ACC-120, ACC-121, ACC-030, ACC-037, ACC-040, INT-022; every
-  route.
+- **Serves** ACC-120, ACC-121, ACC-030, ACC-037; every route. (Roles are
+  capability presets, so a second administrator, ACC-040, R1.2, WP-152,
+  needs no change here; the key no-escalation rule, INT-022, is R2 with
+  WP-091.)
 - **Security.** Boundaries TB4, TB11; threats TM-T12, TM-T13, TM-T14,
   TM-T15. Verifies SEC-IAM-001, SEC-IAM-002, SEC-IAM-013, SEC-IAM-068,
   SEC-IAM-073, SEC-IAM-074, SEC-IAM-075, SEC-TM-005, SEC-TM-017, SEC-TM-024,
@@ -2054,26 +2030,30 @@ returns the whole expected value.
   WP-006.
 - **Owns** `crates/gunmetal-core/src/userdata/` (`crates/gunmetal-core/src/userdata/event.rs`, `crates/gunmetal-core/src/userdata/hlc.rs`,
   `crates/gunmetal-core/src/userdata/merge.rs`).
-- **Serves** CLI-093, MUS-180 to MUS-184, DIS-022, DIS-023, LAT-006,
-  LAT-007; API-LOG-01 to API-LOG-04; the conflict table in api-needs.md.
+- **Serves** CLI-093, MUS-180, MUS-182 to MUS-184, LAT-006, LAT-007;
+  API-LOG-01 to API-LOG-04; the conflict table in api-needs.md. (Ratings,
+  MUS-181, and dismissals, DIS-022 and DIS-023, are R1.1, WP-141; the
+  curation bodies are R1.3, WP-107.)
 - **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies SEC-PRV-002.
 - **Scope.** The event envelope (event ID, hybrid logical clock, device,
   profile, schema version, typed body), the clock itself, the body types
-  for R1 (play, skip, love and unlove, rate, dismiss and undo, remove play,
-  settings change, document operation and snapshot, and the household
-  curation operations: merge, split and alias of artists and albums, and a
-  review answer) and the merge rules from api-needs.md's table as pure
-  functions over event sets. The curation bodies were missing: WP-076,
-  WP-107 and WP-111 all write or apply them, and none defined them.
-- **Not in scope.** Storage (WP-068). The rating scale (owner decision 17
-  fixes it before this package starts).
+  for R1 (play, skip, love and unlove, remove play, settings change,
+  document operation and snapshot) and the merge rules from api-needs.md's
+  table as pure functions over event sets. The envelope keeps unknown body
+  types and passes them through, so the bodies the point releases add
+  (rate, dismiss and undo in R1.1, WP-141; the household curation
+  operations in R1.3, WP-107) need no change to the format.
+- **Not in scope.** Storage (WP-068). The rate, dismiss and undo bodies
+  (WP-141, R1.1; the rating scale, owner decision 17, is fixed before that
+  package starts). The curation bodies (WP-107, R1.3).
 - **Interface sketch.** `pub struct Hlc { wall_ms: u64, logical: u32 }` with
   `send` and `receive`; `pub fn derive_counts(events: &[Event]) -> Counts`;
   `pub fn current_love(events: &[Event], item: ItemRef) -> bool`.
 - **Tests.** Clock: receive from a node ahead, behind and equal; logical
   overflow. Merge: plays de-duplicated by ID; a removal hides a play
-  whatever the arrival order; latest clock wins for loves and ratings, with
-  a tie broken by device ID. A play event's serialised form holds exactly
+  whatever the arrival order; latest clock wins for loves, with a tie
+  broken by device ID; an event of a body type this version does not know
+  is kept and passed through unchanged. A play event's serialised form holds exactly
   the profile ID, the item's content identity, the device ID, UTC times,
   the position and the completion state, compared with a literal
   encoding, and has no field that could carry an address, a location, a
@@ -2107,16 +2087,17 @@ returns the whole expected value.
 
 - **Wave** 1 · **Size** M · **Depends on** WP-005.
 - **Owns** `crates/gunmetal-core/src/collate.rs`.
-- **Serves** MUS-020, DIS-085, DIS-101, CLI-040.
+- **Serves** MUS-020, DIS-085. (The alphabet jump, DIS-101 and CLI-040, is
+  R1.1, WP-147, which adds the jump letter on top of these sort keys.)
 - **Security.** Boundaries TB4; threats TM-T09. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
 - **Scope.** Search folding (case, diacritics through canonical
   decomposition, width, ligatures, punctuation), sort keys that honour
-  sort-name tags and natural number order, leading-article handling with a
-  per-language list, and the letter used by the alphabet jump.
-- **Interface sketch.** `pub fn fold(s: &str) -> String`; `pub fn sort_key(display: &str, sort_tag: Option<&str>, lang: Lang) -> SortKey`;
-  `pub fn jump_letter(k: &SortKey) -> JumpLetter`.
+  sort-name tags and natural number order, and leading-article handling
+  with a per-language list.
+- **Not in scope.** The letter used by the alphabet jump (WP-147, R1.1).
+- **Interface sketch.** `pub fn fold(s: &str) -> String`; `pub fn sort_key(display: &str, sort_tag: Option<&str>, lang: Lang) -> SortKey`.
 - **Tests.** "Björk" and "Bjork"; "AC/DC"; "The The"; "Track 2" before
   "Track 10"; Japanese, Greek and Cyrillic titles; an empty string; a title
   of only punctuation. Property: `sort_key` order is a total order and
@@ -2180,7 +2161,9 @@ returns the whole expected value.
 
 - **Wave** 1 · **Size** M · **Depends on** WP-004, WP-006.
 - **Owns** `crates/gunmetal-core/src/wire.rs`.
-- **Serves** CLI-032; API-SYS-03, API-SYNC-01, API-SYNC-02.
+- **Serves** API-SYS-03, API-SYNC-01, API-SYNC-02. The version negotiation
+  lets the server refuse a mismatched client with a clear answer in R1;
+  keeping old native clients working across versions (CLI-032) is R2.
 - **Security.** Boundaries TB4, TB6; threats TM-T20, TM-T62. Verifies
   SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007, SEC-MED-008,
   SEC-TM-032, SEC-HIS-036, SEC-MED-023, SEC-MED-077, SEC-CLI-021,
@@ -2202,11 +2185,14 @@ returns the whole expected value.
 
 - **Wave** 1 · **Size** M · **Depends on** WP-005, WP-006.
 - **Owns** `crates/gunmetal-core/src/catalog/`.
-- **Serves** API-CAT-01 to API-CAT-10 (the types); LAT-001, LAT-002,
-  LAT-008; the synced fields behind MUS-051, MUS-054, MUS-056, MUS-060,
-  DIS-102 and LIB-146 (artist and album aggregates, sort fields, the genre
-  index and technical fields, which the client reads from the synced
-  copy).
+- **Serves** API-CAT-01 to API-CAT-10 (the types); LAT-001; the synced
+  fields behind MUS-051, MUS-054, MUS-060 and LIB-146 (artist and album
+  aggregates, sort fields, the genre index and technical fields, which the
+  client reads from the synced copy; MUS-060 browses by genre in R1, and
+  by mood and label from R1.1 with MUS-019, register D-88). The R1.1 views and filters over the
+  same fields (MUS-056, DIS-102) need no further types. People with typed
+  roles and typed links between items (LAT-002, LAT-008) are R1.3,
+  WP-161.
 - **Security.** Boundaries TB4; threats TM-T15. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
@@ -2216,8 +2202,10 @@ returns the whole expected value.
   (codec, container, sample rate, bit depth, channels, bitrate, duration),
   `Trim`, `GainTags`, `ArtworkRef`, `LyricsSource`, `FileFacts` (what a
   probe returns), and the synced-library record types (track, album,
-  release group, artist) with their field IDs for the rule language and
-  search, and `CatalogChange` (what changed: kind, ID, upsert or removal),
+  artist) with their field IDs for search and, from R1.1, the rule
+  format (WP-027, register D-85; the release-group record is added by
+  WP-146 in R1.1), and
+  `CatalogChange` (what changed: kind, ID, upsert or removal),
   which WP-067 returns and WP-066 records, so those two wave 2 packages do
   not depend on each other. Item kinds leave room for video and later media (LAT-001).
 - **Not in scope.** Any logic beyond constructors and validation.
@@ -2267,7 +2255,7 @@ returns the whole expected value.
   `Query`, with dynamic sorting and filtering from enums, so SQL built
   from request text is a compile error (SEC-API-066, SEC-TM-039,
   SEC-HIS-038). The SQL door itself is WP-126's, which the identity store
-  (WP-046) and the derived-data store (WP-071) use too; as first written
+  (WP-046) and, from R1.1, the derived-data store (WP-071) use too; as first written
   this package's `sql.rs` was the door, which WP-046, in the same wave,
   could not depend on.
 - **Not in scope.** Any domain table.
@@ -2611,8 +2599,10 @@ returns the whole expected value.
   plan rotates daily, which is stricter); `Secret<T>` with no `Display`,
   `Serialize` or `PartialEq`, a fixed `Debug`, zeroising on drop and
   `expose()` reachable only here (SEC-IAM-095, SEC-OPS-013, SEC-HIS-011);
-  the vault for secrets the server must replay to others, such as the
-  OIDC client secret (XChaCha20-Poly1305 with 192-bit random nonces and
+  the vault for secrets the server must replay to others, in R1 the DNS
+  provider token that ACME DNS-01 needs for the owner's own domain
+  (WP-101), and from R1.2 the OIDC client secret (WP-096)
+  (XChaCha20-Poly1305 with 192-bit random nonces and
   the record ID as associated data, one opaque error for every
   decryption failure, SEC-OPS-017, SEC-STD-020, SEC-STD-021); an Argon2id
   helper with the RFC 9106 parameter floor for any key or verifier derived
@@ -2625,7 +2615,7 @@ returns the whole expected value.
   Replayed secrets are decrypted only for the one call that needs them
   (SEC-STD-023); the egress client receives them as a `Secret` header
   value and is the one other module allowed to expose one, to write it
-  into the request (see WP-096).
+  into the request (see WP-101; WP-096 in R1.2).
 - **Interface sketch.** `pub struct Root; impl Root { pub fn load_or_create(dir: &Path) -> Result<Self, SecretsError>; pub fn key_ring(&self, purpose: Purpose) -> KeyRing; }`;
   `impl KeyRing { pub fn current_kid(&self) -> u8; pub fn mac(&self, kid: u8, msg: &[u8]) -> Option<[u8; 32]>; }`;
   `pub struct Vault; impl Vault { pub fn seal(&self, id: &[u8], plain: &[u8]) -> Vec<u8>; pub fn open(&self, id: &[u8], sealed: &[u8]) -> Result<Secret<Vec<u8>>, SecretsError>; }`.
@@ -2663,20 +2653,26 @@ returns the whole expected value.
   SEC-API-076, SEC-API-077, SEC-API-078, SEC-API-079, SEC-TM-048,
   SEC-TM-075, SEC-NET-009, SEC-PRV-008 (the egress rules and the emitted
   denial event; the stored audit record is WP-069's), SEC-PRV-012,
-  SEC-PRV-013, SEC-PRV-017, SEC-HIS-023, SEC-HIS-026, SEC-OPS-060, and
+  SEC-PRV-013, SEC-HIS-023, SEC-HIS-026, SEC-OPS-060, and
   SEC-PRV-034, SEC-PRV-035 and SEC-PRV-036 (the R1 absence proof: no
-  scrobbling purpose).
+  scrobbling purpose). SEC-PRV-017, the provider User-Agent, moved to
+  R1.1 with the providers and is proved by WP-137 through this client's
+  generic header (SEC-EXT-005).
 - **Scope.** The only outbound HTTP client (SEC-EXT-001, SEC-API-076). Each
   call names a purpose from a closed enumeration generated from the
-  baseline's egress inventory (naming, ACME, CT monitoring, update feed,
-  OIDC, metadata providers), with no scrobbling or external-account
-  purpose in R1, so no R1 code can reach a scrobbling service
-  (SEC-PRV-034 to SEC-PRV-036 hold by absence until WP-226 adds the
-  purpose in R2), each with its default, its exact allowed
+  baseline's egress inventory. In R1 the enumeration holds only the
+  purposes R1 uses, ACME and the update feed; each later purpose joins
+  with the package that uses it (metadata providers in R1.1, WP-137;
+  OIDC in R1.2, WP-096; naming and CT monitoring in R2, WP-135), one
+  variant under the merge protocol. There is no scrobbling or
+  external-account purpose in R1, so no R1 code can reach a scrobbling
+  service (SEC-PRV-034 to SEC-PRV-036 hold by absence until WP-226 adds
+  the purpose in R2). Each purpose has its default and its exact allowed
   hosts and ports (SEC-API-079, SEC-TM-075); a purpose the owner has not
-  granted is refused without a connection, and with the default
-  configuration no purpose except naming, when the install chose the name
-  service, is granted (SEC-TM-048, SEC-PRV-013). The client resolves names
+  granted is refused without a connection, and the default configuration
+  grants none (SEC-TM-048, SEC-PRV-013). The ACME purpose is granted when
+  the owner configures built-in HTTPS for a domain they own, and it is
+  the one purpose allowed before the claim (SEC-OPS-007, WP-101). The client resolves names
   itself, refuses any resolved address outside the global ranges of the
   IANA special-purpose registries unless the purpose's grant names it,
   and connects to the address it checked (SEC-EXT-002, SEC-API-077);
@@ -2687,7 +2683,7 @@ returns the whole expected value.
   and a maximum body size (SEC-EXT-004, SEC-API-078, SEC-NET-009,
   SEC-HIS-023, SEC-HIS-026); sends a generic `User-Agent` naming only the
   project, its version and contact URL, no `Referer` and no cookies
-  (SEC-EXT-005, SEC-PRV-017); can route everything through an
+  (SEC-EXT-005); can route everything through an
   admin-configured HTTP CONNECT or SOCKS5 proxy with remote DNS, and has
   an offline mode that blocks all egress (SEC-PRV-012); emits a typed
   security event (WP-006) into its injected `SecuritySink` for every
@@ -2696,7 +2692,8 @@ returns the whole expected value.
   activity page (SEC-PRV-008, SEC-OPS-060). Its TLS client configuration
   comes ready-made from the secrets crate's crypto module (WP-047); this
   crate constructs no rustls provider (SEC-STD-018).
-- **Not in scope.** Any caller (OIDC, updates, alerts). Storing the audit
+- **Not in scope.** Any caller (ACME, updates; OIDC and providers after
+  R1). Storing the audit
   record (WP-069).
 - **Interface sketch.** `pub struct Egress; impl Egress { pub async fn get(&self, purpose: Purpose, url: &Url) -> Result<Response, EgressError>; pub fn activity(&self) -> Vec<Connection>; }`.
 - **Tests.** Against a local test server bound in the test. The resolver
@@ -2716,9 +2713,12 @@ returns the whole expected value.
   offline mode refuses every purpose; every attempt, refused or not,
   appears in the activity record, and every refusal emits exactly one
   denial event into a recording sink, compared as a whole value. The
-  default configuration grants no purpose but naming, checked against the
-  inventory's rows. The purpose enum equals a literal list in the test,
-  which has no scrobbling or external-account purpose. The whole-server
+  default configuration grants no purpose, checked against the
+  inventory's rows, and configuring an own-domain HTTPS name grants
+  exactly the ACME purpose. The purpose enum equals a literal list in the
+  test (ACME and the update feed), which has no scrobbling,
+  external-account, naming, CT-monitoring, OIDC or provider purpose. The
+  whole-server
   network-namespace test is WP-117's.
 
 ### WP-124 Repository protections and the security process (added for the security baseline)
@@ -2825,10 +2825,15 @@ returns the whole expected value.
 - **Scope.** The traceability check: scan every test for `Verifies:` lines
   and fail the release when a requirement due in that release has neither
   a test nor a dated review record, publishing the report (SEC-STD-004);
+  each point release (R1.1, R1.2, R1.3) is a release for this check, so a
+  requirement that moved with its surface to a point release blocks that
+  release, not R1, and every requirement due in an earlier release must
+  still pass;
   it also fails when a `SEC-HIS` incident has no rival-replay test
   (SEC-HIS-066). The docs lints: every cited ID exists and is live;
-  Release values are R1, R2, R3, Later or Withdrawn; no live row cites a
-  withdrawn one; no requirement restates a parameter or an owned control
+  Release values are R1, R1.1, R1.2, R1.3, R2, R3, Later or No (register
+  D-10), with Withdrawn kept for withdrawn requirement rows; no live row
+  cites a withdrawn one; no requirement restates a parameter or an owned control
   differently from its owner; the egress inventory and release scope are
   the single sources; every feature file and every work package in this
   plan names at least one TB and one TM-T (SEC-TM-001, SEC-TM-072 to
@@ -2842,7 +2847,8 @@ returns the whole expected value.
   value, an unknown Release value, a password feature row while
   SEC-IAM-025 is live; each fails with its message. Fixture test trees
   for the traceability check: an R1 requirement with no test fails, one
-  with a `Verifies:` line passes, one with a review record passes.
+  with a `Verifies:` line passes, one with a review record passes; an R1.1
+  requirement with no test fails the R1.1 release and not R1.
 
 ### WP-128 Streaming decompression helper (added for the security baseline)
 
@@ -2877,53 +2883,38 @@ returns the whole expected value.
   the core, the helper moves to the worker crate with the same contract,
   which still gives one door.
 
-### WP-129 Per-server name service and the project site's security files (added for the security baseline)
+### WP-139 Project site security files (split from WP-129 for the adopted R1)
 
-- **Wave** 1 · **Size** L · **Depends on** WP-005; the service part is
-  conditional on baseline owner decision 2 (the name service in R1) and
-  on decision 21 (a legal home for project services).
-- **Owns** `crates/gunmetal-names/` (creates the crate: the label codec,
-  the pure DNS-answer function, the registration rules and the service
-  binary), `site/.well-known/security.txt`, `site/_headers`,
-  `site/privacy/`.
-- **Serves** ADM-021 and ADM-022 (an HTTPS address for ordinary
-  households); the "add to the repository now" item 16 of the baseline.
-- **Security.** Boundaries TB1, TB8, TB12; threats TM-T33, TM-T44, TM-T70.
-  Verifies SEC-NET-011, SEC-NET-012, SEC-NET-070, SEC-HIS-061, SEC-PRV-054,
-  SEC-PRV-055, SEC-SUP-008, SEC-STD-016.
-- **Why it exists.** The baseline's recommended R1 makes HTTPS work for
-  ordinary households through a per-server name service run by the
-  project, and puts its rules, and the project site's security files, in
-  R1. No package built either.
-- **Scope.** The name service: labels are 128-bit random values the
-  server generates; the service answers A and AAAA queries as a pure
-  function of the queried name, only for labels that encode an address in
-  RFC 1918, RFC 6598 or RFC 4193 space, and answers nothing for any other
-  address (SEC-NET-011); it publishes a CAA record per label restricting
-  issuance to that server's ACME account and dns-01 (SEC-NET-012); it
-  limits registrations per source and per key, requires proof of work or
-  a minimum key age, garbage-collects labels that stop renewing, and
-  launches only after its zone is on the Public Suffix List
-  (SEC-NET-070); it holds only a random label and a public key, with no
-  accounts or user data (SEC-HIS-061). The site: `security.txt` with
-  every required field (SEC-SUP-008), HSTS with preload on every project
-  domain (SEC-STD-016), a privacy notice for every project service and no
-  third-party analytics (SEC-PRV-054), and invite and share landing pages
-  that keep secrets in the fragment and run no script that reads it
-  (SEC-PRV-055).
-- **Not in scope.** The server's client for the service (WP-135).
+- **Wave** 1 · **Size** S · **Depends on** nothing.
+- **Owns** `site/.well-known/security.txt`, `site/_headers`,
+  `site/privacy/` (as WP-129 first owned them).
+- **Serves** the "add to the repository now" item 16 of the baseline;
+  ACC-080's invitation landing on the project site.
+- **Security.** Boundaries TB1, TB12; threats TM-T70. Verifies
+  SEC-SUP-008, SEC-STD-016, SEC-PRV-054, SEC-PRV-055, SEC-HIS-061 (in R1:
+  gunmetal.tv serves only static content, and no other project-run service
+  exists without a new architecture record; the name-service clauses
+  apply from R2 with WP-129).
+- **Why it exists.** WP-129 held both the project's per-server name
+  service and the project site's security files. The owner moved the name
+  service out of R1 (register D-07), but the site and its security files
+  are R1 surfaces whatever happens to the name service, so they split off
+  here and WP-129 keeps only the service, in R2.
+- **Scope.** `security.txt` with every required field (SEC-SUP-008); HSTS
+  with preload on every domain the project operates, which in R1 is
+  gunmetal.tv only (SEC-STD-016); a privacy notice for every project
+  service and no third-party analytics (SEC-PRV-054); invite landing pages
+  that keep the secret in the fragment and run no script that reads it
+  (SEC-PRV-055; the share landing pages join in R1.2 with WP-134); the
+  site serves only static content (SEC-HIS-061).
+- **Not in scope.** The name service and its zone (WP-129, R2).
   Deployment and hosting accounts, which are the owner's.
-- **Tests.** Property tests: the label codec round-trips every local
-  IPv4 and IPv6 address it may encode, and the answer function returns no
-  address for any public, loopback or link-local value; the registration
-  rules refuse a burst from one source and a fresh key; a CAA record for a
-  label names exactly that account and `dns-01`. A load test of the
-  registration endpoint. Site checks in CI: `security.txt` fields and an
-  `Expires` less than a year ahead, HSTS headers, no third-party origin
-  in the build, and no script reading `location.hash` on landing pages.
-- **Risks and decisions.** If the owner declines the name service, R1
-  ships with own domain, tailnet and localhost only, and the service part
-  of this package is dropped; the site part stays.
+- **Tests.** Site checks in CI: `security.txt` fields and an `Expires` less
+  than a year ahead, HSTS headers, no third-party origin in the build, no
+  dynamic endpoint in the build output, and no script reading
+  `location.hash` on landing pages.
+- **Risks and decisions.** None of its own; the name-service zone's HSTS
+  entry is added with WP-129 in R2.
 
 ### WP-138 Retention schedule (added in the second security pass; split from WP-133)
 
@@ -2961,23 +2952,32 @@ returns the whole expected value.
 
 ## Wave 2: tag mapping, probing, search and the server's spine
 
-Five packages numbered in this section now run in wave 3 because of
-same-wave dependencies found in review: WP-059 (needs WP-058), WP-063
-(needs the credential verifier, WP-064) and WP-072, WP-073 and WP-074
-(they register routes, so they need WP-118). They stay here so their
-numbers keep their place; their own entries give the wave. WP-118 and
-WP-119, added in review, and WP-130, added for the security baseline, are
-at the end of this section. WP-048 (the egress client), numbered in the
-wave 1 section, also runs in this wave.
+Four packages numbered in this section run in wave 3 because of
+same-wave dependencies found in review: WP-063 (needs the credential
+verifier, WP-064) and WP-072, WP-073 and WP-074 (they register routes, so
+they need WP-118). They stay here so their numbers keep their place; their
+own entries give the wave. WP-059 (Home rows) is back in this wave: it
+had moved to wave 3 only because it needed the neighbour table (WP-058),
+and WP-058 and the rule language (WP-027) left R1 (WP-058 for R1.3, and
+WP-027 for R1.1 under register D-85). WP-057 (import
+parsers) and WP-071 (the derived-data store) left R1 for R1.1, and WP-058
+for R1.3; their specifications are in
+[After R1](#after-r1-point-releases-and-later). WP-118 and WP-119, added
+in review, and WP-130, added for the security baseline, are at the end of
+this section. WP-048 (the egress client), numbered in the wave 1 section,
+also runs in this wave.
 
 ### WP-049 ID3 tag mapping
 
 - **Wave** 2 · **Size** M · **Depends on** WP-010, WP-011, WP-040.
 - **Owns** `crates/gunmetal-core/src/tags/id3.rs` (`tags/mod.rs` is a
   registry file shared with WP-050 and WP-051).
-- **Serves** MUS-001 to MUS-005, MUS-010 to MUS-013, MUS-017, MUS-019,
-  MUS-020, MUS-034, MUS-036, MUS-047, MUS-084, LIB-059; API-CAT-01 to
-  API-CAT-03.
+- **Serves** MUS-001 to MUS-004, MUS-011, MUS-012, MUS-017, MUS-020,
+  MUS-034, MUS-036, MUS-084, LIB-059; API-CAT-01 to API-CAT-03. Every
+  frame is mapped, including roles, release type, original date, moods,
+  labels and the explicit flag, because R1 keeps every tag (LIB-059); the
+  R1.1 features that show them (MUS-005, MUS-010, MUS-013, MUS-019,
+  MUS-047) need no further mapping.
 - **Security.** Boundaries TB6, TB9; threats TM-T07, TM-T20. Verifies
   SEC-MED-006, SEC-MED-014.
 - **Scope.** Map ID3v2 frames and ID3v1 fields to `TrackTags`, with a
@@ -3078,7 +3078,9 @@ wave 1 section, also runs in this wave.
 - **Wave** 2 · **Size** M · **Depends on** WP-034, WP-036, WP-040.
 - **Owns** `crates/gunmetal-core/src/music/credits.rs` (`music/mod.rs` is a
   registry file).
-- **Serves** MUS-001 to MUS-006, MUS-035, LIB-187; API-CAT-01, API-LIB-07.
+- **Serves** MUS-001 to MUS-004, MUS-006, MUS-035; API-CAT-01, API-LIB-07.
+  (Roles shown as roles, MUS-005, and one artist page across libraries,
+  LIB-187, are R1.1, WP-146.)
 - **Security.** Boundaries TB9; threats TM-T20. Verifies SEC-MED-006.
 - **Scope.** Turn tagged artist strings and multi-value fields into linked
   credits while keeping the display credit exactly as tagged: separator
@@ -3087,8 +3089,8 @@ wave 1 section, also runs in this wave.
   as a duo with an ampersand in its name), multi-value fields taking
   precedence over splitting, MusicBrainz artist IDs pairing with names by
   position, and same-name artists kept apart when their IDs differ.
-  Artist merge and alias overrides from the curation log (WP-034's
-  curation bodies) apply on top when credits are resolved to artists.
+  Artist merge and alias overrides from the curation log apply on top only
+  from R1.3, when WP-107 adds the curation bodies and the overrides.
 - **Interface sketch.** `pub fn credits(tags: &TrackTags, rules: &SplitRules) -> CreditSet`;
   `pub struct SplitRules { pub separators: Vec<String>, pub exceptions: Vec<String> }`.
 - **Tests.** "Simon & Garfunkel" with and without the exception; "A feat.
@@ -3101,49 +3103,78 @@ wave 1 section, also runs in this wave.
 
 - **Wave** 2 · **Size** L · **Depends on** WP-036, WP-040.
 - **Owns** `crates/gunmetal-core/src/search/`.
-- **Serves** DIS-083 to DIS-089, DIS-091, MUS-061, DIS-084; API-HOME-05,
-  API-SYNC-07 (the fallback path, if needed).
-- **Security.** Boundaries TB4; threats TM-T09. Verifies SEC-API-063.
+- **Serves** DIS-083 to DIS-085, MUS-061; API-HOME-05, API-SYNC-07 (the
+  fallback path, if needed). (Mood search, role filters, scoping to one
+  library and finding inside a list, DIS-086 to DIS-088 and DIS-091, are
+  R1.1, WP-147; recent searches, DIS-089, are R1.1 and client only.)
+- **Security.** Boundaries TB4; threats TM-T09. Verifies SEC-API-063,
+  SEC-STD-011 (the search part: a query is matched by folded tokens and
+  prefixes, never compiled into a regular expression, under the length
+  and term caps).
 - **Scope.** An in-memory index built on the device from the synced
   library: folded prefix and token matching, a small typo tolerance,
-  fields (title, artist, album, composer and other roles, genre, mood,
-  label), scopes (all, artists, albums, tracks, playlists), ranking that
+  the fields MUS-061 names (title, artist, album, credits, genre, label),
+  results grouped by type (artists, albums, tracks, playlists), ranking that
   prefers exact and prefix matches and the person's own plays, and a
   compact serialised form so the server can ship a prebuilt segment if the
   device misses its budget.
 - **Not in scope.** Recent searches, which stay on the device (client).
-- **Interface sketch.** `pub struct Index; impl Index { pub fn build(items: impl Iterator<Item = SearchDoc>) -> Self; pub fn query(&self, q: &str, scope: Scope, limit: u16) -> Vec<Hit>; pub fn to_bytes(&self) -> Vec<u8>; pub fn from_bytes(b: &[u8]) -> Result<Self, IndexError>; }`.
+  The mood field, role filters and library scope (WP-147, R1.1).
+- **Interface sketch.** `pub struct Index; impl Index { pub fn build(items: impl Iterator<Item = SearchDoc>) -> Self; pub fn query(&self, q: &str, kind: KindFilter, limit: u16) -> Vec<Hit>; pub fn to_bytes(&self) -> Vec<u8>; pub fn from_bytes(b: &[u8]) -> Result<Self, IndexError>; }`.
 - **Tests.** Diacritics, case, a missing letter, a swapped pair, a query of
-  one character, a query of 256 characters and 17 terms (capped), a scope
-  filter, people by role. Each example asserts the exact ordered hit list
+  one character, a query of 256 characters and 17 terms (capped), a type
+  filter, a composer found through the credits field, and a query full of
+  regular-expression metacharacters matched literally. Each example asserts the exact ordered hit list
   for a small hand-built index. Properties: a document whose title is
   unique in the index is the first hit for a query of that exact title
   with a limit of 1 (a bare "is found" would pass for an index that
   returned everything); adding documents never removes an existing exact
-  hit; the serialised form round-trips. Build time and memory at 100,000
-  synthetic tracks for the DIS-019 budget are recorded by the benchmark
-  runner (WP-115), not by a test, and stay reported rather than asserted
-  until the owner names the reference device (owner decision 15).
+  hit; the serialised form round-trips. Build time, memory and query time
+  at 100,000 synthetic tracks are held to the DIS-019 budget by WP-115's
+  budget tests in the R1 gate (register D-87), not by this package's own
+  tests; until the owner names the reference device (owner decision 15),
+  those tests run on the reference low-end profile.
 
 ### WP-055 Playback decision engine
 
-- **Wave** 2 · **Size** S · **Depends on** WP-040.
+- **Wave** 2 · **Size** S · **Depends on** WP-028, WP-040.
 - **Owns** `crates/gunmetal-core/src/decision.rs`.
-- **Serves** MUS-099, MUS-229, ADM-100, INT-134; API-CAT-09, API-SES-01.
+- **Serves** MUS-099, MUS-229, MUS-236 (the R1 track details view,
+  register D-83); API-CAT-09, API-SES-01. (The same reasons shown to
+  admins per session, ADM-100 and INT-134, are R1.2, WP-153. The full
+  track info sheet, MUS-114, is R1.1 and adds its fields to the same
+  summary.)
 - **Security.** Boundaries TB4; threats TM-T15. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
-  proved by the packages that own them.
+  proved by the packages that own them. The details summary is built only
+  from the synced track record, which carries no file path and nothing
+  the profile may not see (SEC-API-068, proved by WP-044 and WP-131;
+  SEC-CLI-020, proved by WP-084).
 - **Scope.** For music in R1: given a track's technical facts and a device
   capability report, return play directly, play through the packager, or
   cannot play here, with a structured reason list the badge and the admin
-  session view both render.
-- **Not in scope.** Video, remux and transcode decisions (R2).
+  session view both render. For the minimal, read-only track details view
+  (MUS-236): a `TrackDetails` summary holding the title, the credit as
+  tagged with each credited artist, the album, the format with its
+  technical facts, this decision with its reasons in the badge's words,
+  whether the track joins the next one without a gap (its trim is known
+  and the chosen path keeps it), and the gain source from WP-028's
+  decision (track tags, album tags, or "estimated").
+- **Not in scope.** Video, remux and transcode decisions (R2). The track
+  info sheet's own fields: tags as read, provenance, MusicBrainz IDs and
+  the gain applied (MUS-114, MUS-090, R1.1).
 - **Interface sketch.** `pub fn decide_audio(t: &TechInfo, d: &DeviceCaps) -> Decision`;
-  `pub enum Decision { Direct, Packaged(PackageFormat), CannotPlay(Vec<Reason>) }`.
+  `pub enum Decision { Direct, Packaged(PackageFormat), CannotPlay(Vec<Reason>) }`;
+  `pub fn track_details(t: &SyncedTrack, d: &Decision, g: &GainDecision) -> TrackDetails`.
 - **Tests.** Each core format against a capability report that supports it,
   lacks it, supports the codec but not the container, and supports it only
   in Media Source Extensions; ALAC in a browser that cannot decode it
-  ("Cannot play here: this browser cannot decode ALAC").
+  ("Cannot play here: this browser cannot decode ALAC"). The details
+  summary for a FLAC played directly, an MP3 with LAME delay and padding
+  through the packager, an Opus file with pre-skip, a track with no gain
+  tags ("estimated") and that ALAC file, each against a literal expected
+  summary; the summary's field list, checked against a literal list, has
+  no path.
 
 ### WP-056 Audio packager (conditional on ADR 4)
 
@@ -3188,97 +3219,39 @@ wave 1 section, also runs in this wave.
   including Safari's ManagedMediaSource, is unverified; this package may
   turn out to need fewer codecs than planned.
 
-### WP-057 Import parsers and matcher
-
-- **Wave** 2 · **Size** M · **Depends on** WP-036, WP-040, WP-005.
-- **Owns** `crates/gunmetal-core/src/import/`.
-- **Serves** ADM-042, ADM-043, ADM-044, MUS-189, INT-107; API-USR-06,
-  API-SET-11, API-PL-03.
-- **Security.** Boundaries TB4, TB6; threats TM-T09, TM-T21, TM-T31.
-  Verifies SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007,
-  SEC-MED-008, SEC-TM-032, SEC-HIS-036, and, together with WP-108 and
-  WP-112, which run these parsers in the worker, SEC-MED-018 and
-  SEC-MED-020.
-- **Scope.** Parsers for the Last.fm and ListenBrainz export files people
-  can download (the exact formats must be confirmed against each service's
-  current export and are unverified here), and one matcher that maps
-  (artist, album, title, duration, MBIDs) to library items with a
-  confidence, a reason and an "unmatched" result. Imported plays are
-  marked as imported so a scrobbler never resends them.
-- **JSON outside the server process.** Some export files are JSON
-  (unverified for each service's current export). The core's proposed
-  dependencies have no JSON reader. An uploaded export is hostile input,
-  so it is never decoded in the server process (principle 2,
-  SEC-MED-018). **Proposal:** WP-108's `ImportFile` worker job receives
-  the uploaded file by read-only descriptor (SEC-MED-020) and decodes its
-  JSON or CSV into plain rows there, with `serde_json` linked only into
-  the worker for this job, under a size cap and the step budget; this
-  package's parsers, also run in the worker, validate every field into
-  typed values (SEC-TM-031), and the server revalidates the typed rows it
-  gets back (SEC-MED-023). The first draft decoded the JSON in the server
-  process, which principle 2 rules out. The alternative, `serde_json` in
-  the core, is part of owner decision 4 and D-02; it would still run only
-  in the worker.
-- **Interface sketch.** `pub fn match_track(q: &MatchQuery, index: &MatchIndex) -> MatchResult`.
-- **Tests.** Exact MBID match; title with "(Remastered 2011)"; differing
-  case and diacritics; two candidates with equal scores (unmatched, not a
-  guess); a duration off by more than the tolerance. Property: in a
-  library where no two items share artist, album, title and duration, an
-  item always matches a query built from its own tags, and the match is
-  that item. (As first written, the property ignored duplicates, for which
-  the rules above require "unmatched".)
-
-### WP-058 Neighbour table and radio
-
-- **Wave** 2 · **Size** M · **Depends on** WP-005, WP-026 (the
-  `RecentPlays` type), WP-040.
-- **Owns** `crates/gunmetal-core/src/radio/`.
-- **Serves** DIS-060, DIS-067, DIS-070, MUS-165, DIS-062; API-SYNC-06.
-- **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies no
-  requirement of its own: it holds no security control, and the rules it
-  relies on are proved by the packages that own them.
-- **Scope.** Compute each track's, album's and artist's top N neighbours
-  from shared credits, genres and era within a size budget (server side,
-  as a job in WP-113); the person's own listening weights it on the
-  device. Household co-listening is not built in R1 or R2: one person's
-  plays must not shape another's table (SEC-PRV-022, ACC-114; security
-  README decision 5, register D-37), so the first draft's co-listening
-  input is removed. On the device, pick
-  radio tracks from a seed with seeded randomness, avoiding recent plays,
-  with a reason label for every pick.
-- **Interface sketch.** `pub fn neighbours(lib: &LibraryView, budget: Budget) -> NeighbourTable`;
-  `pub fn radio(seed: Seed, table: &NeighbourTable, recent: &RecentPlays, rng_seed: u64, n: u16) -> Vec<Pick>`.
-- **Tests.** A tiny library where neighbours are obvious and written out by
-  hand; cold start with no plays; a seed with no neighbours (falls back to
-  genre, labelled); the size budget enforced. Properties: when the table
-  holds at least `n` eligible candidates, exactly `n` picks come back; no
-  pick repeats within the window; every pick carries a reason. (Without the
-  first, an empty result would satisfy the other two.)
-
 ### WP-059 Home rows
 
-- **Wave** 3 (moved from 2 in review) · **Size** M · **Depends on**
-  WP-027, WP-034, WP-040, WP-058. "Because you played" (DIS-061) reads the
-  neighbour table, and WP-058 was in the same wave.
+- **Wave** 2 (moved back from 3: it had moved only because "because you
+  played" read the neighbour table, WP-058, and both that row and
+  rule-backed custom rows, which needed the rule language, WP-027, left R1)
+  · **Size** S (was M) · **Depends on** WP-034, WP-040.
 - **Owns** `crates/gunmetal-core/src/home/`.
-- **Serves** DIS-001, DIS-003, DIS-004, DIS-009, DIS-012, DIS-015, DIS-020,
-  DIS-021, DIS-035, DIS-036, DIS-038, DIS-046, DIS-061, DIS-071, MUS-049,
-  MUS-050, MUS-059; API-HOME-01 to API-HOME-04, API-LOG-04.
+- **Serves** DIS-001, DIS-004, DIS-020, DIS-021, DIS-035, DIS-036, DIS-038,
+  DIS-046, MUS-050, MUS-059, MUS-149 (loved tracks, read from the person's
+  loves); API-HOME-03, API-HOME-04, API-LOG-04. (Dismissing from Continue
+  rows, DIS-022 and DIS-023, and your top tracks by an artist, DIS-071, are
+  R1.1, WP-141 and WP-147; an arrangeable Home, DIS-003, DIS-009, DIS-012,
+  DIS-015 and MUS-049, is R1.2, WP-154; "because you played", DIS-061, is
+  R1.3, WP-058; rule-backed custom rows built in the rule editor are R1.3,
+  WP-092, on the rule format WP-027 delivers in R1.1.)
 - **Security.** Boundaries TB4; threats TM-T15, TM-T18. Verifies no
   requirement of its own: it holds no security control, and the rules it
   relies on are proved by the packages that own them.
-- **Scope.** The default Home layout and the built-in row sources
+- **Scope.** The default Home layout and the built-in R1 row sources
   (continue listening by album or playlist, recently played, recently
-  added grouped by album and ignoring upgrades, loved songs, "because you
-  played", your top tracks by an artist), each evaluated on the device
-  from the synced library and the person's events, each with a reason, and
-  rule-backed custom rows through WP-027.
+  added grouped by album and ignoring upgrades, loved songs), each
+  evaluated on the device from the synced library and the person's
+  events, each with a reason, and the designed empty states.
+- **Not in scope.** Dismissals and the Hidden page (WP-141, R1.1); top
+  tracks by an artist (WP-147, R1.1); layouts, pins and row settings
+  (WP-154, R1.2); "because you played" (WP-058, R1.3); rule-backed rows
+  (R1.3).
 - **Interface sketch.** `pub fn evaluate_row(row: &RowSpec, lib: &LibraryView, mine: &MyEvents, now: Timestamp) -> Row`.
 - **Tests.** An upgrade (same identity, new file) does not appear in
-  recently added; a dismissed item stays out of continue listening until
-  undone; a library marked "keep off Home" never appears; empty library
-  rows give the designed empty state value. Property: row evaluation is
-  deterministic for a given input and `now`.
+  recently added; loved songs list exactly the loved tracks in love
+  order, with a removed love gone; empty library rows give the designed
+  empty state value. Property: row evaluation is deterministic for a
+  given input and `now`.
 
 ### WP-060 Filesystem roots, opening and walking
 
@@ -3287,15 +3260,16 @@ wave 1 section, also runs in this wave.
 - **Owns** `crates/gunmetal-fs/src/root.rs`, `crates/gunmetal-fs/src/open.rs`, `crates/gunmetal-fs/src/walk.rs`, `crates/gunmetal-fs/src/fingerprint.rs`,
   `crates/gunmetal-fs/src/pool.rs` (the crate's `Cargo.toml` and `lib.rs`
   are WP-126's; this package adds dependency and module lines).
-- **Serves** LIB-006, LIB-007, LIB-016, ADM-089; API-LIB-02, API-LIB-03.
+- **Serves** LIB-007, LIB-016, ADM-089; API-LIB-02, API-LIB-03.
+  (Exclusion rules, LIB-006, are R1.1: WP-140 adds them to the walk.)
 - **Security.** Boundaries TB9; threats TM-T22, TM-T25, TM-T56. Verifies
   SEC-MED-033, SEC-MED-034, SEC-MED-035, SEC-MED-036, SEC-MED-038,
   SEC-MED-040, SEC-MED-041, SEC-TM-042, SEC-TM-043, SEC-HIS-016,
   SEC-OPS-054, SEC-OPS-055, SEC-API-018.
 - **Scope.** Root handles opened once per configured root; opening beneath
   a root with `O_NONBLOCK`, `O_NOCTTY` and `O_CLOEXEC`; checking the file
-  type on the open handle; the symlink policy; walking with exclusions and
-  raw-byte names; fingerprints (size, modification time, file ID or inode,
+  type on the open handle; the symlink policy; walking with raw-byte
+  names (exclusions join the walk in R1.1, WP-140); fingerprints (size, modification time, file ID or inode,
   a short hash of the first and last few kilobytes) and directory
   summaries for no-change short-circuits; the identity check before
   serving bytes (SEC-MED-036); a bounded blocking pool per root that
@@ -3306,7 +3280,7 @@ wave 1 section, also runs in this wave.
   only when the whole chain stays beneath the same root or an approved
   extra root (SEC-MED-034, SEC-TM-043).
 - **Not in scope.** Watching (WP-098). Any database.
-- **Interface sketch.** `pub struct Root; impl Root { pub fn open(path: &Path, policy: LinkPolicy) -> Result<Self, FsError>; pub fn open_file(&self, rel: &RelPath) -> Result<MediaFile, FsError>; pub fn walk(&self, excl: &Exclusions) -> Walk; }`;
+- **Interface sketch.** `pub struct Root; impl Root { pub fn open(path: &Path, policy: LinkPolicy) -> Result<Self, FsError>; pub fn open_file(&self, rel: &RelPath) -> Result<MediaFile, FsError>; pub fn walk(&self) -> Walk; }`;
   `pub fn fingerprint(f: &MediaFile) -> Result<Fingerprint, FsError>`.
 - **Tests (real filesystem in a temporary directory).** A FIFO named
   `track.flac` and a socket named `cover.jpg` are skipped without blocking;
@@ -3339,16 +3313,17 @@ wave 1 section, also runs in this wave.
 - **Not in scope.** Which jobs exist (WP-079), supervision (WP-078).
 - **Jobs beyond probing.** Every hostile input the server receives is
   parsed here, not in the server process (principle 2, SEC-MED-018), so
-  the enum also carries the packaging job (`Package`, WP-105), the
-  import-file job (`ImportFile`, WP-108) and the playlist-file job
-  (`PlaylistFile`, WP-112). This package defines the enum with the three
-  scan jobs; each of those packages adds its variant in its own wave, one
-  line under the merge protocol, and owns its job file. The CUE slice job
+  the enum also carries the packaging job (`Package`, WP-105) in R1, and
+  after R1 the import-file job (`ImportFile`, WP-145, R1.1) and the
+  playlist-file job (`PlaylistFile`, WP-112, R1.1). This package defines
+  the enum with the three scan jobs; each of those packages adds its
+  variant in its own wave, one line under the merge protocol, and owns
+  its job file. The CUE slice job
   (`CueSlice`) joins in R2 with MUS-041 (WP-213). A job's output is typed
   rows or bytes that the server revalidates (SEC-MED-023); a streamed job
   (packaging) returns its output in frames over the same socket pair, each
   under the 32 MiB cap.
-- **Interface sketch.** `pub enum Job { Probe { hint: Option<String> }, Artwork { sizes: Vec<Size> }, HashWindow { range: Range<u64> }, Package { track: PackTrack, segment: SegmentRequest }, ImportFile { kind: ImportKind }, PlaylistFile { origin: PlaylistOrigin } }`;
+- **Interface sketch.** `pub enum Job { Probe { hint: Option<String> }, Artwork { sizes: Vec<Size> }, HashWindow { range: Range<u64> }, Package { track: PackTrack, segment: SegmentRequest } /* R1.1 adds ImportFile and PlaylistFile */ }`;
   `pub fn serve_one<P: SansIo>(fd: BorrowedFd<'_>, parser: P, caps: &ReadCaps) -> Result<P::Output, HostError>`.
 - **Tests.** A parser that asks for 17 MiB is refused; one that asks past the
   end is refused; a response frame over 32 MiB from a fake worker is
@@ -3501,10 +3476,12 @@ wave 1 section, also runs in this wave.
   (SEC-HIS-046, SEC-TM-014). As first written, each pathway (passwords,
   passkeys, codes, sessions) verified on its own, with a limiter beside
   them.
-- **Scope.** The pathway inventory as one closed enum: passkey, paired
-  browser, claim code, recovery code, admin recovery link, invitation,
-  pairing code, share-link password, OIDC (and, in R2, device keys, API
-  keys and adapter credentials). The verifier takes a pathway and its
+- **Scope.** The pathway inventory as one closed enum: in R1, passkey,
+  paired browser, claim code, recovery code, admin recovery link,
+  invitation and pairing code; the share-link password (WP-134) and OIDC
+  (WP-096) join in R1.2, and device keys, API keys and adapter credentials
+  in R2, each as one variant added with the package that brings the
+  pathway, so the R1 inventory lists only pathways R1 has. The verifier takes a pathway and its
   presented secret, applies the per-account and per-source limits before
   checking, delegates the check to the pathway's implementation (each
   pathway's package implements one trait), runs the same work whether
@@ -3518,8 +3495,8 @@ wave 1 section, also runs in this wave.
   lookup itself (SEC-TM-024, SEC-API-010). Any error, timeout or missing
   data ends in denial and a security event, never a weaker check
   (SEC-IAM-069). The limiter: the delay schedule of SEC-API-056 for
-  guessable secrets (claim code, pairing code, share-link password),
-  never permanent; the claim code's delays per source with no
+  guessable secrets (claim code and pairing code in R1, and the
+  share-link password from R1.2), never permanent; the claim code's delays per source with no
   server-wide limit one source can use up (SEC-IAM-008); per-source and
   server-wide limits on every endpoint that checks a secret or starts a
   sign-in ceremony, using WP-032's keyed GCRA and its global key rather
@@ -3531,7 +3508,7 @@ wave 1 section, also runs in this wave.
   SEC-OPS-028), and emitted as a typed authentication event into the
   injected `SecuritySink` (WP-006), which the server wires to the bus;
   the audit log's sink (WP-069) stores the record.
-- **Interface sketch.** `pub enum Pathway { Passkey, PairedBrowser, ClaimCode, RecoveryCode, RecoveryLink, Invitation, PairingCode, SharePassword, Oidc }`;
+- **Interface sketch.** `pub enum Pathway { Passkey, PairedBrowser, ClaimCode, RecoveryCode, RecoveryLink, Invitation, PairingCode }` (R1.2 adds `SharePassword` and `Oidc`);
   `pub trait PathwayCheck { fn pathway(&self) -> Pathway; async fn check(&self, presented: Presented) -> Result<Verified, Failure>; }`;
   `pub async fn verify(p: &dyn PathwayCheck, presented: Presented, source: &ClientContext) -> Result<Verified, SignInError>`.
 - **Tests.** The back-off schedule with a manual clock; a different account
@@ -3635,7 +3612,9 @@ wave 1 section, also runs in this wave.
   WP-042.
 - **Owns** `crates/gunmetal-store/src/changelog.rs`,
   `crates/gunmetal-store/src/changelog.sql`.
-- **Serves** LIB-018, INT-006, CLI-022, CLI-024; API-SYNC-02, API-TOK-02.
+- **Serves** LIB-018, CLI-022; API-SYNC-02. (The tool change feed,
+  INT-006 and API-TOK-02, is R2 with WP-091; sync status on the device,
+  CLI-024, is R1.1 and client only.)
 - **Security.** Boundaries TB4, TB10; threats TM-T15. Verifies SEC-API-025.
 - **Scope.** The ordered change log in the cache: a sequence number per
   change to items, artwork, relations and profile data, written in the
@@ -3665,11 +3644,12 @@ wave 1 section, also runs in this wave.
   first written, no package stored them), with batch upserts that touch a
   row only when it really changed and return the list of
   `CatalogChange`s (so a no-change rescan writes nothing), and readers for
-  the sync builder and the file inspector. Every reader that returns
-  library content takes a `&Permit` (WP-033) and filters in SQL by the
-  `LibrarySet` inside it; there is no unfiltered reader, and the
-  admin-only inspector's reader takes a `Permit` for the inspect action,
-  which only an administrator's principal can obtain (SEC-IAM-070). Every
+  the sync builder (the file inspector's reader joins with WP-156 in
+  R1.2). Every reader that returns library content takes a `&Permit`
+  (WP-033) and filters in SQL by the `LibrarySet` inside it; there is no
+  unfiltered reader, and the inspector's reader will take a `Permit` for
+  the inspect action, which only an administrator's principal can obtain
+  (SEC-IAM-070). Every
   row type implements `HasLibrary`. The
   caller writes the returned changes to the change log in the same
   transaction (WP-102), because the change log (WP-066) is in this same
@@ -3833,18 +3813,23 @@ wave 1 section, also runs in this wave.
 - **Wave** 2 · **Size** M · **Depends on** WP-042 (checkpoints and task
   state live in the cache), WP-043.
 - **Owns** `crates/gunmetal-server/src/tasks/`.
-- **Serves** ADM-093, ADM-095, LIB-024; API-SCAN-04 (the engine).
+- **Serves** ADM-095; API-SCAN-04 (the engine). (The admin's task list
+  with run, cancel and history, ADM-093, is R1.2, WP-155, over this
+  engine; background analysis, LIB-024, is R1.3.)
 - **Security.** Boundaries TB4; threats TM-T09. Verifies SEC-API-064.
 - **Scope.** Named task kinds registered by modules; schedules; one-off
   requests (with de-duplication of path-scoped requests); progress,
   cancel, last run, duration and error; throttling and checkpoints so heavy
   jobs resume after a restart; expiry sweeps as a built-in schedule other
   modules register into. The R1 task kinds are a closed enum declared here
-  (library scan, path refresh, backup, purge, analysis, rebuild, import
-  matching, neighbour rebuild, rule re-evaluation), so a package can
+  (library scan, path refresh, backup, purge, rebuild), so a package can
   request a kind before the package that handles it has merged (WP-082
   and WP-099 request scans that WP-102 handles a wave later); a request
   for a kind with no handler stays queued and is reported as waiting.
+  The point releases add their kinds with the packages that handle them,
+  one variant each under the merge protocol: import matching and the
+  parser-upgrade re-read in R1.1 (WP-145, WP-123), and analysis, neighbour
+  rebuild and rule re-evaluation in R1.3 (WP-114, WP-113).
 - **Interface sketch.** `pub trait Task { fn kind(&self) -> TaskKind; async fn run(&self, ctx: TaskCtx) -> Result<Outcome, TaskError>; }`;
   `pub fn request(&self, kind: TaskKind, input: TaskInput) -> TaskHandle`.
 - **Tests.** Two requests for the same path collapse into one; cancel
@@ -3852,32 +3837,15 @@ wave 1 section, also runs in this wave.
   and the runner keeps going; a checkpointed task resumes from its
   checkpoint after the runner restarts (state persisted in the cache).
 
-### WP-071 Derived-data store
-
-- **Wave** 2 · **Size** S · **Depends on** WP-046, WP-126.
-- **Owns** `crates/gunmetal-durable/src/derived/`.
-- **Serves** ADM-141, LIB-024, LIB-025.
-- **Security.** Boundaries TB10; threats TM-T60. Verifies SEC-PRV-050
-  (every connection of this store; as first written nothing checked its
-  connections).
-- **Scope.** A SQLite file keyed by (content identity, producer kind,
-  producer version) for analysis results and artwork derivatives' metadata,
-  read on rebuild so work is never repeated, opened through the one
-  connection opener (WP-126) with `secure_delete=ON` and queried only
-  through `Query` values.
-- **Tests (real SQLite).** A new producer version misses the old key; a
-  rebuild reads existing results; the store reports its file as optional
-  for backups; `secure_delete` reads back as on for every pooled
-  connection. That backups leave it out by default is tested in WP-090,
-  which owns backups and comes a wave later.
-
 ### WP-072 Web client asset serving
 
 - **Wave** 3 (moved from 2 in review) · **Size** S · **Depends on**
   WP-043, WP-044, WP-118. As first written it depended only on WP-044,
   but it lives in the server crate (WP-043) and registers routes (WP-118).
 - **Owns** `crates/gunmetal-server/src/webapp/`.
-- **Serves** CLI-001, CLI-003 (served files).
+- **Serves** CLI-001. (Installing the web app and loading it offline,
+  CLI-003 and CLI-024 to CLI-026, are R1.1: WP-148 adds the web app
+  manifest and the service-worker rules.)
 - **Security.** Boundaries TB2, TB4; threats TM-T07, TM-T08. Verifies
   SEC-API-044, SEC-IAM-014, SEC-IAM-015, SEC-CLI-011, SEC-CLI-012,
   SEC-NET-058, SEC-STD-017, SEC-SUP-037, SEC-HIS-028, SEC-API-049 (the
@@ -3890,10 +3858,9 @@ wave 1 section, also runs in this wave.
   SEC-NET-058, SEC-CLI-012, SEC-SUP-037); every HTML response with the
   exact Content Security Policy of SEC-API-044 (`default-src 'none'`, no
   inline script, `frame-ancestors 'none'`) and the headers of
-  SEC-IAM-015; cache headers by content hash; the service-worker scope
-  rules, under which a service worker never caches a capability URL and
-  never serves a bundle older than the server's; and the build identifier
-  check, which answers an API call from a bundle whose build differs from
+  SEC-IAM-015; cache headers by content hash; no service worker is served
+  or registered in R1 (WP-148 adds one in R1.1, with its scope rules); and
+  the build identifier check, which answers an API call from a bundle whose build differs from
   the server's with a typed "reload required" error (SEC-CLI-011). The
   bundle itself comes from the client work; tests use a two-file stand-in
   bundle.
@@ -3901,7 +3868,9 @@ wave 1 section, also runs in this wave.
   only for navigation requests; hashed assets are immutable-cacheable and
   the shell is not; the exact CSP string on every HTML route; a request
   for `.git/HEAD`, a `.map` file or an environment file is 404; a
-  mismatched build header gets the typed error.
+  mismatched build header gets the typed error; the stand-in bundle's
+  manifest has no service-worker script and no response carries
+  `Service-Worker-Allowed`.
 
 ### WP-073 Network settings and owner HTTPS
 
@@ -3911,14 +3880,18 @@ wave 1 section, also runs in this wave.
   configuration of the listener WP-118 owns).
 - **Owns** `crates/gunmetal-server/src/network/`, `packaging/proxies/`
   (reverse-proxy configurations), `.github/workflows/proxies.yml`.
-- **Serves** ACC-098, ACC-134, ADM-022 (owner's certificate part),
-  CLI-150; API-SET-01, API-SYS-02. Trusted proxies (ACC-097) moved to
-  WP-132, which owns everything that decides where a request came from.
+- **Serves** ACC-098, ADM-022 (owner's certificate part), CLI-150, and
+  the recipes behind ACC-097; API-SET-01, API-SYS-02. Remote access in R1
+  goes through the owner's own reverse proxy or a tailnet (owner answer,
+  2026-10-02; built-in remote access is R2), so the shipped proxy
+  configurations and the Tailscale Serve recipe here are R1's documented
+  remote paths. Trusted proxies (ACC-097) moved to WP-132, which owns
+  everything that decides where a request came from. Serving under a path
+  prefix (ACC-134) is R1.2 and split off to WP-151.
 - **Security.** Boundaries TB1, TB2; threats TM-T11, TM-T46. Verifies
   SEC-NET-002, SEC-NET-013, SEC-NET-015, SEC-NET-022, SEC-API-038,
   SEC-API-069, SEC-TM-010.
-- **Scope.** A path prefix applied to every route and cookie path; the
-  canonical origin for each path a request can arrive on, from which every
+- **Scope.** The canonical origin for each path a request can arrive on, from which every
   absolute URL the server emits is built, never from `Host`,
   `:authority` or forwarding headers (SEC-NET-015, SEC-API-069); HTTPS
   with the owner's certificate and key (reloaded on change), negotiating
@@ -3930,8 +3903,10 @@ wave 1 section, also runs in this wave.
   a CI job that runs each real proxy except Tailscale in front of the
   server and asserts the client address, the scheme and the absence of
   identity-header trust (SEC-NET-022, SEC-NET-013).
-- **Tests.** The prefix applies to redirects and the cookie path; a forged
-  `Host` and forged forwarding headers never change an emitted URL; a
+- **Not in scope.** A path prefix for every route and cookie path
+  (WP-151, R1.2). Certificates by ACME (WP-101).
+- **Tests.** A forged `Host` and forged forwarding headers never change an
+  emitted URL; a
   certificate and key that do not match are refused at load; recorded
   ClientHello fixtures for SSL 3.0, TLS 1.0, TLS 1.1 and TLS 1.2 without
   ECDHE are refused; the secure-context report for `localhost`, a private
@@ -4108,8 +4083,9 @@ wave 1 section, also runs in this wave.
 - **Wave** 2 · **Size** M · **Depends on** WP-007, WP-010, WP-011, WP-012,
   WP-013, WP-014, WP-015, WP-016, WP-017, WP-019, WP-020.
 - **Owns** `crates/gunmetal-testkit/src/library.rs`.
-- **Serves** the synthetic-media rule; the test needs of WP-084, WP-092,
-  WP-102, WP-110, WP-111 and WP-117; the benchmark (WP-115).
+- **Serves** the synthetic-media rule; the test needs of WP-084, WP-102,
+  WP-110, WP-111 and WP-117 (and of WP-092 in R1.3); the benchmark
+  (WP-115).
 - **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
@@ -4177,18 +4153,23 @@ wave 1 section, also runs in this wave.
 
 ## Wave 3: the music model, sign-in, streaming and sync
 
-WP-059, WP-063, WP-072, WP-073 and WP-074 also run in this wave
-(numbered in the wave 2 section), and WP-120, WP-131 and WP-132 are at the
-end of this section. WP-088 and WP-101, numbered here, now run in wave 4.
-WP-091 moved to R2.
+WP-063, WP-072, WP-073 and WP-074 also run in this wave (numbered in the
+wave 2 section), and WP-120, WP-131 and WP-132 are at the end of this
+section. WP-088, numbered here, is back in this wave; WP-101, numbered
+here, runs in wave 4. WP-091 moved to R2, single sign-on (WP-096) to
+R1.2 and the rule store (WP-092) to R1.3; their specifications are in
+[After R1](#after-r1-point-releases-and-later).
 
 ### WP-075 Track record derivation
 
 - **Wave** 3 · **Size** M · **Depends on** WP-021, WP-028, WP-049, WP-050,
   WP-051, WP-052, WP-053.
 - **Owns** `crates/gunmetal-core/src/music/track.rs`.
-- **Serves** MUS-021, MUS-034, MUS-037, MUS-047, MUS-084, MUS-154 to
-  MUS-156, LIB-059, LIB-097, LIB-098; API-CAT-01 to API-CAT-08.
+- **Serves** MUS-021, MUS-034, MUS-037, MUS-084, MUS-154, MUS-155,
+  LIB-059, LIB-097; API-CAT-01 to API-CAT-08. (The explicit flag,
+  word-by-word lyrics and the "why" panel, MUS-047, MUS-156 and LIB-098,
+  are R1.1 views over fields and provenance this record already
+  carries.)
 - **Security.** Boundaries TB6, TB9; threats TM-T07, TM-T20. Verifies
   SEC-MED-017.
 - **Scope.** From a probe's `FileFacts`: run the mappers in a fixed
@@ -4204,41 +4185,52 @@ WP-091 moved to R2.
   an `.lrc` sidecar and an embedded lyric both present; a malformed `.lrc`
   falls back to the embedded lyric with a problem recorded.
 
-### WP-076 Album and release grouping
+### WP-076 Album grouping (was: album and release grouping)
 
-- **Wave** 3 · **Size** L · **Depends on** WP-034 (curation bodies),
-  WP-040, WP-053.
+- **Wave** 3 · **Size** M (was L; release groups and grouping reasons
+  moved to WP-146 in R1.1, and review items and curation overrides to
+  WP-107 in R1.3) · **Depends on** WP-040, WP-053. (It no longer depends
+  on WP-034: the curation bodies it applied are R1.3.)
 - **Owns** `crates/gunmetal-core/src/music/albums.rs`.
-- **Serves** MUS-008, MUS-010, MUS-011, MUS-012, MUS-013, MUS-014, LIB-045,
-  LIB-051, LIB-098, LIB-099, LIB-187; API-CAT-02, API-HLTH-03.
+- **Serves** MUS-011, MUS-012, LIB-045, LIB-051; API-CAT-02. (Release
+  groups and editions, release types, original dates, one artist page
+  across libraries and the reason for every decision, MUS-008, MUS-010,
+  MUS-013, LIB-187 and LIB-098, are R1.1, WP-146; the review queue,
+  LIB-099 and API-HLTH-03, is R1.3, WP-107; works and movements, MUS-014,
+  are R2.)
 - **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
 - **Scope.** Group tracks into albums by MusicBrainz release ID, then by
-  album artist and album title, erring on the side of not merging; keep
-  same-titled albums apart by release ID, year or track list; group albums
-  into release groups; mark compilations and Various Artists; order discs
-  and keep disc titles; produce a reason for every decision and a review
-  item when unsure. Curation-log merges, splits and aliases apply on top as
-  overrides.
-- **Interface sketch.** `pub fn group(tracks: &[GroupInput], overrides: &Curation) -> Grouping`
-  where `Grouping { albums, release_groups, reasons, review: Vec<ReviewItem> }`.
+  album artist and album title, erring on the side of not merging: when
+  the rules are unsure, the tracks stay in separate albums; keep
+  same-titled albums apart by release ID, year or track list; mark
+  compilations and Various Artists; order discs and keep disc titles.
+- **Not in scope.** Release groups, editions and the recorded reason for
+  each decision (WP-146, R1.1). Review items and curation-log overrides
+  (WP-107, R1.3).
+- **Interface sketch.** `pub fn group(tracks: &[GroupInput]) -> Grouping`
+  where `Grouping { albums }`; R1.1 and R1.3 extend the result with
+  release groups, reasons and review items under the merge protocol's
+  interface-change rule.
 - **Tests.** An album split across two folders; two albums in one folder;
   "Disc 1" and "Disc 2" folders of one album (the Jellyfin #5605 case);
   two "Greatest Hits" by one artist with different years; a compilation
   with a different artist per track and no album artist; one track missing
-  the album artist that every sibling has; an override that merges two
-  albums the rules kept apart. Properties: grouping is independent of input
-  order; every track is in exactly one album; tracks with different release
-  IDs are never in the same album.
+  the album artist that every sibling has; an ambiguous pair the rules
+  keep apart. Properties: grouping is independent of input order; every
+  track is in exactly one album; tracks with different release IDs are
+  never in the same album.
 
 ### WP-077 Content identity and scan diff
 
 - **Wave** 3 · **Size** L · **Depends on** WP-006, WP-040, WP-052.
 - **Owns** `crates/gunmetal-core/src/music/identity.rs`,
   `crates/gunmetal-core/src/music/diff.rs`.
-- **Serves** LIB-016, LIB-017, LIB-025, LIB-028, LIB-029, LIB-030, LIB-031,
-  LIB-032, LIB-033, INT-008, DIS-038; API-HOME-03, API-LIB-05.
+- **Serves** LIB-016, LIB-017, LIB-028, LIB-029, LIB-030, LIB-032,
+  LIB-033, INT-008, DIS-038; API-HOME-03, API-LIB-05. (The parser-upgrade
+  re-read and moving a root, LIB-025 and LIB-031, are R1.1, WP-123 and
+  WP-150, and reuse this diff unchanged.)
 - **Security.** Boundaries TB9, TB10; threats TM-T56, TM-T60. Verifies
   SEC-TM-069.
 - **Scope.** LIB-028's identity order as versioned rules (MusicBrainz
@@ -4246,8 +4238,11 @@ WP-091 moved to R2.
   stem within the root), and the scan diff: given the previous index and fresh
   results for a set of paths, classify each file as unchanged, changed,
   added, removed, moved, or replaced by a better copy, keep "date added" at
-  the first arrival, and send ambiguous matches (same tags and duration, new
-  audio, new path) to review rather than guessing. Files under an offline
+  the first arrival, and never guess an ambiguous match (same tags and
+  duration, new audio, new path): in R1, which has no review queue, the
+  diff reports it as a removal and an addition, so the old item goes to
+  the trash with its grace period (LIB-033) and nothing is merged; from
+  R1.3 it is sent to the review queue instead (WP-107). Files under an offline
   root are never removed (SEC-TM-069). Public IDs are not derived here:
   the first draft derived them from content identity with a keyed MAC,
   but the baseline requires identifiers from the CSPRNG that are never
@@ -4261,7 +4256,8 @@ WP-091 moved to R2.
   tags); moving a file keeps identity and history; renaming a folder of
   200 files gives 200 moves, not 200 removals and additions; an MP3
   replaced by a FLAC of the same recording with MBIDs is an upgrade; the
-  same without MBIDs goes to review; an offline root removes nothing.
+  same without MBIDs is a removal and an addition, never a merge; an
+  offline root removes nothing.
   Properties: diffing an index against itself yields no changes (LIB-016);
   the diff of a scope never touches paths outside the scope (LIB-017);
   applying a diff and diffing again yields no changes.
@@ -4298,14 +4294,16 @@ WP-091 moved to R2.
   `crates/gunmetal-worker/src/jobs/artwork.rs`, `crates/gunmetal-worker/src/jobs/hash.rs`),
   and from this wave `crates/gunmetal-worker/src/sandbox/syscalls.rs`,
   handed over by WP-045. Later job files in the same directory belong to
-  the packages that add them: `jobs/package.rs` (WP-105),
-  `jobs/import_file.rs` (WP-108) and `jobs/playlist_file.rs` (WP-112);
+  the packages that add them: `jobs/package.rs` (WP-105) and
+  `jobs/sqlite_check.rs` (WP-109) in R1, and `jobs/import_file.rs`
+  (WP-145) and `jobs/playlist_file.rs` (WP-112) in R1.1;
   each registers its module in the `jobs/mod.rs` registry, adds one arm to
   this package's job dispatch under the merge protocol, and adds its job's
   syscalls to the allowlist in audit mode, reviewed by this package's
   owner.
 - **Serves** LIB-134, LIB-135, LIB-136, LIB-142, LIB-143, MUS-039, MUS-040,
-  MUS-110, MUS-024; API-SYNC-05, API-CAT-07.
+  MUS-110; API-SYNC-05, API-CAT-07. (The job decodes any allowed sidecar;
+  attaching `artist.jpg` to the artist, MUS-024, is R1.1, WP-146.)
 - **Security.** Boundaries TB6; threats TM-T21, TM-T28, TM-T29. Verifies
   SEC-MED-026, SEC-MED-044, SEC-MED-045, SEC-MED-046, SEC-API-086,
   SEC-TM-035, SEC-HIS-030, SEC-CLI-005.
@@ -4353,11 +4351,11 @@ WP-091 moved to R2.
   recovery codes are offered at the passkey enrolment WP-106 adds.)
 - **Owns** `crates/gunmetal-server/src/setup/` (except `setup/passkey.rs`,
   which WP-106 adds in wave 4).
-- **Serves** ACC-001, ACC-002, ADM-018 to ADM-021, ADM-027, ADM-028,
-  ADM-030 (the "Coming from another server?" step, which in R1 offers the
-  listening-history and playlist imports of WP-108 and WP-112; the
-  importer framework for other servers is R2, WP-229), ADM-140;
-  API-AUTH-01 to API-AUTH-03.
+- **Serves** ACC-001, ACC-002, ADM-018 to ADM-021, ADM-028, ACC-113;
+  API-AUTH-01 to API-AUTH-03. (The locale, server-name and welcome-message
+  steps, ADM-027 and ADM-140, are R1.2, WP-159; the "Coming from another
+  server?" step, ADM-030, is R1.1 with the imports it offers, WP-145 and
+  WP-112; the importer framework for other servers is R2, WP-229.)
 - **Security.** Boundaries TB1, TB2, TB11; threats TM-T06, TM-T08, TM-T11.
   Verifies SEC-IAM-005, SEC-IAM-006, SEC-IAM-007, SEC-IAM-008, SEC-IAM-009,
   SEC-OPS-001, SEC-OPS-003, SEC-OPS-004, SEC-OPS-005, SEC-OPS-006,
@@ -4391,18 +4389,24 @@ WP-091 moved to R2.
   a marker file in the secrets directory (SEC-IAM-009, SEC-OPS-005,
   SEC-STD-029); after it, setup never becomes reachable again, not after a
   restart, a failed migration, a deleted identity store or removal of the
-  last owner credential (SEC-OPS-006). Walk the welcome steps (locale,
-  owner, server name and sign-in message, the required questions, import
-  offer, first library). The required questions cannot be skipped and
-  have no preselected answer: the update and advisory check (SEC-OPS-047)
-  and the provider step, which lists each available metadata provider
-  with the exact fields it would receive and its privacy policy, with
-  "Turn on" and "Not now" (SEC-PRV-013; empty until WP-137). The owner is
-  created with a passkey, through the credential-enrolment interface; a
-  page that is not a secure context gets no sign-in at all, so a home
-  install without HTTPS claims from the server itself over
-  `http://localhost` or through its HTTPS name (SEC-IAM-025,
-  SEC-NET-001). Setup issues the one printable recovery kit holding the
+  last owner credential (SEC-OPS-006). Walk the R1 welcome steps (owner,
+  the required question, privacy choices, first library); the point
+  releases add their steps through the same step list (WP-145 the import
+  offer in R1.1, WP-137 the provider choices in R1.1, WP-159 locale,
+  server name and welcome message in R1.2). The required question cannot
+  be skipped and has no preselected answer: the update and advisory
+  check (SEC-OPS-047). The provider step: R1 has no metadata provider, so
+  the privacy step says that nothing is looked up online and no provider
+  is enabled (SEC-PRV-013, ACC-113); from R1.1, WP-137 turns it into the
+  required question that lists each provider with the exact fields it
+  would receive and its privacy policy, with "Turn on" and "Not now". The
+  owner is created with a passkey, through the credential-enrolment
+  interface; a page that is not a secure context gets no sign-in at all,
+  so a home install claims from the server itself over `http://localhost`,
+  or over HTTPS through the owner's own domain with an automatic
+  certificate (WP-101), a tailnet name or the owner's reverse proxy
+  (SEC-IAM-025, SEC-NET-001; owner answer to D-07). R1 has no project
+  name service, so no claim URL names one. Setup issues the one printable recovery kit holding the
   owner's recovery codes and the backup recovery key, and the dashboard
   keeps a reminder until the owner confirms it is saved (SEC-PRV-040; the
   codes come from WP-063 through WP-106, the backup key from WP-090).
@@ -4427,18 +4431,23 @@ WP-091 moved to R2.
   first draft's password-and-two-factor branch for pages that are not a
   secure context is removed (SEC-IAM-025, SEC-NET-001). WP-106 (wave 4)
   adds the passkey branch in `setup/passkey.rs` and tests it.
-- **Risks.** Without HTTPS, a household claims from `localhost` on the
-  server or through the name service's HTTPS address (WP-135); the copy
-  that explains it is the client's. The first draft's risk note expected
-  many home installs to set a password first, which the baseline rules
-  out (baseline owner decisions 1 and 2).
+- **Risks.** Without a domain, a tailnet or a reverse proxy, a household
+  claims from `localhost` on the server; the copy that explains the
+  choices is the client's. The project name service that would have given
+  every household an HTTPS name is R2 (WP-129, WP-135; owner answer to
+  D-07), so R1's first run depends on the owner having one of the three
+  paths, and the claim acceptance test runs each of them (WP-117). The
+  first draft's risk note expected many home installs to set a password
+  first, which the baseline rules out (baseline owner decisions 1 and 2).
 
 ### WP-081 Passkeys
 
 - **Wave** 3 · **Size** L · **Depends on** WP-041, WP-047 (P-256
   verification through its crypto module), WP-062, WP-064, WP-118.
 - **Owns** `crates/gunmetal-server/src/passkey/`.
-- **Serves** ACC-050, ACC-055 (passkey part); API-AUTH-03, API-AUTH-04.
+- **Serves** ACC-050, ACC-055 (passkey part), ACC-003 (passkey sign-in
+  needs nothing outside the house; WP-096, which also named it, is R1.2);
+  API-AUTH-03, API-AUTH-04.
 - **Security.** Boundaries TB1, TB4; threats TM-T03, TM-T47. Verifies
   SEC-IAM-018, SEC-IAM-019, SEC-IAM-020, SEC-IAM-021, SEC-IAM-022,
   SEC-API-058.
@@ -4474,8 +4483,9 @@ WP-091 moved to R2.
   WP-062, WP-065, WP-067 (identity check against the index), WP-070 (the
   rescan request), WP-118.
 - **Owns** `crates/gunmetal-server/src/stream/`.
-- **Serves** MUS-066, MUS-070, CLI-099 (byte ranges for fetching ahead),
-  ACC-122; API-STR-01 to API-STR-03.
+- **Serves** MUS-066, MUS-070, ACC-122; API-STR-01 to API-STR-03. (The
+  byte ranges also cover fetching ahead on patchy signal, CLI-099, an
+  R1.1 client feature that needs nothing more from the server.)
 - **Security.** Boundaries TB1, TB4, TB9; threats TM-T02, TM-T16, TM-T22,
   TM-T67. Verifies SEC-API-018, SEC-API-026, SEC-API-027, SEC-API-028,
   SEC-API-029, SEC-API-031, SEC-API-051, SEC-IAM-043, SEC-IAM-046,
@@ -4524,8 +4534,11 @@ WP-091 moved to R2.
 
 - **Wave** 3 · **Size** M · **Depends on** WP-062, WP-065, WP-118.
 - **Owns** `crates/gunmetal-server/src/events/`.
-- **Serves** api-needs.md Flags item 12; ADM-099, ADM-102, LIB-021, CLI-103,
-  ACC-069; API-SYS-10.
+- **Serves** api-needs.md Flags item 12; LIB-021, ACC-069, MUS-122 (the
+  active player changing); API-SYS-10. (The admin live view's events and
+  the "stopped by the owner" message, ADM-099 and ADM-102, are R1.2,
+  WP-153, and handing playback to another device, CLI-103, is R1.1; both
+  publish on the bus and this channel forwards them unchanged.)
 - **Security.** Boundaries TB4; threats TM-T09, TM-T15, TM-T16. Verifies
   SEC-API-016, SEC-API-017, SEC-API-041, SEC-API-042, SEC-API-043,
   SEC-IAM-016, SEC-IAM-043, SEC-NET-020, SEC-TM-028.
@@ -4561,12 +4574,15 @@ WP-091 moved to R2.
 - **Wave** 3 · **Size** L · **Depends on** WP-039, WP-065, WP-066, WP-067,
   WP-068, WP-118, WP-119.
 - **Owns** `crates/gunmetal-server/src/sync/`.
-- **Serves** CLI-022, CLI-024, CLI-025, CLI-026, CLI-032, ACC-030, ACC-037,
-  DIS-002, DIS-140, MUS-208, MUS-071 (seek index fetch), LIB-146, DIS-102,
-  MUS-056 (the technical and sort fields in the feed); API-SYNC-01 to
-  API-SYNC-04, API-DEV-02, API-CAT-05 (seek index).
+- **Serves** CLI-022, ACC-030, ACC-037, DIS-002, DIS-140, MUS-208, MUS-071
+  (seek index fetch), LIB-146 (the technical and sort fields in the
+  feed); API-SYNC-01 to API-SYNC-04, API-DEV-02, API-CAT-05 (seek index).
+  (Offline loading and sync status, CLI-024 to CLI-026, and the views and
+  filters over synced fields, DIS-102 and MUS-056, are R1.1 client
+  features over this feed; old native clients, CLI-032, are R2.)
 - **Security.** Boundaries TB4; threats TM-T15. Verifies SEC-API-014,
-  SEC-API-015, SEC-CLI-020, SEC-TM-026.
+  SEC-API-015, SEC-CLI-020, SEC-TM-026, SEC-PRV-016 (the sync part: every
+  image URL in a payload is server-relative).
 - **Scope.** The snapshot (the profile's catalogue, filtered by grants as it
   is built, plus the profile's slice of the user log and the server facts)
   as a stream of wire frames; the delta from a cursor; grant changes sent
@@ -4586,19 +4602,25 @@ WP-091 moved to R2.
   track in an ungranted library answers as unknown; when an item becomes
   invisible, the delta carries only its identifier as a removal, never its
   metadata (SEC-API-015); no payload holds another person's history,
-  queue or settings (SEC-CLI-020). Property: for a generated library and
-  subject, the snapshot and every delta are subsets of what the policy
-  allows that subject (SEC-TM-026). Bytes and time at
-  100,000 synthetic tracks are measured by the benchmark runner (WP-115),
-  not by a test.
+  queue or settings (SEC-CLI-020); every image URL in a snapshot and a
+  delta is server-relative (SEC-PRV-016). Property: for a generated
+  library and subject, the snapshot and every delta are subsets of what
+  the policy allows that subject (SEC-TM-026). Snapshot bytes and time at
+  100,000 synthetic tracks are held to the DIS-019 budget by WP-115's
+  budget tests in the R1 gate (register D-87), not by this package's own
+  tests.
 
 ### WP-085 Queue service
 
 - **Wave** 3 · **Size** M · **Depends on** WP-025, WP-026, WP-065, WP-068,
   WP-118.
 - **Owns** `crates/gunmetal-server/src/queue/`.
-- **Serves** MUS-116 to MUS-128, CLI-103; API-QUE-01 to API-QUE-04,
-  API-SES-03.
+- **Serves** MUS-116 to MUS-119, MUS-122, MUS-123, MUS-126; API-QUE-01 to
+  API-QUE-04, API-SES-03. (Reordering while shuffled, shuffle by album and
+  reshuffle the rest, MUS-120, MUS-127 and MUS-128, are R1.1, WP-142; save
+  queue as playlist, MUS-125, is R1.1, WP-143; handing playback to another
+  device, CLI-103, is R1.1 and client only over the active-device event
+  below; undo and queue history, MUS-121 and MUS-124, are R2.)
 - **Security.** Boundaries TB4; threats TM-T17. Verifies SEC-HIS-014.
 - **Scope.** Store each profile's queue as operations and snapshots in the
   user log; accept operations against a version and return the new
@@ -4609,8 +4631,8 @@ WP-091 moved to R2.
   the active player only for its own person's queue; no route lets one
   person drive another's queue or player, and queue operations are a
   closed set with no free text (SEC-HIS-014). "Save
-  queue as playlist" is not here: the client already holds the queue and
-  sends its items to WP-093's create route.
+  queue as playlist" (R1.1) is not here: the client already holds the
+  queue and sends its items to WP-093's create route (WP-143).
 - **Tests (real SQLite and log files).** Two clients racing on one version:
   one wins, the other is rejected with the current version; positions
   arriving every second are written at most once per batch window, with a
@@ -4624,19 +4646,23 @@ WP-091 moved to R2.
 
 - **Wave** 3 · **Size** M · **Depends on** WP-034, WP-065, WP-068, WP-118.
 - **Owns** `crates/gunmetal-server/src/listening/`.
-- **Serves** MUS-180 to MUS-184, MUS-185, MUS-109 (love events), ACC-117, ACC-118, DIS-022,
-  DIS-023, DIS-045 to DIS-052, CLI-093; API-LOG-01 to API-LOG-05,
-  API-SES-04, API-USR-07.
+- **Serves** MUS-180, MUS-182 to MUS-185, MUS-109 (love events), ACC-117,
+  ACC-118, DIS-045, DIS-046, DIS-050 to DIS-052, MUS-149 (loves as a
+  list), CLI-093; API-LOG-01 to API-LOG-04, API-SES-04, API-USR-07.
+  (Ratings, MUS-181 and DIS-047, and dismissals with their Hidden page,
+  DIS-022, DIS-023 and API-LOG-05, are R1.1, WP-141; the watchlist rows,
+  DIS-048 and DIS-049, are R2.)
 - **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies SEC-PRV-022,
   SEC-PRV-024, SEC-HIS-060, SEC-TM-054.
-- **Scope.** One write path for plays, skips, loves, ratings, dismissals and
-  their reversals, and play removals; idempotent by event ID; plays queued
+- **Scope.** One write path for plays, skips, loves and their reversals,
+  and play removals, which WP-141 extends with ratings and dismissals in
+  R1.1; idempotent by event ID; plays queued
   offline accepted with their real timestamps and merged; the private
   session flag that drops play and recommendation events, starts from the
   player in at most two interactions and hides the title from the admin
   live view (SEC-PRV-024; with the proposed expiry after a period without
   playback, owner decision 27); derived counts projected into the cache.
-  One person's plays, loves, ratings and queue are never returned to
+  One person's plays, loves and queue are never returned to
   another person, and no route offers them to another non-admin user or
   in a notification (SEC-PRV-022, SEC-HIS-060).
 - **Tests (real SQLite and log files).** The same offline batch uploaded
@@ -4650,11 +4676,19 @@ WP-091 moved to R2.
 
 - **Wave** 3 · **Size** M · **Depends on** WP-062, WP-065, WP-068, WP-118.
 - **Owns** `crates/gunmetal-server/src/account/`.
-- **Serves** ACC-011, ACC-012, ACC-017, ACC-068 to ACC-070, ACC-114 (the
-  per-profile activity-visibility setting), CLI-030, DIS-003, DIS-007,
-  DIS-013, DIS-103 (remembered view state), MUS-158 (the lyrics-stay-open
-  setting), INT-026; API-SYS-05, API-USR-01 (names),
-  API-USR-02, API-DEV-01, API-HOME-01, API-HOME-02.
+- **Serves** ACC-012, ACC-017 (profiles, each with the display name its
+  account was given), ACC-068 to ACC-070, ACC-114 (the per-profile
+  activity-visibility setting), ACC-115; API-SYS-05, API-USR-01 (names),
+  API-USR-02, API-DEV-01. (A chosen name and picture for each profile,
+  ACC-011, is R1.1; WP-144 adds the pictures. The settings records also carry the R1.1
+  client settings, CLI-030, DIS-103 and MUS-158, and the R1.1 saved
+  filters, DIS-105: a saved filter is a named view stored as a versioned
+  rule document in the core rule format, which WP-027 delivers in R1.1
+  (register D-85) and which validates every document under its parser
+  budgets before it is stored; the smart playlists and rule editor that
+  read the same documents are R1.3. Home layouts and pins, DIS-003, DIS-007, DIS-013, API-HOME-01 and
+  API-HOME-02, are R1.2, WP-154. The tools' "who am I" check, INT-026, is
+  R2.)
 - **Security.** Boundaries TB4, TB5, TB11; threats TM-T18, TM-T38. Verifies
   SEC-IAM-042, SEC-IAM-077, SEC-IAM-102, SEC-IAM-104, SEC-PRV-023,
   SEC-PRV-027, SEC-PRV-033, SEC-HIS-033, SEC-TM-054.
@@ -4662,8 +4696,8 @@ WP-091 moved to R2.
   device scope (latest wins per key), where every privacy setting
   defaults to its most private value and no feature that sends activity
   off the server is on for anyone by default or can be turned on by an
-  admin for someone else (SEC-PRV-023, SEC-PRV-033); Home layouts and pins
-  as versioned documents; the list of the person's own sessions and
+  admin for someone else (SEC-PRV-023, SEC-PRV-033); the list of the
+  person's own sessions and
   devices with client name, device class, network type, coarse location
   and last use, revoke one, or all but the current one (SEC-IAM-042;
   calling WP-062's epoch bump); device names and other client-reported
@@ -4675,7 +4709,8 @@ WP-091 moved to R2.
   access to another person's data is written to that person's own
   security log (SEC-IAM-077).
 - **Not in scope.** Profile pictures, which need the artwork job's
-  re-encode (WP-103 adds the upload route).
+  re-encode (WP-144 adds the upload route in R1.1). Home layouts and pins
+  (WP-154, R1.2).
 - **Tests (real SQLite).** A device-scope setting does not follow the
   person to another device; a person-scope one does; revoking a device
   ends its session immediately and its stream URLs fail on the next
@@ -4687,22 +4722,27 @@ WP-091 moved to R2.
 
 ### WP-088 WASM facade
 
-- **Wave** 4 (moved from 3 in review, because WP-059 moved to wave 3) ·
-  **Size** M · **Depends on** WP-021, WP-025 to WP-028,
-  WP-030, WP-039, WP-040, WP-054, WP-055, WP-058, WP-059.
+- **Wave** 3 (moved back from 4: it was in wave 4 because WP-059 had
+  moved to wave 3, and WP-059 is back in wave 2 now that the radio and
+  rule packages it read, WP-058 and WP-027, left R1) · **Size** M ·
+  **Depends on** WP-021, WP-025, WP-026, WP-028, WP-030, WP-039, WP-040,
+  WP-054, WP-055, WP-059.
 - **Owns** `crates/gunmetal-wasm/` (creates the crate),
   `.github/workflows/wasm.yml` (the `wasm32` build job; `ci.yml` belongs
   to the integrator).
-- **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208.
+- **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208,
+  MUS-236 (the details summary, WP-055).
 - **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
   SEC-CLI-021.
 - **Scope.** A thin `wasm-bindgen` layer so the web client can apply sync
-  frames to an in-memory library, query search, evaluate rules and Home
-  rows, compute radio picks, apply queue operations optimistically, read
-  the decision engine and gain decision, follow the player state and look
-  up lyrics positions. Every exported function is a direct call into the
+  frames to an in-memory library, query search, evaluate Home rows,
+  apply queue operations optimistically, read
+  the decision engine (with its track details summary) and gain decision,
+  follow the player state and look up lyrics positions. Every exported function is a direct call into the
   core with conversion only.
-- **Not in scope.** Persistent storage in the browser (client).
+- **Not in scope.** Persistent storage in the browser (client). Rule
+  evaluation and radio picks, which the later packages that build them
+  (WP-027 in R1.1, WP-058 in R1.3) add to this facade, one function each.
 - **Tests.** Native unit tests of each conversion (the facade must compile
   and be covered on the host target); a `wasm32` build in CI; a size check
   of the `.wasm` file reported.
@@ -4722,9 +4762,13 @@ WP-091 moved to R2.
   WP-044, WP-062, WP-065, WP-118.
 - **Owns** `crates/gunmetal-server/src/meta/`,
   `crates/gunmetal-core/src/deeplink.rs`.
-- **Serves** ADM-128, INT-001, INT-005, INT-013, CLI-032, ADM-140, CLI-034,
-  INT-147, ADM-090, ADM-001, ADM-010; API-SYS-01, API-SYS-03, API-SYS-04,
-  API-SYS-06, API-SYS-09, API-SET-09, API-TOK-03.
+- **Serves** ADM-128, INT-001, INT-005, INT-013, ADM-090, ADM-001;
+  API-SYS-01, API-SYS-03, API-SYS-04, API-SYS-06, API-SYS-09, API-SET-09,
+  API-TOK-03 (the parser). (A custom server name, ADM-140, and deep links
+  into the app, CLI-034 and INT-147, are R1.2, WP-159, which extends the
+  parser's route set; published footprint numbers, ADM-010, are R1.2
+  documentation from WP-115's measurements; old native clients, CLI-032,
+  are R2.)
 - **Security.** Boundaries TB1, TB2, TB4; threats TM-T02, TM-T10. Verifies
   SEC-API-005, SEC-NET-046, SEC-NET-047, SEC-OPS-059, SEC-SUP-031,
   SEC-CLI-025. (SEC-API-091 moved to WP-118 with the OpenAPI generation.)
@@ -4746,6 +4790,8 @@ WP-091 moved to R2.
   (SEC-SUP-031); deep-link resolution that never grants access by itself,
   with every inbound link, QR payload and fragment parsed by one pure
   function in the core into a closed set of typed routes (SEC-CLI-025).
+  In R1 the set holds the links R1 issues: the claim link, invitations,
+  browser pairing and recovery enrolment links.
 - **Tests.** The exact JSON of unauthenticated `GET /api/v1/server` against
   a literal schema with no additional properties, and no `Server` or
   `X-Powered-By` header on any route (the first draft let unauthenticated
@@ -4759,8 +4805,9 @@ WP-091 moved to R2.
 ### WP-090 Backups and verification
 
 - **Wave** 3 · **Size** L · **Depends on** WP-046, WP-047, WP-062 (the
-  fresh-uv check), WP-068, WP-069, WP-070, WP-071, WP-118, WP-138 (the
-  retention schedule).
+  fresh-uv check), WP-068, WP-069, WP-070, WP-118, WP-138 (the
+  retention schedule). (It no longer depends on WP-071: the derived-data
+  store arrives in R1.1, and R1 has nothing in it to leave out.)
 - **Owns** `crates/gunmetal-server/src/backup/`,
   `crates/gunmetal-secrets/src/export.rs` (a sealed export of the server
   keys for the backup, so the root secret is never exposed outside the
@@ -4790,16 +4837,16 @@ WP-091 moved to R2.
   owner-only, fresh-uv action, enforced by WP-062's check, that is
   audited and alerted (SEC-OPS-045); uploading one is restore's (WP-109). The
   backup recovery key is generated here and handed to setup's recovery kit
-  (SEC-PRV-040). Derived data excluded unless chosen.
+  (SEC-PRV-040).
 - **Not in scope.** Restore (WP-109). The server export in documented
-  formats (ADM-074), moved to WP-108 in review: it shares its format work
-  with the per-person export there, and this package was already the
-  largest in its wave.
+  formats (ADM-074), which moved to WP-108 in review and is now R1.2
+  (WP-158). Leaving the derived-data store out of backups unless chosen
+  (ADM-141), which WP-071 adds when the store arrives in R1.1.
 - **Tests (real SQLite and files).** A backup taken while writes continue is
   consistent; a backup with one flipped byte fails verification; the
   manifest lists every file with its hash; retention deletes archives
-  older than the configured period on a manual clock; the derived-data
-  store is left out unless chosen; the backup bytes contain no plaintext
+  older than the configured period on a manual clock; the backup bytes
+  contain no plaintext
   canary and never the raw root secret; the backup decrypts with either
   the server's key or the recovery key alone; a member, an admin and an
   owner without fresh user verification are each refused the download,
@@ -4810,86 +4857,36 @@ WP-091 moved to R2.
   (SEC-OPS-042); the archive container inside it is recorded by WP-125
   and remains part of owner decision 12.
 
-### WP-091 Scoped tokens and the tool change feed (moved to R2)
-
-- **Moved to R2 for the security baseline.** The baseline puts API keys,
-  app passwords and the adapters in R2, never with administrator scopes
-  (release scope table; SEC-EXT-008 to SEC-EXT-017 are R2; baseline owner
-  decision 8), so R1 has no scripting API. This package now runs in wave
-  7 with the R2 packages, takes over the `gmk_…` key format that WP-031
-  dropped, and must meet SEC-EXT-008 to SEC-EXT-017 and SEC-IAM-083. The
-  R1 rows it served (ACC-049, INT-006, INT-012, INT-017 to INT-023,
-  API-TOK-01, API-TOK-02) move to R2 with it; WP-093's tool write API and
-  WP-098's token-scoped refresh go with it. The scope below is the first
-  draft's and is revised before wave 7 starts.
-- **Wave** 7 (was 3) · **Size** M · **Depends on** WP-031, WP-033, WP-047, WP-062,
-  WP-065, WP-066, WP-118.
-- **Owns** `crates/gunmetal-server/src/tokens/`.
-- **Serves** ACC-049, INT-006, INT-012, INT-017 to INT-023; API-TOK-01,
-  API-TOK-02.
-- **Security.** Boundaries TB4; threats TM-T14. Verifies, in R2:
-  SEC-EXT-008, SEC-EXT-009, SEC-EXT-010, SEC-EXT-011, SEC-EXT-012,
-  SEC-EXT-013, SEC-EXT-014, SEC-EXT-015, SEC-EXT-016, SEC-EXT-017,
-  SEC-IAM-083.
-- **Scope.** Create tokens scoped by library, root and user, with expiry,
-  rotation, last use, audit trail, per-token rate limits and revoke one or
-  all; the no-escalation rule; authenticating API keys in the request
-  pipeline beside WP-062's cookie sessions, yielding a `Principal` with the
-  token's scope; the change feed for tools with a cursor per token,
-  filtered by scope, in JSON.
-- **Tests (real SQLite).** A token cannot be issued with more than its
-  creator holds; a token scoped to one library sees only that library's
-  changes; a revoked token fails at once; a token in a query string is
-  refused.
-
-### WP-092 Rule store and server-side evaluation
-
-- **Wave** 3 · **Size** M · **Depends on** WP-027, WP-065, WP-066, WP-067,
-  WP-068, WP-118, WP-119.
-- **Owns** `crates/gunmetal-server/src/rules/`.
-- **Serves** DIS-105, DIS-119 to DIS-122, MUS-143 to MUS-146, MUS-149,
-  INT-138; API-PL-05, API-PL-06.
-- **Security.** Boundaries TB4; threats TM-T09, TM-T15. Verifies no
-  requirement of its own: it holds no security control, and the rules it
-  relies on are proved by the packages that own them.
-- **Scope.** Save, rename and delete rule trees as versioned documents
-  (latest wins); bind the rule language's field IDs to the catalogue
-  tables; evaluate smart playlists on the server for tools reading them
-  through the API, re-evaluated when the library or the rule changes.
-- **Tests (real SQLite).** For a small synthetic library and a set of
-  rules, the items the server returns equal literal expected ID lists
-  worked out by hand. The server evaluates with the core's `evaluate`, so
-  comparing server output with the core's own output over the same data,
-  as first planned, would pass even if both were wrong; what can differ
-  between the two sides is the field binding, so a property checks that
-  for arbitrary rows the server's binding (from cache rows) and the synced
-  record's binding (WP-040's field accessors) return the same value for
-  every field ID (the same-result promise of DIS-119). An unknown rule
-  node from a newer client is kept.
-
-### WP-093 Manual playlists and pins
+### WP-093 Manual playlists (was: manual playlists and pins)
 
 - **Wave** 3 · **Size** M · **Depends on** WP-065, WP-067, WP-068, WP-118.
 - **Owns** `crates/gunmetal-server/src/playlists/`.
-- **Serves** MUS-132 to MUS-135, MUS-137, MUS-139, MUS-125, INT-138;
-  API-PL-01, API-PL-02, API-PL-07, API-PL-08, API-QUE-05.
+- **Serves** MUS-132, MUS-133; API-PL-01, API-PL-08. (The duplicate
+  warning, sorting and searching inside a playlist, automatic covers,
+  pinning and loving playlists and saving the queue as a playlist,
+  MUS-134, MUS-135, MUS-137, MUS-139, MUS-125, API-PL-02 and API-QUE-05,
+  are R1.1, WP-143; read-only folder playlists are R1.1, WP-112; the
+  tools' write API, INT-138 and API-PL-07, is R2 with WP-091.)
 - **Security.** Boundaries TB4; threats TM-T12. Verifies SEC-API-012.
 - **Scope.** Create, rename, add, reorder and remove, as log operations on
   entries with their own IDs that refer to tracks by content identity;
   concurrent adds both kept, a remove beats a concurrent move, reorders
-  relative to neighbours; the duplicate warning; pin and love; missing
-  entries kept with their last known title (owner decision 29); creating a
-  playlist from a list of items, which is how the client saves its queue,
-  authorising every item in the list and rejecting the whole request if
-  one is not visible (SEC-API-012). The write API for tools under a scoped
-  token moved to R2 with WP-091.
+  relative to neighbours; missing entries kept with their last known
+  title (owner decision 29); adding several items in one request (the
+  add-to-playlist sheet with a multi-item choice), authorising every item
+  in the list and rejecting the whole request if one is not visible
+  (SEC-API-012). The write API for tools under a scoped token moved to R2
+  with WP-091.
+- **Not in scope.** The R1.1 playlist features (WP-143) and the read-only
+  flag for folder playlists (WP-112, R1.1), both of which extend this
+  module after R1.
 - **Tests (real SQLite and log files).** Two adds at once keep both; a
   remove and a move at once keep the remove; a track removed from the
   catalogue (the test removes the row; the trash and purge are WP-111, two
   waves later, which repeats the case end to end) becomes a "missing"
-  entry and rematches when a row with the same identity returns; a
-  playlist with the read-only flag rejects edits (this package owns the
-  flag; WP-112 sets it on folder playlists).
+  entry and rematches when a row with the same identity returns; an add
+  of several items with one invisible item is rejected whole and changes
+  nothing.
 
 ### WP-094 Users and invitations
 
@@ -4899,16 +4896,19 @@ WP-091 moved to R2.
   WP-118. (The first draft also listed WP-063 for passwords, which no
   longer exist.)
 - **Owns** `crates/gunmetal-server/src/users/`.
-- **Serves** ACC-006, ACC-008, ACC-040, ACC-080, ADM-052; API-ADM-01 to
-  API-ADM-03.
+- **Serves** ACC-005, ACC-006, ACC-008, ACC-080, ADM-052; API-ADM-01 to
+  API-ADM-03. (Several administrators, ACC-040, are R1.2: WP-152 adds
+  making an administrator. In R1 the owner is the only administrator.)
 - **Security.** Boundaries TB4, TB11; threats TM-T13, TM-T14, TM-T65.
   Verifies SEC-IAM-003, SEC-IAM-044, SEC-IAM-073, SEC-IAM-078, SEC-IAM-079,
   SEC-IAM-080, SEC-IAM-103, SEC-API-058, SEC-API-096, SEC-NET-036,
-  SEC-PRV-026, SEC-PRV-053, SEC-STD-029.
+  SEC-PRV-026, SEC-PRV-031 (the invite landing, the R1 page reachable
+  without signing in that names a person; share pages join in R1.2 with
+  WP-134), SEC-PRV-053, SEC-STD-029.
 - **Scope.** List users with their libraries; enable and disable without
   deleting, a disable ending the account's sessions at once
-  (SEC-IAM-103); make an administrator; end any or all sessions of any
-  non-owner account (SEC-IAM-044); hand over ownership by a transfer that
+  (SEC-IAM-103); end any or all sessions of any non-owner account
+  (SEC-IAM-044); hand over ownership by a transfer that
   the current owner and the recipient each confirm with user verification
   in the previous 5 minutes (the route carries the fresh-uv tag that
   WP-062 enforces), so exactly one account holds the owner role
@@ -4919,8 +4919,8 @@ WP-091 moved to R2.
   and a use limit of 1 by default, revocable until used, and a preset no
   greater than the inviter's own capabilities and grants (SEC-IAM-078,
   SEC-IAM-073, SEC-API-096, SEC-NET-036); redemption enrols the invitee's
-  own passkey or OIDC link in the same transaction, never a shared
-  password, consumes the invitation with one conditional update
+  own passkey in the same transaction (an OIDC link as well from R1.2,
+  WP-096), never a shared password, consumes the invitation with one conditional update
   (SEC-STD-029), and, for an invitation that gives member rights or more
   than one library, leaves the account pending with no grants until the
   inviter confirms it after comparing a short matching code (SEC-IAM-079);
@@ -4929,7 +4929,9 @@ WP-091 moved to R2.
   before redeeming, the invitee sees a privacy notice generated from the
   server's actual configuration (SEC-PRV-053); the link and QR payload
   with the address it will carry and a warning when it is private (flows
-  G7); the invite landing that reveals nothing else; a wrong, expired, used
+  G7); the invite landing that reveals nothing else: no user name, other
+  users, library size or activity, with `X-Robots-Tag: noindex` and no
+  link-preview metadata (SEC-PRV-031); a wrong, expired, used
   or revoked invitation gives one indistinguishable failure through the
   credential verifier (SEC-API-058); redemption logged. No route lets an
   admin sign in as another person, and a change an admin makes to
@@ -4944,25 +4946,30 @@ WP-091 moved to R2.
   at once; the owner cannot be demoted, disabled or deleted, and a
   transfer without both fresh confirmations fails (property: no operation
   sequence yields zero or two owners); an admin's attempt on the owner's
-  sessions is refused; the invite landing reveals no user names; the log
-  canary shows the invitation secret never reaches a server log.
+  sessions is refused; the anonymous invite landing, compared whole,
+  names no user and carries `X-Robots-Tag: noindex` and no Open Graph
+  tags; the log canary shows the invitation secret never reaches a server
+  log.
 
 ### WP-095 Startup page, snapshots and cache rebuild
 
 - **Wave** 3 · **Size** M · **Depends on** WP-042, WP-046, WP-068, WP-069,
-  WP-070, WP-071, WP-118.
+  WP-070, WP-118. (It no longer depends on WP-071: the derived-data store
+  arrives in R1.1, and WP-071 then registers it as a rebuild input.)
 - **Owns** `crates/gunmetal-server/src/startup/`.
-- **Serves** ADM-032, ADM-056 to ADM-059, ADM-077, ADM-112, ADM-141;
-  API-SYS-07, API-LIB-06, API-SET-10.
+- **Serves** ADM-032, ADM-056 to ADM-059, ADM-077; API-SYS-07, API-LIB-06.
+  (Restart and shut down from the UI, ADM-112 and API-SET-10, are R1.2,
+  WP-155; the derived-data store kept across rebuilds, ADM-141, arrives
+  with WP-071.)
 - **Security.** Boundaries TB10; threats TM-T60. Verifies SEC-IAM-004,
   SEC-TM-051, SEC-OPS-048, SEC-OPS-050.
 - **Scope.** The page the server renders itself while it starts, migrates,
   rebuilds or restores, before the database opens; the pre-upgrade
-  snapshot and the migration check; rebuilding the cache from files, the
-  log and the derived-data store on request or when an older binary meets
-  newer data, by calling the projection rebuilders that modules register
-  (queue, listening, playlists, rules, curation) and requesting a full
-  library scan from the task runner; restart and shut down.
+  snapshot and the migration check; rebuilding the cache from the files
+  and the log on request or when an older binary meets newer data, by
+  calling the projection rebuilders that modules register (in R1 the
+  queue, listening and playlists; rules and curation register theirs in
+  R1.3) and requesting a full library scan from the task runner.
 - **Tests (real SQLite).** Starting a binary whose cache digest differs
   discards the cache, calls every registered rebuilder in order (a fake
   rebuilder registered by the test records its calls and the stream it
@@ -4974,75 +4981,15 @@ WP-091 moved to R2.
   projection's replay is tested in its own package, and the whole round
   trip is in WP-117.
 
-### WP-096 Single sign-on
-
-- **Wave** 3 · **Size** L · **Depends on** WP-046, WP-047, WP-048, WP-062,
-  WP-118.
-- **Owns** `crates/gunmetal-server/src/oidc/`.
-- **Serves** ACC-057, ACC-003; API-AUTH-06, API-SET-03.
-- **Security.** Boundaries TB4, TB8; threats TM-T07, TM-T30, TM-T32.
-  Verifies SEC-IAM-026, SEC-IAM-027, SEC-IAM-028, SEC-IAM-029, SEC-IAM-030,
-  SEC-IAM-031, SEC-IAM-032, SEC-IAM-033, SEC-IAM-034, SEC-IAM-035,
-  SEC-IAM-036, SEC-IAM-107, SEC-TM-022, SEC-STD-025, SEC-CLI-026,
-  SEC-HIS-032, SEC-API-070, SEC-API-080, SEC-API-081, SEC-OPS-017.
-- **Scope.** Authorization-code flow with PKCE (S256), state and nonce
-  against the household's own provider, with the server as a confidential
-  client so no OAuth token reaches browser JavaScript, and implicit and
-  hybrid responses refused (SEC-IAM-026, SEC-CLI-026, SEC-TM-022);
-  discovery and keys fetched through the egress gate's OIDC purpose with
-  TLS verified and no redirect to another host (SEC-IAM-032); ID tokens
-  verified with keys from the provider's key set using algorithms pinned
-  per provider (never `none`, never a public key as an HMAC secret), with
-  `iss`, `aud`, `azp`, `exp`, `iat` and `nonce` checked (SEC-IAM-027);
-  each authorization request bound to the one provider it was sent to,
-  checking `iss` where RFC 9207 is advertised (SEC-IAM-034); requests
-  carrying exactly the configured scopes (SEC-STD-025); one exact
-  redirect URI on the configured origin and a post-sign-in return target
-  validated by the core (SEC-IAM-033, SEC-API-070, SEC-HIS-032);
-  identities keyed only by issuer and subject, never by email or name
-  (SEC-IAM-028); linking to an existing account only inside that
-  account's session after user verification in the last 5 minutes,
-  through WP-062's fresh-uv check, or by redeeming an invitation
-  (SEC-IAM-029); auto-registration off by
-  default, and when on, new accounts get no grants until an admin
-  approves (SEC-IAM-030); provider claims never confer the owner role,
-  and mapping a claim to administrator is off by default (SEC-IAM-031);
-  sessions from OIDC get Gunmetal's lifetimes and end when the link is
-  removed or the account disabled (SEC-IAM-035); admin elevation for an
-  account with no passkey needs a fresh provider sign-in under 5 minutes
-  old and never satisfies a fresh-uv action (SEC-IAM-036, SEC-IAM-107);
-  no URL from a claim, such as a picture, is ever fetched (SEC-API-080);
-  provider responses decoded into typed structures with size limits
-  (SEC-API-081); provider configuration with a test button; the client
-  secret in the vault, decrypted only for the token request and handed to
-  the egress client as a `Secret` header value (SEC-OPS-017).
-- **Tests.** Against a provider simulated in the test (its own key pair and
-  discovery document served locally): a valid login; `alg: none`; an
-  HMAC-signed token using the public key as the secret; a wrong audience;
-  an expired token; a replayed nonce; a redirect to an unlisted URL; a
-  hostile provider returning a victim's email under a new subject (no
-  link); a mix-up between two configured providers; a provider with an
-  untrusted certificate (fails closed); a cross-host redirect from the
-  token endpoint (refused); a claim mapped to owner (ignored); elevation
-  through a provider that ignores `max_age` (refused); a picture URL in
-  the claims (never fetched, checked through the egress record). The
-  simulated provider signs with each algorithm R1 accepts, which means
-  RS256 as well unless the owner limits R1 to ES256 and EdDSA providers.
-- **Risks.** Hand-written versus the `openidconnect` crate is owner
-  decision 10, and so is RSA verification, which the proposed crate list
-  lacks (see "Missing from this table"). The client secret no longer has
-  an open question: WP-047 decrypts it only for the call and the egress
-  client is the one other place allowed to expose it, to write the
-  header.
-
-### WP-097 Alerts, log rotation, free space and crash records
+### WP-097 Alerts, log rotation and free space (was: alerts, log rotation, free space and crash records)
 
 - **Wave** 3 · **Size** M · **Depends on** WP-048, WP-062 (revoking a
   device and bumping its epoch), WP-069, WP-070, WP-118, WP-138 (the
   retention schedule).
 - **Owns** `crates/gunmetal-server/src/ops/`.
-- **Serves** ADM-083, ADM-116, ADM-119, ADM-129, ADM-130; API-SET-02
-  (network activity page), API-SET-07.
+- **Serves** ADM-083, ADM-116, ADM-119, ADM-129; API-SET-02 (network
+  activity page), API-SET-07. (Local crash records, ADM-130, are R1.2,
+  WP-155.)
 - **Security.** Boundaries TB8, TB11; threats TM-T16, TM-T61. Verifies
   SEC-OPS-031, SEC-OPS-032, SEC-OPS-033 (the action revokes the device or
   credential, ends its sessions and bumps the epoch; that the next range
@@ -5071,8 +5018,7 @@ WP-091 moved to R2.
   (WP-138), with log files readable only by the service account
   (SEC-PRV-045); the
   free-space guard that alerts and refuses writes that would fill the
-  disk; local crash records; the network activity page reading the egress
-  record.
+  disk; the network activity page reading the egress record.
 - **Tests.** One integration test per alert trigger: exactly one alert with
   the expected recipients and message key, and none for a known device
   re-authenticating; a flood of failed sign-ins followed by a new admin
@@ -5097,7 +5043,11 @@ WP-091 moved to R2.
 - **Wave** 3 · **Size** M · **Depends on** WP-060, WP-065, WP-070, WP-118.
 - **Owns** `crates/gunmetal-fs/src/watch.rs`,
   `crates/gunmetal-server/src/triggers/`.
-- **Serves** LIB-013, LIB-014, LIB-015, LIB-017, INT-011; API-SCAN-02.
+- **Serves** LIB-013, LIB-014, LIB-015, LIB-017, LIB-012 (an admin's
+  refresh of one folder); API-SCAN-02, API-CAT-13 (rescanning one item is
+  an admin's path-scoped refresh of its folder, since WP-107, which first
+  served it, is R1.3). (Refresh by tools under a scoped key, INT-011, is
+  R2 with WP-091.)
 - **Security.** Boundaries TB9; threats TM-T09. Verifies SEC-API-064.
 - **Scope.** Watch local disks with debounce, poll shares and cloud mounts
   at the configured interval and parallelism, run the scheduled safety-net
@@ -5117,13 +5067,17 @@ WP-091 moved to R2.
 - **Wave** 3 · **Size** M · **Depends on** WP-024, WP-060, WP-062 (the
   fresh-uv check), WP-065, WP-067, WP-070, WP-118.
 - **Owns** `crates/gunmetal-server/src/libraries/`.
-- **Serves** LIB-001, LIB-003 to LIB-007, LIB-011, LIB-031, LAT-010, DIS-012,
-  ADM-025, ADM-089, ACC-037, MUS-027, MUS-035 (rules storage); API-LIB-01
-  to API-LIB-05, API-LIB-07, API-SCAN-01.
+- **Serves** LIB-001, LIB-003 to LIB-005, LIB-007, LIB-011, ADM-025,
+  ADM-089, ACC-037, MUS-027, MUS-035 (rules storage); API-LIB-01 to
+  API-LIB-04, API-LIB-07, API-SCAN-01. (Exclusion rules, LIB-006, are
+  R1.1, WP-140; changing a root's location with a preview, LIB-031 and
+  API-LIB-05, is R1.1, WP-150; keeping a library off Home, DIS-012, is
+  R1.2, WP-154; the spoken-word flag, LAT-010, is R1.3, WP-161.)
 - **Security.** Boundaries TB9, TB11; threats TM-T13, TM-T56. Verifies
   SEC-API-022, SEC-MED-037, SEC-TM-042.
-- **Scope.** Create and configure libraries (kind, roots, spoken-word flag,
-  keep off Home, splitting rules, exclusions, watch and poll settings);
+- **Scope.** Create and configure libraries (kind, roots, splitting
+  rules, watch and poll settings; the point releases add exclusions, the
+  keep-off-Home switch and the spoken-word flag to the same settings);
   the folder browser, admin-only, listing directories only and confined
   to admin-configured browse roots after canonicalising and resolving
   links (SEC-API-022), with live checks (readable, empty, storage type,
@@ -5133,36 +5087,35 @@ WP-091 moved to R2.
   data, cache, configuration or log directories, with the reason shown
   (SEC-MED-037, SEC-TM-042); grant and revoke routes, written through WP-065's grants API
   (WP-065 owns the table), with new libraries visible only to the owner and admins
-  until granted (owner decision 19); changing a root's location with a
-  preview; starting a scan by requesting the scan task kind from the task
-  runner, which WP-102 registers.
+  until granted (owner decision 19); starting a scan by requesting the
+  scan task kind from the task runner, which WP-102 registers.
 - **Tests (real SQLite and filesystem).** The data directory as a root is
   refused, and so are `/`, `/etc` and a parent of the data directory; a
   non-admin calling the folder browser gets 404; the browser refuses
   `..`, percent-encoded and symlinked escapes from its browse roots and
   never returns file contents; adding a root without fresh user
-  verification is refused; a new library
-  is invisible to members; moving a root to a copy matches every file in
-  the preview by its fingerprint (size, modification time and the head
-  and tail hash from WP-060), so identities are kept. Content identity
-  itself (WP-077) and the worker pool (WP-078) are in this same wave, so
-  the preview does not use them.
+  verification is refused; a new library is invisible to members until
+  granted, and a grant takes effect on the next request.
 
-### WP-100 Task list and activity log
+### WP-100 Job activity and the activity log (was: task list and activity log)
 
 - **Wave** 3 · **Size** M (was S in effect; it gained the audit routes,
   the investigation mode and the checkpoint head) · **Depends on**
   WP-062, WP-065, WP-069, WP-070, WP-118.
 - **Owns** `crates/gunmetal-server/src/tasklog/`.
-- **Serves** ADM-093, ADM-110, LIB-022, ADM-088; API-SCAN-04, API-SCAN-05.
+- **Serves** ADM-110, LIB-022; API-SCAN-04 (reading), API-SCAN-05. (The
+  task list with run, cancel and history, ADM-093, is R1.2, WP-155, over
+  the same routes; showing the bytes each scan read, ADM-088, is R1.3 and
+  needs only the counts WP-102 already writes into its activity entry.)
 - **Security.** Boundaries TB4, TB11; threats TM-T12, TM-T61. Verifies
   SEC-HIS-013, SEC-OPS-027 (the audit routes, their per-role response
   types and the investigation mode; the alert reaching the person
   end to end is WP-117's), SEC-OPS-075 (serving the checkpoint head).
-- **Scope.** Routes for the task list (run, cancel, progress, last run,
-  duration, errors) and the activity log (scans, "0 changed" rescans,
-  moves, re-reads after a parser update, imports) alongside the security
-  events from the audit log; an activity-entry interface the scan pipeline
+- **Scope.** Read-only routes for the jobs that are running or waiting
+  (progress, last run, duration, errors) and the activity log (scans,
+  "0 changed" rescans, moves, and from R1.1 re-reads after a parser
+  update and imports) alongside the security events from the audit log;
+  running and cancelling a task by hand is R1.2 (WP-155); an activity-entry interface the scan pipeline
   writes to. The audit routes, which no package owned although
   API-SCAN-05's capability row cites SEC-OPS-027: only the owner and
   holders of the audit capability read the full log, through WP-069's
@@ -5177,7 +5130,7 @@ WP-091 moved to R2.
   latest signed checkpoint head to admins' clients, which keep it off
   the host (SEC-OPS-075; the client's check at sign-in belongs to the
   client plan).
-- **Tests (real SQLite).** A member cannot read the task list; activity
+- **Tests (real SQLite).** A member cannot read the job list; activity
   entries page in order; an entry written by a fake producer appears with
   its counts. Every audit route replayed as owner, audit-capability
   holder, administrator, member, guest and anonymous caller against a
@@ -5190,23 +5143,34 @@ WP-091 moved to R2.
 
 ### WP-101 Built-in HTTPS by ACME
 
-- **Wave** 4 (moved from 3 in review, because WP-073 moved to wave 3) ·
-  **Size** L (was M) · **Depends on** WP-047, WP-048, WP-073, WP-097,
-  WP-125 (record 8).
+- **Wave** 4 (moved from 3 in review, because WP-073 moved to wave 3; it
+  stays in wave 4 for the adopted R1, see below) · **Size** L (was M) ·
+  **Depends on** WP-047, WP-048, WP-073, WP-097, WP-125 (record 8).
 - **Owns** `crates/gunmetal-server/src/acme/`.
-- **Serves** ADM-022, ACC-098, ADM-021.
+- **Serves** ADM-022, ACC-098, ACC-099, ADM-021.
 - **Security.** Boundaries TB1, TB8; threats TM-T11, TM-T32. Verifies
   SEC-NET-003, SEC-NET-004, SEC-NET-005, SEC-NET-006, SEC-NET-013,
-  SEC-NET-072, SEC-TM-010.
-- **R1, no longer an owner decision of this plan.** The security baseline
-  makes HTTPS for ordinary households an R1 surface, with ACME for the
-  project name service and for the owner's own domain (release scope
-  table; baseline owner decision 2). The first draft left R1 or a point
-  release open (this plan's decision 21).
-- **Scope.** Obtain and renew a certificate by ACME DNS-01, for a name from
-  the project name service (WP-135) or a domain the owner controls,
-  through the egress gate's ACME purpose, which is allowed before the
-  claim (SEC-OPS-007); generate the TLS key and the ACME account key from
+  SEC-NET-072, SEC-TM-010, SEC-OPS-007 (before the claim, the only
+  outbound connections are the ACME purpose's, and none at all with
+  tailnet or localhost naming; WP-117 repeats it over the whole server in
+  a network namespace).
+- **R1, and now the R1 path to HTTPS for a household with its own
+  domain.** The owner's answer to D-07 gives R1 three ways to HTTPS: the
+  owner's own domain with automatic certificates (this package), a
+  tailnet, or the same machine; the project name service and its client
+  moved to R2 (WP-129, WP-135). This package was already R1 (the first
+  draft left R1 or a point release open, this plan's decision 21). It
+  does not need to move earlier: setup (WP-080, wave 3) needs only a
+  secure context and does not call it, the first claim over an
+  own-domain name is proven end to end in WP-117, and it cannot move: it
+  hands certificates to WP-073's listener configuration, which is also
+  wave 3.
+- **Scope.** Obtain and renew a certificate by ACME DNS-01 for a domain the
+  owner controls, through the egress gate's ACME purpose (the CA and the
+  owner's DNS provider API), which is granted when the owner configures
+  the domain and is the one purpose allowed before the claim
+  (SEC-OPS-007), with the DNS provider token held in the secrets crate's
+  vault (WP-047) and decrypted only for the call; generate the TLS key and the ACME account key from
   the CSPRNG on the server and store them as 0600 files under
   `secrets/tls/`, never in the database or a backup in clear
   (SEC-NET-006); activate a new certificate only when its chain validates
@@ -5219,15 +5183,18 @@ WP-091 moved to R2.
   available, never serve the web client, sign-in or API in plaintext to
   non-loopback peers, and say so on the console, the log and the
   plaintext help page (SEC-NET-005); keep own domain, tailnet and
-  localhost working without the name service, each with a CI job
-  (SEC-NET-013). Hand the key to WP-073's listener.
+  localhost working, each with a CI job (SEC-NET-013), with no dependence
+  on a project service. Hand the key to WP-073's listener.
 - **Tests.** Against a local ACME test server (Pebble with a test DNS
   provider) if one can run in CI (unverified); renewal before expiry with
   a manual clock, and a property test of the renewal scheduler over random
   lifetimes and renewal windows; fixture chains (complete, missing
   intermediate, wrong root) for activation; key file modes; expired and
-  missing certificate fixtures giving the help page and no sign-in. If no
-  ACME test server can run inside the gate, the protocol steps are tested
+  missing certificate fixtures giving the help page and no sign-in; in an
+  isolated network namespace with an egress recorder, an unclaimed server
+  configured for its own domain contacts only the test CA and the test DNS
+  provider, and one configured for localhost contacts nothing
+  (SEC-OPS-007). If no ACME test server can run inside the gate, the protocol steps are tested
   against a fake written in the test from RFC 8555, and talking to a real
   ACME server becomes a manual check outside the gate, which is a weaker
   guarantee the owner should accept knowingly.
@@ -5369,12 +5336,15 @@ WP-091 moved to R2.
   exploit replay suite: the harness, which runs every file in `rivals/`
   in the normal gate, and one replay per R1 incident whose feature exists
   by wave 3, named after the incident and citing its SEC-HIS requirement.
+  This includes the replay for SEC-HIS-042's token incident in the form
+  R1 has, a stream URL whose session was revoked (WP-082's feature,
+  which exists by wave 3); WP-134 adds the share-link form in R1.2.
   Incidents in features that land later get their replay from the
   package that builds the feature, which adds a file to the registry
-  directory and lists SEC-HIS-066 in its own Security field: at least
-  the scanner (WP-102, SEC-HIS-017), artwork (WP-103, SEC-HIS-030),
-  restore (WP-109, SEC-HIS-019), playlist files (WP-112, SEC-HIS-018) and
-  share links (WP-134, SEC-HIS-042). WP-127's check fails the release
+  directory and lists SEC-HIS-066 in its own Security field: in R1 at
+  least the scanner (WP-102, SEC-HIS-017), artwork (WP-103, SEC-HIS-030)
+  and restore (WP-109, SEC-HIS-019); after R1, playlist files (WP-112,
+  SEC-HIS-018, R1.1) and share links (WP-134, SEC-HIS-042, R1.2). WP-127's check fails the release
   while any SEC-HIS ID has no test (SEC-HIS-066). As first written, this
   package claimed every replay in wave 3, before the scanner, artwork,
   restore, playlist-file and share-link packages existed. The API fuzzing
@@ -5481,20 +5451,26 @@ WP-091 moved to R2.
 
 ## Wave 4: scanning and the features that need it
 
-WP-088 and WP-101 (numbered in the wave 3 section) also run in this wave,
-and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
-(restore) is numbered here but runs in wave 5, after WP-106.
+WP-101 (numbered in the wave 3 section) also runs in this wave, and
+WP-121 and WP-133 are at the end of this section. WP-109 (restore) is
+numbered here but runs in wave 5, after WP-106. Curation (WP-107) left R1
+for R1.3, with its file inspector split off for R1.2 (WP-156), and music
+share links (WP-134) for R1.2; their specifications are in
+[After R1](#after-r1-point-releases-and-later).
 
 ### WP-102 Scan pipeline
 
 - **Wave** 4 · **Size** L · **Depends on** WP-060, WP-066, WP-067, WP-070,
-  WP-071, WP-075, WP-076, WP-077, WP-078, WP-079, WP-083, WP-100, WP-119.
+  WP-075, WP-076, WP-077, WP-078, WP-079, WP-083, WP-100, WP-119. (It no
+  longer depends on WP-071: the derived-data store arrives in R1.1.)
 - **Owns** `crates/gunmetal-server/src/scan/`.
 - **Serves** LIB-012, LIB-016, LIB-017, LIB-019 to LIB-022, LIB-029,
-  LIB-030, LIB-032, LIB-136, LIB-192 (hand-off), ADM-088, MUS-043,
-  MUS-044 (inputs); API-SCAN-01, API-SCAN-03, API-CAT-09, API-CAT-10; the
-  "Library scan" job. The parser-upgrade re-read (LIB-025) was split out
-  to WP-123 in review to keep this package within one session.
+  LIB-030, LIB-032, LIB-136, MUS-043, MUS-044 (inputs); API-SCAN-01,
+  API-SCAN-03, API-CAT-09, API-CAT-10; the "Library scan" job. The
+  parser-upgrade re-read (LIB-025) was split out to WP-123 in review and
+  is R1.1. (Folder playlists, LIB-192, are R1.1: WP-112 takes the hand-off
+  this scan records. Showing the bytes read, ADM-088, is R1.3 over the
+  counts this scan records.)
 - **Security.** Boundaries TB6, TB9; threats TM-T20, TM-T22, TM-T30, TM-T56.
   Verifies SEC-MED-016, SEC-MED-017, SEC-HIS-017, SEC-HIS-024, SEC-TM-069,
   SEC-API-080, SEC-HIS-066 (the replay for its incident), and the "from
@@ -5512,7 +5488,10 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   "214 files moved"); mark availability (playable, drive offline, damaged,
   missing), never deleting items, history, playlists or grants because a
   root went offline (SEC-TM-069); store each file's parser versions so
-  WP-123 can find stale ones; never launch a helper per file. Look up
+  the R1.1 re-read (WP-123) can find stale ones; never launch a helper
+  per file. A playlist file found in a library is detected by content and
+  recorded as a sidecar that R1 does not read, so nothing in it is
+  opened, parsed or fetched until WP-112 handles it in R1.1. Look up
   each identity's public ID in the identity store's mapping (WP-046),
   and mint a missing one only through WP-047's minting function. Files are classified by the content of the resolved target,
   never by name or extension (SEC-HIS-017), and nothing the scan reads
@@ -5543,20 +5522,31 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
 
 ### WP-103 Artwork cache and image serving
 
-- **Wave** 4 · **Size** M · **Depends on** WP-065, WP-067, WP-071, WP-078,
-  WP-079, WP-082. (WP-078 runs the re-encode of uploads; WP-065 and WP-067
-  answer which library an image belongs to.)
+- **Wave** 4 · **Size** M · **Depends on** WP-065, WP-067, WP-079,
+  WP-082. (WP-065 and WP-067 answer which library an image belongs to.
+  It no longer depends on WP-071, which arrives in R1.1, or on WP-078,
+  which it needed only to re-encode uploads; profile picture uploads
+  moved to WP-144 in R1.1.)
 - **Owns** `crates/gunmetal-server/src/artwork/`.
-- **Serves** LIB-142, LIB-143, MUS-040, ACC-125, ACC-011 (pictures);
-  API-STR-05, API-SYNC-05, API-USR-01 (pictures).
+- **Serves** LIB-142, LIB-143, MUS-040, ACC-125 (extracted artwork is
+  stored only under server-generated names); API-STR-05, API-SYNC-05.
+  (Profile pictures, ACC-011 and API-USR-01's picture part, are R1.1,
+  WP-144.)
 - **Security.** Boundaries TB4, TB6; threats TM-T09, TM-T28, TM-T29.
-  Verifies SEC-MED-046, SEC-MED-047, SEC-MED-048, SEC-MED-061, SEC-API-027,
-  SEC-API-051, SEC-API-085, SEC-API-087, SEC-API-088, SEC-PRV-006,
+  Verifies SEC-MED-046, SEC-MED-047, SEC-MED-048, SEC-API-027,
+  SEC-API-051, SEC-API-087 (extracted artwork named by content hash),
+  SEC-PRV-016 (the server's own origin is the only source of artwork),
   SEC-TM-035, SEC-HIS-006, SEC-HIS-031, SEC-HIS-037, SEC-CLI-005,
   SEC-HIS-066 (the replay for the artwork incident of SEC-HIS-030, a file
-  this package adds to `tests/rivals/`).
+  this package adds to `tests/rivals/`). The upload rules it verified
+  (SEC-MED-061, SEC-PRV-006, SEC-API-085, SEC-API-088) went with profile
+  pictures to WP-144; in R1, SEC-API-085 is proved by restore's upload
+  (WP-109) and SEC-API-088 by WP-130.
 - **Scope.** The derivative cache keyed by content hash and size, bounded in
-  bytes with least-recently-used eviction (SEC-MED-048); image routes that
+  bytes with least-recently-used eviction (SEC-MED-048), stored in the
+  data directory under server-generated content-hash names, never in a
+  library folder and never under a name taken from a request or a file
+  (SEC-API-087); image routes that
   accept a size only from the fixed enumeration (SEC-MED-047,
   SEC-HIS-037); artwork served only from capability URLs, like media,
   with the 1-hour lifetime aligned to a fixed time bucket so repeat
@@ -5569,56 +5559,51 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   server generated are served, as an allow-listed raster type chosen from
   the content, never the original bytes (SEC-MED-046, SEC-CLI-005,
   SEC-TM-035), with the server-chosen `Content-Type` and `nosniff`
-  (SEC-API-051, SEC-HIS-031). Profile picture uploads: the route declares
-  its types, byte cap and pixel cap, decides the type from magic bytes and
-  ignores the client's filename and `Content-Type` (SEC-API-085); the body
-  is size-capped while it streams (SEC-MED-061), re-encoded through the
-  worker with EXIF, XMP and IPTC removed (SEC-PRV-006), and stored by a
-  server-generated content hash in the data directory, never in a library
-  folder and never under a name from the request (SEC-API-087); uploads
-  count against the per-principal quota (SEC-API-088).
+  (SEC-API-051, SEC-HIS-031); every image URL the server hands out is
+  relative to its own origin (SEC-PRV-016).
+- **Not in scope.** Profile picture uploads (WP-144, R1.1).
 - **Tests (real SQLite and files).** Sizes −100000, 0, 2^31, `abc` and a
   valid size with an invalid shape give 400; the cache never exceeds its
-  bound; an SVG upload, an HTML file named `.jpg` and a polyglot are
-  refused; an upload with EXIF, XMP and IPTC comes back without them; a
-  format field in the upload like the one in Jellyfin CVE-2026-35031
-  never reaches a path; an upload past the quota is refused; a member
-  cannot fetch artwork for a library they cannot see; two requests in one
-  time bucket get the same URL and one across the boundary does not; a
-  revoked session's artwork URL fails on the next request.
+  bound; a cached derivative's file name is its content hash whatever the
+  source file was called, including a source named with `..` and
+  separators; a member cannot fetch artwork for a library they cannot
+  see; two requests in one time bucket get the same URL and one across
+  the boundary does not; a revoked session's artwork URL fails on the
+  next request; every image URL in the artwork routes' responses is
+  server-relative.
 
-### WP-104 Playback session registry and stop
+### WP-104 Playback session registry and stream limits (was: playback session registry and stop)
 
-- **Wave** 4 · **Size** M · **Depends on** WP-082, WP-083.
+- **Wave** 4 · **Size** S (was M; the admin live view and stopping a
+  session moved to WP-153 in R1.2) · **Depends on** WP-082, WP-083.
 - **Owns** `crates/gunmetal-server/src/playback/`.
-- **Serves** ADM-099, ADM-100, ADM-102, ACC-072, ACC-073, INT-134,
-  MUS-190; API-SES-01, API-SES-02.
+- **Serves** ACC-075; API-SES-01 (the registry). (The admin's live view,
+  the decision reason per session, stopping a session with a message and
+  each person's opt-in for titles, ADM-099, ADM-100, ADM-102, ACC-072,
+  ACC-073, ACC-116, MUS-235, INT-134, MUS-190 and API-SES-02, are R1.2,
+  WP-153.)
 - **Security.** Boundaries TB4, TB11; threats TM-T17, TM-T18. Verifies
-  SEC-PRV-025, SEC-TM-054, SEC-IAM-077, SEC-IAM-102, SEC-HIS-014.
+  SEC-IAM-102, SEC-HIS-014, SEC-PRV-025 (the R1 part: no admin route
+  offers a view, search or export of another adult's history or of what
+  they are playing; WP-153 proves the live view's part in R1.2).
 - **Scope.** Record who plays what on which device, the delivery path and
   the decision reason the device reported, alongside what the server
-  actually served; enforce the per-account limit on concurrent playback
-  streams, counting playback and not browsing (SEC-IAM-102); the admin
-  now-playing view, which shows user, device, bitrate and playback method
-  but not the title unless that person opted in to showing titles, offers
-  no view of anyone's history, and is rate-limited, with each admin read
-  recorded in the subject's own security log (SEC-PRV-025, SEC-TM-054,
-  SEC-IAM-077); stopping a session with a plain-text message, which cuts
-  in-flight responses and pushes "stopped by the owner" to the device.
-  Only an admin may stop another person's session; nobody else can
-  control another person's playback (SEC-HIS-014).
-- **Tests (real SQLite).** Stopping a session ends its byte stream over a
-  real socket and the device's event stream receives the message as text
-  (markup in the message is not interpreted); the admin live view and its
-  events carry no title for an adult who has not opted in, and do for one
-  who has; an admin token gets 403 or 404 on every other-person Activity
-  route; a member cannot see or stop another person's session; the stream
-  above the per-account limit is refused. What members and admins see of
-  other people's sessions was this plan's owner decision 30; the baseline
-  answers it (live sessions without titles unless each person opts in,
-  baseline owner decision 5).
-- **Note.** "Pushes to the device" means publishing on the bus (WP-043),
-  which WP-083 forwards.
+  actually served, for the person's own devices; enforce the per-account
+  limit on concurrent playback streams, counting playback and not
+  browsing (SEC-IAM-102). In R1 no route shows the registry to anyone but
+  the person it belongs to: an admin sees no other person's sessions or
+  titles, and no other-person Activity route exists (SEC-PRV-025). Nobody
+  can control another person's playback (SEC-HIS-014).
+- **Not in scope.** The admin live view, the title opt-in and stopping a
+  session with a message (WP-153, R1.2).
+- **Tests (real SQLite).** The stream above the per-account limit is
+  refused, and browsing while at the limit is not; an admin token gets
+  403 or 404 on every other-person Activity route and on every route that
+  would list another person's sessions; a member cannot see or control
+  another person's session. What members and admins see of other people's
+  sessions was this plan's owner decision 30; the owner answered it on
+  2026-10-02 (who is playing and totals, not what, unless each person
+  opts in), and the live view that shows it is R1.2.
 
 ### WP-105 Audio packaging route (conditional on ADR 4)
 
@@ -5684,14 +5669,15 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   of a recent verification, the client runs a user-verifying passkey
   assertion here, and on success this route calls WP-062's
   `record_user_verification`, which renews the session's assertion time;
-  an OIDC sign-in can never renew it, and the owner always keeps at
-  least one non-OIDC credential (SEC-IAM-041, SEC-IAM-107, SEC-TM-017).
+  only a passkey assertion renews it (an OIDC sign-in, from R1.2, never
+  can, and WP-096 then keeps the owner on at least one non-OIDC
+  credential) (SEC-IAM-041, SEC-IAM-107, SEC-TM-017).
   The check itself, on every fresh-uv route, is WP-062's from wave 2; as
   first written it was built here, in wave 4, after the wave 3 packages
   whose fresh-uv routes needed it. Elevation issues a new session
   token (SEC-IAM-038). The person's sign-in methods page behind step-up:
-  list, add and remove passkeys and OIDC links (there are no passwords or
-  two-factor codes, SEC-IAM-025), adding or removing one notifying the
+  list, add and remove passkeys (OIDC links join the page in R1.2 with
+  WP-096; there are no passwords or two-factor codes, SEC-IAM-025), adding or removing one notifying the
   person's other devices (SEC-IAM-023), and removing the last one refused
   unless the account is being deleted (SEC-IAM-024). Recovery: recovery
   codes (WP-063) offered at the owner's and administrators' first
@@ -5717,8 +5703,9 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
 - **Tests (real SQLite).** Removing the last sign-in method is refused; a
   sensitive change without a recent verification asks for step-up, the
   step-up route with a valid UV assertion from WP-081's software
-  authenticator makes the same change succeed within 5 minutes, and an
-  OIDC-only sign-in never renews it; a recovery link works once and
+  authenticator makes the same change succeed within 5 minutes, and a
+  session whose last verification was not a passkey assertion (a test
+  credential kind) is never renewed; a recovery link works once and
   expires; an admin cannot issue one for the owner, and a property over
   issuer and target roles gives the literal allowed set; an admin who
   redeems a link they issued cannot read the member's history before the
@@ -5731,97 +5718,41 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   offered recovery codes, and on an insecure context no sign-in is
   offered.
 
-### WP-107 Curation and the file inspector
+### WP-108 Personal data export (was: history import and data export)
 
-- **Wave** 4 · **Size** M · **Depends on** WP-065, WP-067, WP-068, WP-070,
-  WP-076, WP-078 (probing on demand runs through the pool), WP-079,
-  WP-095.
-- **Owns** `crates/gunmetal-server/src/curation/`.
-- **Serves** MUS-007, LIB-041, LIB-058, LIB-179, LIB-012, ADM-125, LIB-195,
-  LIB-059, LIB-098; API-CAT-11 to API-CAT-13.
-- **Security.** Boundaries TB9, TB11; threats TM-T13. Verifies SEC-HIS-013,
-  SEC-API-068.
-- **Scope.** Merge, split and alias artists and albums as curation-log
-  events that survive rescans and rebuilds; rescan one item by requesting a
-  path-scoped scan; the file inspector for admins (every raw tag, the
-  structure the parsers read, the identification decision and "why is this
-  here", errors with offsets), probing the file through the worker on
-  demand.
-- **Tests (real SQLite and log files).** A merge is written as one
-  curation event and survives a cache rebuild through this package's
-  projection rebuilder; that it also survives a rescan is proven in the
-  core (WP-076 applies overrides on top of grouping) and end to end in
-  WP-117, because the scan (WP-102) is in this same wave; an alias makes
-  both names find the artist; the inspector
-  shows the exact problem offsets the probe reported; a member gets 404
-  from the inspector.
-- **Not in scope.** A parse summary for members. MUS-114's track info
-  sheet names the inspect API as its source, but the inspector is
-  admin-only; this plan assumes members see the technical fields already
-  in the synced copy, and admins get a link to the inspector (see Review
-  notes).
-
-### WP-108 History import and data export
-
-- **Wave** 4 · **Size** L (was M; it gained the full export in review) ·
-  **Depends on** WP-057, WP-061, WP-068, WP-070, WP-078, WP-079, WP-086,
-  WP-087, WP-090, WP-092, WP-093. (The export covers layouts and settings
-  from WP-087 and saved rules from WP-092 as well as plays and playlists;
-  imports are parsed by a worker job under WP-078's pool and WP-079's
-  dispatch.)
-- **Owns** `crates/gunmetal-server/src/history_io/`,
-  `crates/gunmetal-worker/src/jobs/import_file.rs`.
-- **Serves** ADM-042, ADM-074, MUS-188, MUS-189, ACC-010, DIS-058, INT-151,
-  INT-107; API-USR-05, API-USR-06, API-SET-04 (server export),
-  API-SET-11 (listening-service files).
-- **Security.** Boundaries TB4, TB6, TB10; threats TM-T09, TM-T18,
-  TM-T21. Verifies SEC-PRV-047, SEC-PRV-048, SEC-PRV-025, SEC-API-071,
-  SEC-API-085, SEC-STD-029, SEC-TM-055, SEC-MED-018, SEC-MED-020,
-  SEC-MED-023.
-- **Scope.** Upload Last.fm or ListenBrainz export files through an upload
-  route that declares its types and byte cap and decides the type from
-  content (SEC-API-085); the server stores the upload in scratch space and
-  never parses it. The `ImportFile` worker job receives it by read-only
-  descriptor (SEC-MED-020), decodes JSON or CSV and runs WP-057's parsers
-  there under the step budget, a memory cap and the pool's deadline
-  (SEC-MED-018), and returns typed rows that the server revalidates
-  before matching (SEC-MED-023). Match them in a job with progress, write
-  imported plays marked as imported, remove an import as a batch; build the
-  person's documented export of everything they told the server, without
-  admin involvement, as a versioned archive (native JSON Lines with a
-  field-by-field README, and ListenBrainz-format listens) (SEC-PRV-047,
-  SEC-TM-055); starting an export needs authentication within the last 5
-  minutes and is rate-limited per person, and the download is single-use,
-  bound to the requesting session and short-lived (SEC-PRV-048,
-  SEC-STD-029); any CSV quotes fields as RFC 4180 describes and
-  neutralises cells beginning with `=`, `+`, `-`, `@`, tab or carriage
-  return (SEC-API-071); build the owner's server export in the same
-  documented formats, as a fresh-uv action: settings without secrets,
-  library roots, the curation log, household data and the owner's own
-  data, never another adult's history, ratings or private playlists
-  (SEC-PRV-025, ADM-074). Each person exports their own data themselves
-  (SEC-PRV-047), and moving the whole server uses the encrypted backup
-  (WP-090). The first draft built "the owner's full export of every
-  person", which SEC-PRV-025 rules out. If this proves too large for one
-  session, the server export splits off as its own package in wave 5.
-- **Tests (real SQLite and log files).** Importing the same file twice adds
-  nothing the second time; removing an import removes exactly its plays;
-  unmatched rows land in the unmatched list with reasons; the export
-  contains a removed play only as its removal, and another person's data
-  never; the owner's server export of a two-person server, compared with
-  a literal expected document, contains no history event, rating or
-  private playlist of the other adult, and no secret (canary); an export
+- **Wave** 4 · **Size** M (was L; the history import moved to WP-145 in
+  R1.1 and the owner's server export to WP-158 in R1.2, the split this
+  package already foresaw) · **Depends on** WP-062 (the fresh
+  verification), WP-068, WP-070, WP-086, WP-087, WP-093, WP-118. (The
+  export covers settings from WP-087 as well as plays, loves and
+  playlists; saved rules join it in R1.3 with WP-092.)
+- **Owns** `crates/gunmetal-server/src/history_io/`.
+- **Serves** MUS-188, ACC-010, DIS-058, INT-151; API-USR-05. (Importing
+  Last.fm and ListenBrainz files, ADM-042, MUS-189, INT-107, API-USR-06
+  and API-SET-11, is R1.1, WP-145; the owner's server export, ADM-074 and
+  API-SET-04's export part, is R1.2, WP-158.)
+- **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies
+  SEC-PRV-047, SEC-PRV-048, SEC-API-071, SEC-STD-029, SEC-TM-055.
+- **Scope.** Build the person's documented export of everything they told
+  the server, without admin involvement, as a versioned archive (native
+  JSON Lines with a field-by-field README, and ListenBrainz-format
+  listens) (SEC-PRV-047, SEC-TM-055); starting an export needs
+  authentication within the last 5 minutes and is rate-limited per
+  person, and the download is single-use, bound to the requesting session
+  and short-lived (SEC-PRV-048, SEC-STD-029); any CSV quotes fields as RFC
+  4180 describes and neutralises cells beginning with `=`, `+`, `-`, `@`,
+  tab or carriage return (SEC-API-071). Each person exports their own
+  data themselves (SEC-PRV-047), and moving the whole server uses the
+  encrypted backup (WP-090).
+- **Not in scope.** Uploading and importing history files (WP-145, R1.1).
+  The owner's server export (WP-158, R1.2).
+- **Tests (real SQLite and log files).** The export contains a removed
+  play only as its removal, and another person's data never; an export
   started with stale authentication is refused; the download link works
   once and only for its session; a title starting with `=` is neutralised
-  in CSV (property over generated titles); a round trip of random activity
-  through export and import gives the same activity. Hostile input, with
-  the test-hook feature: an import worker that panics on a hostile export,
-  and one that loops past its deadline on a deeply nested JSON file, each
-  fail that import with a typed problem while the server keeps serving
-  and a second import completes; a fake worker returning a row with an
-  out-of-range timestamp or an oversized string is refused by the
-  server's revalidation; WP-001's dependency check shows `serde_json`
-  decoding of uploads has no call path in the server crate.
+  in CSV (property over generated titles); the export of a person's
+  generated activity, read back by an independent parser written in the
+  test from the documented format, gives the same activity.
 
 ### WP-109 Restore
 
@@ -5834,17 +5765,27 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   which those packages project.)
 - **Owns** `crates/gunmetal-server/src/restore/`,
   `crates/gunmetal-worker/src/jobs/sqlite_check.rs`.
-- **Serves** ADM-029, ADM-051, ADM-070, ADM-071, ACC-013; API-SET-04
-  (restore), API-SET-05.
+- **Serves** ADM-029, ADM-071, ADM-069 (the upload half), ACC-013,
+  ACC-125 (the uploaded backup); API-SET-04 (restore), API-SET-05.
+  (Restore from the UI with a restore point and a preview, ADM-070, is
+  R1.2, WP-157; remapping library roots onto a new machine, ADM-051 and
+  LIB-031, is R1.1, WP-150.)
 - **Security.** Boundaries TB10, TB11; threats TM-T59, TM-T60. Verifies
   SEC-OPS-008, SEC-OPS-024, SEC-OPS-043, SEC-OPS-044, SEC-STD-031,
   SEC-TM-052, SEC-HIS-019, SEC-HIS-066 (the replay for the archive
   incident of SEC-HIS-019, a file this package adds to `tests/rivals/`),
-  and, for the links offered after a domain change, SEC-IAM-091 and
-  SEC-IAM-106.
-- **Scope.** Restore from the UI with a restore point and a preview, as an
-  owner, fresh-uv action; from the command line; and from the welcome
-  screen behind the same setup code as claiming (flows G15, SEC-OPS-008);
+  SEC-API-085 (the backup upload, R1's one upload route, now that profile
+  pictures and history imports are R1.1), and, for the links offered
+  after a domain change, SEC-IAM-091 and SEC-IAM-106, and SEC-NET-072's
+  origin-migration part (the changed-domain warning and re-enrolment).
+- **Scope.** Restore from the command line, and from the welcome screen
+  behind the same setup code as claiming (flows G15, SEC-OPS-008); the
+  welcome screen takes the backup through an upload route that declares
+  its one type and its byte cap, decides the type from the file's own
+  header and ignores the client's file name and `Content-Type`, and
+  stores the upload in scratch space under a server-generated name
+  (SEC-API-085); restoring from the UI of a running server, with a
+  restore point and a preview, is R1.2 (WP-157);
   verify the backup signature and the age encryption tags, and show which
   server made the backup and when, before anything is written
   (SEC-OPS-043, SEC-TM-052); extract the archive only under record 10's
@@ -5856,8 +5797,10 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   `cell_size_check` on, memory mapping off and `quick_check` passed, so
   its contents reach the server only as typed rows (SEC-STD-031); check
   that the live audit log extends the backup's signed checkpoint
-  (SEC-OPS-024); remap library roots in a dry run; show the old address
-  from the backup, recommend keeping it, and warn when the domain changed
+  (SEC-OPS-024); keep each library root's path as the backup recorded it,
+  so a root that is not present on the new machine shows as offline and
+  nothing under it is removed (SEC-TM-069; remapping roots in a dry run is
+  R1.1, WP-150); show the old address from the backup, recommend keeping it, and warn when the domain changed
   (flows G3, SEC-NET-072). When it changed, the restore offers recovery
   enrolment links, which are WP-106's links under its rules, not a
   separate sign-in path: administrators issue them for members and guests,
@@ -5882,7 +5825,12 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   hostile database (a crafted schema, a trigger, a view, an oversized
   cell) at restore-at-setup changes nothing, and the database fuzz
   target runs in CI; a restore attempted on an unclaimed server without
-  the setup code is refused; back up, revoke a device, restore: the
+  the setup code is refused; an upload whose name and `Content-Type`
+  claim a backup but whose bytes are not one, an oversized upload and a
+  truncated one are each refused before anything is written, and the
+  stored upload's name contains nothing from the request; a backup whose
+  library roots are absent restores with those roots offline and every
+  item kept; back up, revoke a device, restore: the
   device's old session fails and the review alert names it; rewriting
   audit history after a backup makes the checkpoint check fail. Restore
   under a new domain: the restore offers no link for the owner; a link
@@ -5899,18 +5847,20 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   wave 5), `packaging/` except `packaging/proxies/` (the container build
   file, a compose example, NAS templates, the systemd unit template and
   an install script), `crates/gunmetal-server/src/service/`.
-- **Serves** ADM-002, ADM-003, ADM-004, ADM-005; ADM-128 (the container
-  health check uses WP-089's route). No package served these R1 rows.
+- **Serves** ADM-002, ADM-003, ADM-005; ADM-128 (the container health
+  check uses WP-089's route). No package served these R1 rows. (Builds
+  for small ARM boards, including 32-bit, ADM-004, are R1.3, WP-160: the
+  owner's answer to D-09 makes R1 servers Linux on x86-64 and ARM64 plus
+  a Docker image.)
 - **Security.** Boundaries TB12; threats TM-T54. Verifies SEC-TM-012,
   SEC-TM-041, SEC-IAM-005, SEC-MED-042, SEC-OPS-038, SEC-OPS-046,
   SEC-OPS-053, SEC-OPS-056, SEC-OPS-057, SEC-SUP-045, SEC-SUP-046.
 - **Scope.** Linux release builds only, as the baseline's release scope
   says (macOS and Windows server builds wait for their sandbox profiles,
   SEC-MED-082 in R2; the first draft's owner decision 18 would have built
-  them with a reduced tier): x86-64 and 64-bit ARM, plus a 32-bit ARM
-  build labelled with the reduced isolation tier and not claimed as
-  supported until its seccomp answer is recorded (SEC-MED-024; owner
-  decision 24); the release profile's `overflow-checks`; no default
+  them with a reduced tier): x86-64 and 64-bit ARM only (owner answer to
+  D-09; the 32-bit ARM build is R1.3, WP-160); the release profile's
+  `overflow-checks`; no default
   account, password, key or secret in any binary, image or package, and a
   secret scan over every built artefact (SEC-TM-012, SEC-IAM-005). A
   container image built from distroless static or cc, or scratch, pinned
@@ -5947,7 +5897,7 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   `--read-only --cap-drop=ALL --security-opt=no-new-privileges` and an
   arbitrary non-root UID and asserts a non-zero UID, empty capability
   sets, the home posture and a passing health check, a test that the image
-  started as root refuses to run, and a smoke run of the 32-bit ARM build
+  started as root refuses to run, and a smoke run of the 64-bit ARM build
   under emulation if CI can provide one (unverified). That is weaker than
   the gate, and this package says so in its pull request rather than
   hiding it.
@@ -6003,260 +5953,102 @@ and WP-121, WP-133 and WP-134 are at the end of this section. WP-109
   WP-069's API and `audit verify` passing after the sweep; running the
   sweep twice equals running it once.
 
-### WP-134 Music share links (added for the security baseline)
-
-- **Wave** 4 · **Size** M · **Depends on** WP-031, WP-047, WP-064, WP-065,
-  WP-069, WP-082, WP-097, WP-118.
-- **Owns** `crates/gunmetal-server/src/shares/`.
-- **Serves** ACC-086, ACC-087, ACC-088 (moved from R2 for music);
-  MUS-151.
-- **Security.** Boundaries TB1, TB4; threats TM-T04, TM-T16, TM-T67.
-  Verifies SEC-API-097, SEC-PRV-031, SEC-MED-051, SEC-HIS-042, SEC-STD-008,
-  SEC-STD-024, SEC-STD-029, SEC-TM-028, SEC-HIS-066 (the replay for the
-  share-token incident of SEC-HIS-042, a file this package adds to
-  `tests/rivals/`).
-- **Why it exists.** The baseline puts music share links in R1 (the
-  release scope table; SEC-API-097; baseline owner decision 7), where the
-  feature map has them in R2. This is the recommendation's R1 scope:
-  music only, listen-only by default. Video links stay in R2, off by
-  default (WP-223).
-- **Scope.** A person shares one track, album or playlist. The link
-  carries a secret of at least 128 bits in the URL fragment, which the
-  landing page sends in a request body; the link is scoped to one object
-  and its rights (listen-only by default, downloads only when the owner
-  allows them server-wide), takes its owner from the session, never from
-  the request, and expires after 30 days by default (SEC-API-097). An
-  optional password accepts any Unicode with no composition rules and at
-  least 64 characters (SEC-STD-008), is stored with the Argon2id helper
-  (SEC-STD-024), and is a pathway of the credential verifier with the
-  guessable-secret delays. Per-link limits: 2 concurrent streams by
-  default, a total-bytes or uses cap consumed by one conditional update
-  (SEC-STD-029), and a distinct-address count that suspends the link and
-  alerts the sharer when exceeded. Streams under a share use capability
-  URLs bound to the share and re-checked on every request, so deleting
-  the share stops playback on the next range request (SEC-HIS-042,
-  SEC-TM-028); what the link exposes is evaluated with the sharer's
-  current rights at request time (SEC-MED-051). The share page reveals
-  no username, other users, library size or activity, sends
-  `X-Robots-Tag: noindex`, and sends no link-preview metadata unless the
-  sharer turns it on (SEC-PRV-031). Links are visible and editable only by
-  their owner and admins.
-- **Tests (real SQLite).** The cross-principal and revocation suites as for
-  SEC-API-011 and SEC-API-028: another person cannot list, edit or delete
-  the share; a deleted or expired share fails on the next range request
-  over a real socket; the third concurrent stream is refused; the
-  distinct-address limit suspends the link and raises exactly one alert;
-  a wrong password runs into the delays; preview tags are absent by
-  default; the anonymous share page, compared whole, names no user; 64
-  concurrent uses of a one-use link give one success.
-- **Risks and decisions.** Whether R1 ships share links at all is the
-  baseline's owner decision 7; if the owner keeps them in R2, this package
-  moves to wave 7 with WP-223.
-
 ## Waves 5 and 6: health, jobs, benchmark and acceptance
 
 WP-109 (restore, numbered in the wave 4 section) also runs in wave 5.
+Playlist files (WP-112), the parser-upgrade re-read (WP-123) and metadata
+providers (WP-137) left R1 for R1.1; the neighbour and rule jobs (WP-113)
+and loudness analysis (WP-114) for R1.3; and the naming client with CT
+monitoring (WP-135) for R2. Their specifications are in
+[After R1](#after-r1-point-releases-and-later).
 
 ### WP-110 Library health and root health
 
-- **Wave** 5 · **Size** M · **Depends on** WP-045, WP-060, WP-074, WP-078,
-  WP-090, WP-097, WP-102, WP-106, WP-119. The roll-up in API-HLTH-05
-  reports backups and verification (WP-090), advisories (WP-074) and
-  recovery use (WP-106), none of which was a dependency as first written;
-  token expiry left with WP-091 for R2.
+- **Wave** 5 · **Size** M · **Depends on** WP-045, WP-060, WP-078, WP-097,
+  WP-102, WP-119. (The admin home's roll-up, which reported backups,
+  advisories and recovery use and so needed WP-090, WP-074 and WP-106, is
+  R1.2 and moved to WP-155; token expiry left with WP-091 for R2.)
 - **Owns** `crates/gunmetal-server/src/health/`.
-- **Serves** MUS-044, LIB-014 (warning), LIB-032, LIB-034, LIB-193,
-  LIB-194, ADM-108, ADM-109, MUS-229; API-HLTH-01, API-HLTH-02,
-  API-HLTH-05.
+- **Serves** MUS-044, LIB-014 (warning), LIB-032, LIB-193, ADM-108,
+  MUS-229; API-HLTH-01, API-HLTH-02. (Tag problems with suggested fixes
+  and the missing-files list, LIB-194 and LIB-034, are R1.1, WP-149; the
+  health summary on the admin home, ADM-109 and API-HLTH-05, is R1.2,
+  WP-155.)
 - **Security.** Boundaries TB6, TB9; threats TM-T53. Verifies SEC-MED-019,
   SEC-MED-024, SEC-TM-045.
-- **Scope.** The health report (damaged and unreadable files, tag problems
-  with suggested fixes, same-name collisions, sidecar problems, formats a
-  supported browser cannot decode, missing and moved files, offline roots,
-  watch warnings), each root's reachability, and the admin home's roll-up.
-  The report lists quarantined files with the reason (SEC-MED-019) and
-  shows the isolation tier the worker reached in plain language, with the
-  "reduced isolation" notice when a control is missing (SEC-MED-024,
-  SEC-TM-045).
-- **Tests (real SQLite).** A synthetic library with one of each problem
+- **Scope.** The health report (damaged and unreadable files, sidecar
+  problems, formats a supported browser cannot decode, offline roots,
+  watch warnings) and each root's reachability. The report lists
+  quarantined files with the reason (SEC-MED-019) and shows the isolation
+  tier the worker reached in plain language, with the "reduced isolation"
+  notice when a control is missing (SEC-MED-024, SEC-TM-045). The report
+  is a list of typed entries, so WP-149 adds its entry kinds in R1.1
+  without changing the others.
+- **Not in scope.** Tag problems, same-name collisions and missing or
+  moved files (WP-149, R1.1). The admin home's roll-up (WP-155, R1.2).
+- **Tests (real SQLite).** A synthetic library with one of each R1 problem
   yields exactly one entry of each kind; an offline root shows as offline
   and its items as greyed, not missing; a quarantined file appears with
   its reason; with each isolation probe forced to fail in turn, the page
   shows the exact notice text.
 
-### WP-111 Review queue, trash and purge
+### WP-111 Trash and purge (was: review queue, trash and purge)
 
-- **Wave** 5 · **Size** M · **Depends on** WP-068, WP-076, WP-093 (the
-  purged-track test reads a playlist), WP-102.
-- **Owns** `crates/gunmetal-server/src/review/`.
-- **Serves** LIB-033, LIB-099, LIB-051, ADM-086; API-HLTH-03, API-HLTH-04.
+- **Wave** 5 · **Size** S (was M; the review queue moved to WP-107 in
+  R1.3, because the review queue, LIB-099, is R1.3) · **Depends on**
+  WP-070, WP-093 (the purged-track test reads a playlist), WP-102.
+- **Owns** `crates/gunmetal-server/src/trash/` (the first draft's
+  `review/` is created by WP-107 in R1.3).
+- **Serves** LIB-033, ADM-086; API-HLTH-04. (The review queue, LIB-099
+  and API-HLTH-03, is R1.3, WP-107.)
 - **Security.** Boundaries TB9; threats TM-T56. Verifies SEC-TM-069.
-- **Scope.** Doubtful decisions with their evidence and a proposal; accept,
-  reject or choose another, stored in the curation log; the trash of items
-  whose files went missing with their purge date; restore and purge now;
-  the purge job, which never runs while a root is offline.
-- **Tests (real SQLite and log files).** An accepted review survives a
-  rebuild; a purge is skipped while a root is offline; a purged track
-  becomes a "missing" entry in a playlist.
+- **Scope.** The trash of items whose files went missing with their purge
+  date; restore and purge now; the purge job, which never runs while a
+  root is offline.
+- **Not in scope.** Doubtful decisions and the review queue (WP-107, R1.3).
+- **Tests (real SQLite and log files).** A purge is skipped while a root
+  is offline; an item restored from the trash keeps its history; a purged
+  track becomes a "missing" entry in a playlist.
 
-### WP-112 Playlist files: import, export and folder playlists
-
-- **Wave** 5 · **Size** M · **Depends on** WP-022, WP-057, WP-061, WP-078,
-  WP-079, WP-093, WP-102.
-- **Owns** `crates/gunmetal-server/src/playlist_files/`,
-  `crates/gunmetal-worker/src/jobs/playlist_file.rs`.
-- **Serves** MUS-140, LIB-192, ADM-043, ADM-044; API-PL-03, API-PL-04.
-- **Security.** Boundaries TB6, TB9; threats TM-T21, TM-T22. Verifies
-  SEC-MED-050, SEC-MED-051, SEC-HIS-018, SEC-API-085, SEC-MED-018,
-  SEC-MED-020, SEC-MED-023, SEC-HIS-066 (the replay for the
-  playlist-file incident of SEC-HIS-018, a file this package adds to
-  `tests/rivals/`).
-- **Scope.** Every playlist file is parsed in a worker, never in the
-  server process (principle 2, SEC-MED-018; a playlist found in a library
-  is a sidecar). Upload M3U and M3U8 files through an upload route that
-  declares its types and cap (SEC-API-085); the server stores the upload
-  in scratch space without reading it, and the `PlaylistFile` worker job
-  receives it, or a `.m3u` file the scan found, by read-only descriptor
-  (SEC-MED-020), runs WP-022's parser under the step budget and the
-  pool's deadline, and returns typed entries (normalised relative paths,
-  with dropped entries and their reasons) that the server revalidates
-  (SEC-MED-023). The server then resolves entries with the matcher and
-  reports matches and misses; exports as M3U8 with paths relative to a
-  library root (writing is server code and needs no parsing); turns
-  `.m3u` files found during a scan into read-only playlists with
-  "Duplicate to edit" (owner decision 29). Entries resolve
-  only to items already indexed in the same library, by normalised
-  relative path; URLs, absolute paths outside the library, `..` escapes
-  and artwork directives are dropped and listed in library health, never
-  opened or fetched (SEC-MED-050, SEC-HIS-018); playlist entries are
-  returned only for items the requester can access, evaluated at request
-  time (SEC-MED-051).
-- **Tests (real SQLite and files).** Entries pointing outside the library,
-  at `/etc/passwd`, at URLs or with `..` are dropped and reported; a
-  folder playlist in one library naming items of another library resolves
-  nothing there; a second user without access to a playlist's library
-  gets none of its entries; a folder playlist is read-only; export then
-  import of a playlist gives the same tracks. Property: for generated
-  entries, the resolver never returns an item outside the playlist's
-  library. Hostile input, with the test-hook feature: a playlist worker
-  that panics on a hostile uploaded M3U, and one that loops past its
-  deadline on a hostile `.m3u` found during a scan, each fail that file
-  with a typed problem in library health while the server keeps serving
-  and the scan finishes; a fake worker returning an entry with `..` or an
-  absolute path is refused by the server's revalidation; WP-001's
-  dependency check shows the server crate has no call path to the M3U
-  parser.
-
-### WP-113 Neighbour table and rule re-evaluation jobs
-
-- **Wave** 5 · **Size** S · **Depends on** WP-058, WP-092, WP-102.
-- **Owns** `crates/gunmetal-server/src/derived_jobs/`.
-- **Serves** DIS-060, DIS-121; API-SYNC-06, API-PL-06.
-- **Security.** Boundaries TB4; threats TM-T09. Verifies no requirement of
-  its own: it holds no security control, and the rules it relies on are
-  proved by the packages that own them.
-- **Scope.** The nightly and after-scan neighbour table rebuild within its
-  size budget, synced as a change; re-evaluation of server-side smart
-  playlists when the library changes.
-- **Tests (real SQLite).** A scan triggers one rebuild, not one per batch;
-  the table's size stays inside the budget.
-
-### WP-114 Loudness analysis job (conditional on ADR 5)
-
-- **Wave** 5 · **Size** M · **Depends on** WP-003 (ADR 5 accepted), WP-029,
-  WP-071, WP-078, WP-079, WP-102.
-- **Owns** `crates/gunmetal-worker/src/jobs/loudness.rs`,
-  `crates/gunmetal-server/src/loudness/`.
-- **Serves** MUS-086, MUS-089, LIB-024, ADM-095.
-- **Security.** Boundaries TB6; threats TM-T20, TM-T21. Verifies
-  SEC-MED-018.
-- **Scope.** At low priority after a scan, throttled and checkpointed,
-  decode untagged tracks in the worker and measure them; store results in
-  the derived-data store; mark the gain source as measured.
-- **Tests.** Synthetic tones encoded in the test (FLAC with verbatim
-  subframes is simple to write; other formats only if the testkit can
-  produce them without an external encoder); a file over 12 hours keeps its
-  tags only; a restart resumes from the checkpoint.
-
-### WP-115 Scan benchmark
+### WP-115 Scan benchmark and speed budget tests (was: scan benchmark)
 
 - **Wave** 5 · **Size** M · **Depends on** WP-054, WP-067, WP-084, WP-102,
   WP-119.
 - **Owns** `crates/xtask/src/bench.rs`. (The generator moved to WP-119 in
   wave 2, because wave 3 and 4 tests needed it.)
 - **Serves** README roadmap item "Benchmark: scan time against Jellyfin";
-  ADR 1 consequences; ADM-010, LIB-019, DIS-019.
+  ADR 1 consequences; LIB-019; the R1 budget tests behind DIS-084 and
+  CLI-022, and the data side of DIS-100's (register D-87). Its
+  measurements also feed two later rows that need no further code: the
+  published footprint numbers (ADM-010, R1.2) and the published speed
+  numbers (DIS-019, R1.1).
 - **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
 - **Scope.** Generate a library of a chosen size with WP-119; run
   Gunmetal's scan on it and record time, bytes read, peak memory and
-  database size; record the measurements other packages deliberately left
-  out of their tests (search index build time and memory at 100,000
-  tracks for WP-054, sync snapshot bytes and time for WP-084, batch commit
-  time for WP-067); document how to run the same library through Jellyfin
-  for the comparison, which is a manual run outside CI.
+  database size; record batch commit time for WP-067; document how to run
+  the same library through Jellyfin for the comparison, which is a manual
+  run outside CI. The speed budget tests (register D-87): the budgets are
+  enforced in the R1 gate, and only publishing the numbers waits for
+  DIS-019 in R1.1. On the reference low-end profile (2 cores and 1 GiB
+  enforced with cgroups, the profile WP-117's load test uses, until the
+  owner names the reference devices under owner decision 15), the gate
+  fails when, at 100,000 synthetic tracks, the search index build time
+  or memory or a search or browse query (WP-054), or the sync snapshot's
+  bytes or time (WP-084), exceed DIS-019's design goals. The render budget
+  for long lists (DIS-100) is the client plan's test in the same gate,
+  against the same goals and on a library from WP-119.
 - **Tests.** The benchmark's report format, written literally; the runner
-  on a ten-file library produces a report with every field present.
+  on a ten-file library produces a report with every field present. Each
+  budget test is checked to fail: run against a deliberately slowed
+  stand-in for the index build and for the snapshot, it reports the
+  budget it exceeded.
 - **Risks.** A synthetic library made of tiny files is not a real library:
   real files are larger and real tags messier, so the published comparison
   needs the owner's choice of library (owner decision 22). Jellyfin may be
   faster on some steps; the README promises to publish the numbers either
   way.
-
-### WP-123 Parser-upgrade re-read (split from WP-102 in review)
-
-- **Wave** 5 · **Size** S · **Depends on** WP-052, WP-070, WP-100, WP-102.
-- **Owns** `crates/gunmetal-server/src/reread/`.
-- **Serves** LIB-025, ADM-095; the "Parser-upgrade re-read" job.
-- **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
-  its own: it holds no security control, and the rules it relies on are
-  proved by the packages that own them.
-- **Scope.** At startup after an upgrade, compare each file's stored
-  parser versions (WP-102 stores them) with `PARSER_VERSIONS` (WP-052),
-  and request a throttled, resumable re-read of only the stale files
-  through the scan's path-set entry point; record an activity entry with
-  the count.
-- **Tests (real SQLite).** With the parser-version table overridden in the
-  test: bumping the FLAC version re-reads every FLAC and no other file;
-  an unchanged table re-reads nothing; a restart in the middle resumes
-  from the checkpoint and re-reads no file twice.
-
-### WP-135 Name-service client and Certificate Transparency monitoring (added for the security baseline)
-
-- **Wave** 5 · **Size** M · **Depends on** WP-048, WP-080, WP-097, WP-101,
-  WP-129; conditional on baseline owner decision 2, like WP-129's service.
-- **Owns** `crates/gunmetal-server/src/naming/`.
-- **Serves** ADM-021, ADM-022 (an HTTPS name with no domain of one's own).
-- **Security.** Boundaries TB8, TB12; threats TM-T11, TM-T33. Verifies
-  SEC-NET-010, SEC-NET-012, SEC-NET-069, SEC-NET-071, SEC-NET-072,
-  SEC-OPS-007.
-- **Why it exists.** With the name service in R1 (WP-129), the server
-  needs the client side: registering its label, answering DNS-01
-  challenges through the service, and watching for certificates issued
-  for its name by anyone else.
-- **Scope.** At install time, when the owner chose the name service,
-  generate a 128-bit random label on the server, not derived from any key
-  or address, and register it with the server's public key (SEC-NET-010);
-  before the claim, make no outbound connection except this registration
-  and ACME DNS-01 through WP-101, and print the name on the console
-  (SEC-OPS-007); at each renewal, check the label's CAA record and alert
-  if it is missing or wrong (SEC-NET-012); from the claim, monitor
-  Certificate Transparency for the label through at least two
-  independent monitors over the egress client, raising a critical owner
-  alert for a certificate the server did not request (SEC-NET-069); when
-  the service refuses, rate-limits or cannot be reached, keep working on
-  every other path and explain the failure and the alternatives in plain
-  words (SEC-NET-071); the claim page explains that the chosen name is
-  permanent for passkeys, and a documented, tested migration moves a
-  server to a new origin (SEC-NET-072).
-- **Tests.** The registration and TXT-update requests compared literally
-  against a local test name service; in an isolated network namespace
-  before the claim, the only connections are to the naming and ACME
-  purposes; a fake CT feed containing a foreign certificate raises exactly
-  one critical alert; a missing CAA record raises the alert; a refusing
-  test service leaves localhost and own-domain HTTPS working, with the
-  console message compared literally; an end-to-end origin migration.
 
 ### WP-136 Release provenance, signing, SBOMs and the feed publisher (added for the security baseline)
 
@@ -6348,29 +6140,621 @@ WP-109 (restore, numbered in the wave 4 section) also runs in wave 5.
   marker exists.
 - **Risks and decisions.** The offline TUF keys and the second maintainer
   are people and hardware, not code (baseline owner decision 19; this
-  plan's decision 32). Reproducibility of the 32-bit ARM build is
-  unverified.
+  plan's decision 32). Reproducibility of the 32-bit ARM build, which
+  joins in R1.3 (WP-160), is unverified.
 
-### WP-137 Metadata and cover-art providers (conditional, added for the security baseline)
+### WP-116 Doctor and the security summary (was: doctor, diagnostics bundle and emergency page)
 
-- **Wave** 5 · **Size** M · **Depends on** WP-048, WP-071, WP-079, WP-080,
-  WP-102; conditional on baseline owner decision 22, which recommends
-  MusicBrainz and cover-art lookups built in for R1, and on an ADR that
-  amends ADR 2's consequence that metadata lookups belong in plugins.
+- **Wave** 6 · **Size** S (was M; the diagnostic bundle, device reports
+  and the emergency page moved to WP-155 in R1.2) · **Depends on** WP-074,
+  WP-090, WP-097, WP-101, WP-110, WP-132.
+- **Owns** `crates/gunmetal-server/src/diagnostics/`.
+- **Serves** ADM-123, ADM-142. (The emergency page, the diagnostic bundle,
+  diagnostics a person reads first, local crash records and the
+  write-queue view, ADM-113, ADM-124, CLI-033, ADM-130, the ADM-080 view,
+  API-SYS-08, API-SET-08 and API-DEV-03, are R1.2, WP-155; the
+  derived-data store's part, ADM-141, arrives with WP-071.)
+- **Security.** Boundaries TB10, TB11; threats TM-T53, TM-T57. Verifies
+  SEC-OPS-054, SEC-OPS-061, SEC-HIS-055, SEC-MED-024. (SEC-OPS-030 and
+  SEC-PRV-046 moved with the diagnostic bundle to R1.2, WP-155;
+  SEC-OPS-050 and SEC-OPS-059 stay proved in R1 by WP-080, WP-089, WP-095
+  and WP-131.)
+- **Scope.** `gunmetal doctor --security` and the dashboard's security
+  status: root and capability state, file permissions, a media root or
+  the binary writable by the service account, internet exposure, trusted
+  proxies, backup age and encryption, audit verification, the version and
+  its advisories, the update check's state, and the isolation tier
+  (SEC-OPS-061, SEC-OPS-054, SEC-MED-024), plus `--fix-perms`; the
+  security summary logged at every start and shown on the admin home
+  (ADM-142): listening addresses, whether HTTPS is active and through
+  which path (own domain, tailnet, reverse proxy or localhost), trusted
+  proxies, enabled providers (none in R1) and admin accounts
+  (SEC-HIS-055).
+- **Not in scope.** The diagnostic bundle, accepting a person's device
+  report and the emergency page (WP-155, R1.2).
+- **Tests.** Doctor's checks each have a passing and a failing case, one
+  per failure mode; a snapshot of the start-up summary for fixed
+  configurations, one per HTTPS path.
+
+### WP-117 R1 flow acceptance tests
+
+- **Wave** 6 · **Size** M · **Depends on** every R1 package (waves 0 to
+  5; none of the packages in [After R1](#after-r1-point-releases-and-later)).
+- **Owns** `crates/gunmetal-server/tests/flows/`.
+- **Serves** flows.md F01 to F03, F05, F06, F10, F12 to F16 (server side),
+  each in the form the adopted R1 has (for example F14 restores with the
+  same library paths, and F01 claims over each of R1's HTTPS paths).
+- **Security.** Boundaries TB1, TB2, TB4, TB8, TB9; threats TM-T33, TM-T56.
+  Verifies SEC-TM-042, SEC-TM-048, SEC-TM-053 (the server part: no
+  outbound socket over a full session; the client run behind a deny-all
+  proxy belongs to the client plan), SEC-NET-032, SEC-NET-055,
+  SEC-OPS-007, SEC-OPS-060, SEC-PRV-004, SEC-PRV-007, SEC-PRV-009,
+  SEC-IAM-047, SEC-OPS-033 (the next range request fails after "This
+  wasn't me"), SEC-OPS-027 (the investigation-mode alert reaching the
+  person), SEC-OPS-037 (a spoofed header leaves the audit record, the
+  limiter key and the exposure state unchanged), and the end-to-end
+  audit records of SEC-OPS-029, SEC-PRV-008, SEC-IAM-069, SEC-TM-014 and
+  SEC-HIS-046.
+- **Scope.** One end-to-end test per flow's main path against a real
+  server process on a real port with a real data directory and a synthetic
+  library: claim and owner creation, run once for each R1 way to a
+  secure context (localhost; an own domain with a certificate from a
+  local ACME test server through WP-101; a trusted reverse proxy that
+  terminates TLS in front of the server, standing in for the owner's
+  proxy or a tailnet); add a library and scan; a new device
+  signs in and takes a snapshot; play an album (sign, range, refresh,
+  packaging); build a playlist; invite a friend who sees only their
+  libraries; an unplayable file explained; back up, wipe and restore. Their
+  failure branches stay at lower layers, as flows.md asks. Review added
+  the cross-package round trips that no single package could test because
+  their parts landed in the same wave: a cache rebuild brings back the
+  queue, loves and playlists unchanged; the active device change
+  reaching a second browser over the event channel. (The artist-merge
+  round trip moved with curation to WP-107 in R1.3.) (The path-scoped refresh under a scoped token left
+  with WP-091 for R2.) The whole-system security tests, which need every
+  package: in a network namespace with a test DNS server and an egress
+  recorder, a fresh server completing setup, scanning, browsing,
+  searching and playing makes no outbound connection or non-local DNS
+  lookup beyond the egress inventory's rows for its configuration
+  (SEC-TM-048, SEC-TM-053, SEC-NET-032, SEC-OPS-007, SEC-OPS-060,
+  SEC-PRV-007, SEC-PRV-009); the flows run against read-only bind mounts
+  and nothing under a media root changes (SEC-TM-042); a sentinel search
+  term never reaches the database or a log (SEC-PRV-004); a log-canary
+  scan over the whole run finds no stream signature, invitation, share or
+  pairing secret (SEC-IAM-047; share secrets and OAuth codes and states
+  join the canary when WP-134 and WP-096 land in R1.2); with a stream
+  playing, "This wasn't me" on the new-device alert makes the next range
+  request fail within one URL lifetime (SEC-OPS-033); entering the
+  audit investigation mode puts an alert in front of each affected
+  person (SEC-OPS-027); a forwarding header spoofed from an untrusted
+  peer leaves the audit record's source, the limiter key and the
+  exposure state exactly as the bare peer gives them (SEC-OPS-037); each
+  pathway in the verifier's inventory driven past its limit, a debug-level
+  switch, an egress denial and an authorisation fault each leave exactly
+  the expected audit record, read back through `audit verify` and the
+  owner's reader (SEC-TM-014, SEC-HIS-046, SEC-OPS-029, SEC-PRV-008,
+  SEC-IAM-069); and a nightly load
+  test on the reference low-end profile (2 cores and 1 GiB enforced with
+  cgroups) where a 2 Mbit/s stream plays without underrun while the server
+  receives 2,000 idle slow connections (SEC-NET-055).
+- **Tests.** These are the tests.
+
+## Coverage check: every R1 capability has an owner
+
+This table maps every capability in [api-needs.md](api-needs.md) that
+api-needs.md puts in R1 to the packages that deliver it. Where the
+adopted R1 (register D-10) moved a capability, or part of one, to a point
+release, the row says so and names the package in
+[After R1](#after-r1-point-releases-and-later) that carries it; R1's waves
+hold only the R1 part. The R2 rows in that document are covered in the
+outline below.
+
+| Capability | Packages |
+|---|---|
+| API-SYS-01 health; SYS-03 negotiation; SYS-04 discovery; SYS-06 sign-in facts; SYS-09 API reference | WP-089 (with WP-039, WP-044, WP-118) |
+| API-SYS-02 secure-context report | WP-073 |
+| API-SYS-05 who am I | WP-087 |
+| API-SYS-07 startup page | WP-095 |
+| API-SYS-08 emergency page | R1.2: WP-155 |
+| API-SYS-10 client event channel | WP-083 |
+| API-AUTH-01 to AUTH-03 claim, setup, owner | WP-080; the passkey branch of owner creation and the recovery codes offered with it in WP-106 (with WP-081 and WP-063) |
+| API-AUTH-04 passkeys | WP-081 (with WP-041) |
+| API-AUTH-05 password and two-factor | Withdrawn for R1 by the security baseline (SEC-IAM-025; baseline owner decision 1). A browser that cannot use a passkey signs in by approval from the person's own device: WP-120 (with WP-038) |
+| API-AUTH-06 single sign-on | R1.2: WP-096 |
+| API-AUTH-07 guessing limiter | WP-064, the credential verifier (with WP-032), applied to every R1 pathway: WP-080, WP-081, WP-063, WP-094, WP-120; the R1.2 pathways join with WP-096 and WP-134 |
+| API-AUTH-08, AUTH-09 sessions and epochs | WP-062 (passkey sign-in in WP-081, sign-out in WP-120, cut-off in WP-082, push in WP-083) |
+| API-AUTH-10 to AUTH-12 step-up and recovery | WP-106 |
+| API-AUTH-13 pairing (R1: browsers) | WP-120 (with WP-038); native device keys R2 |
+| API-AUTH-15 recovery codes | WP-063, WP-106 (ACC-137) |
+| API-USR-01 profile identity | WP-087 (names); R1.1: WP-144 (pictures) |
+| API-USR-02 settings | WP-087 |
+| API-USR-03, USR-04 sign-in methods and history | WP-106 (with WP-069) |
+| API-USR-05 export | WP-108 |
+| API-USR-06 history import | R1.1: WP-145 (with WP-057) |
+| API-USR-07 private session | WP-086 |
+| API-USR-09 what the admin can see | WP-087 (ACC-115) |
+| API-USR-10 delete my account | WP-133 (ACC-136) |
+| API-DEV-01 device registry | WP-087 (with WP-062) |
+| API-DEV-02 sync status | WP-084 |
+| API-DEV-03 diagnostics from a device | R1.2: WP-155 |
+| API-DEV-05 new-device notice | WP-097 (ACC-071) |
+| API-SYNC-01 to SYNC-04 snapshot, delta, removals, profile data | WP-084 (with WP-066, WP-039) |
+| API-SYNC-05 artwork sizes | WP-079, WP-103, WP-037 |
+| API-SYNC-06 neighbour table | R1.3: WP-058, WP-113 |
+| API-SYNC-07 prebuilt search index, if needed | WP-054 (serialised form); shipping it is a small follow-up if the budget is missed |
+| API-SYNC-10 erasure tombstones | WP-133, WP-084 |
+| API-SYNC-11 purge on revocation | WP-062, WP-120, WP-084 |
+| API-LIB-01 to LIB-04, LIB-07 libraries, folders, roots, grants, splitting rules | WP-099 (with WP-053, WP-060, WP-098; the grants table in WP-065); exclusions R1.1: WP-140 |
+| API-LIB-05 location | R1.1: WP-150 |
+| API-LIB-06 rebuild | WP-095 |
+| API-CAT-01 to CAT-08 catalogue fields | WP-040, WP-049 to WP-053, WP-075, WP-076, WP-077; seek and frame indexes stored by WP-067 and fetched through WP-084 (CAT-05); release groups R1.1: WP-146 |
+| API-CAT-09, CAT-10 availability and folder paths | WP-102, WP-110 |
+| API-CAT-11 inspect | R1.2: WP-156 |
+| API-CAT-12 merge and split | R1.3: WP-107 |
+| API-CAT-13 rescan one | WP-098 (an admin's path-scoped refresh) |
+| API-STR-01 to STR-03 signing, refresh, byte ranges | WP-082 |
+| API-STR-04 audio packaging | WP-056, WP-105 |
+| API-STR-05 artwork bytes | WP-103 |
+| API-SES-01 session registry | WP-104 |
+| API-SES-02 stop | R1.2: WP-153 |
+| API-SES-03 active player | WP-085 (with WP-083) |
+| API-SES-04 play reporting | WP-086 |
+| API-SES-08 stream limits (R1 part) | WP-104, WP-130; policy alternatives R2 |
+| API-QUE-01 to QUE-04 queue document, operations, rebase, positions | WP-025, WP-026, WP-085 |
+| API-QUE-05 save queue as playlist | R1.1: WP-143 |
+| API-PL-01, PL-08 playlists and missing entries | WP-093 |
+| API-PL-02 pins | R1.1: WP-143 |
+| API-PL-07 tool writes | R2: WP-091 |
+| API-PL-03, PL-04 M3U and folder playlists | R1.1: WP-022, WP-112 |
+| API-PL-05, PL-06 rule store and server evaluation | R1.1: WP-027 (the core rule format and its parser budgets, register D-85) and WP-087 (saved filters as rule documents in the settings records); R1.2: WP-154 (saved filters as Home rows); R1.3: WP-092, WP-113 (the rule store for smart playlists, and server-side evaluation and re-evaluation jobs); tools reading results R2: WP-091 |
+| API-LOG-01 to LOG-04 events, offline merge, removal, counts | WP-034, WP-068, WP-086 |
+| API-LOG-05 hides | R1.1: WP-141 |
+| API-HOME-01, HOME-02 layout and pins | R1.2: WP-154 (the default layout in R1 is WP-059's) |
+| API-HOME-03, HOME-04 recently added without upgrades, reasons | WP-077, WP-059 |
+| API-HOME-05 search on the device | WP-054, WP-088 |
+| API-SCAN-01, SCAN-03 scan and progress | WP-099, WP-102 |
+| API-SCAN-02 path-scoped refresh | WP-098 |
+| API-SCAN-04, SCAN-05 tasks and activity | WP-070, WP-100 (with WP-069 for the audit store); running and cancelling tasks R1.2: WP-155 |
+| API-HLTH-01, HLTH-02 health | WP-110 |
+| API-HLTH-03 review queue | R1.3: WP-107 |
+| API-HLTH-04 trash | WP-111 |
+| API-HLTH-05 health roll-up | WP-116 (the R1 security summary, ADM-142); the full roll-up R1.2: WP-155 |
+| API-ADM-01 to ADM-03 users and invitations | WP-094 |
+| API-SET-01 network settings | WP-073 (owner certificate), WP-132 (trusted proxies, posture), WP-101 (HTTPS by ACME for an own domain); path prefix R1.2: WP-151; the project name service R2: WP-129, WP-135 |
+| API-SET-02 egress gate and network activity | WP-048, WP-097 |
+| API-SET-03 sign-in settings | WP-062; OIDC R1.2: WP-096 |
+| API-SET-04, SET-05 backups and restore | WP-090, WP-109; restore from the UI R1.2: WP-157; the owner's server export R1.2: WP-158 |
+| API-SET-06 updates | WP-074 |
+| API-SET-07 alerts and logs | WP-097, WP-043 |
+| API-SET-08 diagnostics | WP-116 (the doctor, ADM-123), WP-095 (cache rebuild, ADM-077); the diagnostic bundle, crash records and write-queue view R1.2: WP-155; the derived-data store R1.3 (ADM-141) |
+| API-SET-09 server identity | WP-089 |
+| API-SET-10 restart and shut down | R1.2: WP-155 |
+| API-SET-11 listening-service and playlist imports | R1.1: WP-145, WP-112 |
+| API-SET-13 rotate server secrets | WP-106 (ADM-144) |
+| API-SHR-01 to SHR-03 music share links | R1.2: WP-134; video share links R2 |
+| API-TOK-01, TOK-02 tokens and tool change feed | R2: WP-091 (API keys are R2; baseline owner decision 8) |
+| API-TOK-03 deep links | WP-089 (the parser and R1's links); the app's deep links R1.2: WP-159 |
+
+The security baseline added R1 surfaces that api-needs.md now carries as
+capabilities and this table maps above: browser pairing (API-AUTH-13,
+WP-120), recovery codes (API-AUTH-15), the new-device notice
+(API-DEV-05), stream limits (API-SES-08), secret rotation (API-SET-13),
+erasure tombstones and purge on revocation (API-SYNC-10, API-SYNC-11),
+what the admin can see (API-USR-09) and account deletion (API-USR-10,
+WP-133). Music share links (API-SHR-01 to SHR-03) are R1.2 (WP-134). The
+security process and release work (WP-124, WP-127, WP-136) has no API
+capability. Metadata providers (R1.1, WP-137) and the name service and
+its client (R2, WP-129, WP-135) are later releases.
+
+The background jobs in api-needs.md map the same way: library scan to
+WP-102 and the parser-upgrade re-read to WP-123 (R1.1); change detection
+and path refresh to WP-098; artwork processing to WP-079 and WP-103;
+loudness to WP-114 (R1.3); neighbours and server-side rules to WP-113
+(R1.3); playlist files to WP-112 (R1.1); import matching to WP-145 and
+WP-112 (R1.1); change-log compaction to WP-066; root health to WP-110;
+trash purge to WP-111; backups to WP-090; pre-upgrade snapshots and cache
+rebuilds to WP-095; user-log recovery to WP-068; the update check to
+WP-074; the free-space guard, alerts and log rotation to WP-097, and
+crash records to WP-155 (R1.2); expiry sweeps to WP-070 with each owner
+registering its own; open-response tracking to WP-082; the retention
+schedule to WP-138, and the retention sweep and erasure to WP-133;
+certificate renewal to WP-101; CT monitoring to WP-135 (R2).
+
+### R1 feature rows with no backend package
+
+Review compared every R1 ID in the register's adopted R1 (D-10, 266
+owning rows and 30 reference rows) with the IDs the R1 packages serve.
+The row D-83 added later, MUS-236 (the minimal track details view), is
+served by WP-055 and WP-088. The rows that no package names fall into
+these groups.
+
+- **Served, but not named in a Serves field.** The security alignment
+  added rows to the feature map after most packages were written, and the
+  packages carry them under the security requirements they verify: ACC-007
+  (no user list before sign-in) by WP-120 and WP-131; ACC-009 and ACC-136
+  (deletion with a grace period, deleting your own account) by WP-133;
+  ACC-071 (new-device alerts) by WP-097; ACC-076 (device limits) by WP-087
+  and WP-130; ACC-137 and ACC-138 (recovery codes, the recovery hold) by
+  WP-063 and WP-106; ACC-139 (your own security log) by WP-069 and
+  WP-106; ADM-068 (encrypted backups) by WP-090; ADM-111 (retention and
+  anonymisation of activity) by WP-069, WP-133 and WP-138; ADM-121
+  (secrets that cannot reach logs) by WP-043 and WP-047; ADM-143 (the
+  recovery kit) by WP-080 and WP-090; ADM-144 (rotate every server key) by
+  WP-106; ADM-145 (audit verification and an anchor off the server) by
+  WP-069, WP-090 and WP-100; ADM-146 (outbound proxy and offline mode) by
+  WP-048; ADM-147 (configuration changes made outside the server) by
+  WP-097; ADM-148 (the compromise runbook) by WP-124; DIS-186, DIS-187,
+  MUS-233 and MUS-234 (clearing history, choosing how long it is kept) by
+  WP-133 and WP-138; DIS-188 (history held during account recovery) by
+  WP-106; DIS-189 ("only you can see this") by WP-086 and WP-087; LIB-205
+  and LIB-206 (quarantined files, scanner isolation status) by WP-078 and
+  WP-110; LIB-207 (unresponsive storage pauses one folder) by WP-060 and
+  WP-078; CLI-155 (personal or shared browser) by WP-062; CLI-156
+  (signing out leaves nothing behind) by WP-120's `Clear-Site-Data`, with
+  the browser half in the client plan; CLI-157 (private session on every
+  device) by WP-086; CLI-159 (outside links say where they go) by WP-005's
+  link validator, with the display in the client plan. A later edit of
+  those packages should name the rows; the coverage is unchanged.
+- **Client only.** These need nothing from the server beyond the synced
+  copy and the routes above, so they belong to the client plan, not this
+  one: CLI-031, CLI-060, CLI-070, CLI-135, CLI-136, CLI-138 to CLI-142,
+  CLI-149, DIS-100, DIS-104, DIS-109, DIS-111, DIS-112, MUS-052, MUS-073,
+  MUS-108, MUS-113, MUS-227. (CLI-062, DIS-107, MUS-072 and MUS-076, client
+  only too, are R1.1.)
+- **Documentation, not code.** CLI-002 (the published browser list) and the
+  release notes ADM-003 implies. ADM-011 (the hardware guide, from WP-115's
+  numbers) is now R1.2. No package owns them; they need a documentation
+  owner (see Review notes).
+- **Reference rows.** The 30 references the register lists with the R1
+  cut ship with their owning rows and need no package of their own.
+- **Partly served, now later.** MUS-114 (the track info sheet) names the
+  admin-only inspect API as its source; both are R1.2 or later now (the
+  sheet is R1.1, the inspector R1.2, WP-156), so the question in Review
+  notes is for the point releases. In R1 the minimal track details view
+  (MUS-236, register D-83) shows the R1 rows' details from the synced
+  record and the device's own decisions (WP-055), with no inspect API.
+- **Changed by the security baseline and the owner's answers.** ACC-052
+  (password sign-in) and ACC-053 (two-factor codes) are withdrawn from R1
+  (SEC-IAM-025); their plan rows were removed from WP-038, WP-063 and
+  WP-120. Music share links (ACC-086 to ACC-089, MUS-151), which the
+  baseline moved into R1, are R1.2 in the adopted R1 (WP-134). ACC-049 and
+  the INT rows WP-091 served are R2 with it. ADM-023 (a per-server HTTPS
+  name from the project name service) is R2 in the register, the feature
+  map and this plan, with WP-129 and WP-135 (owner answer to D-07);
+  ADM-021, ADM-022, ACC-097 to ACC-099 and CLI-150 carry R1's HTTPS
+  through the owner's domain, a tailnet, a reverse proxy or the same
+  machine.
+
+## After R1: point releases and later
+
+On 2026-10-02 the owner adopted the smaller R1 proposed in the
+register's [R1 scope](../decisions.md#r1-scope) section, with the rest in
+the point releases R1.1, R1.2 and R1.3, exactly as that section lists them
+(register D-10), and moved the project-run name service, its naming client
+and its Certificate Transparency monitoring to R2 (D-07). Waves 1 to 6
+build that R1 and nothing else. This section keeps every package, or part
+of a package, that serves only a point release or a later release, with
+its full specification, grouped by release, so it can be scheduled later.
+
+How to read it:
+
+- **Release** replaces the wave until the release is scheduled. "Was"
+  gives the wave the package had when it was planned as R1. A point
+  release's packages run after R1 has shipped, so every R1 package is
+  merged before any of them starts; their own dependencies on each other
+  run forwards only (R1.1, then R1.2, then R1.3, then R2).
+- **Moved** packages keep their IDs and their text, with what changed
+  marked. **Split** packages are new IDs (WP-140 to WP-161) that carry the
+  part of an R1 package that is not R1 (WP-139, split from WP-129, is the
+  one new package that stays in R1); the R1 package keeps its ID and
+  its R1 part, and both entries name each other.
+- A package here that changes a file an R1 package owns does so under the
+  merge protocol's interface-change rule, as a later wave's owner of that
+  file. Ownership is per wave, so this is not a conflict with R1.
+- **Security.** Every requirement in docs/security that protects only a
+  surface moving here moves with it, is due in the release that ships the
+  surface, and that release cannot ship without it (SEC-STD-004; the
+  register's [Security requirements for the proposed R1](../decisions.md#security-requirements-for-the-proposed-r1)).
+  None is weakened. The R1 security coverage table at the end of this plan
+  lists only R1 requirements and R1 packages, and its last part lists the
+  requirements that moved, with the release and package that now carry
+  them.
+- R1 security requirements that a package here also verifies stay R1
+  requirements with an R1 package; the package here re-proves them for
+  its own surface.
+
+| Release | Packages moved whole | Packages split from an R1 package |
+|---|---|---|
+| R1.1 | WP-022, WP-027 (moved from R1.3 by register D-85), WP-057, WP-071, WP-112, WP-123, WP-137 | WP-140 to WP-150 |
+| R1.2 | WP-096, WP-134 | WP-151 to WP-159 |
+| R1.3 | WP-029, WP-058, WP-092, WP-107, WP-113, WP-114 | WP-160, WP-161 |
+| R2 | WP-091 (moved earlier), WP-129, WP-135 | none (WP-139, the project site's security files, split from WP-129 and stays in R1, wave 1) |
+
+### R1.1, bring your music in
+
+Playlist files and history imports, built-in MusicBrainz and cover-art
+lookups, ratings, richer credits and browsing, offline loading and
+installing the web app, avatars, and continue-on-this-device (register
+D-10, "R1.1, bring your music in"). Requirements due here with their
+surfaces: SEC-MED-050 and SEC-HIS-018 (playlist files, WP-022, WP-112);
+SEC-PRV-014, SEC-PRV-015 and SEC-PRV-017 (providers, WP-137); SEC-MED-061
+and SEC-PRV-006 (image uploads, WP-144).
+
+The core rule format and its parser budgets are R1.1 work too (register
+D-85): saved filters (DIS-105) are stored in that format from R1.1, so
+WP-027 moved here from R1.3 and re-proves SEC-TM-032, SEC-STD-011,
+SEC-API-066 and SEC-IAM-070 for rule documents. The rule editor and smart
+playlists stay R1.3, with the rule store and server-side evaluation
+(WP-092, WP-113).
+
+When R1.1's waves are set, three pairs of its packages edit the same
+R1-owned directory under the interface-change rule and must not share a
+wave: WP-150 follows WP-140 (both edit
+`crates/gunmetal-server/src/libraries/`, WP-099's), WP-147 follows
+WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's), and
+WP-147 follows WP-027 (both add functions to `crates/gunmetal-wasm/`,
+WP-088's).
+
+#### WP-022 M3U and M3U8 parser and writer
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 1) · **Size** M ·
+  **Depends on** WP-004, WP-005.
+- **Owns** `crates/gunmetal-core/src/m3u.rs`.
+- **Serves** MUS-140, LIB-192; API-PL-03, API-PL-04.
+- **Security.** Boundaries TB6, TB9; threats TM-T22, TM-T30. Verifies
+  SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007, SEC-MED-008,
+  SEC-TM-032, SEC-HIS-036, SEC-MED-050, SEC-MED-016.
+- **Scope.** Parse M3U and M3U8 with `#EXTM3U` and `#EXTINF` duration and
+  title, into entries that are either a relative path, an absolute path or
+  a URL, each classified so the caller can drop what SEC-MED-050 forbids.
+  A URL entry is kept only as a dropped entry with its reason; nothing
+  ever fetches it (SEC-MED-016).
+  Normalise separators and `.` segments; flag `..` escapes. Write M3U8
+  with paths relative to a library root.
+- **Not in scope.** Resolving entries to items (WP-112 uses the matcher).
+  IPTV M3U (R3).
+- **Interface sketch.** `pub fn parse(bytes: &[u8], limits: &Limits) -> Result<Playlist, M3uError>`;
+  `pub enum EntryTarget { Relative(Vec<Vec<u8>>), Absolute(Vec<u8>), Url, Dropped(DropReason) }`;
+  `pub fn write(entries: &[ExportEntry]) -> String`.
+- **Tests.** Windows separators; a UTF-8 BOM; Latin-1 in a `.m3u`;
+  `#EXTALBUMARTURL` and `#EXTIMG` dropped; `file://` URLs; `../../etc`;
+  100,001 entries; an 8 KiB line. Property: writing then parsing returns
+  the same relative paths and titles.
+
+#### WP-027 Rule language (moved from R1.3 by register D-85)
+
+- **Release** R1.1 (was R1.3; moved by register D-85) · **Wave** not yet
+  scheduled (was 1) · **Size** L · **Depends on** WP-005.
+- **Owns** `crates/gunmetal-core/src/rules/`.
+- **Serves** DIS-105 (saved filters are rule documents from R1.1) and the
+  core of DIS-119 (the rule format and its parser budgets); API-PL-05 (the
+  format of saved rules). It also binds the rule fields to the synced
+  records (WP-040's field IDs), adds rule evaluation to the WASM facade
+  (WP-088) so the web client applies saved filters, and adds validation of
+  saved-filter documents to the settings records (WP-087), one function
+  each, under the merge protocol's interface-change rule. The rule editor,
+  smart playlists and rule-backed custom rows (DIS-119 to DIS-122,
+  MUS-143 to MUS-146, API-HOME-01) stay R1.3 on this format, with WP-092
+  and WP-113; saved filters as Home rows are R1.2, WP-154. (Loved tracks
+  as a playlist, MUS-149, is R1 and needs no rule: WP-059 and WP-086
+  serve it from the person's loves.)
+- **Security.** Boundaries TB4; threats TM-T09. Verifies, for rule
+  documents, SEC-TM-032 (a rule is parsed under budgets for document
+  size, depth and node count, with a typed error and no recursion past
+  the limit), SEC-STD-011 (text conditions match through a linear-time
+  matcher under a length cap and never compile a backtracking pattern),
+  SEC-API-066 (fields, operators and sorts are closed enumerations, so a
+  rule carries no query text and the server-side compile in R1.3, WP-092,
+  can bind only parameters to static statements) and SEC-IAM-070
+  (evaluation sees only the items the caller's visibility predicate
+  passed, and a rule that names a playlist or item its viewer may not see
+  matches nothing). These remain R1 requirements with their R1 packages;
+  this package re-proves them for rule documents.
+- **Scope.** A versioned rule tree (all, any, not; comparisons on typed
+  fields; "in the last N days"; membership in playlists and loved items;
+  limits by count, duration or percentage; sorts; seeded random order),
+  its validation (depth, node count, known fields for this version),
+  forward-compatible serialisation that keeps unknown nodes so a rule
+  written by a newer client survives an older one, and evaluation over any
+  record type that implements a field-access trait.
+- **Not in scope.** The binding to the catalogue tables for server-side
+  evaluation (WP-092, R1.3). The visual rule editor (client, R1.3).
+- **Field IDs.** This package defines `FieldId` as a plain `u16` newtype
+  and the value types it compares, and imports nothing from `catalog/`.
+  WP-040's field table lists numeric codes without importing `rules/`; the
+  bindings join the two. (This was first written when WP-040 shared its
+  wave, and the separation stays.)
+- **Interface sketch.** `pub enum Rule { All(Vec<Rule>), Any(Vec<Rule>), Not(Box<Rule>), Cmp { field: FieldId, op: CmpOp, value: Value }, Unknown(RawNode) }`;
+  `pub trait Fields { fn get(&self, f: FieldId) -> FieldValue<'_>; }`;
+  `pub fn evaluate<'a, R: Fields>(q: &Query, items: impl Iterator<Item = &'a R>, ctx: &EvalCtx) -> Vec<usize>`.
+- **Tests.** Each operator on each value type, including missing fields and
+  multi-valued fields ("genre is Jazz" on a track with three genres);
+  percentage limits rounding; "last 30 days" at the boundary using an
+  injected `now`; seeded random limit. A document past each budget (size,
+  depth, node count) is refused with the exact typed error; a text
+  condition full of regular-expression metacharacters matches them
+  literally; a rule naming a playlist outside the viewer's visibility
+  matches nothing. Properties: `All([r])` equals `r`; `Not(Not(r))` equals
+  `r`; evaluation is deterministic; a rule with an unknown node
+  round-trips byte for byte; validation rejects trees deeper than the
+  limit without recursing past it.
+- **Risks and decisions.** Saving a filter (DIS-105) is R1.1. When this
+  package was R1.3, R1.1 had to save filters in a subset of the rule
+  format and this package had to read them later. Since register D-85 the
+  rule format ships with saved filters, so a saved filter is a rule
+  document from the start and nothing is translated; the rule editor and
+  smart playlists in R1.3 read the same documents, which the round-trip
+  property above covers.
+
+#### WP-057 Import parsers and matcher
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 2) · **Size** M ·
+  **Depends on** WP-036, WP-040, WP-005.
+- **Owns** `crates/gunmetal-core/src/import/`.
+- **Serves** ADM-042, ADM-043, ADM-044, MUS-189, INT-107; API-USR-06,
+  API-SET-11, API-PL-03.
+- **Security.** Boundaries TB4, TB6; threats TM-T09, TM-T21, TM-T31.
+  Verifies SEC-MED-001, SEC-MED-005, SEC-MED-006, SEC-MED-007,
+  SEC-MED-008, SEC-TM-032, SEC-HIS-036, and, together with WP-145 and
+  WP-112, which run these parsers in the worker, SEC-MED-018 and
+  SEC-MED-020.
+- **Scope.** Parsers for the Last.fm and ListenBrainz export files people
+  can download (the exact formats must be confirmed against each service's
+  current export and are unverified here), and one matcher that maps
+  (artist, album, title, duration, MBIDs) to library items with a
+  confidence, a reason and an "unmatched" result. Imported plays are
+  marked as imported so a scrobbler never resends them.
+- **JSON outside the server process.** Some export files are JSON
+  (unverified for each service's current export). The core's proposed
+  dependencies have no JSON reader. An uploaded export is hostile input,
+  so it is never decoded in the server process (principle 2,
+  SEC-MED-018). **Proposal:** WP-145's `ImportFile` worker job receives
+  the uploaded file by read-only descriptor (SEC-MED-020) and decodes its
+  JSON or CSV into plain rows there, with `serde_json` linked only into
+  the worker for this job, under a size cap and the step budget; this
+  package's parsers, also run in the worker, validate every field into
+  typed values (SEC-TM-031), and the server revalidates the typed rows it
+  gets back (SEC-MED-023). The first draft decoded the JSON in the server
+  process, which principle 2 rules out. The alternative, `serde_json` in
+  the core, is part of owner decision 4 and D-02; it would still run only
+  in the worker.
+- **Interface sketch.** `pub fn match_track(q: &MatchQuery, index: &MatchIndex) -> MatchResult`.
+- **Tests.** Exact MBID match; title with "(Remastered 2011)"; differing
+  case and diacritics; two candidates with equal scores (unmatched, not a
+  guess); a duration off by more than the tolerance. Property: in a
+  library where no two items share artist, album, title and duration, an
+  item always matches a query built from its own tags, and the match is
+  that item. (As first written, the property ignored duplicates, for which
+  the rules above require "unmatched".)
+
+#### WP-071 Derived-data store
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 2) · **Size** S ·
+  **Depends on** WP-046, WP-126.
+- **Owns** `crates/gunmetal-durable/src/derived/`.
+- **Serves** LIB-025 (with WP-123), and the stores behind provider
+  results (WP-137) in R1.1; ADM-141 and LIB-024 in R1.3, which use the
+  same store.
+- **Why R1.1.** R1 has no producer that needs the store; its first users,
+  the provider lookups (WP-137) and the parser-upgrade re-read (WP-123),
+  are both R1.1, so the store arrives with them rather than in R1.3 with
+  ADM-141.
+- **Security.** Boundaries TB10; threats TM-T60. Verifies SEC-PRV-050
+  (every connection of this store; as first written nothing checked its
+  connections).
+- **Scope.** A SQLite file keyed by (content identity, producer kind,
+  producer version) for analysis results and artwork derivatives' metadata,
+  read on rebuild so work is never repeated, opened through the one
+  connection opener (WP-126) with `secure_delete=ON` and queried only
+  through `Query` values. Because WP-090 and WP-095 shipped in R1 without
+  it, this package also adds the store to the cache rebuild's inputs
+  (WP-095's module) and to the backup's optional parts, left out unless
+  chosen (WP-090's module), each under the merge protocol's
+  interface-change rule.
+- **Tests (real SQLite).** A new producer version misses the old key; a
+  rebuild reads existing results; the store reports its file as optional
+  for backups, and a backup leaves it out unless chosen; `secure_delete`
+  reads back as on for every pooled connection.
+
+#### WP-112 Playlist files: import, export and folder playlists
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 5) · **Size** M ·
+  **Depends on** WP-022, WP-057, WP-061, WP-078, WP-079, WP-093, WP-102.
+- **Owns** `crates/gunmetal-server/src/playlist_files/`,
+  `crates/gunmetal-worker/src/jobs/playlist_file.rs`.
+- **Serves** MUS-140, LIB-192, ADM-043, ADM-044; API-PL-03, API-PL-04.
+- **Security.** Boundaries TB6, TB9; threats TM-T21, TM-T22. Verifies
+  SEC-MED-050, SEC-MED-051, SEC-HIS-018, SEC-API-085, SEC-MED-018,
+  SEC-MED-020, SEC-MED-023, SEC-HIS-066 (the replay for the
+  playlist-file incident of SEC-HIS-018, a file this package adds to
+  `tests/rivals/`).
+- **Scope.** Every playlist file is parsed in a worker, never in the
+  server process (principle 2, SEC-MED-018; a playlist found in a library
+  is a sidecar). Upload M3U and M3U8 files through an upload route that
+  declares its types and cap (SEC-API-085); the server stores the upload
+  in scratch space without reading it, and the `PlaylistFile` worker job
+  receives it, or a `.m3u` file the scan found, by read-only descriptor
+  (SEC-MED-020), runs WP-022's parser under the step budget and the
+  pool's deadline, and returns typed entries (normalised relative paths,
+  with dropped entries and their reasons) that the server revalidates
+  (SEC-MED-023). The server then resolves entries with the matcher and
+  reports matches and misses; exports as M3U8 with paths relative to a
+  library root (writing is server code and needs no parsing); turns
+  `.m3u` files found during a scan (the sidecars WP-102 records and
+  leaves unread in R1) into read-only playlists with "Duplicate to edit"
+  (owner decision 29), adding the read-only flag to WP-093's playlists
+  under the merge protocol's interface-change rule, since R1's playlists
+  have none. Entries resolve
+  only to items already indexed in the same library, by normalised
+  relative path; URLs, absolute paths outside the library, `..` escapes
+  and artwork directives are dropped and listed in library health, never
+  opened or fetched (SEC-MED-050, SEC-HIS-018); playlist entries are
+  returned only for items the requester can access, evaluated at request
+  time (SEC-MED-051).
+- **Tests (real SQLite and files).** Entries pointing outside the library,
+  at `/etc/passwd`, at URLs or with `..` are dropped and reported; a
+  folder playlist in one library naming items of another library resolves
+  nothing there; a second user without access to a playlist's library
+  gets none of its entries; a folder playlist is read-only; export then
+  import of a playlist gives the same tracks. Property: for generated
+  entries, the resolver never returns an item outside the playlist's
+  library. Hostile input, with the test-hook feature: a playlist worker
+  that panics on a hostile uploaded M3U, and one that loops past its
+  deadline on a hostile `.m3u` found during a scan, each fail that file
+  with a typed problem in library health while the server keeps serving
+  and the scan finishes; a fake worker returning an entry with `..` or an
+  absolute path is refused by the server's revalidation; WP-001's
+  dependency check shows the server crate has no call path to the M3U
+  parser.
+
+#### WP-123 Parser-upgrade re-read (split from WP-102 in review)
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 5) · **Size** S ·
+  **Depends on** WP-052, WP-070, WP-100, WP-102.
+- **Owns** `crates/gunmetal-server/src/reread/`.
+- **Serves** LIB-025, ADM-095; the "Parser-upgrade re-read" job.
+- **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
+  its own: it holds no security control, and the rules it relies on are
+  proved by the packages that own them.
+- **Scope.** At startup after an upgrade, compare each file's stored
+  parser versions (WP-102 stores them) with `PARSER_VERSIONS` (WP-052),
+  and request a throttled, resumable re-read of only the stale files
+  through the scan's path-set entry point; record an activity entry with
+  the count.
+- **Tests (real SQLite).** With the parser-version table overridden in the
+  test: bumping the FLAC version re-reads every FLAC and no other file;
+  an unchanged table re-reads nothing; a restart in the middle resumes
+  from the checkpoint and re-reads no file twice.
+
+#### WP-137 Metadata and cover-art providers (added for the security baseline; R1.1 by owner decision D-10)
+
+- **Release** R1.1 · **Wave** not yet scheduled (was 5) · **Size** M ·
+  **Depends on** WP-048, WP-071, WP-079, WP-080, WP-102, and on an ADR
+  that amends ADR 2's consequence that metadata lookups belong in
+  plugins. The owner answered baseline decision 22 on 2026-10-02 (register
+  D-10): MusicBrainz and cover-art lookups are built in, in R1.1, behind
+  the setup question that lists what each provider receives.
 - **Owns** `crates/gunmetal-core/src/provider/` (the lookup-evidence type
   and the response decoders, each with a fuzz harness),
   `crates/gunmetal-server/src/providers/`.
-- **Serves** LIB-108 (nothing leaves by default), LIB-142 (artwork when
-  none is embedded).
+- **Serves** LIB-111, LIB-112, LIB-108 (nothing leaves by default),
+  LIB-142 (artwork when none is embedded).
 - **Security.** Boundaries TB8; threats TM-T30, TM-T31, TM-T33. Verifies
   SEC-PRV-013, SEC-PRV-014, SEC-PRV-015, SEC-PRV-016, SEC-PRV-017,
   SEC-API-079, SEC-API-080, SEC-API-081, SEC-HIS-024.
-- **Why it exists.** The baseline's egress inventory and release scope
-  have metadata, artwork and lyrics providers in R1, off until the owner
-  turns one on, with rules for what they may send and when. The plan had
-  no provider package, because ADR 2 put providers in plugins (R2). If the
-  owner declines decision 22, this package moves to R2 behind the plugin
-  host and the provider step at setup lists nothing.
+- **Why it exists.** The baseline's egress inventory has metadata,
+  artwork and lyrics providers off until the owner turns one on, with
+  rules for what they may send and when. The plan had no provider
+  package, because ADR 2 put providers in plugins (R2). The owner put the
+  built-in MusicBrainz and Cover Art Archive lookups in R1.1, so SEC-PRV-014,
+  SEC-PRV-015 and SEC-PRV-017 become due in R1.1 with this package, and
+  R1 ships with no provider at all.
+- **What it adds to R1's packages.** One egress purpose per provider in
+  WP-048's closed enumeration; the provider step in setup's step list
+  (WP-080), which becomes a required question with "Turn on" and "Not
+  now" for each provider and no answer preselected (SEC-PRV-013); the
+  provider entries in the security summary (WP-116); each under the merge
+  protocol's interface-change rule.
 - **Scope.** Each provider is an egress purpose with exact hosts, off by
   default, listed in the setup step with the exact fields it receives and
   a link to its privacy policy (SEC-PRV-013, SEC-API-079). Requests are
@@ -6396,224 +6780,1053 @@ WP-109 (restore, numbered in the wave 4 section) also runs in wave 5.
   responses and sync payloads is server-relative; the User-Agent equals a
   literal string.
 
-### WP-116 Doctor, diagnostics bundle and emergency page
+#### WP-140 Exclusion patterns (split from WP-024, WP-060 and WP-099)
 
-- **Wave** 6 · **Size** M · **Depends on** WP-074, WP-090, WP-095, WP-097,
-  WP-101, WP-110, WP-132.
-- **Owns** `crates/gunmetal-server/src/diagnostics/`.
-- **Serves** ADM-113, ADM-123, ADM-124, ADM-130, ADM-080 (write queue view),
-  ADM-141, CLI-033; API-SYS-08, API-SET-08, API-DEV-03.
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-024, WP-060, WP-099.
+- **Owns** `crates/gunmetal-core/src/exclude.rs`, and, under the merge
+  protocol's interface-change rule, the exclusion step in
+  `crates/gunmetal-fs/src/walk.rs` (WP-060) and the exclusions setting in
+  `crates/gunmetal-server/src/libraries/` (WP-099).
+- **Serves** LIB-006; API-LIB-02.
+- **Security.** Boundaries TB9; threats TM-T22, TM-T09. Verifies
+  SEC-STD-011 (the exclusion pattern language: no regular-expression
+  engine, a pattern length cap and linear matching).
+- **Why it exists.** Exclusion rules (LIB-006) are R1.1 in the adopted R1
+  (register D-10), so the pattern language left WP-024 and walking with
+  exclusions left WP-060 and WP-099. R1 walks every file beneath a root.
+- **Scope.** The exclusion pattern language as WP-024 first specified it:
+  a small glob subset (`*`, `**`, `?`, literal names, a case-insensitive
+  option) over raw-byte path components, matched in linear time with a
+  cap on pattern length and count (SEC-STD-011); applying it in the walk,
+  so an excluded directory is never descended; the per-library setting,
+  with a preview of what a pattern would exclude.
+- **Interface sketch.** `pub struct Exclusions; impl Exclusions { pub fn parse(lines: &str) -> Result<Self, PatternError>; pub fn excludes(&self, p: &RelPath) -> bool; }`;
+  `Root::walk` gains an `&Exclusions` argument.
+- **Tests.** Patterns `**/*.tmp`, `Extras/`, `?.flac`, a pattern over the
+  length cap, and a pathological pattern of many `*` against a long name
+  (matched without backtracking), each with its literal verdict; a walk
+  over a real directory tree never opens an excluded directory. Property:
+  matching agrees with an independent matcher written in the test.
+
+#### WP-141 Ratings, dismissals and the Hidden page (split from WP-034, WP-059 and WP-086)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-034, WP-059, WP-068, WP-086; owner decision 17 (the
+  rating scale).
+- **Owns** `crates/gunmetal-core/src/userdata/ratings.rs` (the rate,
+  dismiss and undo bodies and their merge rules, beside WP-034's files),
+  and, under the merge protocol's interface-change rule, the rating and
+  dismissal paths in `crates/gunmetal-server/src/listening/` (WP-086)
+  and the dismissal filter in `crates/gunmetal-core/src/home/` (WP-059).
+- **Serves** MUS-181, DIS-047, DIS-022, DIS-023; API-LOG-05.
+- **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies
+  SEC-PRV-022 and SEC-HIS-060 for the new events (one person's ratings
+  and dismissals never reach another person).
+- **Why it exists.** Star ratings, dismissing items from Continue rows and
+  the Hidden page are R1.1 (register D-10). WP-034, WP-086 and WP-059 had
+  them in their R1 scope; the event envelope keeps unknown bodies, so
+  they can arrive later without a format change.
+- **Scope.** The rate, dismiss and undo event bodies; latest clock wins for
+  ratings, with a tie broken by device ID; ratings and dismissals and
+  their reversals through the one listening write path, idempotent by
+  event ID; dismissed items left out of the Continue rows until undone;
+  the Hidden page listing what was dismissed.
+- **Tests.** Ratings from two devices resolve to the later clock and the
+  tie to the device ID; a dismissed item stays out of continue listening
+  until undone (moved from WP-059's tests); an undo restores it; another
+  person never receives the ratings or dismissals of the first, through
+  any route or the sync feed; the merge stays commutative, associative and
+  idempotent with the new bodies (property).
+
+#### WP-142 Shuffle by album, reshuffle and reorder while shuffled (split from WP-025, WP-026 and WP-085)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-025, WP-026, WP-085.
+- **Owns**, under the merge protocol's interface-change rule,
+  `crates/gunmetal-core/src/shuffle.rs` (WP-026's) and the move-while-
+  shuffled operation in `crates/gunmetal-core/src/queue/` (WP-025's).
+- **Serves** MUS-120, MUS-127, MUS-128.
+- **Security.** Boundaries TB4; threats TM-T09. Verifies no requirement of
+  its own: it holds no security control, and the rules it relies on are
+  proved by the packages that own them.
+- **Why it exists.** These shuffle modes and reordering while shuffled
+  are R1.1 (register D-10); WP-026 and WP-025 keep random and spread-out
+  shuffle in R1.
+- **Scope.** Shuffle by album (random albums, each in order); reshuffle
+  the rest, which re-seeds from the current item; moving an item while
+  shuffled, so the shuffled order and the source order both keep it.
+- **Tests.** By album keeps each album's tracks in order and contiguous
+  (property); reshuffling the rest never moves the current item or
+  anything before it; an item moved while shuffled is where the person
+  put it after shuffle is turned off and on again, checked against an
+  independent model written in the test.
+
+#### WP-143 Playlist extras (split from WP-093)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-093, WP-103.
+- **Owns**, under the merge protocol's interface-change rule,
+  `crates/gunmetal-server/src/playlists/` (WP-093's), and
+  `crates/gunmetal-server/src/playlists/covers.rs`.
+- **Serves** MUS-125, MUS-134, MUS-135, MUS-137, MUS-139; API-PL-02,
+  API-QUE-05.
+- **Security.** Boundaries TB4; threats TM-T12, TM-T09. Verifies
+  SEC-API-012 for saving the queue (a list with one invisible item is
+  rejected whole).
+- **Why it exists.** The duplicate warning, sorting and searching inside a
+  playlist, automatic covers, pinning and loving playlists and saving the
+  queue as a playlist are R1.1 (register D-10).
+- **Scope.** The duplicate warning when an item is already in the
+  playlist; pin and love for playlists; an automatic cover built from the
+  first distinct album covers through WP-103's derivatives, so no new
+  image is decoded; creating a playlist from a list of items, which is how
+  the client saves its queue, authorising every item and rejecting the
+  whole request if one is not visible (SEC-API-012). Sorting and searching
+  inside a playlist (MUS-135) is client work over the synced playlist.
+- **Tests.** Adding a track already present returns the warning and adds
+  nothing unless confirmed; a saved queue with one item the person cannot
+  see is rejected whole; a cover is rebuilt when the first albums change
+  and never references a library the viewer cannot see.
+
+#### WP-144 Profile pictures (split from WP-087 and WP-103)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-078, WP-079, WP-087, WP-103, WP-130.
+- **Owns** `crates/gunmetal-server/src/avatars/`.
+- **Serves** ACC-011 (pictures); API-USR-01 (pictures).
+- **Security.** Boundaries TB4, TB6; threats TM-T09, TM-T13, TM-T28.
+  Verifies SEC-MED-061, SEC-PRV-006 (both due in R1.1 with this surface),
+  SEC-API-085, SEC-API-087, SEC-API-088 (for this upload route; in R1 they
+  are proved by WP-109, WP-103 and WP-130).
+- **Why it exists.** Avatars and other image uploads are R1.1 (register
+  D-10), so the upload half of WP-103 moved here, with the requirements
+  whose only surface it is (SEC-MED-061, SEC-PRV-006).
+- **Scope.** As WP-103 first specified it: the route declares its types,
+  byte cap and pixel cap, decides the type from magic bytes and ignores
+  the client's filename and `Content-Type` (SEC-API-085); the body is
+  size-capped while it streams (SEC-MED-061), re-encoded through the
+  worker with EXIF, XMP and IPTC removed (SEC-PRV-006), and stored by a
+  server-generated content hash in the data directory, never in a library
+  folder and never under a name from the request (SEC-API-087); uploads
+  count against the per-principal quota (SEC-API-088).
+- **Tests (real SQLite and files).** An SVG upload, an HTML file named
+  `.jpg` and a polyglot are refused; an upload with EXIF, XMP and IPTC
+  comes back without them, checked at byte level; a format field in the
+  upload like the one in Jellyfin CVE-2026-35031 never reaches a path; an
+  upload past the quota is refused; a body over the cap is cut off while
+  it streams.
+
+#### WP-145 History import (split from WP-108 and WP-080)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-057, WP-061, WP-068, WP-070, WP-078, WP-079, WP-080,
+  WP-086, WP-108.
+- **Owns** `crates/gunmetal-server/src/history_import/`,
+  `crates/gunmetal-worker/src/jobs/import_file.rs`, and the "Coming from
+  another server?" step in setup's step list (WP-080), added under the
+  merge protocol's interface-change rule.
+- **Serves** ADM-042, ADM-030, MUS-189, INT-107; API-USR-06, API-SET-11
+  (listening-service files).
+- **Security.** Boundaries TB4, TB6, TB10; threats TM-T09, TM-T18,
+  TM-T21. Verifies SEC-API-085, SEC-MED-018, SEC-MED-020, SEC-MED-023 (for
+  this upload and its worker job).
+- **Why it exists.** Importing Last.fm and ListenBrainz files and the
+  setup step that offers it are R1.1 (register D-10). WP-108 keeps the
+  personal export in R1.
+- **Scope.** As WP-108 first specified it: upload Last.fm or ListenBrainz
+  export files through an upload route that declares its types and byte
+  cap and decides the type from content (SEC-API-085); the server stores
+  the upload in scratch space and never parses it. The `ImportFile` worker
+  job receives it by read-only descriptor (SEC-MED-020), decodes JSON or
+  CSV and runs WP-057's parsers there under the step budget, a memory cap
+  and the pool's deadline (SEC-MED-018), and returns typed rows that the
+  server revalidates before matching (SEC-MED-023). Match them in a job
+  with progress (the import-matching task kind, added to WP-070's
+  enumeration), write imported plays marked as imported, remove an import
+  as a batch. The setup step offers this import and, once WP-112 is in,
+  the playlist import; the importer framework for other servers is R2
+  (WP-229).
+- **Tests (real SQLite and log files).** Importing the same file twice adds
+  nothing the second time; removing an import removes exactly its plays;
+  unmatched rows land in the unmatched list with reasons; a round trip of
+  random activity through WP-108's export and this import gives the same
+  activity. Hostile input, with the test-hook feature: an import worker
+  that panics on a hostile export, and one that loops past its deadline
+  on a deeply nested JSON file, each fail that import with a typed problem
+  while the server keeps serving and a second import completes; a fake
+  worker returning a row with an out-of-range timestamp or an oversized
+  string is refused by the server's revalidation; WP-001's dependency
+  check shows `serde_json` decoding of uploads has no call path in the
+  server crate.
+
+#### WP-146 Release groups, editions, grouping reasons and artist images (split from WP-040, WP-053, WP-076 and WP-079)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-040, WP-053, WP-076, WP-079, WP-084, WP-102.
+- **Owns** `crates/gunmetal-core/src/music/release_groups.rs`,
+  `crates/gunmetal-core/src/catalog/release_group.rs`, and, under the
+  merge protocol's interface-change rule, the release-group tables in the
+  catalogue store (WP-067), the grouping result (WP-076) and the artwork
+  order step of the scan (WP-102).
+- **Serves** MUS-005, MUS-008, MUS-010, MUS-013, MUS-024, MUS-053,
+  MUS-055, LIB-098, LIB-187; API-CAT-02 (release groups).
+- **Security.** Boundaries TB6, TB9; threats TM-T20, TM-T28. Verifies no
+  requirement of its own: artist images go through WP-079's artwork job
+  and WP-103's derivatives unchanged, which prove the image rules.
+- **Why it exists.** Release groups and editions, release types, original
+  versus release dates, roles, the credits panel, one artist page across
+  libraries, artist images and "every decision explains itself" are R1.1
+  (register D-10). R1 already maps and keeps every tag (WP-049, LIB-059),
+  so this package adds grouping and views, not parsing.
+- **Scope.** Group albums into release groups by MusicBrainz release-group
+  ID, then by album artist, title and original date, erring on the side
+  of not merging; release types and original dates on the group; the
+  release-group record and its field IDs in the synced library; roles
+  (composer, conductor, lyricist, producer, remixer, performer) resolved
+  into credits; one artist across libraries for a person who can see
+  several; a reason recorded for every grouping decision (LIB-098), which
+  WP-076 did not keep in R1; `artist.jpg` attached to its artist in the
+  scan's artwork order.
+- **Tests.** Two editions of one release group, with and without a
+  release-group ID; a remaster with a later release date and the same
+  original date; an artist credited as composer on one track and
+  performer on another; an artist with tracks in two libraries, seen by a
+  person granted both and by one granted one; every grouping decision on
+  a small library carries its literal reason; an `artist.jpg` in an
+  artist folder becomes that artist's image. Property: release-group
+  grouping is independent of input order.
+
+#### WP-147 Browse, search and Home extras (split from WP-036, WP-054 and WP-059)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-036, WP-054, WP-059, WP-088.
+- **Owns** `crates/gunmetal-core/src/collate_jump.rs`, and, under the
+  merge protocol's interface-change rule, the query options in
+  `crates/gunmetal-core/src/search/` (WP-054), a row source in
+  `crates/gunmetal-core/src/home/` (WP-059) and their functions in the
+  WASM facade (WP-088).
+- **Serves** DIS-101, CLI-040, DIS-086, DIS-087, DIS-088, DIS-091,
+  DIS-071.
+- **Security.** Boundaries TB4; threats TM-T09, TM-T15. Verifies
+  SEC-STD-011 for the new query options (still no regular-expression
+  engine and the same caps).
+- **Why it exists.** The alphabet jump, mood and tag search, people by
+  role, scoping a search to one library, finding inside a list and your
+  top tracks by an artist are R1.1 (register D-10).
+- **Scope.** The letter used by the alphabet jump, from WP-036's sort keys;
+  the mood field in the search index; filters by role and by library;
+  find inside a list over the same folded matching; the "your top tracks
+  by an artist" row source, from the person's own plays.
+- **Interface sketch.** `pub fn jump_letter(k: &SortKey) -> JumpLetter`;
+  `Index::query` gains role and library filters.
+- **Tests.** The jump letter for "Björk", "The The" and a Japanese title;
+  a mood query finds the tag and not a title containing the word; a role
+  filter returns only that role; a library scope never returns an item
+  from another library; top tracks by an artist for a person with no
+  plays is the designed empty state; each example with its literal
+  expected result.
+
+#### WP-148 Installable web app and service worker (split from WP-072)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-072.
+- **Owns** `crates/gunmetal-server/src/webapp/service_worker.rs`, and the
+  web app manifest in WP-072's build-time manifest, under the merge
+  protocol's interface-change rule.
+- **Serves** CLI-003, and the server side of CLI-024 to CLI-026 (offline
+  loading).
+- **Security.** Boundaries TB2, TB4, TB5; threats TM-T07, TM-T08.
+  Verifies SEC-CLI-011 (the service-worker clause: it never serves a
+  bundle older than the running server's), SEC-API-044 for the manifest
+  and worker script.
+- **Why it exists.** Installing the web app and loading it offline are
+  R1.1 (register D-10). R1's web client registers no service worker
+  (WP-072).
+- **Scope.** As WP-072 first specified it: the service-worker scope
+  rules, under which a service worker never caches a capability URL and
+  never serves a bundle older than the server's; the web app manifest;
+  the worker script served under the same Content Security Policy.
+- **Tests.** The worker script's cache list contains no capability-URL
+  pattern; a stand-in bundle upgraded under an open tab is replaced, not
+  served from the worker's cache (the browser half is the client plan's);
+  the manifest and worker are served with the exact CSP.
+
+#### WP-149 Tag problems and missing files in library health (split from WP-110)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-077, WP-110.
+- **Owns**, under the merge protocol's interface-change rule, two entry
+  kinds in `crates/gunmetal-server/src/health/` (WP-110's).
+- **Serves** LIB-034, LIB-194.
+- **Security.** Boundaries TB9; threats TM-T56. Verifies no requirement
+  of its own: the per-role response rules it relies on are proved by
+  WP-044 and WP-131.
+- **Why it exists.** The missing-files list and tag problems are R1.1
+  (register D-10); WP-110 keeps the R1 health report.
+- **Scope.** As WP-110 first specified them: tag problems with suggested
+  fixes (tracks missing an album artist, albums with inconsistent tags,
+  ambiguous artist splits, guessed compilations, same-name collisions)
+  and missing and moved files, with when and where.
+- **Tests.** A synthetic library with one of each new problem yields
+  exactly one entry of each kind; a file moved by a rename appears as
+  moved, not missing.
+
+#### WP-150 Moving the server: root relocation and restore onto new hardware (split from WP-099 and WP-109)
+
+- **Release** R1.1 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-060, WP-077, WP-099, WP-109.
+- **Owns**, under the merge protocol's interface-change rule, the
+  relocation routes in `crates/gunmetal-server/src/libraries/` (WP-099's)
+  and the root-remapping step in `crates/gunmetal-server/src/restore/`
+  (WP-109's).
+- **Serves** LIB-031, ADM-051; API-LIB-05.
+- **Security.** Boundaries TB9, TB11; threats TM-T56, TM-T60. Verifies
+  SEC-MED-037 and SEC-TM-069 for relocation (a new location obeys the
+  root refusal rules, and nothing is removed while a root is being
+  moved), with relocation a fresh-uv action (SEC-IAM-041).
+- **Why it exists.** Moving the server and keeping the library are R1.1
+  (register D-10). In R1 a restore keeps each root's recorded path, and a
+  missing root shows as offline (WP-109).
+- **Scope.** As WP-099 and WP-109 first specified them: changing a root's
+  location with a preview, and remapping library roots in a dry run
+  during a restore onto a new machine, operating system or container.
+- **Tests (real SQLite and filesystem).** Moving a root to a copy matches
+  every file in the preview by its fingerprint and then by content
+  identity, so identities and history are kept; a new location inside the
+  data directory is refused; a restore onto a machine with different
+  paths remaps each root in a dry run before anything is written.
+
+### R1.2, the household and the admin
+
+OIDC, music share links, a second administrator, the admin's live view
+with each person's opt-in for titles, stopping a stream, an arrangeable
+Home, diagnostics, restore from the UI and translations (register D-10,
+"R1.2, the household and the admin"). Requirements due here with their
+surfaces: SEC-TM-022, SEC-IAM-026 to SEC-IAM-036, SEC-STD-025 and
+SEC-CLI-026 (OIDC, WP-096); SEC-API-097 and SEC-STD-008 (share links,
+WP-134); SEC-PRV-046 and SEC-OPS-030 (diagnostic bundles, WP-155).
+Translations (CLI-146) are client work and need no package here.
+
+#### WP-096 Single sign-on
+
+- **Release** R1.2 · **Wave** not yet scheduled (was 3) · **Size** L ·
+  **Depends on** WP-046, WP-047, WP-048, WP-062, WP-118.
+- **Owns** `crates/gunmetal-server/src/oidc/`.
+- **Serves** ACC-057; API-AUTH-06, API-SET-03. (ACC-003, sign-in with no
+  internet, is R1 and served by passkeys, WP-081.)
+- **Why R1.2.** The owner adopted the smaller R1 (register D-10), which
+  puts OIDC in R1.2 with the requirements whose only surface it is
+  (SEC-TM-022, SEC-IAM-026 to SEC-IAM-036, SEC-STD-025, SEC-CLI-026); they
+  are due in R1.2 and that release cannot ship without them. R1's own
+  rules that also mention OIDC (fresh verification, WP-062; the step-up
+  route, WP-106) are already in place, so this package adds to R1's
+  packages only the OIDC egress purpose (WP-048), the `Oidc` pathway of
+  the credential verifier (WP-064), OIDC links on the sign-in methods
+  page (WP-106) and on invitation redemption (WP-094), and OAuth codes
+  and states in the log canary (WP-117), each under the merge protocol's
+  interface-change rule.
+- **Security.** Boundaries TB4, TB8; threats TM-T07, TM-T30, TM-T32.
+  Verifies SEC-IAM-026, SEC-IAM-027, SEC-IAM-028, SEC-IAM-029, SEC-IAM-030,
+  SEC-IAM-031, SEC-IAM-032, SEC-IAM-033, SEC-IAM-034, SEC-IAM-035,
+  SEC-IAM-036, SEC-IAM-107, SEC-TM-022, SEC-STD-025, SEC-CLI-026,
+  SEC-HIS-032, SEC-API-070, SEC-API-080, SEC-API-081, SEC-OPS-017.
+- **Scope.** Authorization-code flow with PKCE (S256), state and nonce
+  against the household's own provider, with the server as a confidential
+  client so no OAuth token reaches browser JavaScript, and implicit and
+  hybrid responses refused (SEC-IAM-026, SEC-CLI-026, SEC-TM-022);
+  discovery and keys fetched through the egress gate's OIDC purpose with
+  TLS verified and no redirect to another host (SEC-IAM-032); ID tokens
+  verified with keys from the provider's key set using algorithms pinned
+  per provider (never `none`, never a public key as an HMAC secret), with
+  `iss`, `aud`, `azp`, `exp`, `iat` and `nonce` checked (SEC-IAM-027);
+  each authorization request bound to the one provider it was sent to,
+  checking `iss` where RFC 9207 is advertised (SEC-IAM-034); requests
+  carrying exactly the configured scopes (SEC-STD-025); one exact
+  redirect URI on the configured origin and a post-sign-in return target
+  validated by the core (SEC-IAM-033, SEC-API-070, SEC-HIS-032);
+  identities keyed only by issuer and subject, never by email or name
+  (SEC-IAM-028); linking to an existing account only inside that
+  account's session after user verification in the last 5 minutes,
+  through WP-062's fresh-uv check, or by redeeming an invitation
+  (SEC-IAM-029); auto-registration off by
+  default, and when on, new accounts get no grants until an admin
+  approves (SEC-IAM-030); provider claims never confer the owner role,
+  and mapping a claim to administrator is off by default (SEC-IAM-031);
+  sessions from OIDC get Gunmetal's lifetimes and end when the link is
+  removed or the account disabled (SEC-IAM-035); admin elevation for an
+  account with no passkey needs a fresh provider sign-in under 5 minutes
+  old and never satisfies a fresh-uv action (SEC-IAM-036, SEC-IAM-107);
+  no URL from a claim, such as a picture, is ever fetched (SEC-API-080);
+  provider responses decoded into typed structures with size limits
+  (SEC-API-081); provider configuration with a test button; the client
+  secret in the vault, decrypted only for the token request and handed to
+  the egress client as a `Secret` header value (SEC-OPS-017).
+- **Tests.** Against a provider simulated in the test (its own key pair and
+  discovery document served locally): a valid login; `alg: none`; an
+  HMAC-signed token using the public key as the secret; a wrong audience;
+  an expired token; a replayed nonce; a redirect to an unlisted URL; a
+  hostile provider returning a victim's email under a new subject (no
+  link); a mix-up between two configured providers; a provider with an
+  untrusted certificate (fails closed); a cross-host redirect from the
+  token endpoint (refused); a claim mapped to owner (ignored); elevation
+  through a provider that ignores `max_age` (refused); a picture URL in
+  the claims (never fetched, checked through the egress record). The
+  simulated provider signs with each algorithm R1.2 accepts, which means
+  RS256 as well unless the owner limits R1.2 to ES256 and EdDSA
+  providers.
+- **Risks.** Hand-written versus the `openidconnect` crate is owner
+  decision 10, and so is RSA verification, which the proposed crate list
+  lacks (see "Missing from this table"). The client secret no longer has
+  an open question: WP-047 decrypts it only for the call and the egress
+  client is the one other place allowed to expose it, to write the
+  header.
+
+#### WP-134 Music share links (added for the security baseline)
+
+- **Release** R1.2 · **Wave** not yet scheduled (was 4) · **Size** M ·
+  **Depends on** WP-031, WP-047, WP-064, WP-065, WP-069, WP-082, WP-097,
+  WP-118.
+- **Owns** `crates/gunmetal-server/src/shares/`.
+- **Serves** ACC-086, ACC-087, ACC-088, ACC-089 (moved from R2 for
+  music); MUS-151.
+- **Security.** Boundaries TB1, TB4; threats TM-T04, TM-T16, TM-T67.
+  Verifies SEC-API-097, SEC-PRV-031, SEC-MED-051, SEC-HIS-042, SEC-STD-008,
+  SEC-STD-024, SEC-STD-029, SEC-TM-028, SEC-HIS-066 (the replay for the
+  share-token incident of SEC-HIS-042, a file this package adds to
+  `tests/rivals/`).
+- **Why it exists.** The baseline put music share links in R1 (the
+  release scope table; SEC-API-097; baseline owner decision 7), where the
+  feature map had them in R2; the owner's adopted R1 puts them in R1.2
+  (register D-10), with SEC-API-097 and SEC-STD-008 due in R1.2. The
+  scope is the recommendation's: music only, listen-only by default.
+  Video links stay in R2, off by default (WP-223). It adds to R1's
+  packages the `SharePassword` pathway (WP-064), the share landing page
+  on the project site (WP-139) and share secrets in the log canary
+  (WP-117).
+- **Scope.** A person shares one track, album or playlist. The link
+  carries a secret of at least 128 bits in the URL fragment, which the
+  landing page sends in a request body; the link is scoped to one object
+  and its rights (listen-only by default, downloads only when the owner
+  allows them server-wide), takes its owner from the session, never from
+  the request, and expires after 30 days by default (SEC-API-097). An
+  optional password accepts any Unicode with no composition rules and at
+  least 64 characters (SEC-STD-008), is stored with the Argon2id helper
+  (SEC-STD-024), and is a pathway of the credential verifier with the
+  guessable-secret delays. Per-link limits: 2 concurrent streams by
+  default, a total-bytes or uses cap consumed by one conditional update
+  (SEC-STD-029), and a distinct-address count that suspends the link and
+  alerts the sharer when exceeded. Streams under a share use capability
+  URLs bound to the share and re-checked on every request, so deleting
+  the share stops playback on the next range request (SEC-HIS-042,
+  SEC-TM-028); what the link exposes is evaluated with the sharer's
+  current rights at request time (SEC-MED-051). The share page reveals
+  no username, other users, library size or activity, sends
+  `X-Robots-Tag: noindex`, and sends no link-preview metadata unless the
+  sharer turns it on (SEC-PRV-031). Links are visible and editable only by
+  their owner and admins.
+- **Tests (real SQLite).** The cross-principal and revocation suites as for
+  SEC-API-011 and SEC-API-028: another person cannot list, edit or delete
+  the share; a deleted or expired share fails on the next range request
+  over a real socket; the third concurrent stream is refused; the
+  distinct-address limit suspends the link and raises exactly one alert;
+  a wrong password runs into the delays; preview tags are absent by
+  default; the anonymous share page, compared whole, names no user; 64
+  concurrent uses of a one-use link give one success.
+- **Risks and decisions.** The owner answered the baseline's decision 7
+  through D-10: R1.2. The share-link password is the first human-chosen
+  secret, so this is the first caller of WP-047's Argon2id helper.
+
+#### WP-151 Path prefix behind a reverse proxy (split from WP-073)
+
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-023, WP-073, WP-118.
+- **Owns**, under the merge protocol's interface-change rule, the prefix
+  setting in `crates/gunmetal-server/src/network/` (WP-073's).
+- **Serves** ACC-134; API-SET-01 (prefix).
+- **Security.** Boundaries TB1, TB2; threats TM-T05, TM-T11. Verifies
+  SEC-NET-015 and SEC-API-069 for prefixed URLs (every absolute URL is
+  built from the canonical origin and prefix, never from request
+  headers).
+- **Why it exists.** Serving under a path prefix behind a reverse proxy is
+  R1.2 (register D-10). R1 serves at the root of its origin.
+- **Scope.** As WP-073 first specified it: a path prefix applied to every
+  route and cookie path, and to the canonical origin every emitted URL is
+  built from; the shipped proxy configurations gain a prefixed example.
+- **Tests.** The prefix applies to redirects and the cookie path; a forged
+  `Host` and forged forwarding headers never change an emitted URL under
+  a prefix; the proxy CI job runs the prefixed example.
+
+#### WP-152 Several administrators (split from WP-094)
+
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-033, WP-062, WP-094, WP-097.
+- **Owns**, under the merge protocol's interface-change rule, the role
+  routes in `crates/gunmetal-server/src/users/` (WP-094's).
+- **Serves** ACC-040.
+- **Security.** Boundaries TB4, TB11; threats TM-T13, TM-T14. Verifies,
+  for the role change: SEC-IAM-073, SEC-IAM-074, SEC-IAM-075 (the
+  owner-only capabilities are never granted), SEC-IAM-098 and SEC-OPS-034
+  (the new-admin notice and alert), SEC-TM-017 (making an administrator
+  is a fresh-uv action).
+- **Why it exists.** A second administrator is R1.2 (register D-10). In
+  R1 the owner is the only administrator; the policy (WP-033) already
+  treats roles as capability presets.
+- **Scope.** Make an administrator and remove one, as an owner, fresh-uv
+  action, notifying every admin and the person, and raising the alert
+  that can never be switched off.
+- **Tests.** Making an administrator without fresh verification is
+  refused; an administrator can never be given an owner-only capability
+  (property over grant sequences); the new-admin alert reaches the owner
+  even after a flood of failed sign-ins.
+
+#### WP-153 Admin live view and stopping a session (split from WP-104)
+
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-055, WP-083, WP-087, WP-104.
+- **Owns** `crates/gunmetal-server/src/nowplaying/`.
+- **Serves** ADM-099, ADM-100, ADM-102, ACC-072, ACC-073, ACC-116,
+  MUS-235, INT-134, MUS-190; API-SES-02.
+- **Security.** Boundaries TB4, TB11; threats TM-T17, TM-T18. Verifies
+  SEC-PRV-025 (the live view's part), SEC-TM-054, SEC-IAM-077,
+  SEC-HIS-014.
+- **Why it exists.** The admin's live view, each person's opt-in for
+  titles and stopping a stream are R1.2 (register D-10). The owner's
+  answer on what admins see applies: who is playing and totals, not what,
+  unless each person opts in, and no history.
+- **Scope.** As WP-104 first specified it: the admin now-playing view,
+  which shows user, device, bitrate and playback method and the decision
+  reason, but not the title unless that person opted in to showing
+  titles, offers no view of anyone's history, and is rate-limited, with
+  each admin read recorded in the subject's own security log
+  (SEC-PRV-025, SEC-TM-054, SEC-IAM-077); the per-person opt-in setting;
+  stopping a session with a plain-text message, which cuts in-flight
+  responses and pushes "stopped by the owner" to the device. Only an
+  admin may stop another person's session (SEC-HIS-014).
+- **Tests (real SQLite).** Stopping a session ends its byte stream over a
+  real socket and the device's event stream receives the message as text
+  (markup in the message is not interpreted); the admin live view and its
+  events carry no title for an adult who has not opted in, and do for one
+  who has; a member cannot see or stop another person's session; each
+  admin read appears in the subject's own log.
+
+#### WP-154 Arrangeable Home: layouts, pins and row settings (split from WP-059, WP-087 and WP-099)
+
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-059, WP-087, WP-099.
+- **Owns** `crates/gunmetal-server/src/home_layout/`, and, under the merge
+  protocol's interface-change rule, layout evaluation in
+  `crates/gunmetal-core/src/home/` (WP-059's) and the keep-off-Home switch
+  in `crates/gunmetal-server/src/libraries/` (WP-099's).
+- **Serves** MUS-049, DIS-003, DIS-007, DIS-009, DIS-012, DIS-013,
+  DIS-015; API-HOME-01, API-HOME-02.
+- **Security.** Boundaries TB4; threats TM-T15. Verifies no requirement of
+  its own: visibility on every row is WP-065's and is proved there and by
+  WP-131.
+- **Why it exists.** An arrangeable Home is R1.2 (register D-10). R1 shows
+  the default Home (WP-059).
+- **Scope.** Home layouts and pins as versioned documents in the person's
+  settings, which follow them across devices (moved from WP-087); rows as
+  long as the person likes; a home that does not move while it is shown;
+  keeping a library off Home (moved from WP-099). A saved filter (DIS-105,
+  R1.1) can become a row, evaluated on the device like the filter view it
+  came from (DIS-003), in the rule format WP-027 delivers in R1.1. Rows
+  built in the rule editor wait for the editor and the rule store in R1.3
+  (WP-092).
+- **Tests.** A layout saved on one device is the layout on another; a
+  library marked "keep off Home" never appears in any row (moved from
+  WP-059's tests); a pinned item stays first; reordering rows never drops
+  one.
+
+#### WP-155 Admin tasks, health summary, diagnostics and the emergency page (split from WP-095, WP-097, WP-100, WP-110 and WP-116)
+
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** L ·
+  **Depends on** WP-070, WP-074, WP-090, WP-095, WP-097, WP-100, WP-106,
+  WP-110, WP-116, WP-132.
+- **Owns** `crates/gunmetal-server/src/admin_tools/`, and, under the merge
+  protocol's interface-change rule, the run and cancel routes beside
+  WP-100's job routes, the restart and shut-down routes beside WP-095's
+  startup module and the crash records beside WP-097's operations module.
+- **Serves** ADM-093, ADM-109, ADM-112, ADM-113, ADM-124, ADM-130,
+  CLI-033, ADM-080 (the write-queue view); API-SYS-08, API-SET-08,
+  API-SET-10, API-DEV-03, API-HLTH-05.
 - **Security.** Boundaries TB10, TB11; threats TM-T53, TM-T57. Verifies
-  SEC-OPS-030, SEC-OPS-050, SEC-OPS-054, SEC-OPS-059, SEC-OPS-061,
-  SEC-PRV-046, SEC-HIS-055, SEC-MED-024.
-- **Scope.** `gunmetal doctor --security` and the dashboard's security
-  status: root and capability state, file permissions, a media root or
-  the binary writable by the service account, internet exposure, trusted
-  proxies, backup age and encryption, audit verification, the version and
-  its advisories, the update check's state, and the isolation tier
-  (SEC-OPS-061, SEC-OPS-054, SEC-MED-024), plus `--fix-perms`; the
-  security summary logged at every start and shown on the dashboard:
-  listening addresses, whether HTTPS is active, trusted proxies, enabled
-  providers and admin accounts (SEC-HIS-055). A diagnostic bundle built
-  from an allowlist, with no database, backups or secrets, file paths,
-  titles, user names and addresses replaced by per-bundle pseudonyms, and
-  shown in full before download (SEC-OPS-030, SEC-PRV-046). A minimal
-  server-rendered emergency page with status, recent log lines, a backup
-  and a restart, revealing no version, path or stack trace to an
-  unauthenticated client (SEC-OPS-050). Metrics and diagnostics endpoints
-  stay off by default and, when on, need a dedicated scoped token and
-  expose no per-person data (SEC-OPS-059). Accepting a diagnostics report a
-  person built and reviewed on their device.
+  SEC-OPS-030 and SEC-PRV-046 (both due in R1.2 with this surface),
+  SEC-OPS-050 (the emergency page), SEC-OPS-059 (diagnostics endpoints
+  off by default), SEC-API-064 and SEC-HIS-013 for the task routes.
+- **Why it exists.** The task list with run, cancel and history, the
+  health summary on the admin home, restart and shut down from the UI,
+  diagnostics, the emergency page and local crash records are R1.2
+  (register D-10).
+- **Scope.** As the source packages first specified them: the task list
+  routes (run, cancel, progress, last run, duration, errors) over WP-070's
+  engine; the admin home's roll-up of library health, backups and
+  verification, advisories and recovery use (from WP-110); restart and
+  shut down (from WP-095); local crash records (from WP-097). From
+  WP-116: a diagnostic bundle built from an allowlist, with no database,
+  backups or secrets, file paths, titles, user names and addresses
+  replaced by per-bundle pseudonyms, and shown in full before download
+  (SEC-OPS-030, SEC-PRV-046); a minimal server-rendered emergency page
+  with status, recent log lines, a backup and a restart, revealing no
+  version, path or stack trace to an unauthenticated client
+  (SEC-OPS-050); metrics and diagnostics endpoints off by default and,
+  when on, exposing no per-person data, with the scoped-token form
+  waiting for R2's keys (SEC-OPS-059); accepting a diagnostics report a
+  person built and reviewed on their device; the write-queue view.
 - **Tests.** The bundle contains no secret, title, user name or address
-  (canary over a bundle generated after the full integration suite) and no
-  absolute media paths; the emergency page works with the client bundle
-  missing and reveals nothing in any server state; doctor's checks each
-  have a passing and a failing case, one per failure mode; a snapshot of
-  the start-up summary for fixed configurations.
+  (canary over a bundle generated after the full integration suite) and
+  no absolute media paths; the emergency page works with the client
+  bundle missing and reveals nothing in any server state; a member
+  cannot run or cancel a task; restart without fresh verification is
+  refused; the roll-up shows exactly one card per problem class from a
+  fixture state.
 
-### WP-117 R1 flow acceptance tests
+#### WP-156 File inspector (split from WP-107)
 
-- **Wave** 6 · **Size** M · **Depends on** every R1 package.
-- **Owns** `crates/gunmetal-server/tests/flows/`.
-- **Serves** flows.md F01 to F03, F05, F06, F10, F12 to F16 (server side).
-- **Security.** Boundaries TB1, TB2, TB4, TB8, TB9; threats TM-T33, TM-T56.
-  Verifies SEC-TM-042, SEC-TM-048, SEC-TM-053 (the server part: no
-  outbound socket over a full session; the client run behind a deny-all
-  proxy belongs to the client plan), SEC-NET-032, SEC-NET-055,
-  SEC-OPS-007, SEC-OPS-060, SEC-PRV-004, SEC-PRV-007, SEC-PRV-009,
-  SEC-IAM-047, SEC-OPS-033 (the next range request fails after "This
-  wasn't me"), SEC-OPS-027 (the investigation-mode alert reaching the
-  person), SEC-OPS-037 (a spoofed header leaves the audit record, the
-  limiter key and the exposure state unchanged), and the end-to-end
-  audit records of SEC-OPS-029, SEC-PRV-008, SEC-IAM-069, SEC-TM-014 and
-  SEC-HIS-046.
-- **Scope.** One end-to-end test per flow's main path against a real
-  server process on a real port with a real data directory and a synthetic
-  library: claim and owner creation; add a library and scan; a new device
-  signs in and takes a snapshot; play an album (sign, range, refresh,
-  packaging); build a playlist; invite a friend who sees only their
-  libraries; an unplayable file explained; back up, wipe and restore. Their
-  failure branches stay at lower layers, as flows.md asks. Review added
-  the cross-package round trips that no single package could test because
-  their parts landed in the same wave: a cache rebuild brings back the
-  queue, loves and playlists unchanged; an artist merge survives a rescan
-  and a rebuild; the active device change reaching a second browser over
-  the event channel. (The path-scoped refresh under a scoped token left
-  with WP-091 for R2.) The whole-system security tests, which need every
-  package: in a network namespace with a test DNS server and an egress
-  recorder, a fresh server completing setup, scanning, browsing,
-  searching and playing makes no outbound connection or non-local DNS
-  lookup beyond the egress inventory's rows for its configuration
-  (SEC-TM-048, SEC-TM-053, SEC-NET-032, SEC-OPS-007, SEC-OPS-060,
-  SEC-PRV-007, SEC-PRV-009); the flows run against read-only bind mounts
-  and nothing under a media root changes (SEC-TM-042); a sentinel search
-  term never reaches the database or a log (SEC-PRV-004); a log-canary
-  scan over the whole run finds no stream signature, invitation, share or
-  pairing secret, OAuth code or state (SEC-IAM-047); with a stream
-  playing, "This wasn't me" on the new-device alert makes the next range
-  request fail within one URL lifetime (SEC-OPS-033); entering the
-  audit investigation mode puts an alert in front of each affected
-  person (SEC-OPS-027); a forwarding header spoofed from an untrusted
-  peer leaves the audit record's source, the limiter key and the
-  exposure state exactly as the bare peer gives them (SEC-OPS-037); each
-  pathway in the verifier's inventory driven past its limit, a debug-level
-  switch, an egress denial and an authorisation fault each leave exactly
-  the expected audit record, read back through `audit verify` and the
-  owner's reader (SEC-TM-014, SEC-HIS-046, SEC-OPS-029, SEC-PRV-008,
-  SEC-IAM-069); and a nightly load
-  test on the reference low-end profile (2 cores and 1 GiB enforced with
-  cgroups) where a 2 Mbit/s stream plays without underrun while the server
-  receives 2,000 idle slow connections (SEC-NET-055).
-- **Tests.** These are the tests.
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-065, WP-067, WP-078, WP-079.
+- **Owns** `crates/gunmetal-server/src/inspector/`.
+- **Serves** ADM-125, LIB-195; API-CAT-11.
+- **Security.** Boundaries TB9, TB11; threats TM-T13. Verifies
+  SEC-HIS-013, SEC-API-068.
+- **Why it exists.** The file inspector is R1.2 (register D-10), while the
+  rest of WP-107, curation, is R1.3.
+- **Scope.** As WP-107 first specified it: the file inspector for admins
+  (every raw tag, the structure the parsers read, the identification
+  decision and "why is this here", errors with offsets), probing the file
+  through the worker on demand, with an admin-only response type.
+- **Tests.** The inspector shows the exact problem offsets the probe
+  reported; a member gets 404; the response type for an admin holds no
+  field another role's type lacks without the inspect capability.
+- **Not in scope.** A parse summary for members (MUS-114; see Review
+  notes).
 
-## Coverage check: every R1 capability has an owner
+#### WP-157 Restore from the UI with a restore point and a preview (split from WP-109)
 
-This table maps every R1 capability in [api-needs.md](api-needs.md) to the
-packages that deliver it. The R2 rows in that document are covered in the
-outline below.
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-062, WP-095, WP-109.
+- **Owns**, under the merge protocol's interface-change rule, the UI
+  restore routes in `crates/gunmetal-server/src/restore/` (WP-109's).
+- **Serves** ADM-070; API-SET-04 (restore from the UI).
+- **Security.** Boundaries TB10, TB11; threats TM-T59, TM-T60. Verifies
+  SEC-OPS-043, SEC-OPS-044, SEC-TM-017 (an owner, fresh-uv action) for
+  this path.
+- **Why it exists.** Restoring from the UI with a restore point and a
+  preview is R1.2 (register D-10); R1 restores from the command line and
+  the welcome screen (WP-109).
+- **Scope.** As WP-109 first specified it: restore from the UI of a
+  running server, as an owner, fresh-uv action, after taking a restore
+  point, with a preview of what the backup holds; everything else
+  (verification, extraction, the jailed open, key rotation and the review
+  alert) is WP-109's path, reused unchanged.
+- **Tests.** A restore without fresh verification is refused; a failed
+  restore leaves the server at its restore point; the preview names the
+  server, the date and the accounts the backup holds, compared whole.
 
-| Capability | Packages |
-|---|---|
-| API-SYS-01 health; SYS-03 negotiation; SYS-04 discovery; SYS-06 sign-in facts; SYS-09 API reference | WP-089 (with WP-039, WP-044, WP-118) |
-| API-SYS-02 secure-context report | WP-073 |
-| API-SYS-05 who am I | WP-087 |
-| API-SYS-07 startup page | WP-095 |
-| API-SYS-08 emergency page | WP-116 |
-| API-SYS-10 client event channel | WP-083 |
-| API-AUTH-01 to AUTH-03 claim, setup, owner | WP-080; the passkey branch of owner creation and the recovery codes offered with it in WP-106 (with WP-081 and WP-063) |
-| API-AUTH-04 passkeys | WP-081 (with WP-041) |
-| API-AUTH-05 password and two-factor | Withdrawn for R1 by the security baseline (SEC-IAM-025; baseline owner decision 1). A browser that cannot use a passkey signs in by approval from the person's own device: WP-120 (with WP-038) |
-| API-AUTH-06 single sign-on | WP-096 |
-| API-AUTH-07 guessing limiter | WP-064, the credential verifier (with WP-032), applied to every pathway: WP-080, WP-081, WP-063, WP-094, WP-120, WP-134 |
-| API-AUTH-08, AUTH-09 sessions and epochs | WP-062 (passkey sign-in in WP-081, sign-out in WP-120, cut-off in WP-082, push in WP-083) |
-| API-AUTH-10 to AUTH-12 step-up and recovery | WP-106 |
-| API-USR-01 profile identity | WP-087 (names), WP-103 (pictures) |
-| API-USR-02 settings | WP-087 |
-| API-USR-03, USR-04 sign-in methods and history | WP-106 (with WP-069) |
-| API-USR-05, USR-06 export and history import | WP-108 (with WP-057) |
-| API-USR-07 private session | WP-086 |
-| API-DEV-01 device registry | WP-087 (with WP-062) |
-| API-DEV-02 sync status | WP-084 |
-| API-DEV-03 diagnostics from a device | WP-116 |
-| API-SYNC-01 to SYNC-04 snapshot, delta, removals, profile data | WP-084 (with WP-066, WP-039) |
-| API-SYNC-05 artwork sizes | WP-079, WP-103, WP-037 |
-| API-SYNC-06 neighbour table | WP-058, WP-113 |
-| API-SYNC-07 prebuilt search index, if needed | WP-054 (serialised form); shipping it is a small follow-up if the budget is missed |
-| API-LIB-01 to LIB-05, LIB-07 libraries, folders, roots, grants, location, splitting rules | WP-099 (with WP-053, WP-060, WP-098; the grants table in WP-065) |
-| API-LIB-06 rebuild | WP-095 |
-| API-CAT-01 to CAT-08 catalogue fields | WP-040, WP-049 to WP-053, WP-075, WP-076, WP-077; seek and frame indexes stored by WP-067 and fetched through WP-084 (CAT-05) |
-| API-CAT-09, CAT-10 availability and folder paths | WP-102, WP-110 |
-| API-CAT-11 to CAT-13 inspect, merge and split, rescan one | WP-107 |
-| API-STR-01 to STR-03 signing, refresh, byte ranges | WP-082 |
-| API-STR-04 audio packaging | WP-056, WP-105 |
-| API-STR-05 artwork bytes | WP-103 |
-| API-SES-01, SES-02 session registry and stop | WP-104 |
-| API-SES-03 active player | WP-085 (with WP-083) |
-| API-SES-04 play reporting | WP-086 |
-| API-QUE-01 to QUE-04 queue document, operations, rebase, positions | WP-025, WP-026, WP-085 |
-| API-QUE-05 save queue as playlist | WP-093 |
-| API-PL-01, PL-02, PL-07, PL-08 playlists, pins, tool writes, missing entries | WP-093 |
-| API-PL-03, PL-04 M3U and folder playlists | WP-022, WP-112 |
-| API-PL-05, PL-06 rule store and server evaluation | WP-027, WP-092, WP-113 |
-| API-LOG-01 to LOG-05 events, offline merge, removal, counts, hides | WP-034, WP-068, WP-086 |
-| API-HOME-01, HOME-02 layout and pins | WP-087, WP-059 |
-| API-HOME-03, HOME-04 recently added without upgrades, reasons | WP-077, WP-059, WP-058 |
-| API-HOME-05 search on the device | WP-054, WP-088 |
-| API-SCAN-01, SCAN-03 scan and progress | WP-099, WP-102 |
-| API-SCAN-02 path-scoped refresh | WP-098 |
-| API-SCAN-04, SCAN-05 task list and activity | WP-070, WP-100 (with WP-069 for the audit store) |
-| API-HLTH-01, HLTH-02, HLTH-05 health | WP-110 |
-| API-HLTH-03, HLTH-04 review queue and trash | WP-111 |
-| API-ADM-01 to ADM-03 users and invitations | WP-094 |
-| API-SET-01 network settings | WP-073 (path prefix, owner certificate), WP-132 (trusted proxies, posture), WP-101 and WP-135 (HTTPS names) |
-| API-SET-02 egress gate and network activity | WP-048, WP-097 |
-| API-SET-03 sign-in settings | WP-096, WP-062 |
-| API-SET-04, SET-05 backups and restore | WP-090, WP-109 (the owner's server export in WP-108) |
-| API-SET-06 updates | WP-074 |
-| API-SET-07 alerts and logs | WP-097, WP-043 |
-| API-SET-08 diagnostics | WP-116, WP-095 |
-| API-SET-09 server identity | WP-089 |
-| API-SET-10 restart and shut down | WP-095 |
-| API-SET-11 listening-service and playlist imports | WP-108, WP-112 |
-| API-TOK-01, TOK-02 tokens and tool change feed | WP-091, moved to R2 by the security baseline (API keys are R2; baseline owner decision 8) |
-| API-TOK-03 deep links | WP-089 |
+#### WP-158 The owner's server export (split from WP-108)
 
-The security baseline adds R1 surfaces that api-needs.md does not list
-as capabilities: music share links (WP-134), browser pairing (WP-120),
-history deletion and account deletion (WP-133), the name service and its
-client (WP-129, WP-135), metadata providers if the owner accepts them
-(WP-137), and the security process and release work (WP-124, WP-127,
-WP-136). api-needs.md should gain rows for the first four; that file is
-outside this change.
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-062, WP-090, WP-108.
+- **Owns** `crates/gunmetal-server/src/server_export/`.
+- **Serves** ADM-074; API-SET-04 (server export).
+- **Security.** Boundaries TB10, TB11; threats TM-T18, TM-T59. Verifies
+  SEC-PRV-025 (the export part), SEC-API-071, SEC-TM-017.
+- **Why it exists.** A full export in documented formats is R1.2
+  (register D-10); WP-108 keeps each person's own export in R1, as it
+  foresaw splitting.
+- **Scope.** As WP-108 first specified it: the owner's server export in
+  the same documented formats, as a fresh-uv action: settings without
+  secrets, library roots, the household data and the owner's own data,
+  never another adult's history, ratings or private playlists
+  (SEC-PRV-025); the curation log joins it in R1.3 with WP-107. Moving the
+  whole server uses the encrypted backup (WP-090).
+- **Tests.** The owner's server export of a two-person server, compared
+  with a literal expected document, contains no history event, rating or
+  private playlist of the other adult, and no secret (canary); an export
+  without fresh verification is refused.
 
-The background jobs in api-needs.md map the same way: library scan to
-WP-102 and the parser-upgrade re-read to WP-123; change detection and path refresh to
-WP-098; artwork processing to WP-079 and WP-103; loudness to WP-114;
-neighbours and server-side rules to WP-113; playlist files to WP-112;
-import matching to WP-108 and WP-112; change-log compaction to WP-066; root
-health to WP-110; trash purge to WP-111; backups to WP-090; pre-upgrade
-snapshots and cache rebuilds to WP-095; user-log recovery to WP-068; the
-update check to WP-074; the free-space guard, alerts, log rotation and
-crash records to WP-097; expiry sweeps to WP-070 with each owner
-registering its own; open-response tracking to WP-082; the retention
-schedule to WP-138, and the retention sweep and erasure to WP-133;
-certificate renewal to WP-101; CT monitoring to WP-135.
+#### WP-159 Household setup steps and deep links (split from WP-080 and WP-089)
 
-### R1 feature rows with no backend package
+- **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-080, WP-089, WP-094.
+- **Owns**, under the merge protocol's interface-change rule, three steps
+  in setup's step list (WP-080's), the server name and welcome message in
+  `crates/gunmetal-server/src/meta/` (WP-089's), and the deep-link routes
+  in `crates/gunmetal-core/src/deeplink.rs` (WP-089's).
+- **Serves** ADM-027, ADM-140, CLI-034, INT-147.
+- **Security.** Boundaries TB1, TB4; threats TM-T07, TM-T10. Verifies
+  SEC-API-005 and SEC-NET-047 (the server name is never shown to an
+  unauthenticated caller), SEC-PRV-053 (the welcome message in the
+  invitee's privacy notice), SEC-CLI-025 (each new deep link through the
+  one parser), SEC-API-046 (the message is stored and shown as text).
+- **Why it exists.** Language, region and time zone, a custom server name
+  and welcome message, and deep links are R1.2 (register D-10).
+- **Scope.** The locale and time-zone step and setting; the server name
+  and the welcome message invited people see before they join and
+  everyone sees after signing in; deep links to items and pages added to
+  the parser's closed route set, never granting access by themselves.
+- **Tests.** Unauthenticated `GET /api/v1/server` still matches its
+  literal schema with a server name set; a welcome message with markup is
+  returned as text; each new deep link parses to its typed route, and
+  unrecognised input still maps to "unknown" (property).
 
-Review compared every R1 ID in the feature map's R1 cut with the IDs the
-packages serve. The rows that no package named fall into four groups.
+### R1.3, discovery and analysis
 
-- **Now served.** ADM-002 to ADM-005 (release builds, the container image,
-  pinned tags, service install) by the new WP-121; ADM-030 by WP-080;
-  ACC-114, DIS-103 and MUS-158 (settings) by WP-087; ACC-128 by a test in
-  WP-074; CLI-099 by WP-082; MUS-109 by WP-086; LIB-146, DIS-102, MUS-056
-  and CLI-026 (fields and behaviour of the synced copy) by WP-040 and
-  WP-084; MUS-051, MUS-054 and MUS-060 (artist and album aggregates and
-  the genre index, computed on the device from synced fields) by WP-040;
-  MUS-053 (sort keys) and MUS-055 (credits per track) through WP-036 and
-  WP-053, which already produce them.
-- **Client only.** These need nothing from the server beyond the synced
-  copy and the routes above, so they belong to the client plan, not this
-  one: CLI-031, CLI-060, CLI-062, CLI-070, CLI-135, CLI-136, CLI-138 to
-  CLI-142, CLI-149, DIS-100, DIS-104, DIS-107, DIS-109 to DIS-112, MUS-052,
-  MUS-072, MUS-073, MUS-076, MUS-108, MUS-113, MUS-227.
-- **Documentation, not code.** ADM-011 (the hardware guide, from WP-115's
-  numbers), CLI-002 (the published browser list) and the release notes
-  ADM-003 implies. No package owns them; they need a documentation owner
-  (see Review notes).
-- **Reference rows.** The LIB, MUS, DIS, ACC and ADM references listed
-  under the R1 cut ship with their owning rows and need no package of
-  their own.
-- **Partly served.** MUS-114 (the track info sheet) names the admin-only
-  inspect API as its source; see WP-107 and Review notes.
-- **Changed by the security baseline.** ACC-052 (password sign-in) and
-  ACC-053 (two-factor codes) are withdrawn from R1 (SEC-IAM-025); their
-  plan rows were removed from WP-038, WP-063 and WP-120. ACC-086 to
-  ACC-088 (music share links) move into R1 (WP-134), pending the
-  baseline's owner decision 7. ACC-049 and the INT rows WP-091 served
-  move to R2 with it. The feature map should be updated to match; that
-  file is outside this change.
+The rule editor and smart playlists, library radio and the neighbour
+table, measured loudness (if ADR 5 is accepted), folder view for admins,
+manual curation and 32-bit ARM (register D-10, "R1.3, discovery and
+analysis"). The core rule format they build on, with its parser budgets,
+is R1.1 work (WP-027, register D-85). No security requirement moves to
+R1.3. Three R1.3 rows need no
+package of their own: folder view (LIB-008, DIS-106) reads the folder
+paths WP-102 already stores (API-CAT-10) through a route not yet planned;
+showing the bytes each scan read (ADM-088) reads the counts WP-102 writes
+into its activity entry (WP-100); and the derived-data store kept across
+rebuilds (ADM-141) is WP-071's, which arrives in R1.1.
+
+#### WP-029 Loudness meter (conditional on ADR 5)
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 1) · **Size** M ·
+  **Depends on** WP-003 (accepted), WP-005.
+- **Owns** `crates/gunmetal-core/src/loudness.rs`.
+- **Serves** MUS-086; LIB-024.
+- **Security.** Boundaries TB6; threats TM-T20. Verifies SEC-MED-001.
+- **Scope.** ITU-R BS.1770 integrated loudness with K-weighting and gating
+  over blocks of samples fed incrementally, and true peak by oversampling,
+  with a checkpointable state so a long analysis can resume.
+- **Not in scope.** Decoding (WP-114 in the worker).
+- **Interface sketch.** `pub struct Meter; impl Meter { pub fn new(rate: SampleRate, channels: Channels) -> Self; pub fn push(&mut self, frames: &[f32]); pub fn checkpoint(&self) -> MeterState; pub fn finish(self) -> Loudness; }`.
+- **Tests.** Synthetic sine waves generated in the test at known amplitudes
+  and frequencies, with expected values taken from the standard's
+  published conformance description (for example a 997 Hz sine at a given
+  level on one channel); silence (gated out entirely, result "too quiet");
+  a checkpoint and resume giving the same result as one pass; a true-peak
+  case where the sample peak and true peak differ. The expected numbers
+  must come from the standard or EBU Tech 3341, not from this code.
+- **Risks.** Floating-point results across platforms must be compared with
+  a stated tolerance; WASM is not a target for this module.
+
+#### WP-058 Neighbour table and radio
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 2) · **Size** M ·
+  **Depends on** WP-005, WP-026 (the `RecentPlays` type), WP-040.
+- **Owns** `crates/gunmetal-core/src/radio/`.
+- **Serves** DIS-060 to DIS-062, DIS-067, DIS-070, MUS-165, MUS-129;
+  API-SYNC-06. It also adds, to R1's packages, the start-radio verb and
+  the suggestions that fill the Continue with lane (WP-025), the
+  "because you played" row (WP-059) and radio picks in the WASM facade
+  (WP-088), each under the merge protocol's interface-change rule.
+- **Security.** Boundaries TB4, TB10; threats TM-T18. Verifies no
+  requirement of its own: it holds no security control, and the rules it
+  relies on are proved by the packages that own them.
+- **Scope.** Compute each track's, album's and artist's top N neighbours
+  from shared credits, genres and era within a size budget (server side,
+  as a job in WP-113); the person's own listening weights it on the
+  device. Household co-listening is not built in R1 or R2: one person's
+  plays must not shape another's table (SEC-PRV-022, ACC-114; security
+  README decision 5, register D-37), so the first draft's co-listening
+  input is removed. On the device, pick
+  radio tracks from a seed with seeded randomness, avoiding recent plays,
+  with a reason label for every pick.
+- **Interface sketch.** `pub fn neighbours(lib: &LibraryView, budget: Budget) -> NeighbourTable`;
+  `pub fn radio(seed: Seed, table: &NeighbourTable, recent: &RecentPlays, rng_seed: u64, n: u16) -> Vec<Pick>`.
+- **Tests.** A tiny library where neighbours are obvious and written out by
+  hand; cold start with no plays; a seed with no neighbours (falls back to
+  genre, labelled); the size budget enforced. Properties: when the table
+  holds at least `n` eligible candidates, exactly `n` picks come back; no
+  pick repeats within the window; every pick carries a reason. (Without the
+  first, an empty result would satisfy the other two.)
+
+#### WP-092 Rule store and server-side evaluation
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 3) · **Size** M ·
+  **Depends on** WP-027, WP-065, WP-066, WP-067, WP-068, WP-118, WP-119.
+- **Owns** `crates/gunmetal-server/src/rules/`.
+- **Serves** DIS-105 (saved filters are rule documents from R1.1, WP-027;
+  from R1.3 this store also holds them beside smart playlists),
+  DIS-119 to DIS-122, MUS-143 to MUS-146; API-PL-05, API-PL-06
+  (the R1.3 evaluation; tools reading the results are R2). (MUS-149 is R1 without rules, WP-059
+  and WP-086; tools reading smart playlists through the API, INT-138, are
+  R2 with WP-091.) It registers its projection rebuilder with WP-095 and
+  adds saved rules to the personal export (WP-108).
+- **Security.** Boundaries TB4; threats TM-T09, TM-T15. Verifies no
+  requirement of its own: it holds no security control, and the rules it
+  relies on are proved by the packages that own them.
+- **Scope.** Save, rename and delete rule trees as versioned documents
+  (latest wins); bind the rule language's field IDs to the catalogue
+  tables; evaluate smart playlists on the server for tools reading them
+  through the API, re-evaluated when the library or the rule changes.
+- **Tests (real SQLite).** For a small synthetic library and a set of
+  rules, the items the server returns equal literal expected ID lists
+  worked out by hand. The server evaluates with the core's `evaluate`, so
+  comparing server output with the core's own output over the same data,
+  as first planned, would pass even if both were wrong; what can differ
+  between the two sides is the field binding, so a property checks that
+  for arbitrary rows the server's binding (from cache rows) and the synced
+  record's binding (WP-040's field accessors) return the same value for
+  every field ID (the same-result promise of DIS-119). An unknown rule
+  node from a newer client is kept.
+
+#### WP-107 Curation and the review queue (was: curation and the file inspector)
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 4) · **Size** L (was
+  M; it gained the review queue from WP-111, the curation event bodies
+  from WP-034 and the overrides in WP-053 and WP-076, and lost the file
+  inspector to WP-156 in R1.2) · **Depends on** WP-034, WP-053, WP-065,
+  WP-067, WP-068, WP-070, WP-076, WP-077, WP-095, WP-102, WP-111.
+- **Owns** `crates/gunmetal-server/src/curation/`,
+  `crates/gunmetal-server/src/review/`, the curation bodies in
+  `crates/gunmetal-core/src/userdata/` (one file, `curation.rs`, beside
+  WP-034's), and the override step in `crates/gunmetal-core/src/music/`
+  (`overrides.rs`), which WP-053's credit resolution and WP-076's
+  grouping call.
+- **Serves** MUS-007, LIB-041, LIB-058, LIB-099, LIB-179; API-CAT-12,
+  API-HLTH-03. (The file inspector, ADM-125, LIB-195 and API-CAT-11, is
+  R1.2, WP-156; rescanning one item, API-CAT-13, is R1 through WP-098.)
+- **Security.** Boundaries TB9, TB11; threats TM-T13. Verifies SEC-HIS-013,
+  SEC-API-068.
+- **Why R1.3.** The adopted R1 puts manual curation, the review queue and
+  "fixes survive everything" in R1.3 (register D-10). R1 groups without
+  overrides and never guesses: ambiguous matches become a removal and an
+  addition (WP-077) and doubtful groupings stay apart (WP-076). This
+  package changes both to send the doubtful case to the review queue.
+- **Scope.** The household curation event bodies (merge, split and alias
+  of artists and albums, and a review answer) and their merge rules, added
+  to the user-event envelope, which keeps unknown bodies and so needed no
+  format change (WP-034). Merge, split and alias artists and albums as
+  curation-log events that survive rescans and rebuilds, applied on top
+  of credit resolution and grouping as overrides. The review queue, moved
+  from WP-111: doubtful decisions with their evidence and a proposal;
+  accept, reject or choose another, stored in the curation log; WP-076's
+  grouping and WP-077's diff emit review items instead of keeping things
+  apart. Its projection rebuilder registers with WP-095, and curation
+  joins the owner's server export (WP-158).
+- **Tests (real SQLite and log files).** A merge is written as one
+  curation event and survives a cache rebuild through this package's
+  projection rebuilder; an alias makes both names find the artist; an
+  override that merges two albums the rules kept apart (moved from
+  WP-076's tests); an accepted review survives a rebuild (moved from
+  WP-111's tests); end to end over a real server, the artist-merge round
+  trip that WP-117 carried: a merge survives a rescan and a rebuild.
+- **Not in scope.** The file inspector (WP-156, R1.2).
+
+#### WP-113 Neighbour table and rule re-evaluation jobs
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 5) · **Size** S ·
+  **Depends on** WP-058, WP-092, WP-102.
+- **Owns** `crates/gunmetal-server/src/derived_jobs/`.
+- **Serves** DIS-060, DIS-121; API-SYNC-06, API-PL-06.
+- **Security.** Boundaries TB4; threats TM-T09. Verifies no requirement of
+  its own: it holds no security control, and the rules it relies on are
+  proved by the packages that own them.
+- **Scope.** The nightly and after-scan neighbour table rebuild within its
+  size budget, synced as a change; re-evaluation of server-side smart
+  playlists when the library changes.
+- **Tests (real SQLite).** A scan triggers one rebuild, not one per batch;
+  the table's size stays inside the budget.
+
+#### WP-114 Loudness analysis job (conditional on ADR 5)
+
+- **Release** R1.3 · **Wave** not yet scheduled (was 5) · **Size** M ·
+  **Depends on** WP-003 (ADR 5 accepted), WP-029, WP-071, WP-078, WP-079,
+  WP-102.
+- **Owns** `crates/gunmetal-worker/src/jobs/loudness.rs`,
+  `crates/gunmetal-server/src/loudness/`.
+- **Serves** MUS-086, MUS-089, LIB-024, ADM-095.
+- **Security.** Boundaries TB6; threats TM-T20, TM-T21. Verifies
+  SEC-MED-018.
+- **Scope.** At low priority after a scan, throttled and checkpointed,
+  decode untagged tracks in the worker and measure them; store results in
+  the derived-data store; mark the gain source as measured.
+- **Tests.** Synthetic tones encoded in the test (FLAC with verbatim
+  subframes is simple to write; other formats only if the testkit can
+  produce them without an external encoder); a file over 12 hours keeps its
+  tags only; a restart resumes from the checkpoint.
+
+#### WP-160 Builds for small ARM boards, including 32-bit (split from WP-121)
+
+- **Release** R1.3 · **Wave** not yet scheduled · **Size** S ·
+  **Depends on** WP-045, WP-110, WP-121, WP-136.
+- **Owns**, under the merge protocol's interface-change rule, the ARMv7
+  target in the release workflow (WP-136's) and its packaging
+  (WP-121's).
+- **Serves** ADM-004.
+- **Security.** Boundaries TB6, TB12; threats TM-T21, TM-T54. Verifies
+  SEC-MED-024 (the 32-bit build is labelled with the reduced isolation
+  tier and not claimed as supported until its seccomp answer is
+  recorded).
+- **Why it exists.** The owner's answer to D-09 makes R1 servers Linux on
+  x86-64 and ARM64 plus a Docker image, and the register puts 32-bit ARM
+  in R1.3.
+- **Scope.** As WP-121 first specified it: a 32-bit ARM build labelled
+  with the reduced isolation tier on the health page and not claimed as
+  supported until its seccomp answer is recorded (SEC-MED-024; owner
+  decision 24), signed and with provenance like every other artefact.
+- **Tests.** A smoke run of the 32-bit ARM build under emulation if CI
+  can provide one (unverified); the health page on that build shows the
+  exact reduced-tier notice.
+
+#### WP-161 People with typed roles, typed links and spoken word (split from WP-040 and WP-099)
+
+- **Release** R1.3 · **Wave** not yet scheduled · **Size** M ·
+  **Depends on** WP-040, WP-099, WP-146.
+- **Owns** `crates/gunmetal-core/src/catalog/people.rs`,
+  `crates/gunmetal-core/src/catalog/links.rs`, and, under the merge
+  protocol's interface-change rule, the spoken-word flag in
+  `crates/gunmetal-server/src/libraries/` (WP-099's).
+- **Serves** LAT-002, LAT-008, LAT-010.
+- **Security.** Boundaries TB4, TB9; threats TM-T15. Verifies no
+  requirement of its own: it holds no security control, and the rules it
+  relies on are proved by the packages that own them.
+- **Why it exists.** People with typed roles, typed links between items
+  and keeping spoken word out of music are R1.3 (register D-10).
+- **Scope.** A person record with typed roles distinct from artist
+  credits; typed links between items (for example a live recording and
+  its studio original); a library's spoken-word flag, which keeps its
+  items out of music browsing, shuffle and radio.
+- **Tests.** Constructors refuse invalid combinations; a spoken-word
+  library's items never appear in music Home rows or radio picks.
+
+### R2: the name service and its client
+
+The project-run per-server name service, its naming client and its
+Certificate Transparency monitoring (owner answer to D-07), beside
+built-in remote access (WP-221 in the R2 outline), and the scoped API keys
+that moved to R2 for the security baseline (WP-091). Requirements due in
+R2 with these surfaces: SEC-NET-010, SEC-NET-011, SEC-NET-012,
+SEC-NET-069, SEC-NET-070 and SEC-NET-071 (WP-129, WP-135), and the R2
+requirements WP-091 already listed. The four feature rows the register
+moves out of the R1 line to R2 (LIB-056, CLI-032, INT-006, INT-138) are
+served by WP-091 and the R2 outline. R2's waves and packages are in
+[R2 (video) in outline](#r2-video-in-outline).
+
+#### WP-129 Per-server name service (added for the security baseline; R2 by owner decision D-07; the project site's security files split off to WP-139)
+
+- **Release** R2 · **Wave** not yet scheduled (was 1) · **Size** L ·
+  **Depends on** WP-005, WP-139 (the zone's HSTS entry joins the site's
+  headers); conditional on a legal home for project services (register
+  D-41) and a second keyholder (D-62).
+- **Owns** `crates/gunmetal-names/` (creates the crate: the label codec,
+  the pure DNS-answer function, the registration rules and the service
+  binary).
+- **Serves** ADM-023 (a per-server HTTPS name from the project name
+  service, moved to R2 with this package); ADM-021 and ADM-022 for
+  households with no domain, tailnet or reverse proxy of their own.
+- **Security.** Boundaries TB1, TB8, TB12; threats TM-T33, TM-T44, TM-T70.
+  Verifies, in R2: SEC-NET-011, SEC-NET-012 (the service's CAA record),
+  SEC-NET-070, SEC-HIS-061 (the name-service clauses; WP-139 proves the
+  site's clause in R1), SEC-STD-016 (the name-service zone; WP-139 proves
+  gunmetal.tv's in R1).
+- **Why it moved.** The baseline's recommended R1 made HTTPS work for
+  ordinary households through a per-server name service run by the
+  project. The owner decided otherwise on 2026-10-02 (register D-07): R1
+  gets HTTPS through the owner's own domain with automatic certificates
+  (WP-101), a tailnet, or the same machine, and the name service, its
+  naming client and its Certificate Transparency monitoring move to R2,
+  alongside built-in remote access (WP-221). The requirements that
+  protect only the name service (SEC-NET-010 to SEC-NET-012, SEC-NET-069
+  to SEC-NET-071) move with it and are due in R2; none is weakened. The
+  project site's security files are R1 surfaces whatever happens to the
+  service, so they split off to WP-139 in wave 1.
+- **Scope.** The name service: labels are 128-bit random values the
+  server generates; the service answers A and AAAA queries as a pure
+  function of the queried name, only for labels that encode an address in
+  RFC 1918, RFC 6598 or RFC 4193 space, and answers nothing for any other
+  address (SEC-NET-011); it publishes a CAA record per label restricting
+  issuance to that server's ACME account and dns-01 (SEC-NET-012); it
+  limits registrations per source and per key, requires proof of work or
+  a minimum key age, garbage-collects labels that stop renewing, and
+  launches only after its zone is on the Public Suffix List
+  (SEC-NET-070); it holds only a random label and a public key, with no
+  accounts or user data (SEC-HIS-061); its zone sends HSTS with preload
+  from the day it is announced (SEC-STD-016).
+- **Not in scope.** The server's client for the service (WP-135). The
+  project site (WP-139). Deployment and hosting accounts, which are the
+  owner's.
+- **Tests.** Property tests: the label codec round-trips every local
+  IPv4 and IPv6 address it may encode, and the answer function returns no
+  address for any public, loopback or link-local value; the registration
+  rules refuse a burst from one source and a fresh key; a CAA record for a
+  label names exactly that account and `dns-01`. A load test of the
+  registration endpoint. The zone's HSTS header in the site checks.
+- **Risks and decisions.** An ADR amending ADR 1 decisions 7 and 9 and a
+  zone name that is not the docs domain (register D-07), before R2 starts.
+
+#### WP-135 Name-service client and Certificate Transparency monitoring (added for the security baseline; R2 by owner decision D-07)
+
+- **Release** R2 · **Wave** not yet scheduled (was 5) · **Size** M ·
+  **Depends on** WP-048, WP-080, WP-097, WP-101, WP-129.
+- **Owns** `crates/gunmetal-server/src/naming/`.
+- **Serves** ADM-023, and ADM-021 and ADM-022 for a household with no
+  domain of its own (R2).
+- **Security.** Boundaries TB8, TB12; threats TM-T11, TM-T33. Verifies, in
+  R2: SEC-NET-010, SEC-NET-012 (the server's CAA check), SEC-NET-069,
+  SEC-NET-071, and the name-service parts of SEC-NET-072 and SEC-OPS-007
+  (the label registration as a pre-claim connection, and the claim page's
+  note that the name is permanent). In R1, SEC-OPS-007 and SEC-NET-072
+  are proved for the paths R1 has by WP-101, WP-109 and WP-117.
+- **Why it exists.** With the name service (WP-129, R2), the server needs
+  the client side: registering its label, answering DNS-01 challenges
+  through the service, and watching for certificates issued for its name
+  by anyone else. It moved to R2 with the service (register D-07). It
+  adds the naming and CT-monitoring egress purposes to WP-048's
+  enumeration.
+- **Scope.** At install time, when the owner chose the name service,
+  generate a 128-bit random label on the server, not derived from any key
+  or address, and register it with the server's public key (SEC-NET-010);
+  before the claim, make no outbound connection except this registration
+  and ACME DNS-01 through WP-101, and print the name on the console
+  (SEC-OPS-007); at each renewal, check the label's CAA record and alert
+  if it is missing or wrong (SEC-NET-012); from the claim, monitor
+  Certificate Transparency for the label through at least two
+  independent monitors over the egress client, raising a critical owner
+  alert for a certificate the server did not request (SEC-NET-069); when
+  the service refuses, rate-limits or cannot be reached, keep working on
+  every other path and explain the failure and the alternatives in plain
+  words (SEC-NET-071); the claim page explains that the chosen name is
+  permanent for passkeys, and a documented, tested migration moves a
+  server to a new origin (SEC-NET-072).
+- **Tests.** The registration and TXT-update requests compared literally
+  against a local test name service; in an isolated network namespace
+  before the claim, the only connections are to the naming and ACME
+  purposes; a fake CT feed containing a foreign certificate raises exactly
+  one critical alert; a missing CAA record raises the alert; a refusing
+  test service leaves localhost and own-domain HTTPS working, with the
+  console message compared literally; an end-to-end origin migration.
+
+#### WP-091 Scoped tokens and the tool change feed (moved to R2)
+
+- **Moved to R2 for the security baseline.** The baseline puts API keys,
+  app passwords and the adapters in R2, never with administrator scopes
+  (release scope table; SEC-EXT-008 to SEC-EXT-017 are R2; baseline owner
+  decision 8), so R1 has no scripting API. This package now runs in wave
+  7 with the R2 packages, takes over the `gmk_…` key format that WP-031
+  dropped, and must meet SEC-EXT-008 to SEC-EXT-017 and SEC-IAM-083. The
+  R1 rows it served (ACC-049, INT-006, INT-012, INT-017 to INT-022,
+  API-TOK-01, API-TOK-02) move to R2 with it (INT-023 stays R1 with WP-031
+  and WP-043); WP-093's tool write API and
+  WP-098's token-scoped refresh go with it. The scope below is the first
+  draft's and is revised before wave 7 starts.
+- **Release** R2 · **Wave** 7 (was 3) · **Size** M · **Depends on** WP-031,
+  WP-033, WP-047, WP-062, WP-065, WP-066, WP-118.
+- **Owns** `crates/gunmetal-server/src/tokens/`.
+- **Serves** ACC-049, INT-006, INT-012, INT-017 to INT-022 (INT-023 stays
+  R1 with WP-031 and WP-043); API-TOK-01, API-TOK-02.
+- **Security.** Boundaries TB4; threats TM-T14. Verifies, in R2:
+  SEC-EXT-008, SEC-EXT-009, SEC-EXT-010, SEC-EXT-011, SEC-EXT-012,
+  SEC-EXT-013, SEC-EXT-014, SEC-EXT-015, SEC-EXT-016, SEC-EXT-017,
+  SEC-IAM-083.
+- **Scope.** Create tokens scoped by library, root and user, with expiry,
+  rotation, last use, audit trail, per-token rate limits and revoke one or
+  all; the no-escalation rule; authenticating API keys in the request
+  pipeline beside WP-062's cookie sessions, yielding a `Principal` with the
+  token's scope; the change feed for tools with a cursor per token,
+  filtered by scope, in JSON.
+- **Tests (real SQLite).** A token cannot be issued with more than its
+  creator holds; a token scoped to one library sees only that library's
+  changes; a revoked token fails at once; a token in a query string is
+  refused.
+
 
 ## R2 (video) in outline
 
@@ -6623,8 +7836,13 @@ patterns: synced metadata, signed URLs, the user log, the session registry,
 the worker and the task runner. The packages below are outlines: each will
 get the same detail as R1 before its wave starts, and some will split. They
 are numbered from WP-201 so R1 can grow without renumbering. Waves continue
-from R1's last wave; R2 waves may begin while R1 waves 5 and 6 finish,
-because they share no files.
+from R1's last wave; R2 waves may begin while R1 waves 5 and 6 or the
+point releases' packages finish, where they share no files. Three R2
+packages are specified in full in the R2 group of
+[After R1](#after-r1-point-releases-and-later) rather than here: WP-091
+(scoped API keys), WP-129 (the project name service) and WP-135 (its
+naming client and CT monitoring), the last two moved from R1 by the
+owner's answer to D-07, beside built-in remote access (WP-221).
 
 The largest risk is the one ADR 1 names: the pure-Rust remuxer, with Dolby
 Vision, lossless audio and image-based subtitles. Jellyfin and Plex already
@@ -6635,8 +7853,9 @@ The **Security** column gives each outline package's trust boundaries,
 threats and the requirement IDs its tests must verify. Each package gets
 a full Security field, in the R1 form, before its wave starts. Some R2
 packages also verify R1 requirements whose surface only arrives in R2
-(the iroh endpoint, scrobbling); the R1 coverage table lists those as
-unassigned in R1 with the R2 package named.
+(the iroh endpoint, scrobbling); those are proved by absence in R1
+(WP-001, WP-048, WP-131), as the R1 coverage table records, and the R2
+packages it names verify the behaviour.
 
 | ID | Title | Wave | Size | Depends on | Owns (outline) | Serves | Security |
 |---|---|---:|---|---|---|---|---|
@@ -6662,7 +7881,7 @@ unassigned in R1 with the R2 package named.
 | WP-220 | Downloads: grants, resumable transfers, rights | 9 | L | WP-210, WP-082, WP-215 | `server/src/downloads/` | CLI-078 to CLI-097; API-DL-01 to API-DL-05 | TB5; TM-T39; SEC-IAM-054, SEC-CLI-036, SEC-TM-060 |
 | WP-221 | iroh remote access and relays | 8 | L | WP-218 | `crates/gunmetal-remote/` | ACC-096, ACC-100, ACC-101; API-SET-12 | TB3; TM-T49, TM-T50, TM-T51; SEC-NET-033, SEC-NET-037, SEC-NET-038, SEC-NET-039, SEC-NET-040, SEC-NET-041, SEC-NET-042, SEC-NET-043, SEC-NET-054, SEC-NET-060, SEC-NET-061, SEC-NET-062, SEC-NET-065, SEC-OPS-040, SEC-PRV-059, SEC-TM-064 |
 | WP-222 | Household profiles, policies, parental controls, PINs | 8 | L | WP-033, WP-065 | `server/src/household/` | ACC-016 to ACC-034, ACC-038 to ACC-044; API-USR-08, API-ADM-04, API-AUTH-14 | TB5, TB11; TM-T15, TM-T19; SEC-IAM-061, SEC-IAM-062, SEC-IAM-063, SEC-IAM-064, SEC-IAM-065, SEC-IAM-066, SEC-IAM-109, SEC-IAM-110, SEC-PRV-028, SEC-PRV-029 |
-| WP-223 | Video share links (off by default) and the guest capability | 9 | M | WP-222, WP-134 | `server/src/shares/video.rs`, `server/src/guest/` (music share links are R1, WP-134) | ACC-091, ACC-092, ACC-135 | TB1, TB4; TM-T16, TM-T67; SEC-API-097 |
+| WP-223 | Video share links (off by default) and the guest capability | 9 | M | WP-222, WP-134 | `server/src/shares/video.rs`, `server/src/guest/` (music share links are R1.2, WP-134) | ACC-091, ACC-092, ACC-135 | TB1, TB4; TM-T16, TM-T67; SEC-API-097 |
 | WP-224 | Webhooks and the public event stream | 8 | M | WP-048, WP-083 | `server/src/webhooks/` | INT-030 to INT-049; API-TOK-04 | TB8; TM-T30, TM-T36; SEC-EXT-045, SEC-EXT-046, SEC-EXT-047, SEC-EXT-048, SEC-EXT-049, SEC-EXT-050, SEC-OPS-035 |
 | WP-225 | WebAssembly plugin host with grants | 8 | L | WP-048, WP-047 | `crates/gunmetal-plugins/` | INT-054 to INT-069; API-TOK-05 | TB7; TM-T34, TM-T35, TM-T36, TM-T37; SEC-EXT-019, SEC-EXT-020, SEC-EXT-021, SEC-EXT-022, SEC-EXT-023, SEC-EXT-024, SEC-EXT-025, SEC-EXT-026, SEC-EXT-027, SEC-EXT-028, SEC-EXT-029, SEC-EXT-030, SEC-EXT-031, SEC-EXT-032, SEC-EXT-033, SEC-EXT-034, SEC-EXT-035, SEC-EXT-036, SEC-EXT-037, SEC-EXT-038, SEC-EXT-039, SEC-EXT-040, SEC-EXT-041, SEC-EXT-042, SEC-EXT-043, SEC-EXT-044, SEC-TM-065, SEC-TM-066, SEC-HIS-057 |
 | WP-226 | Scrobbler and lyrics-lookup plugins | 9 | M | WP-225, WP-086 | `plugins/` | MUS-192 to MUS-195, MUS-162 | TB7, TB8; TM-T33; SEC-PRV-033, SEC-PRV-034, SEC-PRV-035, SEC-PRV-036 |
@@ -6674,7 +7893,7 @@ unassigned in R1 with the R2 package named.
 | WP-232 | Resume points, Continue Watching and Next Up | 8 | M | WP-034, WP-207 | `core/src/video/progress.rs`, `server/src/progress/` | VID-118 to VID-122, DIS-024 to DIS-031; API-LOG-07, API-VID-02 | TB4; TM-T18; SEC-PRV-028 |
 | WP-233 | Statistics and year in review | 8 | S | WP-034 | `core/src/stats.rs` | MUS-186, MUS-187; API-LOG-06 | TB4; TM-T18 |
 | WP-234 | Partial sync and restricted-profile filtering | 9 | M | WP-084, WP-222 | `server/src/sync/partial.rs` | CLI-023, DIS-144, DIS-155; API-SYNC-08, API-SYNC-09 | TB4, TB5; TM-T15; SEC-IAM-064, SEC-IAM-076 |
-| WP-091 | Scoped API keys and the tool change feed (moved from R1) | 7 | M | WP-031, WP-033, WP-047, WP-062, WP-065, WP-066, WP-118 | `server/src/tokens/` | ACC-049, INT-006, INT-012, INT-017 to INT-023; API-TOK-01, API-TOK-02 | TB4; TM-T14; SEC-EXT-008, SEC-EXT-009, SEC-EXT-010, SEC-EXT-011, SEC-EXT-012, SEC-EXT-013, SEC-EXT-014, SEC-EXT-015, SEC-EXT-016, SEC-EXT-017, SEC-IAM-083 |
+| WP-091 | Scoped API keys and the tool change feed (moved from R1) | 7 | M | WP-031, WP-033, WP-047, WP-062, WP-065, WP-066, WP-118 | `server/src/tokens/` | ACC-049, INT-006, INT-012, INT-017 to INT-022 (INT-023 stays R1 with WP-031 and WP-043); API-TOK-01, API-TOK-02 | TB4; TM-T14; SEC-EXT-008, SEC-EXT-009, SEC-EXT-010, SEC-EXT-011, SEC-EXT-012, SEC-EXT-013, SEC-EXT-014, SEC-EXT-015, SEC-EXT-016, SEC-EXT-017, SEC-IAM-083 |
 
 R2 also needs the owner's answers on the Linux desktop shell, Dolby Vision
 on DV televisions, transcoding scope and relay funding (feature map open
@@ -6696,6 +7915,22 @@ TOTP), 2 (the name service in R1), 7 (music share links in R1), 8 (API
 keys in R2), 10 (Linux-only servers in R1), 14 (refuse root with no
 override) and 22 (built-in metadata providers).
 
+The owner answered the register's decide-first decisions on 2026-10-02
+([Owner answers](../decisions.md#owner-answers-2026-10-02)), and those
+answers win over the recommendations below. The ones that reshaped this
+plan: D-10 adopted the smaller R1, with the rest in R1.1, R1.2 and R1.3
+(see [After R1](#after-r1-point-releases-and-later)), which answers
+baseline decisions 7 (music share links: R1.2) and 22 (providers built
+in: R1.1); D-07 gives R1 HTTPS through the owner's own domain with
+automatic certificates, a tailnet or the same machine, and moves the
+name service, its client and CT monitoring to R2, which reverses
+baseline decision 2; remote access in R1 goes through the owner's own
+reverse proxy or a tailnet, and built-in remote access is R2; D-09 makes
+R1 servers Linux on x86-64 and ARM64 plus a Docker image, with no
+transcoding; and what admins see is who is playing and totals, not what,
+unless each person opts in, and no history. Items 3, 5, 10, 17, 21, 24,
+29 and 30 below are updated to match.
+
 1. **Accept ADR 3, durable user state (WP-002).** Blocks WP-034, WP-035,
    WP-046, WP-068 and, through them, most of R1. *Recommendation:* accept
    the shape in this plan: per-profile and household log streams in
@@ -6706,7 +7941,7 @@ override) and 22 (built-in metadata providers).
    *Recommendation:* accept; without it, browser gapless depends on each
    browser's native Media Source Extensions support, which is unverified.
 3. **Accept or reject ADR 5, audio decoders in the scan worker (WP-003).**
-   Blocks WP-029 and WP-114. *Recommendation:* accept Symphonia in the
+   Blocks WP-029 and WP-114, which are R1.3 in the adopted R1. *Recommendation:* accept Symphonia in the
    scan worker only, never in the server process, after its review under
    SEC-MED-026 (SEC-MED-018, SEC-MED-024; register D-09, owner to
    confirm); R1 still ships the tag-and-fallback path for Opus and HE-AAC,
@@ -6734,7 +7969,8 @@ override) and 22 (built-in metadata providers).
    job, SEC-MED-018), and the "not used, on purpose" list, which is this
    plan's proposal rather than a settled rule.
 5. **The crate layout.** Fourteen crates (twelve, plus the existing
-   `gunmetal-fuzz` and the name service's `gunmetal-names`), with the core
+   `gunmetal-fuzz` and the name service's `gunmetal-names`, which is
+   created only in R2 now that the name service is R2), with the core
    kept as one crate as ADR 1 says. *Recommendation:* accept, and record it in an ADR that
    extends ADR 1 rather than rewriting it (ADR 6, drafted by WP-003).
 6. **How the gate scales.** One full mutation run over a growing workspace
@@ -6764,10 +8000,12 @@ override) and 22 (built-in metadata providers).
    WP-081), and decide on RS256 after checking which authenticators the
    household is likely to use still require it (unverified). Allow recorded
    real ceremonies as test fixtures, since they are not media.
-10. **OIDC implementation and RSA.** *Recommendation:* hand-written, minimal code
-    flow with pinned algorithms (WP-096), because the general-purpose crate
-    brings a larger dependency tree than the one flow R1 needs. Either
-    way, the owner must also choose whether R1 verifies RS256, which
+10. **OIDC implementation and RSA.** OIDC is R1.2 in the adopted R1
+    (D-10), so this blocks WP-096 in R1.2, not R1. *Recommendation:*
+    hand-written, minimal code flow with pinned algorithms (WP-096),
+    because the general-purpose crate brings a larger dependency tree than
+    the one flow needs. Either way, the owner must also choose whether
+    R1.2 verifies RS256, which
     needs an RSA crate the plan did not list, or supports only providers
     configured for ES256 or EdDSA, which would exclude providers left on
     their defaults (unverified per provider).
@@ -6800,13 +8038,16 @@ override) and 22 (built-in metadata providers).
     (api-needs.md, "The sync model"). *Recommendation:* fetch seek indexes
     when a track enters the queue; measure lyrics before deciding; sync
     aggregates and a recent window of history; and name the reference
-    low-end devices so WP-054 and WP-084 can assert their budgets.
+    low-end devices for WP-115's budget tests. The budgets are enforced
+    in the R1 gate either way (register D-87); until the devices are
+    named, the tests run on the reference low-end profile.
 16. **What R1 does with writes while offline.** *Recommendation:* as
     api-needs.md proposes: only plays and positions are queued; loves,
     ratings and playlist edits are disabled with "Needs the server", and
     the event format already allows R2 to queue them.
-17. **Rating model** (feature map open decision 12). Blocks WP-034's event
-    bodies. *Recommendation:* as the feature map recommends.
+17. **Rating model** (feature map open decision 12). Blocks the rating
+    event body, which moved with ratings to WP-141 (R1.1); it no longer
+    blocks WP-034. *Recommendation:* as the feature map recommends.
 18. **Server platforms in R1 and the watcher.** *Answered by the baseline;
     owner to confirm:* Linux-only servers in R1; macOS and Windows server
     builds ship only once their worker sandbox profiles exist
@@ -6817,21 +8058,27 @@ override) and 22 (built-in metadata providers).
     admins only, until someone is granted access.
 20. **Compressed ID3v2 frames.** *Recommendation:* skip and record them in
     R1, so the core needs no inflater yet.
-21. **Built-in HTTPS by ACME in R1** (WP-101). *Answered by the baseline;
-    owner to confirm:* R1, with the per-server name service as the
-    install-time default and own domain, tailnet and localhost as tested
-    alternatives (baseline decision 2; WP-101, WP-129, WP-135). This plan
-    first left R1 or a point release open. Still open: the ACME client's
-    crates (see "Missing from this table").
+21. **Built-in HTTPS by ACME in R1** (WP-101). *Answered by the owner on
+    2026-10-02 (register D-07):* R1 gets HTTPS through the owner's own
+    domain with automatic certificates (WP-101), a tailnet, or the same
+    machine; the per-server name service, its naming client and its CT
+    monitoring are not in R1 and move to R2 (WP-129, WP-135). The
+    baseline had recommended the name service as R1's install-time
+    default (baseline decision 2), and this plan had followed it; the
+    owner's answer reverses that. This plan first left R1 or a point
+    release open. Still open: the ACME client's crates (see "Missing from
+    this table").
 22. **The benchmark library.** *Recommendation:* the synthetic generator in
     CI for regressions, plus a published comparison run by the owner on a
     real library they own, with its shape described but no files shared.
 23. **Configuration format.** *Recommendation:* TOML.
-24. **32-bit ARM.** `seccompiler` does not support it. *Recommendation:*
-    build it and label the isolation tier as reduced on the health page,
-    but do not claim it as supported until the seccomp answer for ARMv7 is
-    recorded, as SEC-MED-024 requires (baseline decision 10; owner to
-    confirm). The first draft said to call it supported with the label.
+24. **32-bit ARM.** `seccompiler` does not support it. *Answered for R1
+    by the owner (register D-09, D-10):* R1 servers are x86-64 and ARM64
+    and a Docker image, and 32-bit ARM is R1.3 (WP-160). *Recommendation
+    for R1.3:* build it and label the isolation tier as reduced on the
+    health page, but do not claim it as supported until the seccomp answer
+    for ARMv7 is recorded, as SEC-MED-024 requires (baseline decision 10).
+    The first draft said to call it supported with the label.
 25. **The integrator and the merge protocol.** Someone has to own the root
     `Cargo.toml`, `scripts/gate.sh` and `ci.yml` after wave 0, resolve
     registry conflicts and run the full gate per wave, and the merge
@@ -6848,14 +8095,16 @@ override) and 22 (built-in metadata providers).
 28. **Picks survive a new Play** (player.md proposal). *Recommendation:*
     accept; WP-025 implements it.
 29. **Playlists from folder files and missing entries** (flows G5 and G6).
+    Folder playlists are R1.1 (WP-112); missing entries are R1 (WP-093).
     *Recommendation:* folder playlists are read-only with "Duplicate to
     edit"; a purged track stays in a playlist as a "missing" entry that
     rematches by identity.
 30. **What admins and members see of other people's sessions** (feature
-    map open decision 13). Blocks WP-104's visibility test. *Answered by
-    the baseline; owner to confirm:* live sessions without titles unless
-    each person opts in, totals, and no one's history (SEC-PRV-025,
-    SEC-TM-054; baseline decision 5). This plan first recommended live
+    map open decision 13). *Answered by the owner on 2026-10-02:* who is
+    playing and totals, not what, unless each person opts in, and no
+    history (SEC-PRV-025, SEC-TM-054; baseline decision 5). The live view
+    itself is R1.2 (WP-153); in R1 no admin route shows another person's
+    sessions or history at all (WP-104). This plan first recommended live
     sessions, totals and security events by default, with titles.
 31. **Artwork at cookie-authorised, content-addressed paths** (api-needs.md
     Flags item 7). *Answered by the baseline; owner to confirm:* artwork
@@ -6956,7 +8205,116 @@ An adversarial review on 2026-10-02 checked the plan against the rules in
 CONTRIBUTING.md and AGENTS.md, the feature map's R1 cut and the R1 rows of
 api-needs.md. It changed the plan in place. What changed, and what it
 could not settle, is below. A second pass the same day aligned the plan
-with the security baseline; its changes come first.
+with the security baseline, and a third, on 2026-10-03, cut the plan down
+to the R1 the owner adopted; a fourth, the same day, applied the owner's
+answers to the release-ordering questions. Their changes come first,
+newest first.
+
+### Release-ordering answers (register D-83 to D-88, 2026-10-03)
+
+The owner accepted every recommendation in D-83 to D-88. The plan now
+follows them; wave 0 is unchanged, and no requirement was weakened.
+
+- **D-83, track details in R1.** R1 ships a minimal, read-only details
+  view, MUS-236 (title, credits, album, file format, and the playback
+  decision with its reason). WP-055 builds its summary beside the
+  decision, now also reading WP-028's gain decision (wave 1), and WP-088
+  hands it to the web client. The full track info sheet (MUS-114) stays
+  R1.1 and extends the same view.
+- **D-84, uncertain matches.** No change: WP-076 and WP-077 already keep
+  unsure albums apart and never merge an ambiguous file before the review
+  queue (WP-107, R1.3).
+- **D-85, the rule format.** WP-027 moved whole from R1.3 to R1.1, so
+  saved filters are rule documents from R1.1 and the format's budgets
+  (SEC-TM-032, SEC-STD-011, SEC-API-066, SEC-IAM-070) are proved with it.
+  The rule store, server-side evaluation and smart playlists (WP-092,
+  WP-113) stay R1.3. WP-087, WP-059, WP-088, WP-040, WP-154 and the
+  coverage table were updated to match. R1.1 now has a third pair that
+  must not share a wave: WP-147 follows WP-027.
+- **D-86, loading without the server.** No change: WP-148 (R1.1) already
+  carries offline loading, and R1's web client registers no service
+  worker (WP-072).
+- **D-87, speed budgets.** WP-115 now owns the budget tests in the R1
+  gate for the search index (WP-054) and the sync snapshot (WP-084); the
+  list render budget (DIS-100) is the client plan's test in the same
+  gate. Only the published numbers wait for DIS-019 in R1.1.
+- **D-88, browsing by mood and label.** R1 browses by genre (WP-040's
+  genre index); mood and label browsing arrive with MUS-019 in R1.1.
+  WP-049 already maps both fields in R1, so no package changes.
+
+### The adopted R1 and the point releases (owner answers of 2026-10-02)
+
+The owner adopted the smaller R1 in the register's R1 scope section, with
+the rest in R1.1, R1.2 and R1.3 (D-10); moved the project name service,
+its naming client and its CT monitoring to R2 (D-07); put R1's remote
+access through the owner's reverse proxy or a tailnet, with built-in
+remote access in R2; and made R1 servers Linux on x86-64 and ARM64 plus a
+Docker image (D-09). The plan now follows those answers.
+
+- **Waves 1 to 6 build exactly the adopted R1.** Seventeen packages that
+  serve only a point release or R2 left the waves for
+  [After R1](#after-r1-point-releases-and-later), with their full
+  specifications: to R1.1, WP-022, WP-057, WP-071, WP-112, WP-123 and
+  WP-137; to R1.2, WP-096 and WP-134; to R1.3, WP-027, WP-029, WP-058,
+  WP-092, WP-107, WP-113 and WP-114; to R2, WP-129 and WP-135. WP-091,
+  already R2, moved there too. Thirty-three R1 packages were split, the
+  R1 part keeping the ID and the later part going to one of 22 new
+  packages (WP-140 to WP-161) or to a moved package; the table in
+  [After R1](#after-r1-point-releases-and-later) lists them by release.
+- **HTTPS and naming.** WP-129's project-site security files split off to
+  WP-139 in wave 1, because they are R1 surfaces whatever happens to the
+  name service; WP-129 keeps the service and goes to R2 with WP-135.
+  WP-101 (ACME) is now R1's path to HTTPS for an own domain and stays in
+  wave 4 (setup does not call it, and it depends on WP-073's listener
+  configuration in wave 3). WP-048's egress purposes in R1 are ACME and
+  the update feed only; WP-080's claim works over localhost, an own
+  domain, a tailnet or the owner's reverse proxy; WP-117 claims over each.
+- **Waves re-checked.** WP-059 moved back to wave 2 and WP-088 to wave 3,
+  because the packages that held them back (WP-058, WP-027) left R1.
+  WP-090, WP-095, WP-102 and WP-103 no longer depend on WP-071, and
+  WP-110 no longer depends on the packages its R1.2 roll-up needed. A
+  dependency and owned-path check over waves 1 to 6 found no package
+  depending on a same-wave or later package and no two same-wave packages
+  owning one path. Wave 0 is unchanged.
+- **Security coverage rebuilt.** The R1 table now lists 576 requirements:
+  the 607 R1 rows of the baseline, less the 25 the register moves with
+  their surfaces to R1.1 and R1.2 and the six that protect only the name
+  service (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071), which
+  move to R2. Every one of the 576 still has an R1 package; where a moved
+  package was the only carrier, an R1 package that has the surface now
+  carries it (SEC-PRV-016 by WP-084 and WP-103; SEC-PRV-031 by WP-094's
+  invite landing; SEC-API-085 by WP-109's backup upload; SEC-OPS-007 by
+  WP-101; SEC-STD-011's search part by WP-054; the site rows by WP-139).
+  No requirement was weakened, and none moved unless every surface it
+  protects moved.
+
+What this pass could not settle:
+
+- **SEC-PRV-013's setup-step clause.** The register keeps SEC-PRV-013 in
+  R1, but R1 has no provider to list, so its "setup must include a
+  provider step that must be answered" clause has no R1 surface; WP-080
+  keeps the step's place and says nothing is looked up, and WP-137 makes
+  it the required question in R1.1. The security file may want to say so.
+- **Wave 0 text that still assumes the name service.** WP-125's record 8
+  is described as making the name service the install-time default, and
+  WP-008's parser-module list names `import/`, `m3u.rs` and `provider/`.
+  Wave 0 is being built and is not changed here. When WP-125 writes
+  record 8, it must follow the owner's answer to D-07 (own domain with
+  ACME, a tailnet or localhost in R1; the name service in R2); this is an
+  input to the record's review, not a change to WP-125. The extra entries
+  in WP-008's list only check harnesses for modules that will exist after
+  R1.
+- **The five rows of D-10** (SEC-NET-054, SEC-OPS-040, SEC-PRV-034 to
+  SEC-PRV-036) stay proved by absence in R1, as the register says, until
+  the owner moves them.
+- **SEC-OPS-007's text** now marks the name-service exception and the
+  label claim URL as from R2 (D-07); for R1 the plan proves its pre-claim
+  rule for the ACME, tailnet and localhost paths (WP-101, WP-117), and the
+  name-service clause from R2 (WP-135).
+- **Release values.** WP-127's lint now accepts R1, R1.1, R1.2, R1.3, R2,
+  R3, Later and No, keeping Withdrawn for withdrawn requirement rows,
+  which the security files still use; whether Withdrawn stays is for the
+  owner of those files.
 
 ### Alignment with the security baseline
 
@@ -7217,25 +8575,38 @@ ACME crate and the merge protocol.
 
 ## Security coverage: every R1 requirement has a package
 
-This table lists every R1 requirement in docs/security, 607 in all,
-generated by a script from the requirement tables so that none is missed,
-with the packages whose tests must verify it (each such test carries a
-`Verifies:` line). It was recounted in the second security pass. 591 are
-assigned to R1 packages and 16 are unassigned, all of them web-client
-behaviour that belongs to a client plan. Of the 591, 6 have a server part
-assigned here and a client part that is unassigned and named in the row
-(SEC-TM-053, SEC-TM-058, SEC-API-049, SEC-CLI-009, SEC-CLI-010,
-SEC-OPS-075), and 5 JavaScript supply-chain rows are assigned for the
-release workflow, with the same rule in the client's own CI left to the
-client plan (SEC-SUP-033 to SEC-SUP-036, SEC-CLI-018). The first count,
-579 and 28, was wrong in both directions: it left whole rows unassigned
-that a server package already partly proved (SEC-CLI-009, SEC-API-049)
-or that the release workflow must meet (the JavaScript rows), and it
-mapped rows wholly to a server package that could prove only their
-server half (SEC-TM-053, SEC-TM-058, SEC-CLI-010). The 5 rows that
-protect surfaces the baseline's own release scope puts in R2 (SEC-NET-054,
-SEC-OPS-040, SEC-PRV-034 to SEC-PRV-036) are now proved by absence in R1,
-and their Release values are raised with the owner (owner decision 37).
+This table lists every requirement in docs/security that is due in the
+adopted R1, 576 in all, generated by a script from the requirement tables
+so that none is missed, with the R1 packages (waves 0 to 6) whose tests
+must verify it (each such test carries a `Verifies:` line). It was rebuilt
+on 2026-10-03 for the owner's answers of 2026-10-02. The baseline has 607
+R1 rows; the register moves 25 of them with their surfaces to R1.1 and
+R1.2 ([Security requirements for the proposed R1](../decisions.md#security-requirements-for-the-proposed-r1)),
+and the owner's answer to D-07 moves the six that protect only the
+project name service and its client to R2 (SEC-NET-010, SEC-NET-011,
+SEC-NET-012, SEC-NET-069, SEC-NET-070, SEC-NET-071). Those 31 are listed
+after the table with the release and package that now carry them; each is
+due in that release, which cannot ship without it, and none is weakened.
+The security files' Release values should match; this plan does not edit
+docs/security.
+
+Of the 576, 560 are assigned to R1 packages and 16 are unassigned, all of
+them web-client behaviour that belongs to a client plan. Of the 560, 6
+have a server part assigned here and a client part that is unassigned and
+named in the row (SEC-TM-053, SEC-TM-058, SEC-API-049, SEC-CLI-009,
+SEC-CLI-010, SEC-OPS-075), and 5 JavaScript supply-chain rows are
+assigned for the release workflow, with the same rule in the client's own
+CI left to the client plan (SEC-SUP-033 to SEC-SUP-036, SEC-CLI-018). The
+5 rows that protect surfaces the baseline's own release scope puts in R2
+(SEC-NET-054, SEC-OPS-040, SEC-PRV-034 to SEC-PRV-036) are proved by
+absence in R1, and their Release values are raised with the owner (owner
+decision 37; register D-10). Where a package that moved out of R1 was the
+only carrier of an R1 requirement, an R1 package that has the surface now
+carries it: SEC-PRV-016 (WP-084, WP-103), SEC-PRV-031 (WP-094's invite
+landing), SEC-API-085 (WP-109's backup upload), SEC-OPS-007 (WP-101 and
+WP-117), SEC-STD-011's search part (WP-054) and the project site's rows
+(WP-139). Requirements a moved package also verified keep their R1
+carriers here and are re-proved by the moved package for its own surface.
 The traceability check (WP-127, SEC-STD-004) fails the R1 release until
 every row has a test or a dated review record, so the unassigned rows and
 client parts must be planned in a client plan before R1 can ship. Short
@@ -7255,14 +8626,13 @@ authoritative.
 | SEC-TM-012 | Shipped binaries: contain no default account | WP-047, WP-121 |
 | SEC-TM-014 | Authentication pathway: listed in one inventory and apply the same per-account | WP-064, WP-069, WP-117 |
 | SEC-TM-017 | Host-equivalent actions: carry the fresh-uv tag of SEC-IAM-041 | WP-033, WP-062, WP-106, WP-131, WP-132 |
-| SEC-TM-022 | OIDC sign-in: use the authorization code flow with PKCE | WP-096 |
 | SEC-TM-024 | Read and write of a user-visible: pass through one authorization layer that takes the subject | WP-033, WP-046, WP-064, WP-065, WP-068, WP-069 |
 | SEC-TM-025 | For every route: replay one user's object IDs as a second user | WP-131 |
 | SEC-TM-026 | Library grants: applied by the server when building every response | WP-065, WP-084 |
 | SEC-TM-027 | Write endpoints: bind only an allowlist of fields | WP-033, WP-131 |
-| SEC-TM-028 | Disabling a user: take effect on the next request | WP-062, WP-082, WP-083, WP-134 |
+| SEC-TM-028 | Disabling a user: take effect on the next request | WP-062, WP-082, WP-083 |
 | SEC-TM-031 | Data from media files: enter as an untrusted type and be converted | WP-005 |
-| SEC-TM-032 | Parser of untrusted input: enforce budgets for element size | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-052, WP-057 |
+| SEC-TM-032 | Parser of untrusted input: enforce budgets for element size | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052 |
 | SEC-TM-033 | Parser and decoder entry point: a fuzz target run in CI on each change | WP-008 |
 | SEC-TM-034 | Server process: never decode untrusted images | WP-001 |
 | SEC-TM-035 | Server: never send attacker-supplied image bytes to clients | WP-079, WP-103 |
@@ -7282,7 +8652,7 @@ authoritative.
 | SEC-TM-051 | Accounts: live in the durable | WP-002, WP-046, WP-095 |
 | SEC-TM-052 | Backups containing identity data: encrypted with an authenticated cipher under a key stored | WP-090, WP-109 |
 | SEC-TM-053 | Server and clients: send no telemetry | WP-117 (server part: no outbound socket over a full session); the client part is unassigned: web-client behaviour that a client plan must carry (a client run behind a deny-all proxy). |
-| SEC-TM-054 | By default admins: see only live sessions | WP-086, WP-087, WP-104 |
+| SEC-TM-054 | By default admins: see only live sessions | WP-086, WP-087 |
 | SEC-TM-055 | History and audit logs: documented retention with automatic deletion | WP-108, WP-133, WP-138 |
 | SEC-TM-057 | Logs: make secrets unrepresentable | WP-043, WP-047 |
 | SEC-TM-058 | Web client: hold its session only in an HttpOnly cookie | WP-062 (server part: the HttpOnly session cookie); the client part is unassigned: web-client behaviour that a client plan must carry (nothing from the server in browser storage, cleared on sign-out and revocation). |
@@ -7316,17 +8686,6 @@ authoritative.
 | SEC-IAM-023 | Account: able to hold several credentials | WP-106 |
 | SEC-IAM-024 | Removing an account's last credential: refused unless the account is being deleted | WP-106 |
 | SEC-IAM-025 | Server: never offer account passwords | WP-127, WP-131 |
-| SEC-IAM-026 | OIDC sign-in: use the authorization code flow with PKCE | WP-096 |
-| SEC-IAM-027 | ID tokens: verified with keys from the provider's JWKS using algorithms | WP-096 |
-| SEC-IAM-028 | OIDC identity: keyed only by the pair | WP-096 |
-| SEC-IAM-029 | Linking an OIDC identity: happen only inside that account's session after user verification | WP-096 |
-| SEC-IAM-030 | OIDC auto-registration: off by default | WP-096 |
-| SEC-IAM-031 | Provider claims: never confer the owner role | WP-096 |
-| SEC-IAM-032 | Server-side calls to an OIDC provider: verify TLS certificates and must not follow redirects | WP-096 |
-| SEC-IAM-033 | OIDC redirect URI: one exact registered URL on the configured origin | WP-096 |
-| SEC-IAM-034 | Authorization request: bound to the one provider it was sent | WP-096 |
-| SEC-IAM-035 | Sessions created through OIDC: lifetimes set by Gunmetal | WP-096 |
-| SEC-IAM-036 | Administrator elevation for an account: require a fresh provider sign-in | WP-096 |
 | SEC-IAM-037 | First-party session and access tokens: opaque values with at least 256 bits | WP-062 |
 | SEC-IAM-038 | New session token: issued at sign-in | WP-062, WP-106 |
 | SEC-IAM-040 | State-changing request authenticated by cookie: carry the client's custom request header and an Origin | WP-044 |
@@ -7351,7 +8710,7 @@ authoritative.
 | SEC-IAM-074 | Authorisation code: test capabilities and never role names | WP-033 |
 | SEC-IAM-075 | Owner-only capabilities listed in design guidance: never grantable to any other principal | WP-033 |
 | SEC-IAM-076 | Changes to roles: apply from the next request of every affected session | WP-062, WP-065 |
-| SEC-IAM-077 | Administrator's access to another user's data: recorded in that user's own visible security log | WP-087, WP-104 |
+| SEC-IAM-077 | Administrator's access to another user's data: recorded in that user's own visible security log | WP-087 |
 | SEC-IAM-078 | Invitations: carry a secret of at least 128 bits | WP-094 |
 | SEC-IAM-079 | Redeeming an invitation: enrol the invitee's own passkey | WP-094 |
 | SEC-IAM-080 | Guests: by default have no household-device access | WP-094 |
@@ -7372,7 +8731,7 @@ authoritative.
 | SEC-IAM-104 | User: able to see a page stating what administrators | WP-087 |
 | SEC-IAM-105 | Backups that contain identity data: encrypted before they leave the host | WP-090 |
 | SEC-IAM-106 | Credential enrolled through a recovery code: start a recovery hold | WP-106, WP-109 |
-| SEC-IAM-107 | Owner-only and fresh-uv actions: satisfied only by a passkey or device key enrolled | WP-062, WP-096, WP-106 |
+| SEC-IAM-107 | Owner-only and fresh-uv actions: satisfied only by a passkey or device key enrolled | WP-062, WP-106 |
 | SEC-IAM-108 | Person whose browser cannot use: able to sign it in by approval | WP-120 |
 | SEC-API-001 | HTTP and WebSocket route: registered through one typed route table | WP-044 |
 | SEC-API-002 | Set of routes whose class: exactly equal a checked-in allow-list file | WP-118, WP-131 |
@@ -7437,9 +8796,9 @@ authoritative.
 | SEC-API-065 | Request bodies with any Content-Encoding: refused with 415 | WP-044 |
 | SEC-API-066 | SQL text: static | WP-042, WP-046, WP-067, WP-126 |
 | SEC-API-067 | Body: decode into a typed request structure that rejects unknown | WP-044 |
-| SEC-API-068 | Responses: built from explicit per-role response types | WP-044, WP-107, WP-131 |
+| SEC-API-068 | Responses: built from explicit per-role response types | WP-044, WP-131 |
 | SEC-API-069 | Absolute URLs the server generates: built from the configured public URL | WP-073 |
-| SEC-API-070 | Post-sign-in return target: a relative path that starts with a single / | WP-005, WP-096 |
+| SEC-API-070 | Post-sign-in return target: a relative path that starts with a single / | WP-005 |
 | SEC-API-071 | CSV export: quote fields as RFC 4180 describes and must neutralise | WP-108 |
 | SEC-API-072 | Error: an RFC 9457 problem-details object whose type comes | WP-006, WP-044 |
 | SEC-API-073 | Last-resort layer: turn any panic or unexpected error in request handling | WP-044 |
@@ -7447,19 +8806,18 @@ authoritative.
 | SEC-API-076 | Outbound network request made: go through a single egress crate | WP-001, WP-048 |
 | SEC-API-077 | Egress client: resolve names itself and refuse the request | WP-005, WP-048 |
 | SEC-API-078 | Egress client: allow only https | WP-048 |
-| SEC-API-079 | Outbound purpose: declare its allowed hosts | WP-048, WP-137 |
-| SEC-API-080 | Server: never fetch a URL that a user | WP-096, WP-102, WP-137 |
-| SEC-API-081 | Responses from external services: decoded into typed structures with size limits | WP-074, WP-096, WP-137 |
-| SEC-API-085 | Upload route: declare its allowed types | WP-103, WP-108, WP-112 |
+| SEC-API-079 | Outbound purpose: declare its allowed hosts | WP-048 |
+| SEC-API-080 | Server: never fetch a URL that a user | WP-102 |
+| SEC-API-081 | Responses from external services: decoded into typed structures with size limits | WP-074 |
+| SEC-API-085 | Upload route: declare its allowed types | WP-109 |
 | SEC-API-086 | Images: decoded only by memory-safe Rust decoders with width | WP-079 |
 | SEC-API-087 | Stored uploads and extracted artwork: named by a server-generated content hash inside a server-controlled | WP-103 |
-| SEC-API-088 | Uploads: limited per principal by count and total bytes | WP-103, WP-130 |
+| SEC-API-088 | Uploads: limited per principal by count and total bytes | WP-130 |
 | SEC-API-090 | Lyrics from tags: parsed into a timed-line model capped at 256 KiB | WP-021 |
 | SEC-API-091 | OpenAPI description: generated from the route table at build time | WP-118 |
 | SEC-API-092 | Native API: versioned in its path | WP-044, WP-131 |
 | SEC-API-095 | Access log: record method | WP-044 |
 | SEC-API-096 | Invitation link: carry a secret of at least 128 bits | WP-094 |
-| SEC-API-097 | Public share links: use the fragment pattern | WP-134 |
 | SEC-NET-001 | Over plaintext HTTP: give every peer other than loopback only a static | WP-132 |
 | SEC-NET-002 | TLS listener: negotiate only TLS 1.3 | WP-073 |
 | SEC-NET-003 | Server: present the complete certificate chain | WP-101 |
@@ -7467,9 +8825,6 @@ authoritative.
 | SEC-NET-005 | When no valid certificate is available: never serve the web client | WP-101, WP-132 |
 | SEC-NET-006 | TLS private keys: generated on the server from the operating system's CSPRNG | WP-101 |
 | SEC-NET-009 | Outbound TLS: validate certificates against the WebPKI with hostname checks | WP-048 |
-| SEC-NET-010 | If the server uses: 128-bit random | WP-135 |
-| SEC-NET-011 | Name service: answer A and AAAA queries | WP-129 |
-| SEC-NET-012 | Name service: publish a CAA record for each registered label | WP-129, WP-135 |
 | SEC-NET-013 | Browser HTTPS: also work without the project name service | WP-073, WP-101 |
 | SEC-NET-014 | Server: answer 421 Misdirected Request to any request whose Host | WP-044 |
 | SEC-NET-015 | Absolute URL the server emits: built from the configured canonical origin for the path | WP-073 |
@@ -7505,10 +8860,7 @@ authoritative.
 | SEC-NET-058 | Web client used on the LAN: served by the Gunmetal server from the same origin | WP-072 |
 | SEC-NET-059 | Core server: never implement or open SSDP | WP-001, WP-132 |
 | SEC-NET-068 | Peer whose address equals the default: classified "unknown" and treated as non-local | WP-118, WP-132 |
-| SEC-NET-069 | When the server uses the project: by default monitor Certificate Transparency for its own label | WP-135 |
-| SEC-NET-070 | Project name service: launch only after its zone is on the Public | WP-129 |
-| SEC-NET-071 | When the name service refuses: keep working on every other path | WP-135 |
-| SEC-NET-072 | Server: alert the owner 30 and 7 days | WP-101, WP-135 |
+| SEC-NET-072 | Server: alert the owner 30 and 7 days | WP-101, WP-109 |
 | SEC-CLI-001 | Web and native clients: render every string that originates from media files | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-CLI-002 | URL taken from metadata or user: rendered as a link only if it parses | WP-005 |
 | SEC-CLI-004 | Server response to clients: carry X-Content-Type-Options | WP-044, WP-131 |
@@ -7528,17 +8880,16 @@ authoritative.
 | SEC-CLI-021 | Clients: decode every server response with schema-validating decoders that bound | WP-039, WP-088 |
 | SEC-CLI-024 | Server: assign every enrolled device a class | WP-062, WP-120 |
 | SEC-CLI-025 | Inbound links and codes: parsed by one pure function in the core | WP-089 |
-| SEC-CLI-026 | When the web client signs: act as a confidential client | WP-096 |
 | SEC-CLI-027 | Client: never include analytics | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-CLI-028 | PIN: mask input and turn off autocorrect | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
-| SEC-MED-001 | Public parsing function in gunmetal-core: return Ok or a typed error for every possible | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-029, WP-035, WP-039, WP-041, WP-052, WP-056, WP-057, WP-128 |
+| SEC-MED-001 | Public parsing function in gunmetal-core: return Ok or a typed error for every possible | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052, WP-056, WP-128 |
 | SEC-MED-002 | Non-test code in gunmetal-core: compile with the Clippy lints unwrap_used | WP-001 |
 | SEC-MED-003 | Gunmetal-core: never size any allocation from a declared length or count | WP-001, WP-004 |
 | SEC-MED-004 | Offset: combined with checked arithmetic and converted with fallible conversions | WP-001, WP-004 |
-| SEC-MED-005 | Core: count nesting depth for every nested structure and return | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-052, WP-057 |
-| SEC-MED-006 | Core: enforce the element-count | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-049, WP-050, WP-051, WP-052, WP-053, WP-057 |
-| SEC-MED-007 | Core parse: charge a deterministic step budget and fail | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-052, WP-056, WP-057 |
-| SEC-MED-008 | Loop over elements: strictly advance or stop | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-052, WP-057 |
+| SEC-MED-005 | Core: count nesting depth for every nested structure and return | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052 |
+| SEC-MED-006 | Core: enforce the element-count | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-049, WP-050, WP-051, WP-052, WP-053 |
+| SEC-MED-007 | Core parse: charge a deterministic step budget and fail | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052, WP-056 |
+| SEC-MED-008 | Loop over elements: strictly advance or stop | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052 |
 | SEC-MED-009 | Decompression: go through one streaming helper | WP-128 |
 | SEC-MED-010 | Core's sans-I/O interface: never request a read longer than 16 MiB or past | WP-004, WP-052, WP-061 |
 | SEC-MED-011 | Formats: detected from content signatures against a closed allowlist | WP-009 |
@@ -7546,14 +8897,14 @@ authoritative.
 | SEC-MED-013 | Text from media metadata: decoded with invalid sequences replaced | WP-005 |
 | SEC-MED-014 | Identifiers: validated into typed values with documented ranges when parsed | WP-005, WP-049, WP-050, WP-051 |
 | SEC-MED-015 | Player: clamp gain taken from tags to the range −30 | WP-028 |
-| SEC-MED-016 | Server: never fetch | WP-022, WP-102 |
+| SEC-MED-016 | Server: never fetch | WP-102 |
 | SEC-MED-017 | When a limit or parse error: keep the rest of the file's metadata | WP-052, WP-075, WP-102 |
-| SEC-MED-018 | Parsing of media: run in separate worker processes | WP-003, WP-045, WP-056, WP-057, WP-061, WP-078, WP-105, WP-108, WP-112, WP-114 |
+| SEC-MED-018 | Parsing of media: run in separate worker processes | WP-003, WP-045, WP-056, WP-061, WP-078, WP-105 |
 | SEC-MED-019 | File that crashes or times out: quarantined until its size or modification time changes | WP-078, WP-110 |
-| SEC-MED-020 | Worker: receive input only as read-only file descriptors | WP-057, WP-061, WP-105, WP-108, WP-112 |
+| SEC-MED-020 | Worker: receive input only as read-only file descriptors | WP-061, WP-105 |
 | SEC-MED-021 | Worker: single-threaded and must run | WP-045, WP-078 |
 | SEC-MED-022 | On Linux the worker: in order | WP-045 |
-| SEC-MED-023 | Server: treat messages from workers and sandboxes as untrusted | WP-039, WP-056, WP-061, WP-105, WP-108, WP-112 |
+| SEC-MED-023 | Server: treat messages from workers and sandboxes as untrusted | WP-039, WP-056, WP-061, WP-105 |
 | SEC-MED-024 | At startup and on demand: self-test each sandbox profile | WP-003, WP-045, WP-056, WP-105, WP-110, WP-116 |
 | SEC-MED-025 | Server and worker binaries: never link C or C++ media | WP-001 |
 | SEC-MED-026 | Third-party crate that parses or decodes: admitted only after a recorded review | WP-003, WP-079 |
@@ -7578,13 +8929,11 @@ authoritative.
 | SEC-MED-047 | Image endpoints: accept a size only from a fixed enumeration | WP-103 |
 | SEC-MED-048 | Derivative cache: bounded in total bytes | WP-103 |
 | SEC-MED-049 | LRC: parsed into a typed model within the limits table | WP-021 |
-| SEC-MED-050 | Entries in M3U: resolve only to items already indexed in the same | WP-022, WP-112 |
-| SEC-MED-051 | Playlist entries: returned only for items in libraries the requesting user | WP-065, WP-112, WP-134 |
+| SEC-MED-051 | Playlist entries: returned only for items in libraries the requesting user | WP-065 |
 | SEC-MED-057 | Clients: render media-derived strings only as text nodes inside | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-MED-058 | URL from metadata: shown as a link only after it has been | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-MED-059 | Byte-serving responses: carry | WP-082 |
 | SEC-MED-060 | Range parser: accept at most one byte range per request | WP-023 |
-| SEC-MED-061 | Uploaded artwork: size-capped while they stream | WP-103 |
 | SEC-MED-062 | Media-derived strings and paths written: escaped | WP-043 |
 | SEC-MED-063 | Server: never start any external program except through the sandbox launcher | WP-001, WP-045 |
 | SEC-MED-077 | Clients: apply the core's parsers and limits to everything | WP-039, WP-088 |
@@ -7601,7 +8950,7 @@ authoritative.
 | SEC-OPS-004 | Setup code attempts: compared in constant time and limited as SEC-IAM-008 requires | WP-080 |
 | SEC-OPS-005 | Claim: a single atomic transaction | WP-080 |
 | SEC-OPS-006 | After the claim: never become reachable again | WP-080 |
-| SEC-OPS-007 | Before it is claimed: make no outbound connection | WP-117, WP-135 |
+| SEC-OPS-007 | Before it is claimed: make no outbound connection | WP-101, WP-117 |
 | SEC-OPS-008 | Restoring a backup onto an unclaimed: require the same setup code as claiming | WP-109 |
 | SEC-OPS-009 | Owner recovery: possible only through a command on the host | WP-106 |
 | SEC-OPS-011 | Server key and secret: come from the OS CSPRNG | WP-047 |
@@ -7610,7 +8959,7 @@ authoritative.
 | SEC-OPS-014 | Server: never accept secrets as command-line arguments | WP-043, WP-045 |
 | SEC-OPS-015 | Cryptographic purpose: use its own key | WP-047 |
 | SEC-OPS-016 | Session tokens: stored only as keyed hashes | WP-062 |
-| SEC-OPS-017 | Secrets the server: replay to other systems | WP-047, WP-096 |
+| SEC-OPS-017 | Secrets the server: replay to other systems | WP-047 |
 | SEC-OPS-018 | Owner: able to rotate every server secret in one action | WP-106 |
 | SEC-OPS-019 | Trust root for the project's update: compiled into the binary and replaced only through signed | WP-074 |
 | SEC-OPS-020 | Server: keep a security audit log | WP-069, WP-131 |
@@ -7622,7 +8971,6 @@ authoritative.
 | SEC-OPS-027 | Only the owner and holders: read the full audit log | WP-069, WP-100, WP-117 |
 | SEC-OPS-028 | Failed authentication on any surface: also be written to the diagnostic log | WP-064 |
 | SEC-OPS-029 | Diagnostic logging: default to info level and must never record request | WP-043, WP-069, WP-117 |
-| SEC-OPS-030 | Diagnostic bundles: meet SEC-PRV-046 | WP-116 |
 | SEC-OPS-031 | At startup the server: detect any configuration change made outside | WP-097 |
 | SEC-OPS-032 | Server: raise owner alerts | WP-097 |
 | SEC-OPS-033 | Alert about a device or credential: offer a one-step "This wasn't me" action that revokes | WP-097, WP-117 |
@@ -7640,7 +8988,7 @@ authoritative.
 | SEC-OPS-047 | Update and advisory check: a required first-run question with two explicit answers | WP-074, WP-080 |
 | SEC-OPS-048 | Before any schema or format migration: take a snapshot and check it with PRAGMA integrity_check | WP-046, WP-095 |
 | SEC-OPS-049 | Migration: never make an existing installation less strict | WP-046 |
-| SEC-OPS-050 | Startup: never reveal the version | WP-080, WP-095, WP-116, WP-131 |
+| SEC-OPS-050 | Startup: never reveal the version | WP-080, WP-095, WP-131 |
 | SEC-OPS-051 | Older binary: refuse to open durable state written in a newer | WP-046 |
 | SEC-OPS-052 | Release's notes: say whether it migrates data | WP-136 |
 | SEC-OPS-053 | On Unix-like systems the server: refuse to start when its effective user is root | WP-043, WP-121 |
@@ -7648,7 +8996,7 @@ authoritative.
 | SEC-OPS-055 | Media-serving path: open a file only when its fully resolved location | WP-060, WP-082 |
 | SEC-OPS-056 | Official systemd unit: run under a dedicated system account with no login | WP-121 |
 | SEC-OPS-057 | Official container image: run as a fixed non-root user and work | WP-121 |
-| SEC-OPS-059 | Metrics and diagnostics endpoints: off by default | WP-089, WP-116 |
+| SEC-OPS-059 | Metrics and diagnostics endpoints: off by default | WP-089 |
 | SEC-OPS-060 | Server: document every outbound connection it can make | WP-048, WP-117 |
 | SEC-OPS-061 | Gunmetal doctor --security and the dashboard: report root and capability state | WP-116 |
 | SEC-OPS-064 | Besides GitHub private vulnerability reporting: accept reports at an email alias that reaches | WP-124 |
@@ -7666,16 +9014,12 @@ authoritative.
 | SEC-PRV-003 | Client IP addresses: stored only in the active-session table and the security | WP-062, WP-069, WP-133 |
 | SEC-PRV-004 | Server: never persist users' search queries | WP-117 |
 | SEC-PRV-005 | Retention for every data class: defined in one schedule in code with the defaults | WP-069, WP-133, WP-138 |
-| SEC-PRV-006 | Images uploaded by users: re-encoded with all EXIF | WP-103 |
 | SEC-PRV-007 | With the default configuration: cause no outbound connection or non-local DNS lookup | WP-117 |
 | SEC-PRV-008 | Outbound requests from the server: go through one egress component that enforces a per-feature | WP-048, WP-069, WP-117 |
 | SEC-PRV-009 | Server and every first-party client: never send telemetry | WP-001, WP-117 |
 | SEC-PRV-012 | Admin: able to route all server egress through an HTTP | WP-048 |
-| SEC-PRV-013 | Metadata: never enabled by default | WP-048, WP-080, WP-137 |
-| SEC-PRV-014 | Provider requests: built only from a typed lookup-evidence value holding normalised | WP-137 |
-| SEC-PRV-015 | Provider lookups: run only during scans | WP-137 |
-| SEC-PRV-016 | Clients: fetch artwork | WP-137 |
-| SEC-PRV-017 | Outbound provider requests: send a User-Agent naming only the project | WP-048, WP-137 |
+| SEC-PRV-013 | Metadata: never enabled by default | WP-048, WP-080 |
+| SEC-PRV-016 | Clients: fetch artwork | WP-084, WP-103 |
 | SEC-PRV-018 | Web response: send Referrer-Policy | WP-044, WP-131 |
 | SEC-PRV-019 | Web client: never keep Activity | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-PRV-020 | Responses carrying Activity: send Cache-Control | WP-044, WP-131 |
@@ -7683,11 +9027,11 @@ authoritative.
 | SEC-PRV-022 | One user's Activity data: never returned to any other user | WP-086, WP-131 |
 | SEC-PRV-023 | Privacy setting: default to its most private value | WP-046, WP-087 |
 | SEC-PRV-024 | Client: let a user start a private session | WP-086 |
-| SEC-PRV-025 | Admin interface and admin API: never offer any view | WP-104, WP-108 |
+| SEC-PRV-025 | Admin interface and admin API: never offer any view | WP-104 |
 | SEC-PRV-026 | Product: never offer any way for an admin to sign | WP-094, WP-131 |
 | SEC-PRV-027 | User: able to read a "what your admin can see" | WP-087 |
 | SEC-PRV-030 | Emails and in-app notifications: never contain another user's Activity data | WP-097 |
-| SEC-PRV-031 | Share-link pages and any other page: never reveal the sharer's username | WP-134 |
+| SEC-PRV-031 | Share-link pages and any other page: never reveal the sharer's username | WP-094 |
 | SEC-PRV-033 | Scrobbling and every other feature: off for every user by default | WP-087 |
 | SEC-PRV-034 | Linking an external scrobbling account: bind the callback to the initiating user's session | WP-048, WP-131 (R1 absence proof: no scrobbling purpose and no external-account linking route); WP-226 verifies the behaviour in R2. Owner decision 37. |
 | SEC-PRV-035 | Scrobbling: submit only plays recorded after the link time | WP-048, WP-131 (R1 absence proof: no scrobbling purpose and no scrobbling route); WP-226 verifies the behaviour in R2. Owner decision 37. |
@@ -7700,16 +9044,15 @@ authoritative.
 | SEC-PRV-043 | At the default log level: never contain media titles | WP-043 |
 | SEC-PRV-044 | Repository: contain a log inventory listing every log event type | WP-043 |
 | SEC-PRV-045 | Log files: created readable only by the service account | WP-097, WP-126 |
-| SEC-PRV-046 | Diagnostic bundles: exclude the database | WP-116 |
 | SEC-PRV-047 | User: able to export all of their own data | WP-108 |
 | SEC-PRV-048 | Starting an export or an account: require authentication within the last 5 minutes | WP-108, WP-133 |
 | SEC-PRV-049 | Users: able to delete one history entry | WP-133 |
-| SEC-PRV-050 | Database connection: set PRAGMA secure_delete=ON | WP-042, WP-046, WP-068, WP-071, WP-126, WP-133 |
+| SEC-PRV-050 | Database connection: set PRAGMA secure_delete=ON | WP-042, WP-046, WP-068, WP-126, WP-133 |
 | SEC-PRV-051 | Deleting an account: disable it and end all its sessions and device | WP-133 |
 | SEC-PRV-052 | Tombstones that carry deletions to devices: identify erased events only by ID or ID range | WP-133 |
 | SEC-PRV-053 | Before redeeming an invitation: shown a privacy notice generated from the server's actual | WP-094 |
-| SEC-PRV-054 | Service the project operates: publish a privacy notice | WP-129 |
-| SEC-PRV-055 | Invitation and share secrets carried through: travel only in the URL fragment so they never | WP-129 |
+| SEC-PRV-054 | Service the project operates: publish a privacy notice | WP-139 |
+| SEC-PRV-055 | Invitation and share secrets carried through: travel only in the URL fragment so they never | WP-139 |
 | SEC-SUP-001 | Account that can write: use phishing-resistant MFA | WP-124 |
 | SEC-SUP-002 | Default branch: protected by a ruleset that blocks direct pushes | WP-124 |
 | SEC-SUP-003 | Release tags: creatable only by maintainers | WP-124 |
@@ -7717,7 +9060,7 @@ authoritative.
 | SEC-SUP-005 | Changes to .github/: require approval from a code owner | WP-124 |
 | SEC-SUP-006 | Secret-scanning push protection: enabled for the repository | WP-124 |
 | SEC-SUP-007 | Private vulnerability reporting: stay enabled | WP-124 |
-| SEC-SUP-008 | Project site: serve /.well-known/security.txt over HTTPS with Contact | WP-129 |
+| SEC-SUP-008 | Project site: serve /.well-known/security.txt over HTTPS with Contact | WP-139 |
 | SEC-SUP-009 | Fixed vulnerability in Gunmetal: published as a GitHub Security Advisory with a CVE | WP-124, WP-136 |
 | SEC-SUP-010 | Uses: pinned to a full commit SHA | WP-124 |
 | SEC-SUP-011 | Tools installed in CI: pinned to exact versions and installed with checksum verification | WP-124 |
@@ -7775,31 +9118,30 @@ authoritative.
 | SEC-HIS-010 | Read or write of a user-owned: pass through one authorization function that checks | WP-065, WP-131 |
 | SEC-HIS-011 | Response: never contain another account's credentials | WP-047 |
 | SEC-HIS-012 | Object: come from a CSPRNG with at least 128 bits | WP-006, WP-046, WP-047, WP-062, WP-102 |
-| SEC-HIS-013 | Administrative functions: require an explicit admin permission checked on the server | WP-033, WP-100, WP-107, WP-131 |
+| SEC-HIS-013 | Administrative functions: require an explicit admin permission checked on the server | WP-033, WP-100, WP-131 |
 | SEC-HIS-014 | Remote control of playback sessions: limited to the actor's own sessions unless the target | WP-085, WP-104 |
 | SEC-HIS-015 | Server: never build a filesystem path from untrusted data | WP-001, WP-024 |
 | SEC-HIS-016 | File access: go through directory handles that confine resolution | WP-060, WP-126 |
 | SEC-HIS-017 | Scanner: classify files by the content of the resolved target | WP-009, WP-102 |
-| SEC-HIS-018 | Playlist files: resolve entries only to items in libraries the playlist | WP-112 |
 | SEC-HIS-019 | Server: never extract archives | WP-001, WP-109, WP-125 |
 | SEC-HIS-020 | External programs: started only by one typed command builder | WP-045 |
 | SEC-HIS-021 | Paths to external programs: come only from the install or a read-only host | WP-043, WP-045 |
 | SEC-HIS-023 | Outbound requests: use one egress client that allows only http | WP-048 |
-| SEC-HIS-024 | Server: never fetch a URL taken from an unauthenticated request | WP-102, WP-131, WP-137 |
+| SEC-HIS-024 | Server: never fetch a URL taken from an unauthenticated request | WP-102, WP-131 |
 | SEC-HIS-026 | TLS clients: verify certificates | WP-001, WP-048 |
 | SEC-HIS-027 | Web client: render all text that comes from media files | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-HIS-028 | HTML response: carry a Content-Security-Policy with no unsafe-inline or unsafe-eval | WP-072, WP-131 |
 | SEC-HIS-030 | Images from files or users: decoded by a memory-safe raster decoder with pixel | WP-079, WP-103 |
 | SEC-HIS-031 | Response carrying file-derived bytes: set a Content-Type chosen by the server | WP-082, WP-103 |
-| SEC-HIS-032 | Redirect target taken from a request: a same-origin relative path that starts with exactly | WP-005, WP-096 |
+| SEC-HIS-032 | Redirect target taken from a request: a same-origin relative path that starts with exactly | WP-005 |
 | SEC-HIS-033 | Client-reported metadata: validated on the server to a bounded length | WP-087 |
 | SEC-HIS-034 | XML parser in the server: reject DOCTYPE declarations and must not resolve external entities | WP-001 |
 | SEC-HIS-035 | Server: never deserialise any format that can construct arbitrary types | WP-001, WP-039 |
-| SEC-HIS-036 | Parser of untrusted input: live in the core crate under its no-panic | WP-008, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-022, WP-023, WP-035, WP-039, WP-041, WP-052, WP-057 |
+| SEC-HIS-036 | Parser of untrusted input: live in the core crate under its no-panic | WP-008, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052 |
 | SEC-HIS-037 | Request parameter that sizes work: a bounded type with explicit limits | WP-044, WP-103 |
 | SEC-HIS-038 | Database access: use parameterised queries whose column names | WP-042, WP-126 |
 | SEC-HIS-041 | Native API: never accept session tokens | WP-044, WP-131 |
-| SEC-HIS-042 | Stream and share tokens: checked on every request for signature | WP-082, WP-134 |
+| SEC-HIS-042 | Stream and share tokens: checked on every request for signature | WP-082 |
 | SEC-HIS-043 | Server secret: generated by a CSPRNG at first start | WP-047 |
 | SEC-HIS-044 | Session tokens: stored only as keyed hashes | WP-047, WP-062 |
 | SEC-HIS-046 | Authentication pathway: go through one credential verifier that applies the same | WP-064, WP-069, WP-117 |
@@ -7811,25 +9153,24 @@ authoritative.
 | SEC-HIS-058 | CI workflows: never run untrusted pull-request code with secrets or write tokens | WP-124 |
 | SEC-HIS-059 | Releases: signed with build provenance and a software bill | WP-074, WP-136 |
 | SEC-HIS-060 | User's play history: never shown or sent to any other non-admin user | WP-086, WP-131 |
-| SEC-HIS-061 | Project services: hold only the minimum routing data the per-server name | WP-129 |
+| SEC-HIS-061 | Project services: hold only the minimum routing data the per-server name | WP-139 |
 | SEC-HIS-063 | Server: notify a user when a device | WP-097 |
 | SEC-HIS-064 | Security fix: include a regression test that reproduces the exploit | WP-124 |
 | SEC-HIS-065 | Vulnerability fixed in a released version: published as a GitHub security advisory with a CVE | WP-124, WP-136 |
-| SEC-HIS-066 | "rival exploit replay" test suite: contain at least one test per incident | WP-102, WP-103, WP-109, WP-112, WP-127, WP-131, WP-134 |
+| SEC-HIS-066 | "rival exploit replay" test suite: contain at least one test per incident | WP-102, WP-103, WP-109, WP-127, WP-131 |
 | SEC-STD-001 | Repository: hold machine-readable copies of the pinned standard versions | WP-127 |
 | SEC-STD-002 | CI: regenerate the coverage tables in this file | WP-127 |
 | SEC-STD-003 | Scheduled job: check monthly for new versions of ASVS | WP-127 |
 | SEC-STD-004 | SEC requirement whose release: referenced by at least one test | WP-127 |
 | SEC-STD-005 | Release: publish | WP-136 |
 | SEC-STD-006 | Before any server code stores: decide whether account passwords and TOTP exist in R1 | WP-125, WP-127 |
-| SEC-STD-008 | Secret a person chooses: accept any Unicode characters with no composition rules | WP-134 |
 | SEC-STD-010 | Gunmetal: never include SAML | WP-001 |
-| SEC-STD-011 | Regular expressions applied to untrusted input: run only in a linear-time engine | WP-001, WP-024, WP-027 |
+| SEC-STD-011 | Regular expressions applied to untrusted input: run only in a linear-time engine | WP-001, WP-054 |
 | SEC-STD-012 | Client: keep data keyed by untrusted strings | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-STD-013 | API responses: JSON with Content-Type | WP-044, WP-131 |
 | SEC-STD-014 | Cookie the server sets: a name and value of at most 4096 bytes | WP-062, WP-131 |
 | SEC-STD-015 | Links to any origin outside: accept only https and http | WP-005 |
-| SEC-STD-016 | Domain the project operates: send Strict-Transport-Security with max-age of at least 63072000 | WP-129 |
+| SEC-STD-016 | Domain the project operates: send Strict-Transport-Security with max-age of at least 63072000 | WP-139 |
 | SEC-STD-017 | Server: serve web assets only from a build-time manifest | WP-072 |
 | SEC-STD-018 | Project: keep a cryptographic inventory | WP-001, WP-047, WP-122, WP-125, WP-136 |
 | SEC-STD-019 | Cryptography: come only from implementations on a reviewed allow-list chosen | WP-001, WP-125 |
@@ -7837,11 +9178,10 @@ authoritative.
 | SEC-STD-021 | Decryption: return one opaque error that does not reveal | WP-047 |
 | SEC-STD-022 | Security randomness: come from the operating system CSPRNG through one function | WP-001, WP-047 |
 | SEC-STD-023 | Main server process: disable core dumps | WP-043 |
-| SEC-STD-024 | Key derived from a human secret: use Argon2id with at least the second recommended RFC | WP-047, WP-134 |
-| SEC-STD-025 | OIDC authorization requests: carry exactly the scopes in the provider's configuration | WP-096 |
+| SEC-STD-024 | Key derived from a human secret: use Argon2id with at least the second recommended RFC | WP-047 |
 | SEC-STD-026 | Server: never act as an OAuth authorization server for third-party clients | WP-131 |
 | SEC-STD-027 | Flow: never show an approval prompt on a person's device | WP-120 |
-| SEC-STD-029 | Single-use or counted secret: consumed by one conditional update inside a single SQLite | WP-063, WP-080, WP-094, WP-108, WP-120, WP-134 |
+| SEC-STD-029 | Single-use or counted secret: consumed by one conditional update inside a single SQLite | WP-063, WP-080, WP-094, WP-108, WP-120 |
 | SEC-STD-030 | Project: keep one machine-readable register of business limits | WP-130 |
 | SEC-STD-031 | SQLite file the server did: opened read-only in a jailed worker with trusted_schema off | WP-109 |
 | SEC-STD-033 | Release binaries: built position-independent with full RELRO and non-executable stacks | WP-001, WP-136 |
@@ -7851,3 +9191,45 @@ authoritative.
 | SEC-STD-037 | CONTRIBUTING.md: link a short secure-coding guide drawn from these files | WP-124 |
 | SEC-STD-038 | CI: fuzz the running server through its generated OpenAPI description | WP-131 |
 | SEC-STD-040 | Server: talk to its scan worker | WP-045, WP-061, WP-132 |
+
+### Requirements that moved with their surface
+
+These 31 rows are not due in R1. Each moves with the only surface it
+protects to the release named, is verified there by the package named
+(see [After R1](#after-r1-point-releases-and-later)), and blocks that
+release under the traceability check until it has its test.
+
+| ID | Short name | Due in | Verified by |
+|---|---|---|---|
+| SEC-TM-022 | OIDC sign-in: use the authorization code flow with PKCE | R1.2 | WP-096 |
+| SEC-IAM-026 | OIDC sign-in: use the authorization code flow with PKCE | R1.2 | WP-096 |
+| SEC-IAM-027 | ID tokens: verified with keys from the provider's JWKS using algorithms | R1.2 | WP-096 |
+| SEC-IAM-028 | OIDC identity: keyed only by the pair | R1.2 | WP-096 |
+| SEC-IAM-029 | Linking an OIDC identity: happen only inside that account's session after user verification | R1.2 | WP-096 |
+| SEC-IAM-030 | OIDC auto-registration: off by default | R1.2 | WP-096 |
+| SEC-IAM-031 | Provider claims: never confer the owner role | R1.2 | WP-096 |
+| SEC-IAM-032 | Server-side calls to an OIDC provider: verify TLS certificates and must not follow redirects | R1.2 | WP-096 |
+| SEC-IAM-033 | OIDC redirect URI: one exact registered URL on the configured origin | R1.2 | WP-096 |
+| SEC-IAM-034 | Authorization request: bound to the one provider it was sent | R1.2 | WP-096 |
+| SEC-IAM-035 | Sessions created through OIDC: lifetimes set by Gunmetal | R1.2 | WP-096 |
+| SEC-IAM-036 | Administrator elevation for an account: require a fresh provider sign-in | R1.2 | WP-096 |
+| SEC-API-097 | Public share links: use the fragment pattern | R1.2 | WP-134 |
+| SEC-NET-010 | If the server uses: 128-bit random | R2 | WP-135 |
+| SEC-NET-011 | Name service: answer A and AAAA queries | R2 | WP-129 |
+| SEC-NET-012 | Name service: publish a CAA record for each registered label | R2 | WP-129, WP-135 |
+| SEC-NET-069 | When the server uses the project: by default monitor Certificate Transparency for its own label | R2 | WP-135 |
+| SEC-NET-070 | Project name service: launch only after its zone is on the Public | R2 | WP-129 |
+| SEC-NET-071 | When the name service refuses: keep working on every other path | R2 | WP-135 |
+| SEC-CLI-026 | When the web client signs: act as a confidential client | R1.2 | WP-096 |
+| SEC-MED-050 | Entries in M3U: resolve only to items already indexed in the same | R1.1 | WP-022, WP-112 |
+| SEC-MED-061 | Uploaded artwork: size-capped while they stream | R1.1 | WP-144 |
+| SEC-OPS-030 | Diagnostic bundles: meet SEC-PRV-046 | R1.2 | WP-155 |
+| SEC-PRV-006 | Images uploaded by users: re-encoded with all EXIF | R1.1 | WP-144 |
+| SEC-PRV-014 | Provider requests: built only from a typed lookup-evidence value holding normalised | R1.1 | WP-137 |
+| SEC-PRV-015 | Provider lookups: run only during scans | R1.1 | WP-137 |
+| SEC-PRV-017 | Outbound provider requests: send a User-Agent naming only the project | R1.1 | WP-137 |
+| SEC-PRV-046 | Diagnostic bundles: exclude the database | R1.2 | WP-155 |
+| SEC-HIS-018 | Playlist files: resolve entries only to items in libraries the playlist | R1.1 | WP-112 |
+| SEC-STD-008 | Secret a person chooses: accept any Unicode characters with no composition rules | R1.2 | WP-134 |
+| SEC-STD-025 | OIDC authorization requests: carry exactly the scopes in the provider's configuration | R1.2 | WP-096 |
+

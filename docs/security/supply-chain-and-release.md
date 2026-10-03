@@ -122,7 +122,8 @@ decisions).
 
 ## Requirements
 
-Releases: R1 Music, R2 Video, R3 Live, Later. Standards cite OWASP ASVS
+Releases: R1 Music, its point releases R1.1, R1.2 and R1.3, R2 Video, R3
+Live, Later. Standards cite OWASP ASVS
 5.0.0 requirement numbers, OWASP Top 10 2025, the OWASP Top 10 CI/CD
 Security Risks (CICD-SEC-n), the OpenSSF OSPS Baseline v2026.08.28 (current
 on 2026-10-02), NIST SP 800-218 SSDF v1.1 tasks (v1.2 exists only as the
