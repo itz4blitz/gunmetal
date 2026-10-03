@@ -97,6 +97,8 @@ problems! {
     QueueRefused = ("queue_refused", Some(409), "That change doesn't fit the queue as it is now, so it wasn't made."),
     /// A queue operation was built on an older version of the queue. It changed nothing; the client rebuilds it on the current version.
     QueueStale = ("queue_stale", Some(409), "The queue changed somewhere else first, so this change wasn't made."),
+    /// An MP4 file's sample tables, which map play times to positions in the file, could not be joined into a seek index (WP-018).
+    SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
     /// An Ogg Vorbis stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
     VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
@@ -136,7 +138,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 16] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 17] = [
         (
             "aiff_unreadable",
             None,
@@ -206,6 +208,11 @@ mod tests {
             "queue_stale",
             Some(409),
             "The queue changed somewhere else first, so this change wasn't made.",
+        ),
+        (
+            "sample_table_damaged",
+            None,
+            "The part of this file that maps play times to positions is damaged, so seeking in it won't work.",
         ),
         (
             "vorbis_header_unreadable",

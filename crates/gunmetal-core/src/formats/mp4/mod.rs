@@ -12,6 +12,7 @@ pub mod audio;
 pub mod boxes;
 pub mod ilst;
 pub mod probe;
+pub mod sample_table;
 
 pub use audio::{
     Alac, AudioEntry, AudioSpecificConfig, AudioTrack, ChunkOffsets, CodecConfig, Esds, Extension,

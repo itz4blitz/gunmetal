@@ -32,6 +32,7 @@ pub mod link;
 pub mod logframe;
 pub mod lyrics;
 pub mod mp4_probe;
+pub mod mp4_sample_table;
 pub mod mp4_structure;
 pub mod mpa;
 pub mod net;

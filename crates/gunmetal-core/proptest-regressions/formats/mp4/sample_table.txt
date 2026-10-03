@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3348092af85758512a10377a54b23113c41232c63ef6a74f1dd056cb30bb9bad # shrinks to generated = Generated { track: Track { stts: [0, 0, 0, 0, 0, 0, 0, 0], stsc: [0, 0, 0, 0, 0, 0, 0, 0], sizes: (Stsz, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), chunks: (Stco, [0, 0, 0, 0, 0, 0, 0, 0]), file_len: 0 }, samples: [], ticks: 0, timescale: 1, limit: 0 }

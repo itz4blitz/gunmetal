@@ -65,6 +65,7 @@ harnesses! {
     logframe,
     lyrics,
     mp4_probe,
+    mp4_sample_table,
     mp4_structure,
     mpa,
     net,
