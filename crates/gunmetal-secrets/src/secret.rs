@@ -230,4 +230,47 @@ mod tests {
             ]
         );
     }
+
+    /// Verifies: SEC-TM-049, SEC-STD-023
+    ///
+    /// The cipher and MAC crates copy the key into their own state. Their
+    /// `Drop` impls wipe that copy only when the `zeroize` feature is on.
+    /// `zeroize` is not a direct dependency; the features pull it in.
+    #[test]
+    fn the_cipher_and_mac_crates_enable_zeroize() {
+        let manifest = include_str!("../Cargo.toml");
+        assert_eq!(
+            manifest
+                .lines()
+                .filter(|line| {
+                    line.contains("chacha20poly1305")
+                        || line.starts_with("hmac ")
+                        || line.starts_with("sha2")
+                })
+                .collect::<Vec<_>>(),
+            [
+                r#"chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }"#,
+                r#"hmac = { version = "0.13.0", default-features = false, features = ["zeroize"] }"#,
+                r#"sha2 = { workspace = true, features = ["zeroize"] }"#,
+            ]
+        );
+        let lock = include_str!("../../../Cargo.lock");
+        let chacha = lock
+            .split("[[package]]\n")
+            .find(|block| block.starts_with("name = \"chacha20poly1305\"\nversion = \"0.11.0\""))
+            .unwrap_or("");
+        let digest = lock
+            .split("[[package]]\n")
+            .find(|block| block.starts_with("name = \"digest\"\nversion = \"0.11.3\""))
+            .unwrap_or("");
+        assert_eq!(
+            (
+                chacha.contains("\"zeroize\""),
+                digest.contains("\"zeroize\""),
+                lock.split("[[package]]\n")
+                    .any(|block| block.starts_with("name = \"missing\"\nversion = \"0.0.0\""))
+            ),
+            (true, true, false)
+        );
+    }
 }

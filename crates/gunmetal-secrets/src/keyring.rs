@@ -12,6 +12,10 @@
 //! current generation's key and still answers for the generation it
 //! replaced while the schedule says so (SEC-API-030). Every other ring has
 //! one key, generation 0, which changes only with the root secret.
+//!
+//! A [`KeyRing`] is a snapshot. Rebuild it for each verification and never
+//! cache it: a ring held across requests keeps answering for a key after
+//! its overlap ends or after a revoke.
 
 use gunmetal_core::time::Timestamp;
 use gunmetal_core::token::mac::MacProvider;
@@ -56,11 +60,15 @@ impl Purpose {
     }
 }
 
-/// One key of a ring, with the key ID that selects it.
-type Entry = (u8, Secret<[u8; KEY_LEN]>);
-
 /// The keys of one purpose that answer now: the one that signs and, for a
 /// rotating key, the one it replaced while that still verifies.
+///
+/// A ring is a snapshot of the keys that answered at the moment it was
+/// built. Rebuild it for each verification and never cache it: a ring
+/// held across requests keeps answering for a key after its overlap ends
+/// or after [`KeySchedule::revoke`], while the core's
+/// [`MacProvider`] contract says `mac` returns `None` for a revoked key
+/// ID.
 ///
 /// Inventory: `url_signing`
 /// Inventory: `session_hash`
@@ -70,9 +78,9 @@ type Entry = (u8, Secret<[u8; KEY_LEN]>);
 #[derive(Debug)]
 pub struct KeyRing {
     /// The key that signs.
-    current: Entry,
+    current: (u8, Secret<[u8; KEY_LEN]>),
     /// The key it replaced, while it still verifies.
-    previous: Option<Entry>,
+    previous: Option<(u8, Secret<[u8; KEY_LEN]>)>,
 }
 
 impl Root {
@@ -90,6 +98,9 @@ impl Root {
     /// signs with and, inside the overlap, the key of the generation it
     /// replaced. A generation the schedule has ended or revoked has no key
     /// in the ring, so nothing it signed verifies (SEC-API-030).
+    ///
+    /// The ring is a snapshot at `now`. Rebuild it for each verification
+    /// and never cache it, so a later revoke or an ended overlap is seen.
     ///
     /// # Errors
     ///
@@ -297,5 +308,22 @@ mod tests {
             format!("{ring:?}"),
             "KeyRing { current: (0, Secret([redacted])), previous: None }"
         );
+    }
+
+    /// Verifies: SEC-API-030
+    ///
+    /// A ring is a snapshot: after the schedule revokes a key ID, a ring
+    /// built earlier still answers for it, and a ring built afterwards
+    /// does not. Callers must rebuild the ring for each verification.
+    #[test]
+    fn a_held_ring_keeps_answering_after_the_schedule_revokes() {
+        let mut schedule = KeySchedule::new(at(0));
+        let held = url_ring(&schedule, 0);
+        schedule.revoke(0, at(1));
+        let rebuilt = url_ring(&schedule, 1);
+        assert_eq!(held.current_kid(), 0);
+        assert_eq!(rebuilt.current_kid(), 1);
+        assert_eq!(tags(&held), [Some(URL_0.to_owned()), None, None, None]);
+        assert_eq!(tags(&rebuilt), [None, Some(URL_1.to_owned()), None, None]);
     }
 }

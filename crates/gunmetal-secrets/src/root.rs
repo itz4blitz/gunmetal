@@ -112,8 +112,10 @@ impl Root {
 impl Root {
     /// The key of generation `generation` for the purpose labelled
     /// `label`: the HKDF-SHA-256 output for the root secret, no salt and
-    /// the context `gunmetal/v1/<label>/<generation>` (SEC-OPS-015, record
-    /// 9 decision 4).
+    /// the context `gunmetal/v1/<label>/<generation>` (SEC-OPS-015).
+    /// Record 9 decision 4 wrote the 8-bit key ID in that context; this
+    /// uses the 64-bit generation instead, because a key ID wraps after
+    /// 256 generations and must then select another key.
     pub(crate) fn derive(
         &self,
         label: &str,

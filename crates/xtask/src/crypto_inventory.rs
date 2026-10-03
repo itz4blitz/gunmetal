@@ -455,6 +455,27 @@ rustls-webpki.workspace = true
         );
     }
 
+    /// Verifies: SEC-STD-018
+    ///
+    /// A key-ring-shaped struct holds `Secret` in tuple fields. The check
+    /// must see those fields; hiding them behind a type alias would let
+    /// the inventory lines be deleted.
+    #[test]
+    fn a_key_ring_shaped_struct_without_an_inventory_line_fails() {
+        let tree = agreeing().with(
+            "crates/gunmetal-secrets/src/ring.rs",
+            "pub struct KeyRing {\n    current: (u8, Secret<[u8; 32]>),\n    \
+             previous: Option<(u8, Secret<[u8; 32]>)>,\n}\n",
+        );
+        assert_eq!(
+            check(&tree),
+            vec![Finding::Unnamed {
+                path: "crates/gunmetal-secrets/src/ring.rs".to_owned(),
+                line: 1,
+            }]
+        );
+    }
+
     /// A name may stand in backticks, which rustdoc asks of a name with an
     /// underscore in it.
     #[test]

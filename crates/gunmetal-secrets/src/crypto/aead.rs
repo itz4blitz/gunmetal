@@ -143,4 +143,23 @@ mod tests {
         );
         assert_eq!(buffers, [sealed, bad_text, sealed, sealed, sealed]);
     }
+
+    /// Verifies: SEC-TM-049, SEC-STD-023
+    ///
+    /// `XChaCha20Poly1305` stores a copy of the 32-byte key. Its `Drop`
+    /// wipes that copy only under `feature = "zeroize"`, which also
+    /// implements `ZeroizeOnDrop`. The bound fails to compile if the
+    /// feature is off.
+    #[test]
+    fn the_cipher_state_implements_zeroize_on_drop() {
+        use chacha20poly1305::XChaCha20Poly1305;
+        use sha2::digest::zeroize::ZeroizeOnDrop;
+        fn wiped_on_drop<T: ZeroizeOnDrop>() -> &'static str {
+            core::any::type_name::<T>()
+        }
+        assert_eq!(
+            wiped_on_drop::<XChaCha20Poly1305>().split('<').next(),
+            Some("chacha20poly1305::ChaChaPoly1305")
+        );
+    }
 }

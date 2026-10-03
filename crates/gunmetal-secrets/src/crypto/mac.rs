@@ -72,4 +72,26 @@ mod tests {
             "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b"
         );
     }
+
+    /// Verifies: SEC-TM-049, SEC-STD-023
+    ///
+    /// `Hmac<Sha256>` copies the key into its inner and outer states.
+    /// Those states implement `ZeroizeOnDrop` only when hmac's `zeroize`
+    /// feature (`digest/zeroize`) is on, which this crate turns on so the
+    /// copies are wiped. The same feature covers the HMAC inside HKDF.
+    /// Verifies: SEC-TM-049, SEC-STD-023
+    ///
+    /// HMAC copies the key into SHA-256 inner and outer states. Those
+    /// cores implement `ZeroizeOnDrop` only when `sha2`'s `zeroize`
+    /// feature is on (which also turns on `digest/zeroize` for hmac and
+    /// hkdf). The bound fails to compile if the feature is off.
+    #[test]
+    fn sha256_state_implements_zeroize_on_drop() {
+        use hmac::digest::zeroize::ZeroizeOnDrop;
+        use sha2::Sha256;
+        fn wiped_on_drop<T: ZeroizeOnDrop>() -> &'static str {
+            core::any::type_name::<T>()
+        }
+        assert_eq!(wiped_on_drop::<Sha256>(), "sha2::Sha256");
+    }
 }
