@@ -113,6 +113,50 @@ impl Bytes {
             low_seven_bits(value),
         ])
     }
+
+    /// Appends an MP4 box (ISO/IEC 14496-12, section 4.2): a 32-bit
+    /// big-endian size that counts the eight-octet header, the box type,
+    /// then `body`. Build nested boxes into their own [`Bytes`] first.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the box would not fit a 32-bit size.
+    pub fn mp4_box(&mut self, kind: [u8; 4], body: &[u8]) -> &mut Self {
+        let size = u32::try_from(body.len() + 8).expect("an MP4 box fits a 32-bit size");
+        self.u32_be(size).bytes(&kind).bytes(body)
+    }
+
+    /// Appends a RIFF chunk, as WAV files are made of: the chunk ID, a
+    /// 32-bit little-endian size of `body` alone, `body`, then one zero
+    /// octet when `body` has an odd length. The size leaves that pad out.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `body` would not fit a 32-bit size.
+    pub fn riff_chunk(&mut self, id: [u8; 4], body: &[u8]) -> &mut Self {
+        self.bytes(&id)
+            .u32_le(chunk_size(body))
+            .bytes(body)
+            .zeros(body.len() % 2)
+    }
+
+    /// Appends an EA IFF 85 chunk, as AIFF files are made of: laid out as
+    /// [`Bytes::riff_chunk`] does, but with a big-endian size.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `body` would not fit a 32-bit size.
+    pub fn aiff_chunk(&mut self, id: [u8; 4], body: &[u8]) -> &mut Self {
+        self.bytes(&id)
+            .u32_be(chunk_size(body))
+            .bytes(body)
+            .zeros(body.len() % 2)
+    }
+}
+
+/// The size field of a RIFF or IFF chunk holding `body`.
+fn chunk_size(body: &[u8]) -> u32 {
+    u32::try_from(body.len()).expect("a chunk body fits a 32-bit size")
 }
 
 /// The seven least significant bits of `value`.
@@ -304,6 +348,161 @@ mod tests {
     #[should_panic(expected = "268435456 does not fit in a 28-bit syncsafe integer")]
     fn refuses_a_syncsafe_value_that_does_not_fit() {
         Bytes::new().syncsafe32(0x1000_0000);
+    }
+
+    /// Builds a chunk's body with `write`, so nested chunks read as a tree.
+    fn body(write: impl FnOnce(&mut Bytes)) -> Vec<u8> {
+        let mut written = Bytes::new();
+        write(&mut written);
+        written.into_vec()
+    }
+
+    #[test]
+    fn writes_mp4_boxes_whose_size_counts_the_header() {
+        // A FileTypeBox and a DataInformationBox as `ffmpeg -f mp4` wrote
+        // them.
+        let mut written = Bytes::new();
+        written
+            .mp4_box(*b"ftyp", b"isom\x00\x00\x02\x00isomiso2mp41")
+            .mp4_box(
+                *b"dinf",
+                &body(|dinf| {
+                    dinf.mp4_box(
+                        *b"dref",
+                        &body(|dref| {
+                            dref.u32_be(0) // version and flags
+                                .u32_be(1) // entry count
+                                .mp4_box(*b"url ", &[0x00, 0x00, 0x00, 0x01]); // self-contained
+                        }),
+                    );
+                }),
+            );
+        assert_eq!(
+            written.into_vec(),
+            [
+                &[0x00, 0x00, 0x00, 0x1C][..],
+                b"ftypisom\x00\x00\x02\x00isomiso2mp41",
+                &[0x00, 0x00, 0x00, 0x24],
+                b"dinf",
+                &[0x00, 0x00, 0x00, 0x1C],
+                b"dref",
+                &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
+                &[0x00, 0x00, 0x00, 0x0C],
+                b"url ",
+                &[0x00, 0x00, 0x00, 0x01],
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn writes_an_empty_mp4_box_as_its_header_alone() {
+        let mut written = Bytes::new();
+        written.mp4_box(*b"free", &[]);
+        assert_eq!(written.as_slice(), b"\x00\x00\x00\x08free");
+    }
+
+    #[test]
+    fn writes_a_real_wav_file_with_riff_chunks() {
+        // Three 8-bit mono samples at 8 kHz, as `ffmpeg -f wav -fflags
+        // +bitexact` wrote them. The odd-length data chunk is followed by a
+        // pad octet that its size leaves out and the RIFF size counts.
+        let mut written = Bytes::new();
+        written.riff_chunk(
+            *b"RIFF",
+            &body(|riff| {
+                riff.bytes(b"WAVE")
+                    .riff_chunk(
+                        *b"fmt ",
+                        &body(|fmt| {
+                            fmt.u16_le(1) // PCM
+                                .u16_le(1) // channels
+                                .u32_le(8_000) // sample rate
+                                .u32_le(8_000) // bytes per second
+                                .u16_le(1) // block align
+                                .u16_le(8); // bits per sample
+                        }),
+                    )
+                    .riff_chunk(*b"data", &[0x80, 0x81, 0x7F]);
+            }),
+        );
+        assert_eq!(
+            written.into_vec(),
+            [
+                &b"RIFF\x28\x00\x00\x00WAVE"[..],
+                b"fmt \x10\x00\x00\x00",
+                &[0x01, 0x00, 0x01, 0x00, 0x40, 0x1F, 0x00, 0x00],
+                &[0x40, 0x1F, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00],
+                b"data\x03\x00\x00\x00",
+                &[0x80, 0x81, 0x7F, 0x00],
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn writes_a_real_aiff_file_with_iff_chunks() {
+        // The same three samples, signed, as `ffmpeg -f aiff -fflags
+        // +bitexact` wrote them. 8,000 Hz is the 80-bit extended float
+        // 0x400B FA00 0000 0000 0000.
+        let mut written = Bytes::new();
+        written.aiff_chunk(
+            *b"FORM",
+            &body(|form| {
+                form.bytes(b"AIFF")
+                    .aiff_chunk(
+                        *b"COMM",
+                        &body(|comm| {
+                            comm.u16_be(1) // channels
+                                .u32_be(3) // sample frames
+                                .u16_be(8) // bits per sample
+                                .u16_be(0x400B) // sample rate, sign and exponent
+                                .u64_be(0xFA00_0000_0000_0000); // and mantissa
+                        }),
+                    )
+                    .aiff_chunk(
+                        *b"SSND",
+                        &body(|ssnd| {
+                            ssnd.u32_be(0) // offset
+                                .u32_be(0) // block size
+                                .bytes(&[0x00, 0x01, 0xFF]);
+                        }),
+                    );
+            }),
+        );
+        assert_eq!(
+            written.into_vec(),
+            [
+                &b"FORM\x00\x00\x00\x32AIFF"[..],
+                b"COMM\x00\x00\x00\x12",
+                &[0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x08],
+                &[0x40, 0x0B, 0xFA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                b"SSND\x00\x00\x00\x0B",
+                &[0x00; 8],
+                &[0x00, 0x01, 0xFF, 0x00],
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn pads_only_odd_length_chunk_bodies() {
+        let mut written = Bytes::new();
+        written
+            .riff_chunk(*b"LIST", &[])
+            .riff_chunk(*b"odd ", &[0xAA])
+            .aiff_chunk(*b"ANNO", &[0xBB, 0xCC])
+            .aiff_chunk(*b"NAME", &[0xDD]);
+        assert_eq!(
+            written.into_vec(),
+            [
+                &b"LIST\x00\x00\x00\x00"[..],
+                b"odd \x01\x00\x00\x00\xAA\x00",
+                b"ANNO\x00\x00\x00\x02\xBB\xCC",
+                b"NAME\x00\x00\x00\x01\xDD\x00",
+            ]
+            .concat()
+        );
     }
 
     #[test]
