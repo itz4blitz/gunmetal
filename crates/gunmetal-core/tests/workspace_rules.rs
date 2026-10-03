@@ -1904,7 +1904,7 @@ fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
         r#"*) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;"#,
         r#"if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then"#,
         r#"if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then"#,
-        r#"if ((${#switches[@]} > 1)); then"#,
+        r"if ((${#switches[@]} > 1)); then",
         r#"usage "${switches[*]} cannot be combined: each one chooses which mutants this run tests""#,
         // A shard is one slice of the same list the unscoped run tests.
         r#"scope=(--shard "$mutants_shard" --sharding round-robin)"#,
