@@ -9,6 +9,7 @@ pub mod client_context;
 pub mod crypto;
 pub mod ebml;
 pub mod id;
+pub mod inflate;
 pub mod link;
 pub mod net;
 pub mod parse;
