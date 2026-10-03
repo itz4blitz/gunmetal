@@ -6,12 +6,14 @@
 pub mod audit_event;
 pub mod base64;
 pub mod client_context;
+pub mod crypto;
 pub mod ebml;
 pub mod id;
 pub mod link;
 pub mod net;
 pub mod parse;
 pub mod problem;
+pub mod schema;
 pub mod text;
 pub mod time;
 pub mod untrusted;

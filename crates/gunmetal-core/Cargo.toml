@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+sha2.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
