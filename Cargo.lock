@@ -214,6 +214,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gunmetal-durable"
+version = "0.0.0"
+dependencies = [
+ "gunmetal-core",
+ "gunmetal-fs",
+ "gunmetal-testkit",
+ "proptest",
+]
+
+[[package]]
 name = "gunmetal-fs"
 version = "0.0.0"
 dependencies = [
