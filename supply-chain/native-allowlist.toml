@@ -1,0 +1,126 @@
+# The justified allow-list of native and unsafe-using crates in what ships
+# (SEC-TM-034).
+#
+# Gunmetal's own crates forbid `unsafe`. A crate from outside may bring
+# native code or `unsafe` into the server only once it is listed here, with
+# the reason it is needed and the requirement it is there to meet. A crate
+# needs an entry when its name ends in `-sys` or `_sys`, when its manifest
+# declares `links`, or when any Rust file it ships uses the `unsafe` keyword.
+# The graph is every workspace member that is not build tooling and every
+# crate one reaches through normal dependencies, on the targets deny.toml
+# names. Build and dev dependencies are not linked into what ships; the
+# build-script allow-list in deny.toml covers them (SEC-SUP-026).
+#
+# `xtask native-code` (crates/xtask/src/native_code.rs) checks this file
+# against `cargo metadata`: an unlisted crate fails, an entry without a
+# reason or a requirement fails, and so does an entry for a crate that no
+# longer ships or no longer needs one. Changes need code-owner review
+# (SEC-SUP-005): SEC-TM-034 asks for a manual review of every change here.
+#
+# Nothing listed here decodes media. A native media, image, font or subtitle
+# library is banned by name in deny.toml (SEC-MED-025) and may only run as
+# an external program inside the sandbox; an entry here cannot lift that.
+#
+# Seeded on 2026-10-03 (WF-003) with the crates wave 0 already ships: sha2's
+# tree in the core (WP-122), and cap-std's, rustix's and rusqlite's in the
+# filesystem door (WP-126). Each reason says what brought the crate in and
+# what its native or unsafe code is for. Seeding is not review: the owner's
+# review of the wave's pull request confirms or removes these entries.
+#
+# One entry per crate, sorted by name; one entry covers every version of
+# the crate in the graph. Several requirements are separated by ", ".
+
+[[crate]]
+name = "bitflags"
+reason = "Flag types for rustix's system-call arguments and rusqlite's open flags (WP-126). Its only unsafe is macro text that implements `bytemuck`'s traits, expanded only with its `bytemuck` feature, which is off."
+requirement = "SEC-MED-033, SEC-PRV-050"
+
+[[crate]]
+name = "block-buffer"
+reason = "Block buffering for sha2, through digest (WP-122, D-02). Unsafe reads and writes of its fixed-size block buffer."
+requirement = "SEC-STD-018"
+
+[[crate]]
+name = "cap-primitives"
+reason = "The path resolution beneath a directory handle that cap-std is built on (WP-126). Unsafe around raw file descriptors and `openat2`."
+requirement = "SEC-MED-033, SEC-HIS-016"
+
+[[crate]]
+name = "cap-std"
+reason = "The directory handles every data-root and library access goes through, which SEC-MED-033 names (WP-126). Unsafe converting to and from raw file descriptors."
+requirement = "SEC-MED-033, SEC-HIS-016"
+
+[[crate]]
+name = "cpufeatures"
+reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02). Unsafe to run `cpuid` and read the auxiliary vector."
+requirement = "SEC-STD-018"
+
+[[crate]]
+name = "errno"
+reason = "Reads and sets the thread's `errno` for rustix, on the targets where rustix goes through libc (WP-126). Unsafe calls into libc."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "fs-set-times"
+reason = "Sets file times for cap-primitives (WP-126). Its only unsafe is the `SetFileTime` call in its Windows code, which no Gunmetal target builds."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "hybrid-array"
+reason = "Fixed-size arrays for block-buffer and crypto-common, under sha2 (WP-122, D-02). Unsafe casts between arrays and slices of known length."
+requirement = "SEC-STD-018"
+
+[[crate]]
+name = "io-extras"
+reason = "File-descriptor helper types for cap-std and cap-primitives (WP-126). Unsafe converting to and from raw file descriptors."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "io-lifetimes"
+reason = "Owned and borrowed file-descriptor types for cap-std, cap-primitives and fs-set-times, which need two versions (WP-126). Unsafe converting to and from raw file descriptors."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "libc"
+reason = "The C library's declarations, for errno, for rustix on the targets where it goes through libc and, on AArch64, for cpufeatures (WP-122, WP-126). Declares and calls the system's C library, which every Rust program on Linux already links."
+requirement = "SEC-MED-033, SEC-STD-018"
+
+[[crate]]
+name = "libsqlite3-sys"
+reason = "SQLite itself: the C source it bundles, compiled by its build script, and the bindings to it (rusqlite's `bundled` feature, owner decision D-02, WP-126). The first C library linked into the server. It stores Gunmetal's own databases and never decodes media; a database the server did not create is opened only read-only and hardened (SEC-STD-031)."
+requirement = "SEC-PRV-050, SEC-TM-039"
+
+[[crate]]
+name = "linux-raw-sys"
+reason = "Linux system-call numbers and structure layouts for rustix (WP-126). Generated declarations with no native library behind them; its unsafe is in generated accessors."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "once_cell"
+reason = "Caches the `/proc` handle rustix-linux-procfs opens, for cap-primitives (WP-126). Unsafe in its cell: `Send` and `Sync` implementations and unchecked reads."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "rusqlite"
+reason = "The safe interface to SQLite that the one connection opener in gunmetal-fs uses (WP-126, D-02). Unsafe calls into libsqlite3-sys. Its `load_extension` feature stays off (SEC-EXT-018, SEC-HIS-056)."
+requirement = "SEC-PRV-050, SEC-TM-039"
+
+[[crate]]
+name = "rustix"
+reason = "System calls for cap-std's tree and for gunmetal-fs's own descriptor checks (WP-126). Unsafe system calls and raw file descriptors."
+requirement = "SEC-MED-033, SEC-HIS-016"
+
+[[crate]]
+name = "rustix-linux-procfs"
+reason = "Opens `/proc` safely for cap-primitives, which reads a descriptor's path through it (WP-126). One unsafe transmute of an initialised byte buffer."
+requirement = "SEC-MED-033"
+
+[[crate]]
+name = "sha2"
+reason = "SHA-256 in the core's src/crypto.rs only: the schema digest and content identity (WP-122, D-02). Unsafe for the CPU's SHA instructions."
+requirement = "SEC-STD-018"
+
+[[crate]]
+name = "smallvec"
+reason = "Small inline vectors inside rusqlite (WP-126). Unsafe managing its inline and heap storage."
+requirement = "SEC-PRV-050"
