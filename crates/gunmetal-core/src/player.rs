@@ -33,6 +33,13 @@ pub enum State {
     Stopped,
 }
 
+impl Default for State {
+    /// A new session starts [`Idle`], matching the diagram's `[*] --> Idle`.
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
 /// An input the machine accepts. Combined labels in the diagram are split
 /// so each reason is its own event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,54 +96,39 @@ pub struct Illegal {
 ///
 /// [`Illegal`] carrying `state` and `event` when that pair is not an arrow
 /// in the playback-model diagram.
-pub const fn next(state: State, event: Event) -> Result<State, Illegal> {
-    match (state, event) {
-        (State::Idle, Event::Play)
-        | (State::ItemEnded, Event::NextItem)
-        | (State::EndOfQueue, Event::Play | Event::StartRadio)
-        | (State::Error, Event::Retry | Event::Skip) => Ok(State::Loading),
-        (State::Loading, Event::FirstAudioOrFirstFrame)
-        | (State::Paused, Event::Play)
-        | (State::Buffering, Event::BufferRefilled)
-        | (State::Stalled, Event::Recovered) => Ok(State::Playing),
-        (State::Loading, Event::CannotStart) | (State::Stalled, Event::GaveUp) => Ok(State::Error),
-        (State::Playing, Event::Pause) => Ok(State::Paused),
-        (State::Playing, Event::BufferRanDry) => Ok(State::Buffering),
-        (State::Playing, Event::EndOfItem) => Ok(State::ItemEnded),
-        (State::Buffering, Event::NoProgress) => Ok(State::Stalled),
-        (State::ItemEnded, Event::NothingNext) => Ok(State::EndOfQueue),
-        (State::Playing | State::Paused, Event::StoppedByOwner | Event::DeviceRevoked) => {
-            Ok(State::Stopped)
-        }
-        (
-            State::Idle
-            | State::Loading
-            | State::Playing
-            | State::Paused
-            | State::Buffering
-            | State::Stalled
-            | State::ItemEnded
-            | State::EndOfQueue
-            | State::Error
-            | State::Stopped,
-            Event::Play
-            | Event::FirstAudioOrFirstFrame
-            | Event::CannotStart
-            | Event::Pause
-            | Event::BufferRanDry
-            | Event::BufferRefilled
-            | Event::NoProgress
-            | Event::Recovered
-            | Event::GaveUp
-            | Event::EndOfItem
-            | Event::NextItem
-            | Event::NothingNext
-            | Event::StartRadio
-            | Event::Retry
-            | Event::Skip
-            | Event::StoppedByOwner
-            | Event::DeviceRevoked,
-        ) => Err(Illegal { state, event }),
+pub fn next(state: State, event: Event) -> Result<State, Illegal> {
+    if (state == State::Idle && event == Event::Play)
+        || (state == State::ItemEnded && event == Event::NextItem)
+        || (state == State::EndOfQueue && (event == Event::Play || event == Event::StartRadio))
+        || (state == State::Error && (event == Event::Retry || event == Event::Skip))
+    {
+        Ok(State::Loading)
+    } else if (state == State::Loading && event == Event::FirstAudioOrFirstFrame)
+        || (state == State::Paused && event == Event::Play)
+        || (state == State::Buffering && event == Event::BufferRefilled)
+        || (state == State::Stalled && event == Event::Recovered)
+    {
+        Ok(State::Playing)
+    } else if (state == State::Loading && event == Event::CannotStart)
+        || (state == State::Stalled && event == Event::GaveUp)
+    {
+        Ok(State::Error)
+    } else if state == State::Playing && event == Event::Pause {
+        Ok(State::Paused)
+    } else if state == State::Playing && event == Event::BufferRanDry {
+        Ok(State::Buffering)
+    } else if state == State::Playing && event == Event::EndOfItem {
+        Ok(State::ItemEnded)
+    } else if state == State::Buffering && event == Event::NoProgress {
+        Ok(State::Stalled)
+    } else if state == State::ItemEnded && event == Event::NothingNext {
+        Ok(State::EndOfQueue)
+    } else if (state == State::Playing || state == State::Paused)
+        && (event == Event::StoppedByOwner || event == Event::DeviceRevoked)
+    {
+        Ok(State::Stopped)
+    } else {
+        Err(Illegal { state, event })
     }
 }
 
@@ -221,6 +213,11 @@ mod tests {
             }
         }
         found
+    }
+
+    #[test]
+    fn a_new_session_starts_idle() {
+        assert_eq!(State::default(), State::Idle);
     }
 
     #[test]
