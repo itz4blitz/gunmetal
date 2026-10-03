@@ -56,11 +56,15 @@ impl Rate {
         if burst == 0 {
             return Err(RateError::ZeroBurst);
         }
-        let interval = i64::try_from(interval_ms).map_err(|_| RateError::TooLarge)?;
-        let span = u64::from(burst)
-            .checked_mul(interval_ms)
-            .and_then(|span| i64::try_from(span).ok())
-            .ok_or(RateError::TooLarge)?;
+        let Ok(interval) = i64::try_from(interval_ms) else {
+            return Err(RateError::TooLarge);
+        };
+        let Some(product) = u64::from(burst).checked_mul(interval_ms) else {
+            return Err(RateError::TooLarge);
+        };
+        let Ok(span) = i64::try_from(product) else {
+            return Err(RateError::TooLarge);
+        };
         let tau_ms = span.saturating_sub(interval);
         Ok(Self {
             interval_ms: interval,
@@ -308,7 +312,7 @@ pub fn keys_for(principal: Option<PrincipalKey>, context: &ClientContext) -> Lim
 /// Inserting a new key at capacity evicts the least recently used entry.
 /// [`BoundedStore::get`] and a replacement [`BoundedStore::insert`] both
 /// count as a use. A capacity of zero stores nothing; [`check_store`]
-/// fails closed on a grant that cannot be recorded.
+/// fails closed on a grant whose keys do not all fit.
 #[derive(Debug)]
 pub struct BoundedStore<K, V> {
     capacity: usize,
@@ -378,44 +382,32 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
     }
 
     /// Stores every entry as one eviction transaction: members of the
-    /// group never evict each other. Unrelated LRU keys are evicted
-    /// first. When the group is larger than [`Self::capacity`], the last
-    /// `capacity` entries are kept, so [`LimitKey::Global`] (always last
-    /// in [`LimitKeys`]) and the coarser IPv6 prefixes survive.
+    /// group never evict each other, and only least recently used keys
+    /// outside the group are evicted to make room.
     ///
-    /// Returns `false` without storing when `capacity` is zero, so a
-    /// grant that cannot be recorded does not proceed.
+    /// Returns `false` without storing anything when the group is larger
+    /// than [`Self::capacity`] (including any group at capacity zero), so a
+    /// grant that cannot be recorded in full does not proceed.
     fn insert_group(&mut self, entries: Vec<(K, V)>) -> bool {
-        if entries.is_empty() {
-            return true;
-        }
-        if self.capacity == 0 {
+        if entries.len() > self.capacity {
             return false;
         }
-        let drop_count = entries.len().saturating_sub(self.capacity);
-        let kept: Vec<(K, V)> = entries.into_iter().skip(drop_count).collect();
-        let mut new_count = 0_usize;
-        for (key, _) in &kept {
-            if !self.map.contains_key(key) {
-                new_count = new_count.saturating_add(1);
-            }
-        }
+        let new_count = entries
+            .iter()
+            .filter(|(key, _)| !self.map.contains_key(key))
+            .count();
         let free = self.capacity.saturating_sub(self.map.len());
         let mut need = new_count.saturating_sub(free);
-        if need > 0 {
-            let mut stay = VecDeque::new();
-            while let Some(key) = self.order.pop_front() {
-                let in_kept = kept.iter().any(|(held, _)| held == &key);
-                if !in_kept && need > 0 {
-                    self.map.remove(&key);
-                    need = need.saturating_sub(1);
-                } else {
-                    stay.push_back(key);
-                }
+        let map = &mut self.map;
+        self.order.retain(|key| {
+            if need == 0 || entries.iter().any(|(held, _)| held == key) {
+                return true;
             }
-            self.order = stay;
-        }
-        for (key, value) in kept {
+            map.remove(key);
+            need = need.saturating_sub(1);
+            false
+        });
+        for (key, value) in entries {
             if self.map.insert(key.clone(), value).is_some() {
                 self.touch(&key);
             } else {
@@ -431,8 +423,8 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
 /// the global key does not spend a per-source cell (SEC-IAM-101).
 ///
 /// The Tats are committed as one eviction transaction. If the store cannot
-/// record the grant (a capacity of zero), the request is denied and the
-/// store is left unchanged.
+/// record every key of the grant (its capacity is smaller than the number
+/// of keys), the request is denied and the store is left unchanged.
 ///
 /// `rate_of` supplies each key's ceiling: later packages give the /64, /56
 /// and /48 counters, and [`LimitKey::Global`], rates of their own.
@@ -446,33 +438,46 @@ pub fn check_store<F>(
 where
     F: FnMut(LimitKey) -> Rate,
 {
+    // Record coverage on one body, not on every rate_of monomorphization.
+    check_store_dyn(store, keys, now, &mut rate_of)
+}
+
+fn check_store_dyn(
+    store: &mut BoundedStore<LimitKey, Tat>,
+    keys: &LimitKeys,
+    now: Timestamp,
+    rate_of: &mut dyn FnMut(LimitKey) -> Rate,
+) -> Decision {
     let mut allowed = Vec::new();
-    let mut denied_retry: Option<u64> = None;
+    let mut denied = false;
+    let mut retry_after_ms = 0_u64;
     for key in keys.iter() {
         let (decision, tat) = check(store.get(&key).copied(), now, rate_of(key));
         match decision {
             Decision::Allow => allowed.push((key, tat)),
-            Decision::Deny { retry_after_ms } => {
-                denied_retry = Some(match denied_retry {
-                    Some(existing) => existing.max(retry_after_ms),
-                    None => retry_after_ms,
-                });
+            Decision::Deny {
+                retry_after_ms: retry,
+            } => {
+                denied = true;
+                retry_after_ms = retry_after_ms.max(retry);
             }
         }
     }
-    if let Some(retry_after_ms) = denied_retry {
+    if denied {
         Decision::Deny { retry_after_ms }
     } else {
         let now_ms = now.millis();
-        let mut retry_after_ms = 0_u64;
+        let mut grant_retry_ms = 0_u64;
         for (_, tat) in &allowed {
-            retry_after_ms =
-                retry_after_ms.max(tat.theoretical_ms.saturating_sub(now_ms).unsigned_abs());
+            grant_retry_ms =
+                grant_retry_ms.max(tat.theoretical_ms.saturating_sub(now_ms).unsigned_abs());
         }
         if store.insert_group(allowed) {
             Decision::Allow
         } else {
-            Decision::Deny { retry_after_ms }
+            Decision::Deny {
+                retry_after_ms: grant_retry_ms,
+            }
         }
     }
 }
@@ -597,6 +602,10 @@ mod tests {
         assert_eq!(Rate::new(u64::MAX / 2, 3), Err(RateError::TooLarge));
         assert_eq!(
             Rate::new(u64::try_from(i64::MAX).unwrap(), 2),
+            Err(RateError::TooLarge)
+        );
+        assert_eq!(
+            Rate::new(u64::try_from(i64::MAX).unwrap(), 3),
             Err(RateError::TooLarge)
         );
         assert_eq!(
@@ -1193,44 +1202,125 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-IAM-101
     #[test]
-    fn check_store_with_no_keys_allows() {
-        let mut store = BoundedStore::new(0);
-        let none = LimitKeys::new(
-            [
-                LimitKey::Global,
-                LimitKey::Global,
-                LimitKey::Global,
-                LimitKey::Global,
-            ],
-            0,
-        );
+    fn a_store_smaller_than_one_requests_keys_denies_and_records_nothing() {
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Global => rate(3_000, 1),
+            _ => rate(1_000, 1),
+        };
+        let mut store = BoundedStore::new(1);
         assert_eq!(
-            check_store(&mut store, &none, ts(START_MS), |_| rate(1_000, 1)),
-            Decision::Allow
+            check_store(
+                &mut store,
+                &keys(None, v4(203, 0, 113, 1)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Deny {
+                retry_after_ms: 3_000
+            }
         );
         assert!(store.is_empty());
-        let mut store = BoundedStore::new(4);
+
+        let mut store = BoundedStore::new(3);
+        let addr = IpAddr::V6(v6([0x2001, 0x0DB8, 0xAAAA, 0x0001, 0, 0, 0, 1]));
         assert_eq!(
-            check_store(&mut store, &none, ts(START_MS), |_| rate(1_000, 1)),
-            Decision::Allow
+            check_store(&mut store, &keys(None, addr), ts(START_MS), rate_of),
+            Decision::Deny {
+                retry_after_ms: 3_000
+            }
         );
         assert!(store.is_empty());
+        assert_eq!(
+            check_store(&mut store, &keys(None, addr), ts(START_MS + 5_000), rate_of),
+            Decision::Deny {
+                retry_after_ms: 3_000
+            }
+        );
+        assert!(store.is_empty());
+
+        let mut store = BoundedStore::new(2);
+        let a_addr = Ipv4Addr::new(203, 0, 113, 1);
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, IpAddr::V4(a_addr)),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Allow
+        );
+        assert_eq!(store.len(), 2);
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(a_addr)).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
+        );
     }
 
-    /// Verifies: SEC-NET-051, SEC-NET-052
+    /// Verifies: SEC-NET-051
     #[test]
-    fn ipv6_rotation_with_capacity_two_still_exhausts_the_slash_48() {
-        rotating_slash_64s_exhaust_slash_48(2, 2);
+    fn a_repeat_grant_on_a_full_store_evicts_nothing() {
+        let generous = rate(1, 255);
+        let mut store = BoundedStore::new(4);
+        for host in 1_u8..=3 {
+            assert_eq!(
+                check_store(
+                    &mut store,
+                    &keys(None, v4(203, 0, 113, host)),
+                    ts(START_MS),
+                    |_| generous
+                ),
+                Decision::Allow
+            );
+        }
+        assert_eq!(store.len(), 4);
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys(None, v4(203, 0, 113, 3)),
+                ts(START_MS),
+                |_| generous
+            ),
+            Decision::Allow
+        );
+        assert_eq!(store.len(), 4);
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 1)))
+                .copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 3)))
+                .copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 2,
+                observed_ms: START_MS,
+            })
+        );
     }
 
     /// Verifies: SEC-NET-051, SEC-NET-052
     #[test]
     fn ipv6_rotation_with_capacity_four_still_exhausts_the_slash_48() {
-        rotating_slash_64s_exhaust_slash_48(4, 4);
+        rotating_slash_64s_exhaust_slash_48(4);
     }
 
-    fn rotating_slash_64s_exhaust_slash_48(capacity: usize, expected_len: usize) {
+    /// Verifies: SEC-NET-051, SEC-NET-052
+    #[test]
+    fn ipv6_rotation_with_capacity_five_still_exhausts_the_slash_48() {
+        rotating_slash_64s_exhaust_slash_48(5);
+    }
+
+    fn rotating_slash_64s_exhaust_slash_48(capacity: usize) {
         let tight = rate(1_000, 2);
         let generous = rate(1, 255);
         let rate_of = |key: LimitKey| match key {
@@ -1252,7 +1342,7 @@ mod tests {
             ),
             Decision::Allow
         );
-        assert_eq!(store.len(), expected_len);
+        assert_eq!(store.len(), 4);
         assert_eq!(
             store.get(&slash48).copied(),
             Some(Tat {
@@ -1276,6 +1366,7 @@ mod tests {
             ),
             Decision::Allow
         );
+        assert_eq!(store.len(), capacity);
         assert_eq!(
             store.get(&slash48).copied(),
             Some(Tat {
@@ -1330,10 +1421,9 @@ mod tests {
                     ts(START_MS),
                     rate_of
                 ),
-                Decision::Allow,
-                "host {host}"
+                Decision::Allow
             );
-            assert!(store.len() <= 4);
+            assert_eq!(store.len(), usize::from(host).min(3) + 1);
             assert_eq!(
                 store.get(&LimitKey::Global).copied(),
                 Some(Tat {
@@ -1352,8 +1442,7 @@ mod tests {
                 ),
                 Decision::Deny {
                     retry_after_ms: 1_000
-                },
-                "host {host}"
+                }
             );
             assert_eq!(
                 store.get(&LimitKey::Global).copied(),
