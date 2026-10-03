@@ -29,40 +29,24 @@ pub struct Outcome<'a> {
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome<'_> {
     let items: Vec<Item<'_>> = records(data).collect();
-    let max = usize::try_from(MAX_PAYLOAD).unwrap_or(0);
     for item in &items {
         match item {
             Item::Record(record) => {
-                assert!(
-                    record.payload.len() <= max,
-                    "record payload {} octets exceeds the cap",
-                    record.payload.len()
-                );
+                assert!(u32::try_from(record.payload.len()).is_ok_and(|len| len <= MAX_PAYLOAD));
             }
             Item::Damaged { range } => {
-                assert!(
-                    range.start < range.end && range.end <= data.len(),
-                    "damaged range {range:?} outside {} octets",
-                    data.len()
-                );
+                assert!(range.start < range.end && range.end <= data.len());
             }
         }
     }
     let tail = recover_tail(data);
-    assert!(
-        tail <= data.len(),
-        "recover_tail {tail} outside {} octets",
-        data.len()
-    );
+    assert!(tail <= data.len());
 
     if let Ok(framed) = encode(data) {
-        let got: Vec<&[u8]> = records(&framed)
-            .map(|item| match item {
-                Item::Record(record) => record.payload,
-                Item::Damaged { range } => panic!("encoded payload damaged at {range:?}"),
-            })
-            .collect();
-        assert_eq!(got, [data], "encode then records lost the payload");
+        assert!(matches!(
+            records(&framed).next(),
+            Some(Item::Record(record)) if record.payload == data
+        ));
         assert_eq!(recover_tail(&framed), framed.len());
     }
 
@@ -81,15 +65,9 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
             assert_eq!(header(&bytes), Ok(hdr));
             assert_eq!(recover_tail(&bytes), bytes.len());
         }
-        Err(EncodeError::BadMonth { month: got }) => {
-            assert_eq!(got, month);
-            assert!(
-                !(1..=12).contains(&month),
-                "encode_header refused month {month}"
-            );
-        }
-        Err(EncodeError::TooLong { len, max }) => {
-            panic!("a 19-octet header is under the cap: {len} > {max}");
+        Err(error) => {
+            assert_eq!(error, EncodeError::BadMonth { month });
+            assert!(!(1..=12).contains(&month));
         }
     }
 

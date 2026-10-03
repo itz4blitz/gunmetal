@@ -13,7 +13,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-use gunmetal_core::logframe::{HeaderError, Item, RECORD_VERSION, Record, SegmentHeader};
+use gunmetal_core::logframe::{
+    HeaderError, Item, MAX_PAYLOAD, RECORD_VERSION, Record, SegmentHeader,
+};
 use gunmetal_fuzz::logframe::{Outcome, run};
 
 /// The committed corpus, which the nightly fuzz job also starts from.
@@ -222,4 +224,16 @@ fn replays_a_january_header() {
             }),
         },
     );
+}
+
+/// Verifies: SEC-MED-003, SEC-TM-032
+#[test]
+fn run_on_a_payload_above_the_cap() {
+    let over = usize::try_from(MAX_PAYLOAD)
+        .expect("cap fits usize")
+        .saturating_add(1);
+    let data = vec![0x11; over];
+    let outcome = run(&data);
+    assert_eq!(outcome.tail, 0);
+    assert_eq!(outcome.header, Err(HeaderError::Damaged { range: 0..over }));
 }

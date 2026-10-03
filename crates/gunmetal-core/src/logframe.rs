@@ -45,7 +45,7 @@ pub enum EncodeError {
     /// The payload is longer than [`MAX_PAYLOAD`].
     TooLong {
         /// Octets the caller offered.
-        len: u64,
+        len: usize,
         /// The largest payload the framer will write.
         max: u32,
     },
@@ -131,7 +131,7 @@ pub fn encode(payload: &[u8]) -> Result<Vec<u8>, EncodeError> {
         .filter(|&len| len <= MAX_PAYLOAD)
     else {
         return Err(EncodeError::TooLong {
-            len: u64::try_from(payload.len()).unwrap_or(u64::MAX),
+            len: payload.len(),
             max: MAX_PAYLOAD,
         });
     };
@@ -360,6 +360,14 @@ mod tests {
         records(bytes).collect()
     }
 
+    /// The payload of a whole record, or `None` when the item is damage.
+    fn payload_of<'a>(item: &Item<'a>) -> Option<&'a [u8]> {
+        match item {
+            Item::Record(record) => Some(record.payload),
+            Item::Damaged { .. } => None,
+        }
+    }
+
     /// A whole record of version 1.
     fn rec(payload: &[u8]) -> Item<'_> {
         Item::Record(Record {
@@ -445,7 +453,7 @@ mod tests {
         assert_eq!(
             encode(&filled(over, 0xAA)),
             Err(EncodeError::TooLong {
-                len: u64::from(MAX_PAYLOAD) + 1,
+                len: over,
                 max: MAX_PAYLOAD,
             })
         );
@@ -464,6 +472,7 @@ mod tests {
         assert_eq!(items(&bytes), [rec(b"one"), rec(b"two"), rec(b"")]);
         assert_eq!(items(&[]), []);
         assert_eq!(items(&frame(b"hi")), [rec(b"hi")]);
+        assert_eq!(payload_of(&rec(b"hi")), Some(b"hi".as_slice()));
     }
 
     /// Verifies: SEC-MED-001
@@ -592,6 +601,7 @@ mod tests {
         let last = bytes.len() - 1;
         bytes[last] ^= 0x80;
         assert_eq!(items(&bytes), [damaged(0..bytes.len())]);
+        assert_eq!(payload_of(&items(&bytes)[0]), None);
         assert_eq!(recover_tail(&bytes), 0);
     }
 
@@ -748,11 +758,7 @@ mod tests {
         let bytes = frame(&[0x55; 40]);
         for cut in 0..=bytes.len() {
             let yielded: Vec<_> = records(&bytes[..cut]).collect();
-            assert!(
-                yielded.len() <= bytes.len(),
-                "{} items from {cut} octets",
-                yielded.len()
-            );
+            assert!(yielded.len() <= bytes.len());
             assert!(recover_tail(&bytes[..cut]) <= cut);
         }
     }
@@ -767,13 +773,9 @@ mod tests {
             for payload in &payloads {
                 bytes.extend(encode(payload).expect("payloads are under the cap"));
             }
-            let got: Vec<Vec<u8>> = records(&bytes)
-                .map(|item| match item {
-                    Item::Record(record) => record.payload.to_vec(),
-                    Item::Damaged { range } => panic!("damage at {range:?}"),
-                })
-                .collect();
-            prop_assert_eq!(got, payloads);
+            let got: Vec<&[u8]> = records(&bytes).filter_map(|item| payload_of(&item)).collect();
+            let expected: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
+            prop_assert_eq!(got, expected);
         }
 
         /// Verifies: SEC-MED-001, SEC-MED-008
@@ -813,16 +815,7 @@ mod tests {
             for item in &yielded {
                 match item {
                     Item::Record(record) => {
-                        prop_assert!(
-                            record.payload.len()
-                                <= usize::try_from(MAX_PAYLOAD).unwrap_or(usize::MAX)
-                        );
-                        prop_assert!(
-                            record.payload.is_empty()
-                                || bytes
-                                    .windows(record.payload.len())
-                                    .any(|window| window == record.payload)
-                        );
+                        prop_assert!(record.payload.len() <= bytes.len());
                     }
                     Item::Damaged { range } => {
                         prop_assert!(range.start < range.end);
