@@ -18,14 +18,20 @@
 //! - `lockfile-age requests <base-lock> <head-lock>` and
 //!   `lockfile-age check <base-lock> <head-lock> <responses-dir>`: no crate
 //!   version published less than seven days ago (SEC-SUP-027).
+//! - `lockfile-age override <codeowners> <reviews> <head-sha>`: a code
+//!   owner of every lock file approved commit `<head-sha>`, which a pull
+//!   request carrying the override label needs instead (SEC-SUP-027).
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
 //! `lint-exceptions` also run against the real repository in this crate's
 //! tests, so the gate enforces them on every change.
 
+mod age_override;
+mod codeowners;
 mod core_deps;
 mod harnesses;
+mod json;
 mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
@@ -93,6 +99,11 @@ fn dispatch(
             &read(&tree, base)?,
             &read(&tree, head)?,
             now,
+        )),
+        ["lockfile-age", "override", codeowners, reviews, head] => report(age_override::check(
+            &read(&tree, codeowners)?,
+            &read(&tree, reviews)?,
+            head,
         )),
         ["lockfile-age", "requests", base, head] => write(
             out,
@@ -203,6 +214,7 @@ mod tests {
             &["core-deps"],
             &["lockfile-age"],
             &["lockfile-age", "check", "base", "head"],
+            &["lockfile-age", "override", "codeowners", "reviews"],
             &["lockfile-age", "requests", "base"],
         ] {
             assert_eq!(
@@ -318,6 +330,82 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-SUP-027
+    #[test]
+    fn lockfile_age_override_needs_a_code_owner_approval_of_the_head_commit() {
+        let head = "ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091";
+        let pushed_since = "6dcb09b5b57875f334f61aebed695e2e4193db5e";
+        let args = |reviews: &'static str, head: &'static str| {
+            [
+                "lockfile-age",
+                "override",
+                "lockfile-age/override/CODEOWNERS",
+                reviews,
+                head,
+            ]
+        };
+        let unapproved = |head: &str| {
+            Err(Failure::Findings(vec![format!(
+                r#"Unapproved {{ head: "{head}" }}"#
+            )]))
+        };
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &args("lockfile-age/override/approved.json", head),
+                0,
+                &[]
+            ),
+            (Ok(()), String::new())
+        );
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &args("lockfile-age/override/approved.json", pushed_since),
+                0,
+                &[]
+            ),
+            (unapproved(pushed_since), String::new())
+        );
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &args("lockfile-age/override/no-reviews.json", head),
+                0,
+                &[]
+            ),
+            (unapproved(head), String::new())
+        );
+    }
+
+    /// Verifies: SEC-SUP-027
+    #[test]
+    fn the_repository_names_one_login_that_owns_every_lock_file() {
+        let codeowners = read(
+            &super::tree::Disk::new(Path::new(ROOT)),
+            ".github/CODEOWNERS",
+        )
+        .expect("CODEOWNERS is readable");
+        let owners: Vec<Vec<&str>> = super::age_override::LOCKFILES
+            .iter()
+            .map(|path| {
+                super::codeowners::owners(&codeowners, path).expect("every pattern is readable")
+            })
+            .collect();
+        let logins: Vec<&str> = owners
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|owner| owner.starts_with('@') && !owner.contains('/'))
+            .collect();
+        assert!(
+            logins
+                .iter()
+                .any(|login| owners.iter().all(|named| named.contains(login))),
+            "no login owns every lock file: {owners:?}"
+        );
+    }
+
     #[test]
     fn lockfile_age_requests_print_a_curl_configuration() {
         assert_eq!(
@@ -376,6 +464,20 @@ mod tests {
             ],
             &["lockfile-age", "requests", "missing", head],
             &["lockfile-age", "requests", base, "missing"],
+            &[
+                "lockfile-age",
+                "override",
+                "missing",
+                "lockfile-age/override/approved.json",
+                "0",
+            ],
+            &[
+                "lockfile-age",
+                "override",
+                "lockfile-age/override/CODEOWNERS",
+                "missing",
+                "0",
+            ],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),

@@ -6,7 +6,9 @@
 //! The xtask makes no network request. `requests` prints a curl
 //! configuration that fetches the crates.io record of every version the
 //! pull request adds; the workflow runs curl with it, then `check` reads the
-//! saved records. Tests use recorded responses, never the network.
+//! saved records. Tests use recorded responses, never the network. A pull
+//! request that carries the override label is checked by
+//! `lockfile-age override` (`age_override.rs`) instead.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;

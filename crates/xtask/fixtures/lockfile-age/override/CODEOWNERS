@@ -1,0 +1,5 @@
+# A test fixture for `xtask lockfile-age override`, shaped like the real
+# .github/CODEOWNERS. Later lines take precedence over earlier ones.
+
+/.github/ @hubot
+Cargo.lock @octocat @PremierStudio/maintainers
