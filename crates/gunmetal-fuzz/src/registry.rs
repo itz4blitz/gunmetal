@@ -50,10 +50,12 @@ macro_rules! harnesses {
 }
 
 harnesses! {
+    aiff,
     base64,
     ebml,
     link,
     net,
+    riff,
     text,
     time,
     values,

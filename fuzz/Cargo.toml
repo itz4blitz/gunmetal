@@ -39,6 +39,13 @@ gunmetal-fuzz = { path = "../crates/gunmetal-fuzz", version = "0.0.0" }
 libfuzzer-sys = "0.4.13"
 
 [[bin]]
+name = "aiff"
+path = "fuzz_targets/aiff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "base64"
 path = "fuzz_targets/base64.rs"
 test = false
@@ -83,6 +90,13 @@ bench = false
 [[bin]]
 name = "net"
 path = "fuzz_targets/net.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "riff"
+path = "fuzz_targets/riff.rs"
 test = false
 doc = false
 bench = false

@@ -69,10 +69,14 @@ macro_rules! problems {
 }
 
 problems! {
+    /// An AIFF or AIFF-C file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
+    AiffUnreadable = ("aiff_unreadable", None, "We couldn't read this AIFF file. It may be damaged, or written in a way we don't support."),
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
+    WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -108,7 +112,12 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 4] = [
+        (
+            "aiff_unreadable",
+            None,
+            "We couldn't read this AIFF file. It may be damaged, or written in a way we don't support.",
+        ),
         (
             "audit_unavailable",
             Some(503),
@@ -118,6 +127,11 @@ mod tests {
             "not_found",
             Some(404),
             "We couldn't find that. It may have been removed, or you may not have access to it.",
+        ),
+        (
+            "wav_unreadable",
+            None,
+            "We couldn't read this WAV file. It may be damaged, or written in a way we don't support.",
         ),
     ];
 

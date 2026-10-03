@@ -17,11 +17,13 @@
 //! `tests/<name>_corpus.rs`, `fuzz/fuzz_targets/<name>.rs` and
 //! `fuzz/seeds/<name>/`.
 
+pub mod aiff;
 pub mod base64;
 pub mod ebml;
 pub mod link;
 pub mod net;
 pub mod registry;
+pub mod riff;
 pub mod text;
 pub mod time;
 pub mod values;
