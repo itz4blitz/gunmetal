@@ -13,7 +13,13 @@
 //!   clippy confirmed on 2026-10-03);
 //! - a `clippy.toml` or `.clippy.toml` below `crates/`, which would replace
 //!   the root configuration, bans and all, for its crate;
-//! - a crate manifest that does not take the workspace lints unchanged;
+//! - a crate manifest that does not take the workspace lints unchanged.
+//!   The one exception to this and the previous rule is the core
+//!   ([`STRICTER`]): Clippy reads only the nearest `clippy.toml`, so the
+//!   core's own allocation bans need a file of their own, and its
+//!   deny-level lints a table of their own. The core's tests
+//!   (`tests/workspace_rules.rs`) check that both repeat every workspace
+//!   rule, and the gate allows no third `clippy.toml`;
 //! - a cargo configuration file, `.cargo/config.toml` or the older
 //!   `.cargo/config`, anywhere in the repository. `rustflags` in its
 //!   `[build]` or `[target]` table turn a ban off for the whole build, and
@@ -37,7 +43,8 @@ use crate::tree::{Tree, is_rust};
 /// One sanctioned exception: a module that may turn one ban lint off.
 #[derive(Debug, Clone, Copy)]
 pub struct Exception {
-    /// The module's path from the repository root.
+    /// The module's path from the repository root, or a directory's path
+    /// ending in `/`, which covers every module below it.
     pub path: &'static str,
     /// The lint, one of [`LINTS`].
     pub lint: &'static str,
@@ -45,10 +52,68 @@ pub struct Exception {
     pub reason: &'static str,
 }
 
-/// The written list. It is empty: no module turns a ban off today. When
-/// the path-based `std::fs` ban arrives, the dev-only testkit's entry goes
-/// here (work package WP-001, owner decision 33), sorted by path.
-pub const EXCEPTIONS: &[Exception] = &[];
+/// The written list, sorted by path.
+pub const EXCEPTIONS: &[Exception] = &[
+    Exception {
+        path: "crates/gunmetal-core/src/crypto.rs",
+        lint: LINTS[2],
+        reason: "the core's one SHA-256 door (SEC-STD-018, WP-122)",
+    },
+    Exception {
+        path: "crates/gunmetal-core/src/id.rs",
+        lint: LINTS[1],
+        reason: "a test helper stands in for the secrets crate's minting function (SEC-HIS-012, WP-006)",
+    },
+    Exception {
+        path: "crates/gunmetal-core/src/parse/capacity.rs",
+        lint: LINTS[1],
+        reason: "the core's one bounded pre-sizing helper (SEC-MED-003, WP-004)",
+    },
+    Exception {
+        path: "crates/gunmetal-fs/src/dataroot.rs",
+        lint: LINTS[1],
+        reason: "the data-root handle, the filesystem door (SEC-MED-033, WP-126)",
+    },
+    Exception {
+        path: "crates/gunmetal-fs/src/host.rs",
+        lint: LINTS[1],
+        reason: "the probe of the data directory's filesystem (ADM-079, WP-126)",
+    },
+    Exception {
+        path: "crates/gunmetal-fs/src/path.rs",
+        lint: LINTS[1],
+        reason: "the one place a data-directory path is built (SEC-MED-033, WP-126)",
+    },
+    Exception {
+        path: "crates/gunmetal-fs/src/sqlite.rs",
+        lint: LINTS[1],
+        reason: "the one SQLite opener and statement door (SEC-HIS-016, WP-126)",
+    },
+    Exception {
+        path: "crates/gunmetal-fs/tests/",
+        lint: LINTS[1],
+        reason: "the filesystem door's tests build hostile layouts on disk (WP-126)",
+    },
+    Exception {
+        path: "crates/gunmetal-fuzz/tests/",
+        lint: LINTS[1],
+        reason: "corpus replay reads the committed seeds by path (SEC-MED-028)",
+    },
+    Exception {
+        path: "crates/gunmetal-testkit/src/tempdir.rs",
+        lint: LINTS[1],
+        reason: "test scratch directories (owner decision 33, WP-007)",
+    },
+    Exception {
+        path: "crates/xtask/src/tree.rs",
+        lint: LINTS[1],
+        reason: "the xtask's one filesystem module (WP-008)",
+    },
+];
+
+/// The one crate that keeps its own `clippy.toml` and lint tables, because
+/// it adds rules to the workspace's (WP-001).
+pub const STRICTER: &str = "crates/gunmetal-core/";
 
 /// The ban lints, and the clippy lint groups that hold them.
 pub const LINTS: [&str; 5] = [
@@ -106,9 +171,13 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
     for file in tree.files("crates") {
         let path = format!("crates/{file}");
         let name = file.rsplit('/').next().unwrap_or_default();
+        let stricter = path.strip_prefix(STRICTER) == Some(name);
         if name == "clippy.toml" || name == ".clippy.toml" {
-            findings.push(Finding::LocalConfig { path });
+            if !stricter {
+                findings.push(Finding::LocalConfig { path });
+            }
         } else if name == "Cargo.toml"
+            && !stricter
             && !takes_workspace_lints(&tree.read(&path).unwrap_or_default())
         {
             findings.push(Finding::OwnLints { path });
@@ -116,10 +185,9 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
             let source = tree.read(&path).unwrap_or_default();
             for (index, line) in source.lines().enumerate() {
                 for lint in LINTS.into_iter().filter(|lint| line.contains(lint)) {
-                    match exceptions
-                        .iter()
-                        .position(|exception| exception.path == path && exception.lint == lint)
-                    {
+                    match exceptions.iter().position(|exception| {
+                        covers(exception.path, &path) && exception.lint == lint
+                    }) {
                         Some(listed) => used[listed] = true,
                         None => findings.push(Finding::Unlisted {
                             path: path.clone(),
@@ -148,6 +216,16 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Whether the list entry `entry` covers the module at `path`.
+fn covers(entry: &str, path: &str) -> bool {
+    match entry.strip_suffix('/') {
+        Some(dir) => path
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/')),
+        None => entry == path,
+    }
 }
 
 /// Whether a crate `manifest` takes the workspace lints and sets none of its
@@ -248,6 +326,76 @@ mod tests {
                     path: "crates/door/src/other.rs".to_owned(),
                     line: 2,
                     lint: LINTS[1],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_directory_entry_covers_every_module_below_it_and_nothing_else() {
+        let listed = [
+            Exception {
+                path: "crates/door/tests/",
+                lint: LINTS[1],
+                reason: "the door's tests build fixtures on disk",
+            },
+            Exception {
+                path: "crates/gone/",
+                lint: LINTS[1],
+                reason: "a crate since deleted",
+            },
+        ];
+        let tree = Memory::default()
+            .with("crates/door/tests/a.rs", &expect(LINTS[1]))
+            .with("crates/door/tests/c.rs", &expect(LINTS[2]))
+            .with("crates/door/tests/deep/b.rs", &expect(LINTS[1]))
+            .with("crates/door/testsuite.rs", &expect(LINTS[1]));
+        assert_eq!(
+            check(&tree, &listed),
+            [
+                Finding::Unlisted {
+                    path: "crates/door/tests/c.rs".to_owned(),
+                    line: 2,
+                    lint: LINTS[2],
+                },
+                Finding::Unlisted {
+                    path: "crates/door/testsuite.rs".to_owned(),
+                    line: 2,
+                    lint: LINTS[1],
+                },
+                Finding::Stale {
+                    path: "crates/gone/",
+                    lint: LINTS[1],
+                    reason: "a crate since deleted",
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_core_keeps_its_stricter_clippy_configuration_and_lints() {
+        let own = "[package]\nname = \"own\"\n\n[lints.clippy]\nunwrap_used = \"deny\"\n";
+        let tree = Memory::default()
+            .with("crates/gunmetal-core-extra/Cargo.toml", own)
+            .with("crates/gunmetal-core-extra/clippy.toml", "")
+            .with("crates/gunmetal-core/Cargo.toml", own)
+            .with("crates/gunmetal-core/clippy.toml", "")
+            .with("crates/gunmetal-core/tests/Cargo.toml", own)
+            .with("crates/gunmetal-core/tests/clippy.toml", "");
+        assert_eq!(
+            check(&tree, &[]),
+            [
+                Finding::OwnLints {
+                    path: "crates/gunmetal-core-extra/Cargo.toml".to_owned()
+                },
+                Finding::LocalConfig {
+                    path: "crates/gunmetal-core-extra/clippy.toml".to_owned()
+                },
+                Finding::OwnLints {
+                    path: "crates/gunmetal-core/tests/Cargo.toml".to_owned()
+                },
+                Finding::LocalConfig {
+                    path: "crates/gunmetal-core/tests/clippy.toml".to_owned()
                 },
             ]
         );
