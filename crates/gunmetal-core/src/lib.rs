@@ -4,3 +4,5 @@
 //! into the server, the native clients and the web client alike.
 
 pub mod ebml;
+pub mod text;
+pub mod untrusted;
