@@ -971,18 +971,30 @@ fn the_core_depends_only_on_reviewed_crates() {
         unreviewed_dependencies(CORE_MANIFEST, WORKSPACE_MANIFEST, CORE_ALLOWLIST),
         Vec::<&str>::new()
     );
-    // The owner accepted the core's first crates (D-02), but none is used
-    // yet, so none has been reviewed.
-    assert_eq!(allowlisted(CORE_ALLOWLIST), Vec::<&str>::new());
+    // The owner accepted the core's first crates (D-02). The first one used,
+    // sha2 for src/crypto.rs (WP-122), is listed with every crate it brings
+    // in on any target; the others are listed when their first user needs
+    // them.
+    assert_eq!(
+        allowlisted(CORE_ALLOWLIST),
+        [
+            "block-buffer",
+            "cfg-if",
+            "cpufeatures",
+            "crypto-common",
+            "digest",
+            "hybrid-array",
+            "libc",
+            "sha2",
+            "typenum",
+        ]
+    );
     // The manifest names only direct dependencies, so the gate also compares
-    // every crate cargo resolves for the core, on every target, with the
-    // allowlist.
+    // every crate cargo resolves for the core, on every target and with every
+    // feature on, with the allowlist, through WP-008's xtask core-deps.
     for line in [
-        r#"cargo tree "$locked" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |"#,
-        r#"awk '$1 != "gunmetal-core" { print $1 }' | LC_ALL=C sort -u"#,
-        r#"reviewed=$(sed -n 's/^name = "\([^"]*\)"$/\1/p' supply-chain/core-allowlist.toml | LC_ALL=C sort -u)"#,
-        r#"unreviewed=$(LC_ALL=C comm -23 <(printf '%s\n' "$core_deps") <(printf '%s\n' "$reviewed") | grep . || true)"#,
-        r#"if [[ -n "$unreviewed" ]]; then"#,
+        r#"cargo tree "$locked" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt"#,
+        r#"cargo run "$locked" -q -p xtask -- core-deps target/core-deps.txt"#,
     ] {
         assert!(has_line(GATE, line), "{line}");
     }
@@ -1818,8 +1830,10 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
             "cargo clippy --locked --workspace --all-targets -- -D warnings",
             "cargo deny \"$locked\" check",
             "cargo vet --locked \"${vet_offline[@]}\"",
-            "cargo tree \"$locked\" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |",
+            "cargo tree \"$locked\" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt",
+            "cargo run \"$locked\" -q -p xtask -- core-deps target/core-deps.txt",
             "cargo llvm-cov --locked --workspace \\",
+            "cargo test --locked --workspace --doc",
             "cargo mutants --workspace --no-shuffle \"${scope[@]}\" --cargo-arg=--locked",
         ]
     );

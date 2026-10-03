@@ -76,24 +76,26 @@ echo "==> dependency audits"
 cargo vet --locked "${vet_offline[@]}"
 
 echo "==> the core's dependencies are reviewed"
-# SEC-SUP-025: every crate the core uses at run time, on any target and
-# through any other crate, is on the reviewed allowlist. The core's tests
-# read its manifest; this reads what cargo resolves from it, until WP-008's
-# xtask core-deps takes the check over.
-core_deps=$(
-  cargo tree "$locked" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |
-    awk '$1 != "gunmetal-core" { print $1 }' | LC_ALL=C sort -u
-)
-reviewed=$(sed -n 's/^name = "\([^"]*\)"$/\1/p' supply-chain/core-allowlist.toml | LC_ALL=C sort -u)
-unreviewed=$(LC_ALL=C comm -23 <(printf '%s\n' "$core_deps") <(printf '%s\n' "$reviewed") | grep . || true)
-if [[ -n "$unreviewed" ]]; then
-  printf 'the core depends on crates supply-chain/core-allowlist.toml does not list (SEC-SUP-025):\n%s\n' "$unreviewed" >&2
-  exit 1
-fi
+# SEC-SUP-025: every crate the core uses at run time, on any target, through
+# any other crate and with any of its features on, is on the reviewed
+# allowlist, and the allowlist names no crate the core does not use. The
+# core's tests read its manifest; xtask core-deps compares what cargo
+# resolves from it with supply-chain/core-allowlist.toml. --all-features
+# matters: another member can turn on an optional dependency of the core
+# through one of the core's features.
+mkdir -p target
+cargo tree "$locked" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt
+cargo run "$locked" -q -p xtask -- core-deps target/core-deps.txt
 
 echo "==> tests with 100% coverage"
 cargo llvm-cov --locked --workspace \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
+
+echo "==> documentation tests"
+# cargo llvm-cov does not run doctests. Some of them are compile-fail tests
+# that prove a door cannot be opened at all (SEC-HIS-012, SEC-PRV-050,
+# SEC-API-066), so they run here on their own.
+cargo test --locked --workspace --doc
 
 echo "==> mutation testing, zero survivors"
 scope=()

@@ -11,9 +11,11 @@
 #
 # The owner accepted the core's first crates on 2026-10-02 (decision D-02):
 # serde, postcard, sha2 (in src/crypto.rs only), unicode-normalization and
-# one pure-Rust inflate crate. Acceptance is not review: none is used yet, so
-# none is listed. Each is listed, with every crate it brings with it, when the
-# package that first needs it is reviewed.
+# one pure-Rust inflate crate. Acceptance is not review: each is listed, with
+# every crate it brings with it, when the package that first needs it is
+# reviewed. sha2 was the first, for src/crypto.rs (WP-122), listed by the
+# wave 0 integrator with its whole tree; the owner's review of the wave-0
+# pull request into main confirms or removes these entries.
 #
 # Checked by the core's tests (direct dependencies in every table form,
 # tests/workspace_rules.rs) and by scripts/gate.sh (every crate in `cargo
@@ -26,3 +28,48 @@
 # name = "serde"
 # reason = "Protocol types serialise to JSON and postcard (D-02)."
 # reviewed = 2026-10-09
+
+[[crate]]
+name = "block-buffer"
+reason = "Block buffering for sha2, through digest (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "cfg-if"
+reason = "Target selection inside cpufeatures (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "cpufeatures"
+reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "crypto-common"
+reason = "Shared traits for sha2, through digest (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "digest"
+reason = "The hash trait sha2 implements (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "hybrid-array"
+reason = "Fixed-size arrays for block-buffer and crypto-common (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "libc"
+reason = "cpufeatures reads CPU features through it on AArch64 Linux and Android (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "sha2"
+reason = "SHA-256 in src/crypto.rs only: the schema digest and content identity (WP-122, D-02, SEC-STD-018)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "typenum"
+reason = "Type-level array lengths for hybrid-array (WP-122, D-02)."
+reviewed = 2026-10-03
