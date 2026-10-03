@@ -2,8 +2,9 @@ name: Workflow lint
 
 # zizmor, actionlint and REUSE on every pull request and every push to main
 # or a wave branch (SEC-SUP-010 to SEC-SUP-015, SEC-SUP-018, SEC-SUP-030,
-# SEC-HIS-058). High-severity findings fail the job. A canary step proves
-# zizmor fails on a deliberately unpinned action in a scratch directory.
+# SEC-HIS-058). Every zizmor finding fails the job, at any severity. Canary
+# steps prove zizmor fails on an unpinned action, default permissions, an
+# ad-hoc package install and a Dependabot update with no cooldown.
 on:
   pull_request:
   push:
@@ -32,11 +33,22 @@ jobs:
       # crates.io checksums the crate; --locked uses zizmor's own lockfile
       # (SEC-SUP-011).
       - run: cargo install zizmor --version 1.30.1 --locked
+      # Every finding fails the job, whatever its severity: some audits that
+      # SEC-SUP-011 (unpinned-tools, adhoc-packages), SEC-SUP-012
+      # (excessive-permissions) and SEC-SUP-028 (dependabot-cooldown,
+      # dependabot-execution) name report at low or medium severity.
       - name: zizmor on the repository
-        run: zizmor --offline --min-severity high .github
-      - name: zizmor fails on an unpinned action
+        run: zizmor --offline .github
+      # Each canary is a scratch input that must fail with the named audit.
+      # excessive-permissions, adhoc-packages and dependabot-cooldown report
+      # at low or medium severity, so they prove no severity floor hides
+      # those audits. unpinned-tools has no canary: none of the inputs tried
+      # made zizmor 1.30.1 report it.
+      - name: zizmor fails on its canaries
         run: |
-          mkdir -p scratch/.github/workflows
+          set -eu
+          mkdir -p scratch/unpinned scratch/permissions scratch/packages scratch/cooldown \
+            scratch/execution
           printf '%s\n' \
             'name: unpinned' \
             'on: push' \
@@ -46,11 +58,63 @@ jobs:
             '    runs-on: ubuntu-latest' \
             '    steps:' \
             '      - uses: actions/checkout@v4' \
-            > scratch/.github/workflows/unpinned.yml
-          if zizmor --offline --min-severity high scratch/.github/workflows/unpinned.yml; then
-            echo "::error::zizmor passed on an unpinned action"
-            exit 1
-          fi
+            > scratch/unpinned/unpinned.yml
+          printf '%s\n' \
+            'name: permissions' \
+            'on: push' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - run: echo default permissions' \
+            > scratch/permissions/permissions.yml
+          printf '%s\n' \
+            'name: packages' \
+            'on: push' \
+            'permissions: {}' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - run: npm install --global left-pad' \
+            > scratch/packages/packages.yml
+          printf '%s\n' \
+            'version: 2' \
+            'updates:' \
+            '  - package-ecosystem: cargo' \
+            '    directory: /' \
+            '    schedule:' \
+            '      interval: weekly' \
+            > scratch/cooldown/dependabot.yml
+          printf '%s\n' \
+            'version: 2' \
+            'updates:' \
+            '  - package-ecosystem: cargo' \
+            '    directory: /' \
+            '    insecure-external-code-execution: allow' \
+            '    schedule:' \
+            '      interval: weekly' \
+            '    cooldown:' \
+            '      default-days: 7' \
+            > scratch/execution/dependabot.yml
+          for canary in \
+            unpinned-uses:scratch/unpinned/unpinned.yml \
+            excessive-permissions:scratch/permissions/permissions.yml \
+            adhoc-packages:scratch/packages/packages.yml \
+            dependabot-cooldown:scratch/cooldown/dependabot.yml \
+            dependabot-execution:scratch/execution/dependabot.yml; do
+            audit="${canary%%:*}"
+            input="${canary#*:}"
+            if zizmor --offline "$input" > scratch/out.txt 2>&1; then
+              echo "::error::zizmor passed its $audit canary"
+              exit 1
+            fi
+            if ! grep -q "\[$audit\]" scratch/out.txt; then
+              cat scratch/out.txt
+              echo "::error::zizmor did not report $audit on its canary"
+              exit 1
+            fi
+          done
 
   actionlint:
     runs-on: ubuntu-latest
