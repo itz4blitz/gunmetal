@@ -119,7 +119,7 @@ mod tests {
     use super::*;
     use std::io::ErrorKind;
     use std::panic::{self, AssertUnwindSafe};
-    use std::sync::{Barrier, Mutex};
+    use std::sync::{Mutex, RwLock};
     use std::thread;
 
     /// How many names `TempDir::new_in` tries before it gives up.
@@ -195,25 +195,41 @@ mod tests {
     fn gives_threads_creating_at_once_one_directory_each() {
         const THREADS: u32 = 8;
         let parent = TempDir::new("testkit-parent").unwrap();
-        let all_created = Barrier::new(usize::try_from(THREADS).unwrap());
-        let paths = Mutex::new(Vec::new());
+        // The threads wait at this gate until every one is spawned, so their
+        // creations race. The gate opens however spawning ends, since
+        // unwinding drops the guard too, so no thread can wait forever.
+        let gate = RwLock::new(());
+        // Each thread hands over what it got, directory or error, and ends.
+        // A failed creation is then a failed assertion, never a hang, and
+        // every directory lives until all threads are done, so no name is
+        // freed and taken a second time during the race.
+        let outcomes = Mutex::new(Vec::new());
         thread::scope(|scope| {
+            let closed = gate.write().unwrap();
             for _ in 0..THREADS {
                 scope.spawn(|| {
-                    let dir = TempDir::new_in(parent.path(), "crowd").unwrap();
-                    paths.lock().unwrap().push(dir.path().to_path_buf());
-                    // Keep every directory until all of them exist.
-                    all_created.wait();
+                    let _opened = gate.read();
+                    let made = TempDir::new_in(parent.path(), "crowd");
+                    outcomes.lock().unwrap().push(made);
                 });
             }
+            drop(closed);
         });
-        let mut paths = paths.into_inner().unwrap();
-        paths.sort();
-        let mut expected: Vec<PathBuf> = (0..THREADS)
-            .map(|attempt| parent.path().join(name("crowd", attempt)))
+        let made = outcomes.into_inner().unwrap();
+        let mut got: Vec<Result<PathBuf, ErrorKind>> = made
+            .iter()
+            .map(|made| {
+                made.as_ref()
+                    .map(|dir| dir.path().to_path_buf())
+                    .map_err(io::Error::kind)
+            })
+            .collect();
+        got.sort();
+        let mut expected: Vec<Result<PathBuf, ErrorKind>> = (0..THREADS)
+            .map(|attempt| Ok(parent.path().join(name("crowd", attempt))))
             .collect();
         expected.sort();
-        assert_eq!(paths, expected);
+        assert_eq!(got, expected);
     }
 
     #[test]
