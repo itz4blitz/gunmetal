@@ -95,6 +95,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "flac_metadata"
+path = "fuzz_targets/flac_metadata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flac_structure"
+path = "fuzz_targets/flac_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "http_forwarded"
 path = "fuzz_targets/http_forwarded.rs"
 test = false

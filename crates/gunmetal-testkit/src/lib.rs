@@ -12,6 +12,7 @@ pub mod ape;
 pub mod bytes;
 pub mod checksum;
 pub mod clock;
+pub mod flac;
 pub mod id3v1;
 pub mod mp4;
 pub mod mpa;

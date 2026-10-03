@@ -22,6 +22,8 @@ pub mod ape;
 pub mod base64;
 pub mod detect;
 pub mod ebml;
+pub mod flac_metadata;
+pub mod flac_structure;
 pub mod http_forwarded;
 pub mod http_range;
 pub mod id3_structure;
