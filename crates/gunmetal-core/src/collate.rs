@@ -2,10 +2,12 @@
 //!
 //! [`fold`] is the matching form of a string: case, canonical and
 //! compatibility decomposition (diacritics, width, ligatures), then
-//! punctuation removed. [`sort_key`] builds a total order that honours a
-//! sort-name tag when one is present, strips one leading article for
-//! [`Lang`], and compares digit runs as numbers so "Track 2" precedes
-//! "Track 10". The alphabet jump letter is WP-147.
+//! punctuation removed. Kana voicing marks and Hangul syllables are kept,
+//! so が and か stay distinct (MUS-020); transliteration is DIS-092 (R2).
+//! [`sort_key`] builds a total order that honours a sort-name tag when one
+//! is present, strips one leading article for [`Lang`], and compares digit
+//! runs as numbers so "Track 2" precedes "Track 10". The alphabet jump
+//! letter is WP-147.
 
 use std::cmp::Ordering;
 
@@ -84,9 +86,11 @@ enum Part {
 /// punctuation.
 ///
 /// Combining marks are dropped after compatibility decomposition, so
-/// "Björk" and "Bjork" match. Typographic ligatures and fullwidth Latin
-/// become ASCII. Punctuation, including both straight and curly
-/// apostrophes, is dropped, and whitespace collapses to single spaces.
+/// "Björk" and "Bjork" match, except the kana voicing marks U+3099 and
+/// U+309A, which keep が and か distinct. Hangul syllables are not
+/// decomposed. Typographic ligatures and fullwidth Latin become ASCII.
+/// Punctuation, including both straight and curly apostrophes, is dropped,
+/// and whitespace collapses to single spaces.
 #[must_use]
 pub fn fold(s: &str) -> String {
     let mut out = String::new();
@@ -94,6 +98,10 @@ pub fn fold(s: &str) -> String {
     for_each_folded(s, |c| {
         if c.is_whitespace() {
             pending_space = !out.is_empty();
+            return;
+        }
+        if is_kana_voicing(c) {
+            out.push(c);
             return;
         }
         if is_apostrophe(c) || !c.is_alphanumeric() {
@@ -166,16 +174,32 @@ fn significant(digits: &str) -> &str {
 }
 
 /// Compatibility-decomposed, case-folded characters of `s`, without
-/// combining marks.
+/// combining marks other than kana voicing. Hangul syllables stay composed.
 fn for_each_folded(s: &str, mut emit: impl FnMut(char)) {
     for c in s.chars() {
+        if is_hangul_syllable(c) {
+            emit(c);
+            continue;
+        }
         decompose_compatible(c, |piece| {
+            if is_kana_voicing(piece) {
+                emit(piece);
+                return;
+            }
             if is_combining_mark(piece) {
                 return;
             }
             fold_case(piece, &mut emit);
         });
     }
+}
+
+fn is_hangul_syllable(c: char) -> bool {
+    matches!(c, '\u{AC00}'..='\u{D7A3}')
+}
+
+fn is_kana_voicing(c: char) -> bool {
+    matches!(c, '\u{3099}' | '\u{309A}')
 }
 
 /// Default Unicode case folding for one already-decomposed character.
@@ -210,7 +234,7 @@ fn articles(lang: Lang) -> &'static [&'static str] {
             "eines",
         ],
         Lang::Greek => &[
-            "η", "ο", "τα", "τις", "το", "τον", "του", "τους", "των", "τη", "την", "οι",
+            "η", "ο", "τα", "τισ", "το", "τον", "του", "τουσ", "των", "τη", "την", "οι",
         ],
         Lang::Italian => &["gli", "i", "il", "l'", "la", "le", "lo", "un", "una", "uno"],
         Lang::None => &[],
@@ -324,6 +348,10 @@ fn push_text_char(text: &mut String, c: char) {
         }
         return;
     }
+    if is_kana_voicing(c) {
+        text.push(c);
+        return;
+    }
     if c.is_alphanumeric() && !is_apostrophe(c) {
         text.push(c);
     }
@@ -432,6 +460,25 @@ mod tests {
         assert!(key("Б") < key("В"));
         assert!(key("東京") < key("京都") || key("京都") < key("東京"));
         assert_ne!(key("東京"), key("京都"));
+    }
+
+    #[test]
+    fn voiced_kana_and_hangul_syllables_keep_their_identity() {
+        // NFKD of が is か + U+3099; of ぱ is は + U+309A. Dropping every
+        // combining mark would make がき and かき compare equal (MUS-020).
+        // Transliteration is DIS-092 (R2). Hangul syllables stay composed.
+        assert_eq!(fold("が"), "か\u{3099}");
+        assert_eq!(fold("か"), "か");
+        assert_ne!(fold("が"), fold("か"));
+        assert_eq!(fold("か\u{3099}"), "か\u{3099}");
+        assert_eq!(fold("ぱ"), "は\u{309A}");
+        assert_eq!(fold("は"), "は");
+        assert_eq!(key("がき"), key("か\u{3099}き"));
+        assert_ne!(key("がき"), key("かき"));
+        assert_eq!(fold("한"), "한");
+        assert_eq!(fold("가"), "가");
+        assert_eq!(fold("힣"), "힣");
+        assert_ne!(fold("한"), "\u{1112}\u{1161}\u{11AB}");
     }
 
     #[test]
@@ -612,6 +659,25 @@ mod tests {
     }
 
     #[test]
+    fn catalog_numbers_longer_than_machine_integers_compare_as_digit_strings() {
+        // 42- and 43-digit catalog numbers overflow u128 (~39 digits) and
+        // round as f64. Significant-digit strings keep order and leading-zero
+        // equality without parse/unwrap on the production path.
+        const TWO: &str = concat!("1", "0000000000000000000000000000000000000000", "2");
+        const TEN: &str = concat!("1", "0000000000000000000000000000000000000000", "10");
+        const TWO_PADDED: &str = concat!("01", "0000000000000000000000000000000000000000", "2");
+        const BARE_TWO: &str = concat!("0000000000000000000000000000000000000000", "2");
+        const BARE_TEN: &str = concat!("0000000000000000000000000000000000000000", "10");
+        assert_eq!(TWO.len(), 42);
+        assert_eq!(TEN.len(), 43);
+        assert!(key(TWO) < key(TEN));
+        assert_eq!(key(TWO), key(TWO_PADDED));
+        assert_eq!(key(BARE_TWO), key("2"));
+        assert_eq!(key(BARE_TWO), key("02"));
+        assert!(key(BARE_TWO) < key(BARE_TEN));
+    }
+
+    #[test]
     fn every_language_has_an_article_list() {
         assert_eq!(Lang::ALL.len(), 12);
         assert!(articles(Lang::None).is_empty());
@@ -619,6 +685,165 @@ mod tests {
         for lang in Lang::ALL {
             let _ = articles(*lang);
             let _ = sort_key("The Title", None, *lang);
+        }
+    }
+
+    #[test]
+    fn documented_article_lists_match_the_literals() {
+        // Independent copy of the documented lists. cargo-mutants does not
+        // mutate string literals, so each string also has a strip case.
+        assert_eq!(articles(Lang::Danish), ["de", "den", "det", "en", "et"]);
+        assert_eq!(articles(Lang::Dutch), ["'t", "de", "een", "het"]);
+        assert_eq!(articles(Lang::English), ["a", "an", "the"]);
+        assert_eq!(
+            articles(Lang::French),
+            ["des", "l'", "la", "le", "les", "un", "une"]
+        );
+        assert_eq!(
+            articles(Lang::German),
+            [
+                "das", "dem", "den", "der", "des", "die", "ein", "eine", "einem", "einen", "einer",
+                "eines",
+            ]
+        );
+        assert_eq!(
+            articles(Lang::Greek),
+            [
+                "η", "ο", "τα", "τισ", "το", "τον", "του", "τουσ", "των", "τη", "την", "οι",
+            ]
+        );
+        assert_eq!(
+            articles(Lang::Italian),
+            ["gli", "i", "il", "l'", "la", "le", "lo", "un", "una", "uno"]
+        );
+        assert_eq!(articles(Lang::None), [] as [&str; 0]);
+        assert_eq!(
+            articles(Lang::Norwegian),
+            ["de", "den", "det", "ei", "en", "et"]
+        );
+        assert_eq!(
+            articles(Lang::Portuguese),
+            ["a", "as", "o", "os", "um", "uma", "umas", "uns"]
+        );
+        assert_eq!(
+            articles(Lang::Spanish),
+            ["el", "la", "las", "los", "un", "una", "unas", "unos"]
+        );
+        assert_eq!(articles(Lang::Swedish), ["de", "den", "det", "en", "ett"]);
+    }
+
+    /// One positive strip per documented article, including Dutch `'t`,
+    /// Italian `l'`, German *eine-* forms and Portuguese *o*/*a*.
+    const ARTICLE_STRIP_CASES: &[(Lang, &str, &str)] = &[
+        (Lang::Danish, "De Unge", "Unge"),
+        (Lang::Danish, "Den Gale", "Gale"),
+        (Lang::Danish, "Det Ny", "Ny"),
+        (Lang::Danish, "En Aften", "Aften"),
+        (Lang::Danish, "Et Barn", "Barn"),
+        (Lang::Dutch, "'t Zweet", "Zweet"),
+        (Lang::Dutch, "De Jeugd", "Jeugd"),
+        (Lang::Dutch, "Een Huis", "Huis"),
+        (Lang::Dutch, "Het Zweet", "Zweet"),
+        (Lang::English, "A Tribe Called Quest", "Tribe Called Quest"),
+        (Lang::English, "An Album", "Album"),
+        (Lang::English, "The Beatles", "Beatles"),
+        (Lang::French, "Des Airs", "Airs"),
+        (Lang::French, "L'Argent", "Argent"),
+        (Lang::French, "La Roux", "Roux"),
+        (Lang::French, "Le Tigre", "Tigre"),
+        (Lang::French, "Les Rita Mitsouko", "Rita Mitsouko"),
+        (Lang::French, "Un Homme", "Homme"),
+        (Lang::French, "Une Nuit", "Nuit"),
+        (Lang::German, "Das Boot", "Boot"),
+        (Lang::German, "Dem Himmel", "Himmel"),
+        (Lang::German, "Den Sternen", "Sternen"),
+        (Lang::German, "Der Mond", "Mond"),
+        (Lang::German, "Des Lebens", "Lebens"),
+        (Lang::German, "Die Ärzte", "Ärzte"),
+        (Lang::German, "Ein Lied", "Lied"),
+        (Lang::German, "Eine Nacht", "Nacht"),
+        (Lang::German, "Einem Freund", "Freund"),
+        (Lang::German, "Einen Tag", "Tag"),
+        (Lang::German, "Einer Frau", "Frau"),
+        (Lang::German, "Eines Morgens", "Morgens"),
+        (Lang::Greek, "Η Σιωπή", "Σιωπή"),
+        (Lang::Greek, "Ο Δίσκος", "Δίσκος"),
+        (Lang::Greek, "Τα Τραγούδια", "Τραγούδια"),
+        (Lang::Greek, "Τις Μέρες", "Μέρες"),
+        (Lang::Greek, "Το Άλμπουμ", "Άλμπουμ"),
+        (Lang::Greek, "Τον Άνθρωπο", "Άνθρωπο"),
+        (Lang::Greek, "Του Χρόνου", "Χρόνου"),
+        (Lang::Greek, "Τους Φίλους", "Φίλους"),
+        (Lang::Greek, "Των Αστέρων", "Αστέρων"),
+        (Lang::Greek, "Τη Νύχτα", "Νύχτα"),
+        (Lang::Greek, "Την Αγάπη", "Αγάπη"),
+        (Lang::Greek, "Οι Επιτυχίες", "Επιτυχίες"),
+        (Lang::Italian, "Gli Animali", "Animali"),
+        (Lang::Italian, "I Pooh", "Pooh"),
+        (Lang::Italian, "Il Volo", "Volo"),
+        (Lang::Italian, "L'Italiano", "Italiano"),
+        (Lang::Italian, "La Voce", "Voce"),
+        (Lang::Italian, "Le Orme", "Orme"),
+        (Lang::Italian, "Lo Stato", "Stato"),
+        (Lang::Italian, "Un Uomo", "Uomo"),
+        (Lang::Italian, "Una Notte", "Notte"),
+        (Lang::Italian, "Uno Studio", "Studio"),
+        (Lang::Norwegian, "De Unge", "Unge"),
+        (Lang::Norwegian, "Den Dag", "Dag"),
+        (Lang::Norwegian, "Det Hus", "Hus"),
+        (Lang::Norwegian, "Ei Dame", "Dame"),
+        (Lang::Norwegian, "En Natt", "Natt"),
+        (Lang::Norwegian, "Et Hus", "Hus"),
+        (Lang::Portuguese, "A Banda", "Banda"),
+        (Lang::Portuguese, "As Flores", "Flores"),
+        (Lang::Portuguese, "O Rappa", "Rappa"),
+        (Lang::Portuguese, "Os Mutantes", "Mutantes"),
+        (Lang::Portuguese, "Um Dia", "Dia"),
+        (Lang::Portuguese, "Uma Noite", "Noite"),
+        (Lang::Portuguese, "Umas Horas", "Horas"),
+        (Lang::Portuguese, "Uns Dias", "Dias"),
+        (Lang::Spanish, "El Camino", "Camino"),
+        (Lang::Spanish, "La Ley", "Ley"),
+        (Lang::Spanish, "Las Ketchup", "Ketchup"),
+        (Lang::Spanish, "Los Lobos", "Lobos"),
+        (Lang::Spanish, "Un Día", "Día"),
+        (Lang::Spanish, "Una Noche", "Noche"),
+        (Lang::Spanish, "Unas Flores", "Flores"),
+        (Lang::Spanish, "Unos Tipos", "Tipos"),
+        (Lang::Swedish, "De Unga", "Unga"),
+        (Lang::Swedish, "Den Blå", "Blå"),
+        (Lang::Swedish, "Det Regnar", "Regnar"),
+        (Lang::Swedish, "En Natt", "Natt"),
+        (Lang::Swedish, "Ett Dagsverke", "Dagsverke"),
+    ];
+
+    #[test]
+    fn every_documented_article_strips_once() {
+        assert_eq!(ARTICLE_STRIP_CASES.len(), 80);
+        for (lang, title, rest) in ARTICLE_STRIP_CASES {
+            assert_eq!(
+                key_lang(title, *lang),
+                key_lang(rest, *lang),
+                "{title} under {lang:?}"
+            );
+            assert_ne!(
+                key_lang(title, *lang),
+                key_lang(title, Lang::None),
+                "{title} must strip under {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn amor_imagine_and_arcade_do_not_strip() {
+        for lang in Lang::ALL {
+            for title in ["Amor", "Imagine", "Arcade"] {
+                assert_eq!(
+                    key_lang(title, *lang),
+                    key_lang(title, Lang::None),
+                    "{title} under {lang:?}"
+                );
+            }
         }
     }
 
@@ -632,11 +857,17 @@ mod tests {
         #[test]
         fn fold_never_holds_punctuation_or_folded_marks(s in arb_text()) {
             let folded = fold(&s);
-            prop_assert!(folded.chars().all(|c| c.is_alphanumeric() || c == ' '));
+            let letters_spaces_or_voicing = folded.chars().all(|c| {
+                c.is_alphanumeric() || c == ' ' || matches!(c, '\u{3099}' | '\u{309A}')
+            });
+            prop_assert!(letters_spaces_or_voicing);
             prop_assert!(!folded.starts_with(' '));
             prop_assert!(!folded.ends_with(' '));
             prop_assert!(!folded.contains("  "));
-            prop_assert!(folded.chars().all(|c| !is_combining_mark(c)));
+            let only_kept_marks = folded.chars().all(|c| {
+                !is_combining_mark(c) || matches!(c, '\u{3099}' | '\u{309A}')
+            });
+            prop_assert!(only_kept_marks);
         }
 
         #[test]
@@ -673,7 +904,7 @@ mod tests {
         }
 
         /// Compatibility decomposition and case folding of the input do not
-        /// change the key: the same folding the key applies is stable.
+        /// change the key, except Hangul syllables stay composed.
         #[test]
         fn sort_key_is_stable_under_folding(
             s in arb_text(),
@@ -682,6 +913,10 @@ mod tests {
             let decomposed: String = {
                 let mut out = String::new();
                 for c in s.chars() {
+                    if matches!(c, '\u{AC00}'..='\u{D7A3}') {
+                        out.push(c);
+                        continue;
+                    }
                     decompose_compatible(c, |piece| out.push(piece));
                 }
                 out
