@@ -68,6 +68,16 @@ version = "0.11.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); the trait crate sha2 implements. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.enumflags2]]
+version = "0.7.12"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker (landlock). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.enumflags2_derive]]
+version = "0.7.12"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker (landlock's derive). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.errno]]
 version = "0.3.14"
 criteria = "safe-to-deploy"
@@ -122,6 +132,11 @@ notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlit
 version = "2.12.2"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.landlock]]
+version = "0.4.7"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker's Linux sandbox (owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.libc]]
 version = "0.2.190"
@@ -223,6 +238,11 @@ version = "0.3.1"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.seccompiler]]
+version = "0.5.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker's seccomp filter (owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.serde]]
 version = "1.0.229"
 criteria = "safe-to-deploy"
@@ -250,8 +270,8 @@ notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlit
 
 [[exemptions.syn]]
 version = "2.0.119"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-045's landlock brought it in through enumflags2_derive. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.syn]]
 version = "3.0.6"

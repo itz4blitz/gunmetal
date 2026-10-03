@@ -1,0 +1,29 @@
+[package]
+name = "gunmetal-worker"
+description = "Gunmetal's worker process: the sandbox launcher and the worker's confinement"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+# Integration hooks for the hostile worker. `cargo test` turns this on for
+# this crate; the gate does not need a feature flag because the hooks live
+# in `tests/sandbox.rs`.
+test-hooks = []
+
+[dependencies]
+landlock.workspace = true
+rustix = { workspace = true, features = ["fs", "process", "std", "thread"] }
+seccompiler.workspace = true
+
+# The hostile test worker is this test's own executable, started again by
+# the launcher, so the test needs its own `main` to enter the worker path.
+[[test]]
+name = "sandbox"
+harness = false
+
+[lints]
+workspace = true

@@ -120,6 +120,21 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "test scratch directories (owner decision 33, WP-007)",
     },
     Exception {
+        path: "crates/gunmetal-worker/src/sandbox/kernel.rs",
+        lint: LINTS[1],
+        reason: "the worker reads its own /proc/self entries before it gives up the filesystem (SEC-MED-022, WP-045)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/src/sandbox/launch.rs",
+        lint: LINTS[1],
+        reason: "the sandbox launcher is the one door that starts a process (SEC-MED-063, WP-045)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/tests/",
+        lint: LINTS[1],
+        reason: "the hostile worker tries each forbidden action by path, socket and Command (SEC-MED-022, WP-045)",
+    },
+    Exception {
         path: "crates/xtask/src/tree.rs",
         lint: LINTS[1],
         reason: "the xtask's one filesystem module (WP-008)",
