@@ -9,7 +9,8 @@
 //!    kind's ceiling; its credential's scope allows it; its device class
 //!    allows it; and its session is elevated if the capability runs the
 //!    server;
-//! 2. a scoped credential is not creating or changing a credential;
+//! 2. neither a scoped credential nor a limited-class device is creating
+//!    or changing a credential;
 //! 3. the resource is one the principal may act on: an item in a library
 //!    it can see, something its own account or profile owns, or a person of
 //!    a kind the action may touch;
@@ -26,7 +27,9 @@ use super::action::{Action, HOST_EQUIVALENT, Need, Target};
 use super::capability::{Capability, CapabilitySet, Tier};
 use super::context::{Context, Network, RemoteAdmin};
 use super::library::LibrarySet;
-use super::principal::{PrincipalFacts, PrincipalKind, Reach, Scope, UserVerification};
+use super::principal::{
+    DeviceClass, PrincipalFacts, PrincipalKind, Reach, Scope, UserVerification,
+};
 use crate::id::PublicId;
 use crate::problem::{Describe, Problem, ProblemCode};
 
@@ -77,6 +80,10 @@ pub enum Denial {
     /// A scoped credential may not create, widen or change any credential,
     /// its own included (SEC-API-020).
     ScopedCredential,
+    /// A limited-class device, such as a TV or a shared browser, may not
+    /// create or change any credential, its own account's included (A-116,
+    /// A-118).
+    LimitedDevice,
     /// The object does not exist as far as this principal may know: it is
     /// in a library it cannot see, someone else owns it, or it is not the
     /// kind of object the action acts on (SEC-API-011).
@@ -115,6 +122,7 @@ impl Describe for Denial {
             | Self::OutOfScope(_)
             | Self::DeviceNotAllowed(_)
             | Self::ScopedCredential
+            | Self::LimitedDevice
             | Self::TargetNotAllowed(_)
             | Self::Location
             | Self::OwnerOnly(_)
@@ -177,6 +185,9 @@ pub fn decide(
     };
     if rule.credential && principal.scope.is_some() {
         return Err(Denial::ScopedCredential);
+    }
+    if rule.credential && principal.device == DeviceClass::Limited {
+        return Err(Denial::LimitedDevice);
     }
     let libraries = visible_libraries(principal);
     match (rule.target, resource) {
@@ -354,7 +365,7 @@ mod compile_fail {
     /// A permit cannot be copied into a second one.
     /// Verifies: SEC-API-010
     ///
-    /// ```compile_fail,E0599
+    /// ```compile_fail,E0308
     /// use gunmetal_core::authz::{Action, Context, Denial, LibrarySet, Permit, PrincipalFacts, ResourceFacts, decide};
     ///
     /// fn copy(permit: &Permit) -> Permit {
@@ -383,7 +394,7 @@ mod tests {
     use crate::authz::capability::Role;
     use crate::authz::context::{Network, RemoteAdmin};
     use crate::authz::fixtures::{account, at, at_home, facts, library, profile};
-    use crate::authz::principal::{DeviceClass, Elevation};
+    use crate::authz::principal::Elevation;
     use crate::client_context::PathClass;
 
     use Capability as C;
@@ -746,6 +757,23 @@ mod tests {
                 ResourceFacts::Server,
                 Ok((Action::SignOut, LibrarySet::every())),
             ),
+            (
+                Action::ReadOwnData,
+                ResourceFacts::Owned(Owner::Profile(profile(1))),
+                Ok((Action::ReadOwnData, LibrarySet::every())),
+            ),
+            (
+                Action::WriteOwnData,
+                ResourceFacts::Owned(Owner::Profile(profile(1))),
+                Ok((Action::WriteOwnData, LibrarySet::every())),
+            ),
+            // A shared browser or a TV never changes account security or
+            // approves another device (A-116, A-118).
+            (
+                Action::ManageOwnCredentials,
+                ResourceFacts::Owned(Owner::Account(account(1))),
+                Err(Denial::LimitedDevice),
+            ),
         ];
         for (action, resource, outcome) in cases {
             assert_eq!(ask(&tv, action, &resource, &at_home()), outcome);
@@ -898,31 +926,73 @@ mod tests {
     /// Verifies: SEC-TM-017, SEC-IAM-075
     #[test]
     fn host_equivalent_actions_are_owner_only_except_roots_and_file_browsing() {
-        for action in HOST_EQUIVALENT {
-            let resource = if matches!(
-                action,
-                Action::ManageAdministrators | Action::TransferOwnership
-            ) {
-                person(K::Member)
-            } else {
-                ResourceFacts::Server
-            };
-            let for_admin = ask(&admin(), *action, &resource, &at_home());
-            let shared = matches!(
-                action,
-                Action::ManageLibraryRoots | Action::BrowseFileSystem
-            );
-            assert_eq!(for_admin.is_ok(), shared);
-            let mut stale = owner();
-            stale.verification = UserVerification::Stale;
+        let missing = |capability| Err(Denial::MissingCapability(capability));
+        let cases: [(Action, ResourceFacts, Outcome); 10] = [
+            (
+                Action::ManageLibraryRoots,
+                ResourceFacts::Server,
+                Ok((Action::ManageLibraryRoots, LibrarySet::every())),
+            ),
+            (
+                Action::BrowseFileSystem,
+                ResourceFacts::Server,
+                Ok((Action::BrowseFileSystem, LibrarySet::every())),
+            ),
+            (
+                Action::ManageAdministrators,
+                person(K::Member),
+                missing(C::AdminManage),
+            ),
+            (
+                Action::TransferOwnership,
+                person(K::Member),
+                missing(C::OwnershipTransfer),
+            ),
+            (
+                Action::ChangeSecuritySettings,
+                ResourceFacts::Server,
+                missing(C::SecuritySettings),
+            ),
+            (
+                Action::RotateKeys,
+                ResourceFacts::Server,
+                missing(C::SecuritySettings),
+            ),
+            (
+                Action::ConfigureOidc,
+                ResourceFacts::Server,
+                missing(C::OidcConfigure),
+            ),
+            (
+                Action::ApprovePlugin,
+                ResourceFacts::Server,
+                missing(C::PluginApprove),
+            ),
+            (
+                Action::DownloadBackup,
+                ResourceFacts::Server,
+                missing(C::Backup),
+            ),
+            (
+                Action::RestoreBackup,
+                ResourceFacts::Server,
+                missing(C::Backup),
+            ),
+        ];
+        let listed: Vec<Action> = cases.iter().map(|(action, ..)| *action).collect();
+        assert_eq!(listed, HOST_EQUIVALENT);
+        let mut stale = owner();
+        stale.verification = UserVerification::Stale;
+        for (action, resource, for_admin) in cases {
+            assert_eq!(ask(&admin(), action, &resource, &at_home()), for_admin);
             assert_eq!(
-                ask(&stale, *action, &resource, &at_home()),
+                ask(&stale, action, &resource, &at_home()),
                 Err(Denial::FreshVerificationRequired)
             );
         }
     }
 
-    /// Verifies: SEC-HIS-013, SEC-API-011
+    /// Verifies: SEC-HIS-013
     #[test]
     fn denials_describe_themselves_by_the_catalogue() {
         let cases = [
@@ -943,6 +1013,7 @@ mod tests {
             ),
             (Denial::ElevationRequired, ProblemCode::StepUpRequired),
             (Denial::ScopedCredential, ProblemCode::Forbidden),
+            (Denial::LimitedDevice, ProblemCode::Forbidden),
             (Denial::NotVisible, ProblemCode::NotFound),
             (Denial::TargetNotAllowed(K::Owner), ProblemCode::Forbidden),
             (Denial::Location, ProblemCode::Forbidden),
