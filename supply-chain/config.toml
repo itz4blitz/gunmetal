@@ -13,6 +13,11 @@ url = "https://raw.githubusercontent.com/google/supply-chain/main/audits.toml"
 [imports.mozilla]
 url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 
+[[exemptions.adler2]]
+version = "2.0.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 with miniz_oxide for gunmetal-core's one decompression helper (WP-128, owner decision D-02); computes the zlib Adler-32 checksum. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.autocfg]]
 version = "1.5.1"
 criteria = "safe-to-run"
@@ -137,6 +142,11 @@ notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 20
 version = "0.3.4"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.miniz_oxide]]
+version = "0.9.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 for gunmetal-core's one decompression helper, src/inflate.rs, its only user in the core (WP-128, owner decision D-02, SEC-MED-009). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.once_cell]]
 version = "1.21.4"

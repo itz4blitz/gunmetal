@@ -978,6 +978,7 @@ fn the_core_depends_only_on_reviewed_crates() {
     assert_eq!(
         allowlisted(CORE_ALLOWLIST),
         [
+            "adler2",
             "block-buffer",
             "cfg-if",
             "cpufeatures",
@@ -985,6 +986,7 @@ fn the_core_depends_only_on_reviewed_crates() {
             "digest",
             "hybrid-array",
             "libc",
+            "miniz_oxide",
             "sha2",
             "typenum",
         ]

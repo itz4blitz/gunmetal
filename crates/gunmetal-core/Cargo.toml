@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+miniz_oxide.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
