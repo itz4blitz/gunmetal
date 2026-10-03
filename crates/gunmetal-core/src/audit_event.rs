@@ -3,11 +3,13 @@
 //!
 //! Producers (the credential verifier, the authorisation layer, the rate
 //! limiters, the egress client, the logger's debug switch) build a
-//! [`SecurityEvent`] and hand it to the [`SecuritySink`] they were given.
-//! The server wires that sink to its event bus, which carries every event to
-//! the audit log (WP-043, WP-069), so every producer emits the same typed
-//! events without depending on the audit store. A route declares the event
-//! it emits by its [`EventName`].
+//! [`SecurityEvent`] and hand it to the [`SecuritySink`] they were given,
+//! which answers [`AuditUnavailable`] when the record cannot be written, so
+//! that the producer can refuse its action (SEC-OPS-020). The server wires
+//! that sink to its event bus, which carries every event to the audit log
+//! (WP-043, WP-069), so every producer emits the same typed events without
+//! depending on the audit store. A route declares the event it emits by its
+//! [`EventName`].
 //!
 //! An event's fields take a [`ClientContext`] and public identifiers, never
 //! a credential: every field type must be an [`AuditField`], a sealed trait
@@ -21,6 +23,7 @@
 
 use crate::client_context::ClientContext;
 use crate::id::PublicId;
+use crate::problem::{Describe, Problem, ProblemCode};
 
 mod sealed {
     /// Seals [`AuditField`](super::AuditField), so that only this module can
@@ -51,6 +54,14 @@ impl<T: AuditField> AuditField for Option<T> {}
 /// Mutation testing does not see code a macro generates, and coverage does
 /// not count its match arms one by one, so the tests pin every vocabulary
 /// name against a literal list and build one event of every kind.
+///
+/// The macro is exported, and hidden from the documentation, only so that
+/// the compile-fail tests can declare entries through it and show that the
+/// bound refuses a field. It is not a way to add events from outside this
+/// file: a catalogue declared elsewhere is a different type, which no
+/// [`SecuritySink`] accepts.
+#[doc(hidden)]
+#[macro_export]
 macro_rules! security_events {
     ($(
         $(#[$doc:meta])*
@@ -60,8 +71,14 @@ macro_rules! security_events {
     )*) => {
         /// One security event: what happened, to which account and from
         /// where.
+        // The where clause holds only when the type of every field of every
+        // event is an `AuditField`. It sits on the type itself, not on an
+        // impl, so the type cannot be declared otherwise.
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum SecurityEvent {
+        pub enum SecurityEvent
+        where
+            $( $( $type: $crate::audit_event::AuditField, )* )*
+        {
             $( $(#[$doc])* $event { $( $(#[$field_doc])* $field: $type, )* }, )*
         }
 
@@ -87,12 +104,7 @@ macro_rules! security_events {
             }
         }
 
-        // The where clause holds only when the type of every field of every
-        // event is an `AuditField`; otherwise this impl does not compile.
-        impl SecurityEvent
-        where
-            $( $( $type: AuditField, )* )*
-        {
+        impl SecurityEvent {
             /// Which entry of the catalogue this event is.
             #[must_use]
             pub const fn name(&self) -> EventName {
@@ -137,60 +149,167 @@ security_events! {
 ///
 /// The server gives each producer one implementation, wired to its event
 /// bus, which carries every event to the audit log's sink (WP-043, WP-069).
-/// Tests give producers a sink that records what it receives.
+/// Tests give producers a sink that records what it receives, or one that
+/// cannot write.
+///
+/// A producer records its event before its action takes effect. When the
+/// record cannot be written, the action does not take effect (SEC-OPS-020).
+/// A producer whose event records a refusal, such as a failed sign-in or a
+/// refused request, still refuses: an unwritten record never lets anything
+/// through.
+///
+/// ```
+/// use gunmetal_core::audit_event::{AuditUnavailable, SecurityEvent, SecuritySink};
+///
+/// /// Turns a setting on, but only once the audit log has its record.
+/// fn turn_on(
+///     setting: &mut bool,
+///     sink: &dyn SecuritySink,
+///     event: SecurityEvent,
+/// ) -> Result<(), AuditUnavailable> {
+///     sink.record(event)?;
+///     *setting = true;
+///     Ok(())
+/// }
+/// ```
 pub trait SecuritySink {
-    /// Takes one event.
-    fn record(&self, event: SecurityEvent);
+    /// Takes one event, and answers `Ok` once the audit log has its record.
+    /// Which records must be on disk before the answer is the audit log's
+    /// rule (WP-069); a sink wired to the bus passes the log's own answer
+    /// back.
+    ///
+    /// # Errors
+    ///
+    /// [`AuditUnavailable`] when the record cannot be written. The action
+    /// the event records must then not take effect.
+    fn record(&self, event: SecurityEvent) -> Result<(), AuditUnavailable>;
+}
+
+/// The audit log could not write a security event's record, so the action
+/// the event records must not take effect (SEC-OPS-020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditUnavailable;
+
+impl Describe for AuditUnavailable {
+    /// The action was refused because it could not be recorded.
+    fn problem(&self) -> Problem {
+        Problem {
+            code: ProblemCode::AuditUnavailable,
+            args: Vec::new(),
+        }
+    }
 }
 
 /// Compile-fail tests: no event can hold a credential. The core cannot see
-/// the secrets crate's `Secret` type (WP-047), so a stand-in marker type
-/// plays it. Each test shares its code with the control, which compiles.
+/// the secrets crate's `Secret` type (WP-047), so a stand-in plays it.
+///
+/// Rustdoc on stable does not check which error a compile-fail test
+/// produced, so each test is the control below with one change, and the
+/// control compiles. The tests that declare an entry change only the type
+/// of its `held` field. The stand-in derives every trait an event derives,
+/// so the catalogue's `AuditField` bound is the only thing that can refuse
+/// it: with the bound removed, those tests compile and fail.
 #[cfg(doctest)]
 mod compile_fail {
-    /// Control: an event is built from a context and identifiers, and those
-    /// types are audit fields.
+    /// Control: an entry whose fields are a context and identifiers is
+    /// declared through the catalogue's own macro, and those types are
+    /// audit fields.
     ///
     /// ```
-    /// use gunmetal_core::audit_event::{AuditField, SecurityEvent};
+    /// use gunmetal_core::audit_event::AuditField;
     /// use gunmetal_core::client_context::ClientContext;
     /// use gunmetal_core::id::PublicId;
     ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
     /// struct Secret;
     ///
     /// fn field<T: AuditField>() {}
     ///
-    /// fn failed(source: ClientContext, account: Option<PublicId>) -> SecurityEvent {
-    ///     field::<ClientContext>();
-    ///     field::<Option<PublicId>>();
-    ///     SecurityEvent::AuthnLoginFail { source, account }
+    /// gunmetal_core::security_events! {
+    ///     GmHeld = "gm_held" {
+    ///         source: ClientContext,
+    ///         account: PublicId,
+    ///         held: Option<PublicId>,
+    ///     }
     /// }
+    ///
+    /// field::<ClientContext>();
+    /// field::<PublicId>();
+    /// field::<Option<PublicId>>();
     /// ```
     struct Control;
 
-    /// An event's field cannot be given a secret.
+    /// No catalogue entry can declare a field that holds a secret.
     ///
     /// ```compile_fail
-    /// use gunmetal_core::audit_event::{AuditField, SecurityEvent};
+    /// use gunmetal_core::audit_event::AuditField;
     /// use gunmetal_core::client_context::ClientContext;
     /// use gunmetal_core::id::PublicId;
     ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
     /// struct Secret;
     ///
-    /// fn failed(source: ClientContext, secret: Secret) -> SecurityEvent {
-    ///     SecurityEvent::AuthnLoginFail { source, account: Some(secret) }
+    /// gunmetal_core::security_events! {
+    ///     GmHeld = "gm_held" {
+    ///         source: ClientContext,
+    ///         account: PublicId,
+    ///         held: Secret,
+    ///     }
     /// }
     /// ```
     struct NoSecretInAField;
 
-    /// A secret's type cannot be made an audit field from outside the core,
-    /// so no future event can be declared with one either.
+    /// An optional field is no way round the bound: an option is an audit
+    /// field only when what it holds is one.
     ///
     /// ```compile_fail
-    /// use gunmetal_core::audit_event::{AuditField, SecurityEvent};
+    /// use gunmetal_core::audit_event::AuditField;
     /// use gunmetal_core::client_context::ClientContext;
     /// use gunmetal_core::id::PublicId;
     ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
+    /// struct Secret;
+    ///
+    /// gunmetal_core::security_events! {
+    ///     GmHeld = "gm_held" {
+    ///         source: ClientContext,
+    ///         account: PublicId,
+    ///         held: Option<Secret>,
+    ///     }
+    /// }
+    /// ```
+    struct NoSecretInAnOptionalField;
+
+    /// Nor can a field hold free text, such as a token or anything a client
+    /// sent.
+    ///
+    /// ```compile_fail
+    /// use gunmetal_core::audit_event::AuditField;
+    /// use gunmetal_core::client_context::ClientContext;
+    /// use gunmetal_core::id::PublicId;
+    ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
+    /// struct Secret;
+    ///
+    /// gunmetal_core::security_events! {
+    ///     GmHeld = "gm_held" {
+    ///         source: ClientContext,
+    ///         account: PublicId,
+    ///         held: String,
+    ///     }
+    /// }
+    /// ```
+    struct NoTextInAField;
+
+    /// A secret's type cannot be made an audit field from outside the core,
+    /// so no future entry can get past the bound that way.
+    ///
+    /// ```compile_fail
+    /// use gunmetal_core::audit_event::AuditField;
+    /// use gunmetal_core::client_context::ClientContext;
+    /// use gunmetal_core::id::PublicId;
+    ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
     /// struct Secret;
     ///
     /// impl AuditField for Secret {}
@@ -201,10 +320,11 @@ mod compile_fail {
     /// unlock the trait.
     ///
     /// ```compile_fail
-    /// use gunmetal_core::audit_event::{AuditField, SecurityEvent};
+    /// use gunmetal_core::audit_event::AuditField;
     /// use gunmetal_core::client_context::ClientContext;
     /// use gunmetal_core::id::PublicId;
     ///
+    /// #[derive(Debug, Clone, PartialEq, Eq)]
     /// struct Secret;
     ///
     /// impl gunmetal_core::audit_event::sealed::Sealed for Secret {}
@@ -267,6 +387,18 @@ mod tests {
                 && name.chars().all(|c| c.is_ascii_lowercase() || c == '_');
             assert!(shaped, "name {name:?}");
         }
+    }
+
+    /// Verifies: SEC-API-072
+    #[test]
+    fn describes_an_unwritten_record_as_audit_unavailable() {
+        assert_eq!(
+            AuditUnavailable.problem(),
+            Problem {
+                code: ProblemCode::AuditUnavailable,
+                args: vec![],
+            }
+        );
     }
 
     #[test]

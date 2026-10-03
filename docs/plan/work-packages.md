@@ -993,7 +993,14 @@ is what catches a mismatch.
   (WP-048) and the server's producers must emit the same typed events
   without depending on the audit store; as first written the catalogue
   belonged to the audit log (WP-069, wave 2), after the packages that
-  named it.
+  named it. `SecuritySink::record` returns `Err(AuditUnavailable)` when
+  the record cannot be written, and the producer then does not let its
+  action take effect (SEC-OPS-020); `AuditUnavailable` describes itself
+  as the `audit_unavailable` problem (503). A producer whose event records
+  a refusal still refuses. As first sketched, `record` returned nothing,
+  so no producer could learn that its record was lost. The sink the
+  server wires to its bus (WP-043, WP-069) passes the audit log's answer
+  back to the producer.
 - **Not in scope.** Minting and storing IDs (WP-046 keeps the public-ID
   mapping; owner decision 11). Translations of the problem text (CLI-146
   builds on the codes).
@@ -1007,7 +1014,8 @@ is what catches a mismatch.
       pub fn parse(s: &str, expected: IdKind) -> Result<Self, IdError>; }
   pub struct ClientContext { addr: IpAddr, class: PathClass, via_proxy: bool } // pub(crate) constructor
   pub enum SecurityEvent { /* one variant per line, sorted: AuthnLoginFail { .. }, AuthzFail { .. }, ... */ }
-  pub trait SecuritySink { fn record(&self, e: SecurityEvent); }
+  pub trait SecuritySink { fn record(&self, e: SecurityEvent) -> Result<(), AuditUnavailable>; }
+  pub struct AuditUnavailable; // Describe: audit_unavailable, 503
   impl core::fmt::Display for PublicId { /* prefix + base32 */ }
   pub struct ProblemCode(&'static str);
   pub struct Problem { pub code: ProblemCode, pub status: Option<u16>, pub args: Vec<(&'static str, String)> }
