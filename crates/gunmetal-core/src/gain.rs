@@ -276,6 +276,11 @@ fn finish(raw: f32, source: Source, peak: Option<PeakRatio>, mut clamp: Clamp) -
                 } else {
                     ranged
                 }
+            } else if ranged > 0.0 {
+                // A zero peak cannot bound a boost, and must not be a
+                // divisor (SEC-MED-014), so it is treated as missing.
+                clamp = Clamp::NoPeak;
+                0.0
             } else {
                 ranged
             }
@@ -478,6 +483,7 @@ mod tests {
             (0.0, None, 0.0, Clamp::None),
             (0.0, Some(0.5), 0.0, Clamp::None),
             (6.0, Some(0.5), 6.0, Clamp::None),
+            (headroom_db(0.5), Some(0.5), headroom_db(0.5), Clamp::None),
             (12.0, Some(0.1), 12.0, Clamp::None),
             (60.0, Some(0.1), 12.0, Clamp::Range),
             (60.0, None, 0.0, Clamp::NoPeak),
@@ -490,7 +496,9 @@ mod tests {
             (-30.0, Some(1.0), -30.0, Clamp::None),
             (12.0, None, 0.0, Clamp::NoPeak),
             (-6.5, None, -6.5, Clamp::None),
-            (6.0, Some(0.0), 6.0, Clamp::None),
+            (6.0, Some(0.0), 0.0, Clamp::NoPeak),
+            (0.0, Some(0.0), 0.0, Clamp::None),
+            (-6.5, Some(0.0), -6.5, Clamp::None),
         ];
         for (gain, peak_ratio, applied, clamp) in cases {
             let mut input = blank();
@@ -800,7 +808,7 @@ mod tests {
             let applied = decided.applied.db();
             prop_assert!((TAG_GAIN_MIN_DB..=TAG_GAIN_MAX_DB).contains(&applied));
             prop_assert!(applied.is_finite());
-            if peak.is_none() {
+            if peak.is_none_or(|peak| peak.ratio() == 0.0) {
                 prop_assert!(applied <= 0.0);
             }
             if let Some(peak) = peak.filter(|peak| peak.ratio() > 0.0) {
