@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f8bf219a513781c1942f8e5a65147090100ab209b9eb9185f46572294263f894 # shrinks to (vendor, comments) = ([], []), cut_seed = 0, at = 0
+cc 413f16fc5546f71c19fef3bf0c89eb94afa8005bd8ea51ce0436519625329303 # shrinks to (vendor, comments) = ([], [])
+cc bab920151eb0fcc09830268b1f97d5f6c0e277ab655de460f73172ed73fe26ba # shrinks to (vendor, comments) = ([], []), budget_seed = 0, at = 0
+cc 04f0111f69630750dd4684010d989d8a8a6ff3958f365f93276e1ced5b15db28 # shrinks to picture = Picture { kind: 0, mime: "", description: "", width: 0, height: 0, depth: 0, colours: 0, data: [] }, spaces = []
+cc 2218f0759c4fbdd515bb5dd9f9bb0d52a79027bc3f1e90dcae8f311d476d6bed # shrinks to bytes = [], at = 0

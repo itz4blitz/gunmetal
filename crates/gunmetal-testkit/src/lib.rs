@@ -12,3 +12,4 @@ pub mod bytes;
 pub mod checksum;
 pub mod clock;
 pub mod tempdir;
+pub mod vorbis_comment;

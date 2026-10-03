@@ -25,3 +25,4 @@ pub mod registry;
 pub mod text;
 pub mod time;
 pub mod values;
+pub mod vorbis_comment;
