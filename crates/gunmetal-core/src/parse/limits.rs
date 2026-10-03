@@ -578,9 +578,17 @@ mod tests {
     /// Verifies: SEC-MED-010
     #[test]
     fn never_holds_a_limit_above_its_ceiling() {
+        // A random `u64` is above every ceiling, so half of the values come
+        // from the range the ceilings lie in and some overrides are accepted.
         TestRunner::new(Config::default())
             .run(
-                &proptest::collection::vec((0..LimitKind::ALL.len(), any::<u64>()), 0..8),
+                &proptest::collection::vec(
+                    (
+                        0..LimitKind::ALL.len(),
+                        prop_oneof![any::<u64>(), 0_u64..300_000_000],
+                    ),
+                    0..8,
+                ),
                 |overrides| {
                     let mut limits = Limits::DEFAULT;
                     for (index, value) in overrides {
