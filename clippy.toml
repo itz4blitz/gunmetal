@@ -1,0 +1,78 @@
+# APIs that only one module may use. Each use outside that module fails the
+# lint; inside it, a narrowly scoped #[expect(clippy::disallowed_methods,
+# reason = "...")] that review can see marks the one sanctioned call.
+#
+# Clippy checks that each path resolves only when the crate it names is in
+# the build. Paths into std and into crates in today's graph (rand_core,
+# fastrand, rand_xorshift, through proptest's dev-only tree) were checked that
+# way; the others (tokio, socket2, hyper, hyper-util, reqwest, ureq) were
+# checked against docs.rs on 2026-10-02. Entries marked "feature-gated" print a
+# warning if their crate arrives without that feature; give such an entry
+# `allow-invalid = true` then, not before.
+
+disallowed-methods = [
+    # SEC-MED-063: external programs start only through the sandbox launcher.
+    { path = "std::process::Command::new", reason = "start external programs only through the sandbox launcher (SEC-MED-063)" },
+    # feature-gated: tokio "process"
+    { path = "tokio::process::Command::new", reason = "start external programs only through the sandbox launcher (SEC-MED-063)" },
+
+    # SEC-EXT-001: only the egress client opens outbound sockets.
+    { path = "std::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "std::net::TcpStream::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "std::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "std::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001)" },
+    # feature-gated: tokio "net"
+    { path = "tokio::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "tokio::net::TcpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "tokio::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "tokio::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001)" },
+    { path = "socket2::Socket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+    { path = "socket2::Socket::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
+
+    # SEC-EXT-001: only the egress client constructs an HTTP client.
+    { path = "reqwest::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    # feature-gated: reqwest "blocking"
+    { path = "reqwest::blocking::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::blocking::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::blocking::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::blocking::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::Agent::new_with_defaults", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "ureq::Agent::new_with_config", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "ureq::Agent::config_builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "ureq::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::post", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::put", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::delete", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::head", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "ureq::patch", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    # feature-gated: hyper "client" with "http1" or "http2"
+    { path = "hyper::client::conn::http1::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "hyper::client::conn::http2::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    # feature-gated: hyper-util "client-legacy"
+    { path = "hyper_util::client::legacy::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "hyper_util::client::legacy::Builder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+
+    # SEC-STD-022: security randomness comes from the OS CSPRNG through one
+    # function. A seeded generator is predictable. deny.toml bans rand's
+    # small_rng feature and the non-cryptographic generator crates.
+    { path = "rand_core::SeedableRng::seed_from_u64", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
+    { path = "rand_core::SeedableRng::from_seed", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
+    { path = "fastrand::seed", reason = "non-cryptographic generator (SEC-STD-022)" },
+]
+
+disallowed-types = [
+    # SEC-EXT-001: only the egress client holds an HTTP client.
+    { path = "reqwest::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    # feature-gated: reqwest "blocking"
+    { path = "reqwest::blocking::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    { path = "ureq::Agent", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    # feature-gated: hyper-util "client-legacy"
+    { path = "hyper_util::client::legacy::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+
+    # SEC-STD-022: non-cryptographic generators.
+    { path = "fastrand::Rng", reason = "non-cryptographic generator (SEC-STD-022)" },
+    { path = "rand_xorshift::XorShiftRng", reason = "non-cryptographic generator (SEC-STD-022)" },
+]

@@ -20,3 +20,14 @@ missing_docs = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# Async code must not hold a lock across an await (SEC-STD-029).
+await_holding_lock = "deny"
+# The APIs listed in clippy.toml are errors even without -D warnings
+# (SEC-MED-063, SEC-EXT-001, SEC-STD-022, SEC-TM-031).
+disallowed_methods = "deny"
+disallowed_types = "deny"
+
+# Integer overflow panics in release builds too, instead of wrapping
+# silently (SEC-STD-033).
+[profile.release]
+overflow-checks = true
