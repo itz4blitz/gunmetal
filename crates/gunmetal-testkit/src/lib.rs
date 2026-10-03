@@ -11,4 +11,5 @@
 pub mod bytes;
 pub mod checksum;
 pub mod clock;
+pub mod flac_frames;
 pub mod tempdir;

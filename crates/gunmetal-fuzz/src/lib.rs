@@ -19,6 +19,8 @@
 
 pub mod base64;
 pub mod ebml;
+pub mod flac_frames;
+pub mod flac_structure;
 pub mod link;
 pub mod net;
 pub mod registry;
