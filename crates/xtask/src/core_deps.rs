@@ -3,14 +3,20 @@
 //! allowlist (SEC-SUP-025).
 //!
 //! The check reads what `cargo tree` reports rather than parsing manifests,
-//! so a renamed or target-specific dependency cannot slip past it. The gate
-//! runs:
+//! so a renamed or target-specific dependency cannot slip past it. It runs:
 //!
 //! ```text
-//! cargo tree --locked -p gunmetal-core -e normal --target all \
+//! cargo tree --locked -p gunmetal-core -e normal --target all --all-features \
 //!   --prefix none --format '{p}' > target/core-deps.txt
 //! cargo run --locked -q -p xtask -- core-deps target/core-deps.txt
 //! ```
+//!
+//! `--all-features` matters. Another workspace member can turn on an
+//! optional dependency of the core through one of the core's features, and
+//! the workspace build then compiles it into the core; without the flag,
+//! cargo tree resolves the core's own default features and never lists it.
+//! The `core-deps` workflow runs these two commands on every pull request
+//! until the integrator adds them to `scripts/gate.sh`.
 
 use std::collections::BTreeSet;
 
@@ -152,6 +158,26 @@ name = "typenum"
             check(ALONE, "name = \"serde\"\n"),
             [Finding::Unused {
                 name: "serde".to_owned()
+            }]
+        );
+    }
+
+    /// Verifies: SEC-SUP-025
+    #[test]
+    fn a_dependency_another_member_turns_on_shows_only_with_all_features() {
+        // Recorded from a workspace whose core declares
+        // `extra = { path = "../extra", optional = true }` behind its feature
+        // `x = ["dep:extra"]`, and whose server depends on the core with
+        // `features = ["x"]`, so building the workspace compiles `extra`
+        // into the core. Without `--all-features`, cargo tree resolves the
+        // core's own default features and never sees `extra`.
+        let default = include_str!("../fixtures/core-deps/feature-gated/default-features.txt");
+        let all = include_str!("../fixtures/core-deps/feature-gated/all-features.txt");
+        assert_eq!(check(default, ""), []);
+        assert_eq!(
+            check(all, ""),
+            [Finding::Unlisted {
+                name: "extra".to_owned()
             }]
         );
     }
