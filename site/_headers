@@ -1,0 +1,19 @@
+# Response headers for gunmetal.tv, in the format Cloudflare Pages and
+# Netlify both read. `cargo run -p xtask -- site` and the gate's tests check
+# this file: every page gets HSTS for two years with includeSubDomains and
+# preload (SEC-STD-016), and a Content-Security-Policy that loads nothing
+# from another origin and runs no script (SEC-PRV-054, SEC-PRV-055). No path
+# may send a weaker value of either.
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# The invitation landing page is never cached, so an old copy cannot
+# outlive a change to it.
+/invite/*
+  Cache-Control: no-store

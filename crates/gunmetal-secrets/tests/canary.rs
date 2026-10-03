@@ -14,6 +14,7 @@ use gunmetal_core::base64::{self, Alphabet};
 use gunmetal_fs::dataroot::{DataRoot, Policy};
 use gunmetal_fs::host::HostFacts;
 use gunmetal_fs::path::{DataDir, DataPath};
+use gunmetal_secrets::keyring::Purpose;
 use gunmetal_secrets::random::OsRandom;
 use gunmetal_secrets::root::{Root, SecretsError};
 use gunmetal_testkit::tempdir::TempDir;
@@ -136,4 +137,44 @@ fn a_loaded_root_secret_formats_without_the_canary() {
         "Ok(Root { secret: Secret([redacted]) }) Ok(\n    Root {\n        secret: Secret([redacted]),\n    },\n)"
     );
     assert_no_canary(output.as_bytes());
+}
+
+/// A root loaded from a data directory whose root secret is the canary.
+fn canary_root() -> Root {
+    let dir = TempDir::new("secrets-canary-keys").unwrap();
+    let host = HostFacts::probe(dir.path()).unwrap();
+    let data = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+        .unwrap()
+        .root;
+    data.replace(&DataPath::constant(DataDir::Secrets, "root.key"), &CANARY)
+        .unwrap();
+    Root::load_or_create(&data, &OsRandom).unwrap()
+}
+
+#[test]
+fn a_key_ring_and_a_vault_format_without_the_canary() {
+    let root = canary_root();
+    let output = format!(
+        "{:?} {:?}",
+        root.key_ring(Purpose::SessionHash),
+        root.vault()
+    );
+    assert_eq!(
+        output,
+        "Ok(KeyRing { current: (0, Secret([redacted])), previous: None }) Ok(Vault { key: Secret([redacted]) })"
+    );
+    assert_no_canary(output.as_bytes());
+}
+
+/// A replayed secret equal to the canary: what the vault stores for it
+/// holds the canary in no form, and what it opens to formats without it.
+#[test]
+fn a_sealed_secret_and_its_opened_form_hold_no_canary() {
+    let vault = canary_root().vault().unwrap();
+    let sealed = vault.seal(b"rec_one", &CANARY, &OsRandom).unwrap();
+    assert_eq!(sealed.len(), 1 + 24 + 32 + 16);
+    assert_no_canary(&sealed);
+    let opened = format!("{:?}", vault.open(b"rec_one", &sealed));
+    assert_eq!(opened, "Ok(Secret([redacted]))");
+    assert_no_canary(opened.as_bytes());
 }
