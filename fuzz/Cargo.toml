@@ -165,6 +165,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "otp"
+path = "fuzz_targets/otp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "riff"
 path = "fuzz_targets/riff.rs"
 test = false

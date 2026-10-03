@@ -65,6 +65,7 @@ harnesses! {
     mp4_structure,
     mpa,
     net,
+    otp,
     riff,
     text,
     time,

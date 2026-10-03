@@ -32,6 +32,7 @@ pub mod mp4_probe;
 pub mod mp4_structure;
 pub mod mpa;
 pub mod net;
+pub mod otp;
 pub mod registry;
 pub mod riff;
 pub mod text;
