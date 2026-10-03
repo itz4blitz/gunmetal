@@ -104,13 +104,13 @@ pub(crate) struct ItemList {
 /// A freeform item.
 const FREEFORM: FourCc = FourCc(*b"----");
 /// The namespace of a freeform item.
-const MEAN: FourCc = FourCc(*b"mean");
+pub(crate) const MEAN: FourCc = FourCc(*b"mean");
 /// The name of a freeform item.
-const NAME: FourCc = FourCc(*b"name");
+pub(crate) const NAME: FourCc = FourCc(*b"name");
 /// A value.
-const DATA: FourCc = FourCc(*b"data");
+pub(crate) const DATA: FourCc = FourCc(*b"data");
 /// The artwork item.
-const COVR: FourCc = FourCc(*b"covr");
+pub(crate) const COVR: FourCc = FourCc(*b"covr");
 
 /// The well-known type of UTF-8 text.
 const UTF8: u32 = 1;
@@ -144,6 +144,36 @@ impl ItemList {
             ..Item::default()
         };
         Flow::Continue
+    }
+
+    /// The type of the item being read.
+    #[must_use]
+    pub(crate) const fn current_kind(&self) -> FourCc {
+        self.current.kind
+    }
+
+    /// Records a `covr` picture from its `data` header, without the
+    /// payload. A picture past the picture-count limit ends the item; one
+    /// past the size limit is skipped.
+    pub(crate) fn picture(
+        &mut self,
+        type_code: u32,
+        offset: u64,
+        len: u64,
+        limits: &Limits,
+        problems: &mut Vec<Mp4Problem>,
+    ) -> Flow {
+        match self.push_picture(type_code, offset, len, limits) {
+            Ok(()) => Flow::Continue,
+            Err(Stop::Skip(error)) => {
+                problems.push(Mp4Problem::Metadata(error));
+                Flow::Continue
+            }
+            Err(Stop::Item(error)) => {
+                problems.push(Mp4Problem::Metadata(error));
+                Flow::SkipRest
+            }
+        }
     }
 
     /// Reads a box inside the current item: its `mean`, its `name` or one
@@ -180,24 +210,36 @@ impl ItemList {
         body.skip(4).map_err(skip)?; // the locale
         let offset = body.offset();
         let value = if self.current.kind == COVR {
-            let count = self.pictures.saturating_add(1);
-            limits
-                .check(LimitKind::Pictures, count, offset)
-                .map_err(|fault| Stop::Item(fault.into()))?;
-            let len = body.remaining();
-            limits
-                .check(LimitKind::PictureBytes, len, offset)
-                .map_err(skip)?;
-            self.pictures = count;
-            ItemValue::Picture(PictureRef {
-                type_code,
-                offset,
-                len,
-            })
+            self.push_picture(type_code, offset, body.remaining(), limits)?;
+            return Ok(());
         } else {
             value(type_code, body.rest(), self.cap(limits))
         };
         self.current.values.push(value);
+        Ok(())
+    }
+
+    /// Keeps a picture at `offset` of `len` octets, or skips it.
+    fn push_picture(
+        &mut self,
+        type_code: u32,
+        offset: u64,
+        len: u64,
+        limits: &Limits,
+    ) -> Result<(), Stop> {
+        let count = self.pictures.saturating_add(1);
+        limits
+            .check(LimitKind::Pictures, count, offset)
+            .map_err(|fault| Stop::Item(fault.into()))?;
+        limits
+            .check(LimitKind::PictureBytes, len, offset)
+            .map_err(skip)?;
+        self.pictures = count;
+        self.current.values.push(ItemValue::Picture(PictureRef {
+            type_code,
+            offset,
+            len,
+        }));
         Ok(())
     }
 

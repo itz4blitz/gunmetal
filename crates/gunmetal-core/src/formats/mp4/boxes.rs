@@ -9,15 +9,15 @@
 //!
 //! [`Children`] reads the boxes inside one parent, one at a time: it charges
 //! one step of the budget for each, counts them against the children limit
-//! and counts the nesting depth. [`walk`] goes through a tree of container
-//! boxes depth first, with an explicit stack rather than recursion, and
-//! tells a visitor about every box it enters, every leaf, every box it
-//! leaves and every part it could not read.
+//! and counts the nesting depth. The probe walks containers from their
+//! headers; this module's tests use an explicit-stack walk of the same tree.
 
 use std::ops::Range;
 
 use super::probe::Mp4Error;
-use crate::parse::{Budget, Cursor, Depth, LimitKind, Limits, ParseFault};
+#[cfg(test)]
+use crate::parse::ParseFault;
+use crate::parse::{Budget, Cursor, Depth, LimitKind, Limits};
 
 /// A four-character code naming a box, a brand or a coding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -179,6 +179,7 @@ impl<'a> Children<'a> {
 }
 
 /// What [`walk`] found.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Event<'a> {
     /// A container box, whose children come next.
@@ -202,6 +203,7 @@ pub(crate) enum Flow {
 
 /// The visitor [`walk`] calls with the types of the open boxes, from the
 /// root down, and what it found inside the last of them.
+#[cfg(test)]
 pub(crate) type Visitor<'v, 'a> =
     dyn FnMut(&[FourCc], Event<'a>, &mut Budget) -> Result<Flow, Mp4Error> + 'v;
 
@@ -222,14 +224,21 @@ pub(crate) const HDLR: FourCc = FourCc(*b"hdlr");
 /// The item list box, whose every child is an item holding boxes.
 pub(crate) const ILST: FourCc = FourCc(*b"ilst");
 
+/// Whether a box of type `kind` is entered when it is found inside
+/// `parent`. The containers are the boxes on the way to an audio track's
+/// sample table and to the item list, and the items inside an item list.
+#[must_use]
+pub(crate) fn is_container(parent: FourCc, kind: FourCc) -> bool {
+    matches!(kind, META | TRAK | MDIA | MINF | STBL | UDTA | ILST) || parent == ILST
+}
+
 /// Where the children of `child`, inside a parent of type `parent`, start,
 /// or `None` when the walk reads no boxes inside it.
 ///
-/// The containers are the boxes on the way to an audio track's sample
-/// table and to the item list, and the items inside an item list. A
-/// `meta` box is a full box in ISO/IEC 14496-12 and a plain box in
+/// A `meta` box is a full box in ISO/IEC 14496-12 and a plain box in
 /// `QuickTime`; as `FFmpeg` does, it is read as a plain box when its body
 /// starts with the header of an `hdlr` box.
+#[cfg(test)]
 fn inside(parent: FourCc, child: Mp4Box<'_>) -> Result<Option<Cursor<'_>>, Mp4Error> {
     let mut body = child.body;
     match child.kind {
@@ -257,6 +266,7 @@ fn inside(parent: FourCc, child: Mp4Box<'_>) -> Result<Option<Cursor<'_>>, Mp4Er
 ///
 /// [`ParseFault::BudgetExceeded`] when the budget runs out, and any error
 /// the visitor returns.
+#[cfg(test)]
 pub(crate) fn walk<'a>(
     root: Mp4Box<'a>,
     limits: &Limits,
@@ -879,6 +889,20 @@ mod tests {
         );
         assert_eq!(result, Err(refusal));
         assert_eq!(seen.len(), 3);
+        let (result, seen) = walk_all(
+            root(&file),
+            &Limits::DEFAULT,
+            &mut Budget::for_input(0, 0, 99),
+            |_, event| {
+                if matches!(event, Event::Leave(_)) {
+                    Err(refusal)
+                } else {
+                    Ok(Flow::Continue)
+                }
+            },
+        );
+        assert_eq!(result, Err(refusal));
+        assert!(seen.len() > 3);
     }
 
     #[test]

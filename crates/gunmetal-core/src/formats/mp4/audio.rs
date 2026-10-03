@@ -199,21 +199,25 @@ pub enum ChunkOffsets {
 
 /// What a track holds, gathered while its boxes are walked and read once
 /// the walk leaves it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct TrackParts<'a> {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct TrackParts {
     /// Where the `trak` box starts.
     pub(crate) offset: u64,
     /// The handler type, `soun` for audio.
     pub(crate) handler: Option<FourCc>,
-    /// The media header box.
-    mdhd: Option<Mp4Box<'a>>,
-    /// The sample description box.
-    stsd: Option<Mp4Box<'a>>,
+    /// The timescale and duration from the media header.
+    mdhd: Option<(NonZeroU32, Option<u64>)>,
+    /// A failure reading the media header, raised when the track is used.
+    mdhd_error: Option<Mp4Error>,
+    /// The first sample entry, when the sample description has been read.
+    entry: Option<AudioEntry>,
+    /// A failure reading the sample description, raised when the track is used.
+    stsd_error: Option<Mp4Error>,
     /// Where the sample tables are.
     pub(crate) tables: SampleTableRanges,
 }
 
-impl<'a> TrackParts<'a> {
+impl TrackParts {
     /// The parts of the track whose `trak` box starts at `offset`.
     pub(crate) fn new(offset: u64) -> Self {
         Self {
@@ -223,15 +227,15 @@ impl<'a> TrackParts<'a> {
     }
 
     /// Takes in a box found directly inside the track's `mdia` box: the
-    /// media header is kept for later, and the handler type read now.
+    /// media header is read now, and so is the handler type.
     ///
     /// # Errors
     ///
     /// [`ParseFault::Truncated`] for a handler box too short to name its
-    /// type.
-    pub(crate) fn media(&mut self, child: Mp4Box<'a>) -> Result<(), Mp4Error> {
+    /// type, and the errors of [`media_header`].
+    pub(crate) fn media(&mut self, child: Mp4Box<'_>) -> Result<(), Mp4Error> {
         match child.kind {
-            MDHD => self.mdhd = Some(child),
+            MDHD => self.set_mdhd(media_header(child)),
             HDLR => {
                 let mut body = child.body;
                 body.skip(8)?; // version, flags and pre_defined
@@ -242,13 +246,11 @@ impl<'a> TrackParts<'a> {
         Ok(())
     }
 
-    /// Takes in a box found directly inside the track's sample table. Of
-    /// two boxes of one kind, the last is kept.
-    pub(crate) fn table(&mut self, child: Mp4Box<'a>) {
-        let range = span(&child.body);
+    /// Records where a sample-table box's body is. Of two boxes of one
+    /// kind, the last is kept.
+    pub(crate) fn record_table(&mut self, kind: FourCc, range: Range<u64>) {
         let tables = &mut self.tables;
-        match child.kind {
-            STSD => self.stsd = Some(child),
+        match kind {
             STTS => tables.stts = Some(range),
             STSC => tables.stsc = Some(range),
             STSZ => tables.sizes = Some(SampleSizes::Stsz(range)),
@@ -256,6 +258,45 @@ impl<'a> TrackParts<'a> {
             STCO => tables.offsets = Some(ChunkOffsets::Stco(range)),
             CO64 => tables.offsets = Some(ChunkOffsets::Co64(range)),
             _ => {}
+        }
+    }
+
+    /// Takes in a box found directly inside the track's sample table. Of
+    /// two boxes of one kind, the last is kept. A sample description is
+    /// read now.
+    #[cfg(test)]
+    pub(crate) fn table(
+        &mut self,
+        child: Mp4Box<'_>,
+        limits: &Limits,
+        budget: &mut Budget,
+        problems: &mut Vec<Mp4Problem>,
+    ) {
+        self.record_table(child.kind, span(&child.body));
+        if child.kind == STSD {
+            self.set_entry(sample_entry(child, limits, budget, problems));
+        }
+    }
+
+    /// Stores a media header, or the error reading it.
+    pub(crate) fn set_mdhd(&mut self, result: Result<(NonZeroU32, Option<u64>), Mp4Error>) {
+        match result {
+            Ok(header) => {
+                self.mdhd = Some(header);
+                self.mdhd_error = None;
+            }
+            Err(error) => self.mdhd_error = Some(error),
+        }
+    }
+
+    /// Stores a sample entry, or the error reading it.
+    pub(crate) fn set_entry(&mut self, result: Result<AudioEntry, Mp4Error>) {
+        match result {
+            Ok(entry) => {
+                self.entry = Some(entry);
+                self.stsd_error = None;
+            }
+            Err(error) => self.stsd_error = Some(error),
         }
     }
 
@@ -269,19 +310,20 @@ impl<'a> TrackParts<'a> {
     /// # Errors
     ///
     /// [`Mp4Error::Missing`] when the media header or the sample
-    /// description is missing, and the errors of reading either.
-    pub(crate) fn audio(
-        self,
-        limits: &Limits,
-        budget: &mut Budget,
-        problems: &mut Vec<Mp4Problem>,
-    ) -> Result<(AudioTrack, SampleTableRanges), Mp4Error> {
+    /// description is missing.
+    pub(crate) fn audio(self) -> Result<(AudioTrack, SampleTableRanges), Mp4Error> {
         let missing = |kind| Mp4Error::Missing {
             kind,
             offset: self.offset,
         };
-        let (timescale, duration) = media_header(self.mdhd.ok_or(missing(MDHD))?)?;
-        let entry = sample_entry(self.stsd.ok_or(missing(STSD))?, limits, budget, problems)?;
+        if let Some(error) = self.mdhd_error {
+            return Err(error);
+        }
+        let (timescale, duration) = self.mdhd.ok_or(missing(MDHD))?;
+        if let Some(error) = self.stsd_error {
+            return Err(error);
+        }
+        let entry = self.entry.ok_or(missing(STSD))?;
         let track = AudioTrack {
             offset: self.offset,
             timescale,
@@ -326,7 +368,7 @@ const OPUS: FourCc = FourCc(*b"Opus");
 const DOPS: FourCc = FourCc(*b"dOps");
 
 /// Reads a media header: the timescale and the duration.
-fn media_header(mdhd: Mp4Box<'_>) -> Result<(NonZeroU32, Option<u64>), Mp4Error> {
+pub(crate) fn media_header(mdhd: Mp4Box<'_>) -> Result<(NonZeroU32, Option<u64>), Mp4Error> {
     let mut body = mdhd.body;
     let version_at = body.offset();
     let version = body.u8()?;
@@ -974,7 +1016,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-016
     #[test]
     fn skips_the_optional_es_fields_and_never_reads_the_url() {
         // dependsOn_ES_ID, a URL of six octets, and OCR_ES_Id, then the
@@ -1931,6 +1972,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn reads_only_the_first_of_two_sample_entries() {
+        let first = entry_box(&SampleEntry {
+            format: *b"mp4a",
+            version: 0,
+            channels: 2,
+            bits: 16,
+            rate: 44_100,
+            children: &aac_esds(1),
+        });
+        let second = entry_box(&SampleEntry {
+            format: *b"alac",
+            version: 0,
+            channels: 2,
+            bits: 16,
+            rate: 44_100,
+            children: &[],
+        });
+        assert_eq!(
+            read_entry(&stsd(&[&first, &second])).0,
+            Ok(stereo(
+                *b"mp4a",
+                CodecConfig::Esds(Esds {
+                    object_type: 0x40,
+                    max_bitrate: 128_000,
+                    avg_bitrate: 96_000,
+                    specific: Some(Specific {
+                        range: 86..88,
+                        audio: Some(aac_lc()),
+                    }),
+                })
+            ))
+        );
+    }
+
+    #[test]
+    fn reads_the_first_entry_when_the_count_is_u32_max() {
+        let entry = entry_box(&SampleEntry {
+            format: *b"mp4a",
+            version: 0,
+            channels: 2,
+            bits: 16,
+            rate: 44_100,
+            children: &[],
+        });
+        let mut body = u32::MAX.to_be_bytes().to_vec();
+        body.extend_from_slice(&entry);
+        let file = full_box(*b"stsd", 0, 0, &body);
+        assert!(file.len() < 64);
+        assert_eq!(
+            read_entry(&file).0,
+            Ok(stereo(*b"mp4a", CodecConfig::Missing))
+        );
+    }
+
     /// Verifies: SEC-MED-001, SEC-TM-032
     #[test]
     fn reports_a_description_without_an_entry_or_with_a_short_one() {
@@ -1976,7 +2072,7 @@ mod tests {
 
     /// The parts of a track gathered from `boxes`, read as the `mdia` and
     /// `stbl` children they are named after.
-    fn parts(file: &[u8]) -> Result<TrackParts<'_>, Mp4Error> {
+    fn parts_of(file: &[u8], problems: &mut Vec<Mp4Problem>) -> Result<TrackParts, Mp4Error> {
         let mut parts = TrackParts::new(1_000);
         let mut children = crate::formats::mp4::boxes::Children::new(Cursor::at(file, 0), depth(4));
         while let Some(child) = children
@@ -1984,11 +2080,20 @@ mod tests {
             .expect("the test's boxes are well formed")
         {
             match child.kind.0 {
-                [b's', b't', ..] | [b'c', b'o', b'6', b'4'] => parts.table(child),
+                [b's', b't', ..] | [b'c', b'o', b'6', b'4'] => parts.table(
+                    child,
+                    &Limits::DEFAULT,
+                    &mut Budget::for_input(0, 0, 99),
+                    problems,
+                ),
                 _ => parts.media(child)?,
             }
         }
         Ok(parts)
+    }
+
+    fn parts(file: &[u8]) -> Result<TrackParts, Mp4Error> {
+        parts_of(file, &mut Vec::new())
     }
 
     fn read_track(
@@ -1998,13 +2103,7 @@ mod tests {
         Vec<Mp4Problem>,
     ) {
         let mut problems = Vec::new();
-        let track = parts(file).and_then(|parts| {
-            parts.audio(
-                &Limits::DEFAULT,
-                &mut Budget::for_input(0, 0, 99),
-                &mut problems,
-            )
-        });
+        let track = parts_of(file, &mut problems).and_then(TrackParts::audio);
         (track, problems)
     }
 

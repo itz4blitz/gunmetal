@@ -1,11 +1,14 @@
 //! The MP4 audio probe: the sans-I/O entry point of the MP4 parser.
 //!
 //! [`Probe`] walks the boxes at the top of a file one header at a time,
-//! asking its host for each header and for the bodies of the `ftyp` and
-//! `moov` boxes only, wherever they lie, so the media data is never read
-//! and a `moov` after `mdat` costs one more request (SEC-MED-010). Every
-//! box at the top must fit the file, so a file cut short anywhere inside a
-//! box is reported as [`ParseFault::Truncated`] at that box.
+//! asking its host for each header and for the body of the `ftyp` box and
+//! of the small movie boxes it must parse (`mdhd`, `hdlr`, `stsd`, item
+//! text and `data` headers), wherever they lie. The media data is never
+//! read, and neither is a `covr` payload: a picture is a range taken from
+//! the box header (SEC-MED-010, SEC-MED-017). A `moov` after
+//! `mdat` costs more header requests, not a second scan of the file.
+//! Every box at the top must fit the file, so a file cut short anywhere
+//! inside a box is reported as [`ParseFault::Truncated`] at that box.
 //!
 //! The `moov` box is walked depth first: the first audio track gives the
 //! [`AudioTrack`] and the [`SampleTableRanges`], and the item lists in
@@ -26,9 +29,9 @@
 
 use super::audio::{AudioTrack, SampleTableRanges, TrackParts};
 use super::boxes::{
-    Event, Flow, FourCc, ILST, MDIA, META, MINF, Mp4Box, STBL, TRAK, UDTA, read_header, walk,
+    Flow, FourCc, HDLR, ILST, MDIA, META, Mp4Box, STBL, TRAK, UDTA, is_container, read_header,
 };
-use super::ilst::{IlstItem, ItemList};
+use super::ilst::{COVR, DATA, IlstItem, ItemList, MEAN, NAME};
 use crate::parse::{
     Budget, Cursor, Depth, LimitKind, Limits, ParseFault, ReadRequest, SansIo, Step, Window,
 };
@@ -167,11 +170,12 @@ const LONGEST_HEADER: u64 = 32;
 /// A probe of one MP4 audio file, driven through the sans-I/O protocol.
 ///
 /// Resume it with [`Window::start`] first; it then asks for each box
-/// header at the top of the file, and for the bodies of the first `ftyp`
-/// and the first `moov`. Every request is at least one octet, inside the
-/// file, and within the read limits, so a host that enforces them never
-/// has to refuse one (SEC-MED-010). Once it is done, resuming it again
-/// starts a new parse with what is left of its budget.
+/// header at the top of the file and inside the first `moov`, and for
+/// the bodies of the first `ftyp` and of the small boxes the movie
+/// needs. Every request is at least one octet, inside the file, and
+/// within the read limits, so a host that enforces them never has to
+/// refuse one (SEC-MED-010). Once it is done, resuming it again starts
+/// a new parse with what is left of its budget.
 #[derive(Debug)]
 pub struct Probe {
     /// The limits the probe runs under.
@@ -192,26 +196,87 @@ enum State {
     Header {
         /// Where the box starts.
         offset: u64,
+        /// Open movie boxes, outermost first; empty at the top of the file.
+        stack: Vec<Open>,
         /// What the parse has found so far.
         found: Found,
     },
-    /// Waiting for the body of the `ftyp` box.
-    FileType {
-        /// Where the next box starts.
+    /// Waiting for a small body.
+    Body {
+        /// What to parse from the window.
+        need: Need,
+        /// Where the next sibling starts.
         next: u64,
+        /// Open movie boxes, outermost first.
+        stack: Vec<Open>,
         /// What the parse has found so far.
         found: Found,
     },
-    /// Waiting for the body of the `moov` box at `offset`.
-    Movie {
-        /// Where the `moov` box starts.
+}
+
+/// An open container whose children are read one header at a time.
+#[derive(Debug, Clone)]
+struct Open {
+    /// The box type.
+    kind: FourCc,
+    /// Where the box starts.
+    offset: u64,
+    /// How deeply the box is nested.
+    depth: Depth,
+    /// Where the next child starts.
+    at: u64,
+    /// The end of this box's body.
+    end: u64,
+    /// Children counted so far.
+    children: u64,
+}
+
+/// A small body the probe asked for.
+#[derive(Debug, Clone, Copy)]
+enum Need {
+    /// The `ftyp` box.
+    FileType,
+    /// An `mdhd` or `hdlr` box.
+    Media {
+        /// The box type.
+        kind: FourCc,
+        /// Where the box starts.
         offset: u64,
         /// Its depth.
         depth: Depth,
-        /// Where the next box starts.
-        next: u64,
-        /// What the parse has found so far.
-        found: Found,
+    },
+    /// An `stsd` box.
+    SampleDescription {
+        /// Where the box starts.
+        offset: u64,
+        /// Its depth.
+        depth: Depth,
+    },
+    /// A `mean`, `name` or non-picture `data` box.
+    ItemLeaf {
+        /// The box type.
+        kind: FourCc,
+        /// Where the box starts.
+        offset: u64,
+        /// Its depth.
+        depth: Depth,
+    },
+    /// The type and locale of a `covr` `data` box.
+    PictureHeader {
+        /// Where the picture octets start.
+        payload_offset: u64,
+        /// How many picture octets there are.
+        payload_len: u64,
+    },
+    /// The first eight octets of a `meta` box, to tell a full box from a
+    /// plain one.
+    MetaPeek {
+        /// Where the `meta` box starts.
+        offset: u64,
+        /// Its depth.
+        depth: Depth,
+        /// The end of its body.
+        end: u64,
     },
 }
 
@@ -226,14 +291,36 @@ struct Found {
     file_type: Option<FileType>,
     /// What the first movie holds.
     audio: Option<Mp4Audio>,
+    /// The movie being walked.
+    movie: Movie,
 }
+
+/// Type and locale of a `data` box, before the value.
+const DATA_HEADER: u64 = 8;
 
 /// What a probe does after a window.
 enum Next {
     /// Asks for a read and waits in a state.
-    Read(State, ReadRequest),
+    Read(Box<State>, ReadRequest),
     /// Finishes.
-    Done(Mp4Audio),
+    Done(Box<Mp4Audio>),
+}
+
+/// A box whose header has been read and whose body fits its parent.
+#[derive(Clone, Copy)]
+struct SizedBox {
+    /// The box type.
+    kind: FourCc,
+    /// Where the box starts.
+    offset: u64,
+    /// How deeply the box is nested.
+    depth: Depth,
+    /// Where the body starts.
+    start: u64,
+    /// The length of the body.
+    len: u64,
+    /// Where the next sibling starts.
+    next: u64,
 }
 
 impl Probe {
@@ -249,45 +336,55 @@ impl Probe {
 
     /// Takes in `window` in `state`.
     fn step(&mut self, state: State, window: Window<'_>) -> Result<Next, Mp4Error> {
-        let (next, found) = match state {
-            State::Start => (0, Found::default()),
-            State::Header { offset, found } => return self.header(window, offset, found),
-            State::FileType { next, mut found } => {
-                found.file_type = Some(file_type(window.cursor(), &mut self.budget)?);
-                (next, found)
-            }
-            State::Movie {
+        match state {
+            State::Start => self.next_header(0, Vec::new(), Found::default(), window.file_len),
+            State::Header {
                 offset,
-                depth,
+                stack,
+                found,
+            } => self.header(window, offset, stack, found),
+            State::Body {
+                need,
                 next,
-                mut found,
-            } => {
-                let moov = Mp4Box {
-                    kind: MOOV,
-                    offset,
-                    depth,
-                    body: window.cursor(),
-                };
-                found.audio = Some(movie(moov, &self.limits, &mut self.budget)?);
-                (next, found)
-            }
-        };
-        self.next_header(next, found, window.file_len)
+                stack,
+                found,
+            } => self.body(window, need, next, stack, found),
+        }
     }
 
-    /// Asks for the header of the box at `offset`, or finishes at the end
-    /// of the file.
-    fn next_header(&self, offset: u64, mut found: Found, file_len: u64) -> Result<Next, Mp4Error> {
-        let rest = file_len.saturating_sub(offset);
-        if rest == 0 {
-            let Some(mut audio) = found.audio else {
-                return Err(Mp4Error::NoMovie { offset });
+    /// Asks for the header of the box at `offset`, leaves a finished
+    /// parent, or finishes at the end of the file.
+    fn next_header(
+        &mut self,
+        offset: u64,
+        mut stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        let end = stack.last().map_or(file_len, |parent| parent.end);
+        if offset >= end {
+            let Some(child) = stack.pop() else {
+                let Some(mut audio) = found.audio else {
+                    return Err(Mp4Error::NoMovie { offset });
+                };
+                audio.file_type = found.file_type;
+                return Ok(Next::Done(Box::new(audio)));
             };
-            audio.file_type = found.file_type;
-            return Ok(Next::Done(audio));
+            return self.leave(&child, stack, found, file_len);
         }
-        let request = self.request(&mut found, offset, rest.min(LONGEST_HEADER))?;
-        Ok(Next::Read(State::Header { offset, found }, request))
+        let request = self.request(
+            &mut found,
+            offset,
+            end.saturating_sub(offset).min(LONGEST_HEADER),
+        )?;
+        Ok(Next::Read(
+            Box::new(State::Header {
+                offset,
+                stack,
+                found,
+            }),
+            request,
+        ))
     }
 
     /// A request for `len` octets at `offset`, within the read limits.
@@ -304,22 +401,70 @@ impl Probe {
     }
 
     /// Reads the header of the box at `offset` from `window`, and asks for
-    /// its body or for the next header.
+    /// a small body, enters a container, or skips to the next sibling.
     fn header(
         &mut self,
         window: Window<'_>,
         offset: u64,
+        mut stack: Vec<Open>,
         mut found: Found,
     ) -> Result<Next, Mp4Error> {
         self.budget.charge(1, offset)?;
+        let nested = !stack.is_empty();
+        if let Err(error) = self.count_child(&mut stack, &mut found, offset) {
+            return self.recover(error, nested, stack, found, window.file_len);
+        }
+        let sized = match self.sized_header(window, offset, &stack) {
+            Ok(sized) => sized,
+            Err(error) => {
+                return self.recover(error, nested, stack, found, window.file_len);
+            }
+        };
+        match stack.last().map(|open| open.kind) {
+            Some(parent) => self.movie_box(sized, parent, stack, found, window.file_len),
+            None => self.top_box(sized, stack, found, window.file_len),
+        }
+    }
+
+    /// Counts the box at `offset` against the children limit of its parent,
+    /// or of the file when it is at the top.
+    fn count_child(
+        &self,
+        stack: &mut [Open],
+        found: &mut Found,
+        offset: u64,
+    ) -> Result<(), Mp4Error> {
+        if let Some(open) = stack.last_mut() {
+            open.children = open.children.saturating_add(1);
+            self.limits
+                .check(LimitKind::Children, open.children, offset)?;
+            return Ok(());
+        }
         found.boxes = found.boxes.saturating_add(1);
         self.limits
-            .check(LimitKind::Children, found.boxes, offset)?;
+            .check(LimitKind::Children, found.boxes, offset)
+            .map_err(Into::into)
+    }
+
+    /// The box at `offset` once its header is read and its body is known to
+    /// fit its parent.
+    fn sized_header(
+        &self,
+        window: Window<'_>,
+        offset: u64,
+        stack: &[Open],
+    ) -> Result<SizedBox, Mp4Error> {
         let mut cursor = window.cursor();
         let header = read_header(&mut cursor)?;
-        let depth = Depth::CONTAINER_ROOT.descend(&self.limits, offset)?;
+        let depth = match stack.last() {
+            Some(open) => open.depth.descend(&self.limits, offset)?,
+            None => Depth::CONTAINER_ROOT.descend(&self.limits, offset)?,
+        };
         let start = cursor.offset();
-        let available = window.file_len.saturating_sub(start);
+        let available = stack
+            .last()
+            .map_or(window.file_len, |open| open.end)
+            .saturating_sub(start);
         let len = header.len.unwrap_or(available);
         if len > available {
             return Err(ParseFault::Truncated {
@@ -329,38 +474,447 @@ impl Probe {
             }
             .into());
         }
-        // The body fits the file, so this never saturates.
-        let next = start.saturating_add(len);
-        let movie = match header.kind {
-            FTYP if found.file_type.is_none() => false,
-            MOOV if found.audio.is_none() => true,
-            _ => return self.next_header(next, found, window.file_len),
-        };
-        // An empty body needs no read, and a read of nothing is refused.
-        let request = if len == 0 {
-            None
+        Ok(SizedBox {
+            kind: header.kind,
+            offset,
+            depth,
+            start,
+            len,
+            next: start.saturating_add(len),
+        })
+    }
+
+    /// A nested header that could not be read: inside user data it is a
+    /// skipped part, elsewhere it fails the file.
+    fn recover(
+        &mut self,
+        error: Mp4Error,
+        nested: bool,
+        stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        if nested {
+            Self::broken(&stack, &mut found, error)?;
+            let offset = Self::parent_end(&stack, file_len);
+            self.next_header(offset, stack, found, file_len)
         } else {
-            Some(self.request(&mut found, start, len)?)
+            Err(error)
+        }
+    }
+
+    /// Enters the first `ftyp` or `moov` at the top of the file, or skips
+    /// any other top-level box.
+    fn top_box(
+        &mut self,
+        sized: SizedBox,
+        stack: Vec<Open>,
+        found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        match sized.kind {
+            FTYP if found.file_type.is_none() => self.ask(
+                Need::FileType,
+                sized.start,
+                sized.len,
+                sized.next,
+                stack,
+                found,
+                file_len,
+            ),
+            MOOV if found.audio.is_none() => self.enter(
+                Open {
+                    kind: MOOV,
+                    offset: sized.offset,
+                    depth: sized.depth,
+                    at: sized.start,
+                    end: sized.next,
+                    children: 0,
+                },
+                stack,
+                found,
+                file_len,
+            ),
+            _ => self.next_header(sized.next, stack, found, file_len),
+        }
+    }
+
+    /// Enters a movie container, peeks at a `meta` box, or reads a leaf.
+    fn movie_box(
+        &mut self,
+        sized: SizedBox,
+        parent: FourCc,
+        stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        if sized.kind == META {
+            return self.ask(
+                Need::MetaPeek {
+                    offset: sized.offset,
+                    depth: sized.depth,
+                    end: sized.next,
+                },
+                sized.start,
+                sized.len.min(DATA_HEADER),
+                sized.next,
+                stack,
+                found,
+                file_len,
+            );
+        }
+        if is_container(parent, sized.kind) {
+            if parent == ILST {
+                let item = Mp4Box {
+                    kind: sized.kind,
+                    offset: sized.offset,
+                    depth: sized.depth,
+                    body: Cursor::at(&[], sized.start),
+                };
+                if found
+                    .movie
+                    .items
+                    .enter(item, &self.limits, &mut found.movie.problems)
+                    == Flow::SkipRest
+                {
+                    return self.next_header(
+                        Self::parent_end(&stack, sized.next),
+                        stack,
+                        found,
+                        file_len,
+                    );
+                }
+            }
+            if parent == MOOV && sized.kind == TRAK {
+                found.movie.track = TrackParts::new(sized.offset);
+            }
+            return self.enter(
+                Open {
+                    kind: sized.kind,
+                    offset: sized.offset,
+                    depth: sized.depth,
+                    at: sized.start,
+                    end: sized.next,
+                    children: 0,
+                },
+                stack,
+                found,
+                file_len,
+            );
+        }
+        self.leaf(
+            sized.kind,
+            sized.offset,
+            sized.depth,
+            sized.start,
+            sized.len,
+            sized.next,
+            stack,
+            found,
+            file_len,
+        )
+    }
+
+    /// Enters `child` and asks for its first child's header.
+    fn enter(
+        &mut self,
+        child: Open,
+        mut stack: Vec<Open>,
+        found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        let at = child.at;
+        stack.push(child);
+        self.next_header(at, stack, found, file_len)
+    }
+
+    /// Leaves `child` and asks for the next sibling's header.
+    fn leave(
+        &mut self,
+        child: &Open,
+        stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        if child.kind == TRAK && stack.last().is_some_and(|open| open.kind == MOOV) {
+            found.movie.end_track()?;
+        }
+        if stack.last().is_some_and(|open| open.kind == ILST) {
+            found.movie.items.leave(&mut found.movie.problems);
+        }
+        if child.kind == MOOV && stack.is_empty() {
+            found.audio = Some(found.movie.take_audio(child.offset)?);
+        }
+        self.next_header(child.end, stack, found, file_len)
+    }
+
+    /// Records a child that could not be read: inside user data it is a
+    /// skipped part, elsewhere it fails the file.
+    fn broken(stack: &[Open], found: &mut Found, error: Mp4Error) -> Result<(), Mp4Error> {
+        if stack.iter().any(|open| open.kind == UDTA) {
+            found.movie.problems.push(Mp4Problem::Metadata(error));
+            return Ok(());
+        }
+        Err(error)
+    }
+
+    /// The end of the innermost open box, or `fallback` when none is open.
+    fn parent_end(stack: &[Open], fallback: u64) -> u64 {
+        stack.last().map_or(fallback, |open| open.end)
+    }
+
+    /// Asks for a small body of `len` at `start`, or continues when the
+    /// body is empty.
+    #[expect(clippy::too_many_arguments, reason = "the walk names each field")]
+    fn ask(
+        &mut self,
+        need: Need,
+        start: u64,
+        len: u64,
+        next: u64,
+        stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        if len == 0 {
+            let empty = Window {
+                offset: start,
+                bytes: &[],
+                file_len,
+            };
+            return self.body(empty, need, next, stack, found);
+        }
+        let request = match self.request(&mut found, start, len) {
+            Ok(request) => request,
+            Err(error) => match need {
+                Need::ItemLeaf { .. } | Need::PictureHeader { .. } | Need::MetaPeek { .. } => {
+                    found.movie.problems.push(Mp4Problem::Metadata(error));
+                    return self.next_header(next, stack, found, file_len);
+                }
+                Need::FileType | Need::Media { .. } | Need::SampleDescription { .. } => {
+                    return Err(error);
+                }
+            },
         };
-        let state = if movie {
-            State::Movie {
+        Ok(Next::Read(
+            Box::new(State::Body {
+                need,
+                next,
+                stack,
+                found,
+            }),
+            request,
+        ))
+    }
+
+    /// Parses a small body and continues at `next`.
+    fn body(
+        &mut self,
+        window: Window<'_>,
+        need: Need,
+        next: u64,
+        stack: Vec<Open>,
+        mut found: Found,
+    ) -> Result<Next, Mp4Error> {
+        match need {
+            Need::FileType => {
+                found.file_type = Some(file_type(window.cursor(), &mut self.budget)?);
+            }
+            Need::Media {
+                kind,
                 offset,
                 depth,
-                next,
-                found,
+            } => {
+                found.movie.track.media(Mp4Box {
+                    kind,
+                    offset,
+                    depth,
+                    body: window.cursor(),
+                })?;
             }
-        } else {
-            State::FileType { next, found }
-        };
-        if let Some(request) = request {
-            return Ok(Next::Read(state, request));
+            Need::SampleDescription { offset, depth } => {
+                found.movie.track.set_entry(super::audio::sample_entry(
+                    Mp4Box {
+                        kind: FourCc(*b"stsd"),
+                        offset,
+                        depth,
+                        body: window.cursor(),
+                    },
+                    &self.limits,
+                    &mut self.budget,
+                    &mut found.movie.problems,
+                ));
+            }
+            Need::ItemLeaf {
+                kind,
+                offset,
+                depth,
+            } => {
+                found.movie.items.leaf(
+                    Mp4Box {
+                        kind,
+                        offset,
+                        depth,
+                        body: window.cursor(),
+                    },
+                    &self.limits,
+                    &mut found.movie.problems,
+                );
+            }
+            Need::PictureHeader {
+                payload_offset,
+                payload_len,
+            } => {
+                if self.take_picture(window, payload_offset, payload_len, &mut found)
+                    == Flow::SkipRest
+                {
+                    return self.next_header(
+                        Self::parent_end(&stack, next),
+                        stack,
+                        found,
+                        window.file_len,
+                    );
+                }
+            }
+            Need::MetaPeek { offset, depth, end } => match meta_children_start(window.cursor()) {
+                Ok(at) => {
+                    return self.enter(
+                        Open {
+                            kind: META,
+                            offset,
+                            depth,
+                            at,
+                            end,
+                            children: 0,
+                        },
+                        stack,
+                        found,
+                        window.file_len,
+                    );
+                }
+                Err(error) => {
+                    Self::broken(&stack, &mut found, error)?;
+                }
+            },
         }
-        let empty = Window {
-            offset: start,
-            bytes: &[],
-            file_len: window.file_len,
-        };
-        self.step(state, empty)
+        self.next_header(next, stack, found, window.file_len)
+    }
+
+    /// Records a picture from the `data` type field, without the payload.
+    fn take_picture(
+        &self,
+        window: Window<'_>,
+        payload_offset: u64,
+        payload_len: u64,
+        found: &mut Found,
+    ) -> Flow {
+        let mut body = window.cursor();
+        match body.u32_be() {
+            Ok(type_code) => found.movie.items.picture(
+                type_code,
+                payload_offset,
+                payload_len,
+                &self.limits,
+                &mut found.movie.problems,
+            ),
+            Err(fault) => {
+                found
+                    .movie
+                    .problems
+                    .push(Mp4Problem::Metadata(fault.into()));
+                Flow::Continue
+            }
+        }
+    }
+
+    /// Asks for a small body of a leaf, or records a sample-table range
+    /// without reading it.
+    #[expect(clippy::too_many_arguments, reason = "the walk names each field")]
+    fn leaf(
+        &mut self,
+        kind: FourCc,
+        offset: u64,
+        depth: Depth,
+        start: u64,
+        len: u64,
+        next: u64,
+        stack: Vec<Open>,
+        mut found: Found,
+        file_len: u64,
+    ) -> Result<Next, Mp4Error> {
+        let parent = stack.last().map(|open| open.kind);
+        let in_mdia = parent == Some(MDIA);
+        let in_stbl = parent == Some(STBL);
+        let in_item =
+            parent.is_some_and(|kind| stack.iter().any(|open| open.kind == ILST) && kind != ILST);
+        if in_mdia && (kind.0 == *b"mdhd" || kind == HDLR) {
+            let extra = found.movie.audio.is_some();
+            if extra && kind.0 == *b"mdhd" {
+                return self.next_header(next, stack, found, file_len);
+            }
+            return self.ask(
+                Need::Media {
+                    kind,
+                    offset,
+                    depth,
+                },
+                start,
+                len,
+                next,
+                stack,
+                found,
+                file_len,
+            );
+        }
+        if in_stbl {
+            found.movie.track.record_table(kind, start..next);
+            let want_stsd =
+                kind.0 == *b"stsd" && found.movie.audio.is_none() && found.movie.track.is_audio();
+            if want_stsd {
+                return self.ask(
+                    Need::SampleDescription { offset, depth },
+                    start,
+                    len,
+                    next,
+                    stack,
+                    found,
+                    file_len,
+                );
+            }
+            return self.next_header(next, stack, found, file_len);
+        }
+        if in_item && (kind == MEAN || kind == NAME || kind == DATA) {
+            if kind == DATA && found.movie.items.current_kind() == COVR {
+                let payload_len = len.saturating_sub(DATA_HEADER);
+                let payload_offset = start.saturating_add(DATA_HEADER.min(len));
+                return self.ask(
+                    Need::PictureHeader {
+                        payload_offset,
+                        payload_len,
+                    },
+                    start,
+                    len.min(DATA_HEADER),
+                    next,
+                    stack,
+                    found,
+                    file_len,
+                );
+            }
+            return self.ask(
+                Need::ItemLeaf {
+                    kind,
+                    offset,
+                    depth,
+                },
+                start,
+                len,
+                next,
+                stack,
+                found,
+                file_len,
+            );
+        }
+        self.next_header(next, stack, found, file_len)
     }
 }
 
@@ -371,10 +925,10 @@ impl SansIo for Probe {
         let state = std::mem::take(&mut self.state);
         match self.step(state, window) {
             Ok(Next::Read(state, request)) => {
-                self.state = state;
+                self.state = *state;
                 Step::Need(request)
             }
-            Ok(Next::Done(audio)) => Step::Done(Ok(audio)),
+            Ok(Next::Done(audio)) => Step::Done(Ok(*audio)),
             Err(error) => Step::Done(Err(error)),
         }
     }
@@ -403,9 +957,9 @@ fn file_type(mut body: Cursor<'_>, budget: &mut Budget) -> Result<FileType, Mp4E
 
 /// What a walk of a movie has found.
 #[derive(Debug, Default)]
-struct Movie<'a> {
+struct Movie {
     /// The parts of the track being walked.
-    track: TrackParts<'a>,
+    track: TrackParts,
     /// The first audio track and its sample tables.
     audio: Option<(AudioTrack, SampleTableRanges)>,
     /// The items of the item lists.
@@ -414,41 +968,10 @@ struct Movie<'a> {
     problems: Vec<Mp4Problem>,
 }
 
-impl<'a> Movie<'a> {
-    /// Takes in one event of the walk, inside the open boxes `path`.
-    fn visit(
-        &mut self,
-        path: &[FourCc],
-        event: Event<'a>,
-        limits: &Limits,
-        budget: &mut Budget,
-    ) -> Result<Flow, Mp4Error> {
-        match (path, event) {
-            ([MOOV], Event::Enter(trak @ Mp4Box { kind: TRAK, .. })) => {
-                self.track = TrackParts::new(trak.offset);
-            }
-            ([MOOV], Event::Leave(Mp4Box { kind: TRAK, .. })) => self.end_track(limits, budget)?,
-            ([MOOV, TRAK, MDIA], Event::Leaf(child)) => self.track.media(child)?,
-            ([MOOV, TRAK, MDIA, MINF, STBL], Event::Leaf(child)) => self.track.table(child),
-            ([MOOV, UDTA, META, ILST], Event::Enter(item)) => {
-                return Ok(self.items.enter(item, limits, &mut self.problems));
-            }
-            ([MOOV, UDTA, META, ILST], Event::Leave(_)) => self.items.leave(&mut self.problems),
-            ([MOOV, UDTA, META, ILST, _], Event::Leaf(child)) => {
-                return Ok(self.items.leaf(child, limits, &mut self.problems));
-            }
-            ([MOOV, UDTA, ..], Event::Broken(error)) => {
-                self.problems.push(Mp4Problem::Metadata(error));
-            }
-            (_, Event::Broken(error)) => return Err(error),
-            _ => {}
-        }
-        Ok(Flow::Continue)
-    }
-
+impl Movie {
     /// Reads the track just left if it is the first audio track, and
     /// records it if it is a later one.
-    fn end_track(&mut self, limits: &Limits, budget: &mut Budget) -> Result<(), Mp4Error> {
+    fn end_track(&mut self) -> Result<(), Mp4Error> {
         let track = std::mem::take(&mut self.track);
         if !track.is_audio() {
             return Ok(());
@@ -459,29 +982,34 @@ impl<'a> Movie<'a> {
             });
             return Ok(());
         }
-        self.audio = Some(track.audio(limits, budget, &mut self.problems)?);
+        self.audio = Some(track.audio()?);
         Ok(())
+    }
+
+    /// The movie as the probe reports it, or [`Mp4Error::NoAudioTrack`].
+    fn take_audio(&mut self, offset: u64) -> Result<Mp4Audio, Mp4Error> {
+        let Some((track, sample_tables)) = self.audio.take() else {
+            return Err(Mp4Error::NoAudioTrack { offset });
+        };
+        Ok(Mp4Audio {
+            file_type: None,
+            track,
+            items: std::mem::take(&mut self.items).into_items(),
+            sample_tables,
+            problems: std::mem::take(&mut self.problems),
+        })
     }
 }
 
-/// Walks the movie box `moov`.
-fn movie(moov: Mp4Box<'_>, limits: &Limits, budget: &mut Budget) -> Result<Mp4Audio, Mp4Error> {
-    let mut movie = Movie::default();
-    walk(moov, limits, budget, &mut |path, event, budget| {
-        movie.visit(path, event, limits, budget)
-    })?;
-    let Some((track, sample_tables)) = movie.audio else {
-        return Err(Mp4Error::NoAudioTrack {
-            offset: moov.offset,
-        });
-    };
-    Ok(Mp4Audio {
-        file_type: None,
-        track,
-        items: movie.items.into_items(),
-        sample_tables,
-        problems: movie.problems,
-    })
+/// Where the children of a `meta` box start: after the version and flags
+/// of a full box, or at the first octet when the body starts with `hdlr`.
+fn meta_children_start(mut body: Cursor<'_>) -> Result<u64, Mp4Error> {
+    let start = body.offset();
+    if body.rest().get(4..8) == Some(HDLR.0.as_slice()) {
+        return Ok(start);
+    }
+    body.skip(4)?;
+    Ok(body.offset())
 }
 
 #[cfg(test)]
@@ -749,16 +1277,32 @@ mod tests {
             }
         };
         assert_eq!(result, Ok(expected(52, Some(brand_read()))));
-        let request = |offset, len| ReadRequest { offset, len };
+        assert_eq!(asked[0], ReadRequest { offset: 0, len: 32 });
+        assert_eq!(asked[1], ReadRequest { offset: 8, len: 20 });
         assert_eq!(
-            asked,
-            vec![
-                request(0, 32),   // the ftyp header and what follows it
-                request(8, 20),   // its body
-                request(28, 32),  // the mdat header
-                request(52, 32),  // the moov header
-                request(60, 480), // its body
-            ]
+            asked[2],
+            ReadRequest {
+                offset: 28,
+                len: 32
+            }
+        );
+        assert_eq!(
+            asked[3],
+            ReadRequest {
+                offset: 52,
+                len: 32
+            }
+        );
+        // The movie is walked by headers and small bodies, never as one
+        // blob, and the media data after its header is never read.
+        assert!(asked.iter().all(|request| request.len <= 95), "{asked:?}");
+        assert!(
+            asked.iter().all(|request| {
+                request.offset == 28
+                    || request.offset + u64::from(request.len) <= 36
+                    || request.offset >= 52
+            }),
+            "{asked:?}"
         );
     }
 
@@ -1168,6 +1712,16 @@ mod tests {
                 offset: 556,
             })))
         );
+        // The sample table's fifth child is refused when the limit is 4.
+        assert_eq!(
+            run(&file, &lowered(LimitKind::Children, 4), enough(&file)),
+            Ok(Err(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Children,
+                value: 5,
+                max: 4,
+                offset: 308,
+            })))
+        );
     }
 
     /// Verifies: SEC-MED-005
@@ -1185,46 +1739,251 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-MED-017, SEC-MED-010
+    #[test]
+    fn keeps_the_track_when_artwork_makes_the_movie_larger_than_one_read() {
+        // A 512-octet JPEG cover makes the movie larger than a 256-octet
+        // read (the sample description is 95 octets). Asking for the whole
+        // `moov` would fail the file; walking headers leaves the track
+        // and a range for the picture.
+        let cover = [0xFF; 512];
+        let items = [
+            mp4_box(*b"\xA9nam", &data(1, b"Song")),
+            mp4_box(*b"covr", &data(13, &cover)),
+        ]
+        .concat();
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), udta(false, &items)].concat(),
+            ),
+        ]
+        .concat();
+        let limits = lowered(LimitKind::ReadBytes, 256);
+        let audio = run(&file, &limits, enough(&file))
+            .expect("the probe asks only for what the host allows")
+            .expect("the track is kept");
+        assert_eq!(audio.track.timescale.get(), 44_100);
+        assert_eq!(audio.track.entry.format, FourCc(*b"mp4a"));
+        assert_eq!(
+            audio.items[0],
+            IlstItem {
+                key: ItemKey::Atom(FourCc(*b"\xA9nam")),
+                values: vec![ItemValue::Text(text("Song"))],
+            }
+        );
+        let start = file
+            .windows(512)
+            .position(|window| window == cover)
+            .expect("the cover octets are in the file");
+        assert_eq!(
+            audio.items[1],
+            IlstItem {
+                key: ItemKey::Atom(FourCc(*b"covr")),
+                values: vec![ItemValue::Picture(PictureRef {
+                    type_code: 13,
+                    offset: u64::try_from(start).expect("the offset fits"),
+                    len: 512,
+                })],
+            }
+        );
+    }
+
+    /// Verifies: SEC-MED-017, SEC-MED-010
+    #[test]
+    fn skips_an_item_body_larger_than_the_read_limit() {
+        let long = [b'a'; 300];
+        let items = mp4_box(*b"\xA9nam", &data(1, &long));
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), udta(false, &items)].concat(),
+            ),
+        ]
+        .concat();
+        let audio = run(&file, &lowered(LimitKind::ReadBytes, 256), enough(&file))
+            .expect("the probe asks only for what the host allows")
+            .expect("the track is kept");
+        assert_eq!(audio.track.entry.format, FourCc(*b"mp4a"));
+        assert_eq!(
+            audio.items,
+            vec![IlstItem {
+                key: ItemKey::Atom(FourCc(*b"\xA9nam")),
+                values: vec![],
+            }]
+        );
+        assert_eq!(
+            audio.problems,
+            vec![Mp4Problem::Metadata(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::ReadBytes,
+                value: 308,
+                max: 256,
+                offset: 405,
+            }))]
+        );
+    }
+
+    /// Verifies: SEC-MED-010
+    #[test]
+    fn refuses_a_sample_description_larger_than_the_read_limit() {
+        let file = [brand(), movie()].concat();
+        assert_eq!(
+            run(&file, &lowered(LimitKind::ReadBytes, 64), enough(&file)),
+            Ok(Err(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::ReadBytes,
+                value: 95,
+                max: 64,
+                offset: 141,
+            })))
+        );
+    }
+
+    /// Verifies: SEC-MED-017, SEC-MED-006
+    #[test]
+    fn skips_the_rest_of_the_list_past_the_tag_field_limit() {
+        let file = [brand(), movie()].concat();
+        let audio = run(&file, &lowered(LimitKind::TagFields, 2), enough(&file))
+            .expect("the probe asks only for what the host allows")
+            .expect("the track is kept");
+        assert_eq!(audio.items.len(), 2);
+        assert_eq!(
+            audio.problems,
+            vec![Mp4Problem::Metadata(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::TagFields,
+                value: 3,
+                max: 2,
+                offset: 490,
+            }))]
+        );
+    }
+
+    /// Verifies: SEC-MED-017, SEC-MED-006
+    #[test]
+    fn skips_a_picture_past_the_size_or_count_limit() {
+        let file = [brand(), movie()].concat();
+        let audio = run(&file, &lowered(LimitKind::PictureBytes, 1), enough(&file))
+            .expect("the probe asks only for what the host allows")
+            .expect("the track is kept");
+        assert_eq!(audio.items[2].values, vec![]);
+        assert_eq!(
+            audio.problems,
+            vec![Mp4Problem::Metadata(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::PictureBytes,
+                value: 2,
+                max: 1,
+                offset: 514,
+            }))]
+        );
+        let audio = run(&file, &lowered(LimitKind::Pictures, 0), enough(&file))
+            .expect("the probe asks only for what the host allows")
+            .expect("the track is kept");
+        assert_eq!(audio.items[2].values, vec![]);
+        assert_eq!(
+            audio.problems,
+            vec![Mp4Problem::Metadata(fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Pictures,
+                value: 1,
+                max: 0,
+                offset: 514,
+            }))]
+        );
+    }
+
+    #[test]
+    fn skips_a_short_picture_header_or_meta_box() {
+        let short_cover = mp4_box(*b"covr", &mp4_box(*b"data", &[0, 0]));
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), udta(false, &short_cover)].concat(),
+            ),
+        ]
+        .concat();
+        let audio = probe(&file).expect("the track is kept");
+        assert_eq!(audio.track.entry.format, FourCc(*b"mp4a"));
+        assert_eq!(audio.problems.len(), 1);
+        let short_meta = mp4_box(*b"udta", &mp4_box(*b"meta", &[0, 0]));
+        let file = [
+            brand(),
+            mp4_box(*b"moov", &[track(*b"soun", 44_100), short_meta].concat()),
+        ]
+        .concat();
+        let audio = probe(&file).expect("the track is kept");
+        assert_eq!(audio.track.entry.format, FourCc(*b"mp4a"));
+        assert_eq!(audio.problems.len(), 1);
+        // A truncated `meta` outside user data fails the file.
+        let file = [
+            brand(),
+            mp4_box(
+                *b"moov",
+                &[track(*b"soun", 44_100), mp4_box(*b"meta", &[0, 0])].concat(),
+            ),
+        ]
+        .concat();
+        assert!(probe(&file).is_err());
+    }
+
+    #[test]
+    fn parent_end_is_the_innermost_end_or_the_fallback() {
+        assert_eq!(Probe::parent_end(&[], 9), 9);
+        let stack = [Open {
+            kind: FourCc(*b"ilst"),
+            offset: 1,
+            depth: Depth::CONTAINER_ROOT,
+            at: 2,
+            end: 7,
+            children: 0,
+        }];
+        assert_eq!(Probe::parent_end(&stack, 9), 7);
+    }
+
     /// Verifies: SEC-MED-006, SEC-TM-032
     #[test]
     fn refuses_to_ask_for_more_than_the_read_limits_allow() {
         let file = [brand(), movie(), mdat()].concat();
-        // A movie body of 480 octets is longer than one read may be.
+        // Walking headers, a 479-octet read is enough; the movie is not
+        // asked for as one 480-octet blob.
         assert_eq!(
             run(&file, &lowered(LimitKind::ReadBytes, 479), enough(&file)),
-            Ok(Err(fault(ParseFault::LimitExceeded {
-                limit: LimitKind::ReadBytes,
-                value: 480,
-                max: 479,
-                offset: 36,
-            })))
+            Ok(Ok(expected(28, Some(brand_read()))))
         );
+        let mut probe = Probe::new(Limits::DEFAULT, enough(&file));
+        let mut window = Window::start(file.len() as u64);
+        let mut asked = Vec::new();
+        loop {
+            match probe.resume(window) {
+                Step::Done(_) => break,
+                Step::Need(request) => {
+                    asked.push(request);
+                    let start = usize::try_from(request.offset).expect("the offset fits");
+                    window = Window {
+                        offset: request.offset,
+                        bytes: &file[start..start + request.len as usize],
+                        file_len: file.len() as u64,
+                    };
+                }
+            }
+        }
+        let total: u64 = asked.iter().map(|request| u64::from(request.len)).sum();
+        let last = *asked.last().expect("the probe reads something");
         assert!(
-            run(&file, &lowered(LimitKind::ReadBytes, 480), enough(&file))
+            run(&file, &lowered(LimitKind::FileBytes, total), enough(&file))
                 .is_ok_and(|probe| probe.is_ok())
         );
-        // 32 + 20 + 32 octets come before the movie body: 564 in all.
         assert_eq!(
-            run(&file, &lowered(LimitKind::FileBytes, 563), enough(&file)),
+            run(
+                &file,
+                &lowered(LimitKind::FileBytes, total - 1),
+                enough(&file)
+            ),
             Ok(Err(fault(ParseFault::LimitExceeded {
                 limit: LimitKind::FileBytes,
-                value: 564,
-                max: 563,
-                offset: 36,
-            })))
-        );
-        // The last header read, of the 24 octets left, takes it to 588.
-        assert!(
-            run(&file, &lowered(LimitKind::FileBytes, 588), enough(&file))
-                .is_ok_and(|probe| probe.is_ok())
-        );
-        assert_eq!(
-            run(&file, &lowered(LimitKind::FileBytes, 587), enough(&file)),
-            Ok(Err(fault(ParseFault::LimitExceeded {
-                limit: LimitKind::FileBytes,
-                value: 588,
-                max: 587,
-                offset: 516,
+                value: total,
+                max: total - 1,
+                offset: last.offset,
             })))
         );
         // A header read is refused like any other.
