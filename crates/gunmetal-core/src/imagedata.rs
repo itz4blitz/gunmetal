@@ -1224,16 +1224,19 @@ mod tests {
     /// What `placeholder` and `palette` must refuse, worked out from the
     /// documented rules alone.
     fn expected_refusal(rgba: &[u8], width: u16, height: u16) -> Option<ImageDataError> {
-        let expected = usize::from(width) * usize::from(height) * 4;
         if width == 0 || height == 0 {
-            Some(ImageDataError::Empty { width, height })
-        } else if width > 100 || height > 100 {
-            Some(ImageDataError::TooLarge {
+            return Some(ImageDataError::Empty { width, height });
+        }
+        if width > 100 || height > 100 {
+            return Some(ImageDataError::TooLarge {
                 width,
                 height,
                 max: 100,
-            })
-        } else if rgba.len() == expected {
+            });
+        }
+        // Both sides are at most 100 here, so this fits any usize.
+        let expected = usize::from(width) * usize::from(height) * 4;
+        if rgba.len() == expected {
             None
         } else {
             Some(ImageDataError::LengthMismatch {
@@ -1301,6 +1304,9 @@ mod tests {
         fn every_buffer_gets_a_result_or_the_documented_refusal(
             (width, height, rgba) in prop_oneof![
                 (0_u16..=120, 0_u16..=120, vec(any::<u8>(), 0..64)),
+                (Just(0_u16), 0_u16..=120, vec(any::<u8>(), 0..64)),
+                (0_u16..=120, Just(0_u16), vec(any::<u8>(), 0..64)),
+                (101_u16..=u16::MAX, 1_u16..=u16::MAX, vec(any::<u8>(), 0..64)),
                 sized_image(4),
             ],
         ) {
