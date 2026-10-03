@@ -74,6 +74,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "http_forwarded"
+path = "fuzz_targets/http_forwarded.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_range"
+path = "fuzz_targets/http_range.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "link"
 path = "fuzz_targets/link.rs"
 test = false

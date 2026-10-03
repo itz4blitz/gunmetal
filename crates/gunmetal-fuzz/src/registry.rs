@@ -52,6 +52,8 @@ macro_rules! harnesses {
 harnesses! {
     base64,
     ebml,
+    http_forwarded,
+    http_range,
     link,
     net,
     text,

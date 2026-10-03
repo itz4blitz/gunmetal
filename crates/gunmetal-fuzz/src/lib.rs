@@ -19,6 +19,8 @@
 
 pub mod base64;
 pub mod ebml;
+pub mod http_forwarded;
+pub mod http_range;
 pub mod link;
 pub mod net;
 pub mod registry;
