@@ -15,8 +15,9 @@
 //!
 //! Rows the core does not enforce live with the code that does: the worker's
 //! memory, deadlines and quarantine (the worker host), artwork dimensions
-//! (the worker's artwork job), the IPC frame cap (the wire codec), and the
-//! R2 rows for subtitles, archives and XML (their R2 parsers).
+//! and loudness analysis (the worker's jobs), the IPC frame cap (the wire
+//! codec, fixed by SEC-MED-023), and the rows for CUE sheets, subtitles,
+//! archives and XML (the R2 parsers that need them).
 
 use super::fault::ParseFault;
 

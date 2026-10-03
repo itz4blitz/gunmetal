@@ -128,7 +128,10 @@ pub enum DriveError {
 }
 
 /// Admits the read requests of one parse of one file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Like a [`Budget`](super::Budget), a guard is deliberately not `Copy` or
+/// `Clone`, so its count of octets read cannot be duplicated and reset.
+#[derive(Debug, PartialEq, Eq)]
 pub struct ReadGuard {
     file_len: u64,
     max_read: u64,
