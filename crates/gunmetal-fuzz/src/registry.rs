@@ -69,5 +69,6 @@ harnesses! {
     riff,
     text,
     time,
+    token,
     values,
 }

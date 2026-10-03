@@ -193,6 +193,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "token"
+path = "fuzz_targets/token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "values"
 path = "fuzz_targets/values.rs"
 test = false

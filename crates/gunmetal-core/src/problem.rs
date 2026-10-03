@@ -81,6 +81,8 @@ problems! {
     EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
     /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
     InvalidCode = ("invalid_code", Some(400), "That code is not valid. Check it and try again."),
+    /// A capability URL's expiry has passed, so the client should refresh it and retry (SEC-API-027).
+    MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
@@ -120,7 +122,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 8] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 9] = [
         (
             "aiff_unreadable",
             None,
@@ -150,6 +152,11 @@ mod tests {
             "invalid_code",
             Some(400),
             "That code is not valid. Check it and try again.",
+        ),
+        (
+            "media_url_expired",
+            Some(401),
+            "This media link has expired. Refresh it and try again.",
         ),
         (
             "not_found",

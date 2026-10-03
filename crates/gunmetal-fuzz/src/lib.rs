@@ -37,4 +37,5 @@ pub mod registry;
 pub mod riff;
 pub mod text;
 pub mod time;
+pub mod token;
 pub mod values;
