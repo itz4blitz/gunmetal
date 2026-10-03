@@ -154,25 +154,34 @@ pub enum Synchronous {
 /// assert_eq!(literal, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// There is no method that sets `secure_delete`; if one with this name
-/// and argument were added, this would compile and the test would fail:
+/// No method sets `secure_delete`, and this example fails if one is ever
+/// added. A method call reaches a type's own method before a trait's, so
+/// with a `secure_delete` method on `Pragmas` the call below would stop
+/// reaching the trait written here: it would no longer compile, or would
+/// return something other than this text.
 ///
-/// ```compile_fail
+/// ```
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
-/// let off = Pragmas::new(Synchronous::Normal).secure_delete(false);
-/// assert_ne!(off, Pragmas::new(Synchronous::Normal));
+/// trait Absent: Sized {
+///     fn secure_delete(self, _on: bool) -> &'static str {
+///         "Pragmas has no secure_delete method"
+///     }
+/// }
+/// impl Absent for Pragmas {}
+///
+/// let reached: &'static str = Pragmas::new(Synchronous::Normal).secure_delete(false);
+/// assert_eq!(reached, "Pragmas has no secure_delete method");
 /// ```
 ///
-/// Neither example proves that `secure_delete` stays on: each passes on
-/// any compile error, and shows only what a store cannot write. The proof
-/// is structural and checked at run time. The opener executes the common
-/// pragmas, `secure_delete=ON` among them, on every connection, and a
-/// pragma set carries no state that reaches them: its three fields choose
-/// only `synchronous`, `busy_timeout` and `query_only`.
+/// That `secure_delete` is on for every set a store can build is checked
+/// at run time. The opener executes the common pragmas, `secure_delete=ON`
+/// among them, on every connection, and a pragma set carries no state that
+/// reaches them: its three fields choose only `synchronous`,
+/// `busy_timeout` and `query_only`.
 /// `no_pragma_set_a_store_can_build_switches_secure_delete_off`
-/// (`tests/sqlite.rs`) opens a connection with every set a store can build
-/// and reads `secure_delete` back from each.
+/// (`tests/sqlite.rs`) opens a connection with every kind of set and reads
+/// `secure_delete` back from each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pragmas {
     synchronous: Synchronous,
