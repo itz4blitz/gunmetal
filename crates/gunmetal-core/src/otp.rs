@@ -304,17 +304,11 @@ fn pairing_symbol(byte: u8) -> u8 {
 
 /// Inserts a hyphen every `width` symbols.
 fn group(symbols: &[u8], width: usize) -> String {
-    let mut text = String::new();
-    let mut n = 0_usize;
-    for &symbol in symbols {
-        if n == width {
-            text.push('-');
-            n = 0;
-        }
-        text.push(char::from(symbol));
-        n = n.wrapping_add(1);
-    }
-    text
+    symbols
+        .chunks(width)
+        .map(|chunk| chunk.iter().copied().map(char::from).collect::<String>())
+        .collect::<Vec<String>>()
+        .join("-")
 }
 
 /// Reads 27 compact claim symbols, after folding, into 16 bytes.
@@ -621,6 +615,14 @@ mod tests {
         assert_eq!(
             parse_code("00000-00000-00000-00000-00000-01", CodeKind::Claim),
             Err(checksum(CodeKind::Claim))
+        );
+        assert_eq!(
+            parse_code("00000-00000-00000-00000-00000-0*", CodeKind::Claim),
+            Err(checksum(CodeKind::Claim))
+        );
+        assert_eq!(
+            parse_code("0000-0000-0000-0000-*", CodeKind::Recovery),
+            Err(checksum(CodeKind::Recovery))
         );
         assert_eq!(
             parse_code("7ZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-Z~", CodeKind::Claim),
