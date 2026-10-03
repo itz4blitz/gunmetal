@@ -12,6 +12,7 @@ pub mod id;
 pub mod link;
 pub mod net;
 pub mod parse;
+pub mod player;
 pub mod problem;
 pub mod schema;
 pub mod text;
