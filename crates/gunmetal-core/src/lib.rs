@@ -17,4 +17,5 @@ pub mod schema;
 pub mod text;
 pub mod time;
 pub mod untrusted;
+pub mod userdata;
 pub mod values;
