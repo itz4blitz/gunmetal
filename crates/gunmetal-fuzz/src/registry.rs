@@ -60,6 +60,7 @@ harnesses! {
     id3_structure,
     id3v1,
     link,
+    logframe,
     lyrics,
     mp4_probe,
     mp4_structure,

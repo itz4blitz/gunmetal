@@ -14,6 +14,7 @@ pub mod gain;
 pub mod http;
 pub mod id;
 pub mod link;
+pub mod logframe;
 pub mod lyrics;
 pub mod net;
 pub mod otp;

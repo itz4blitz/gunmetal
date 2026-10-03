@@ -130,6 +130,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "logframe"
+path = "fuzz_targets/logframe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "lyrics"
 path = "fuzz_targets/lyrics.rs"
 test = false
