@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The cargo-fuzz project needs a nightly toolchain and libFuzzer, so it is a
+# workspace of its own; its harnesses live in crates/gunmetal-fuzz.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.0.0"

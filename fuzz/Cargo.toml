@@ -1,0 +1,37 @@
+# cargo-fuzz targets (SEC-TM-033). Each target is a thin wrapper around a
+# harness in crates/gunmetal-fuzz, which stable `cargo test` also replays
+# over the committed corpus in seeds/ (SEC-MED-027, SEC-MED-028).
+#
+# Coverage-guided fuzzing needs a nightly toolchain, so this is a workspace
+# of its own, excluded from the main one. From the repository root:
+#
+#   cargo +nightly fuzz run --sanitizer none ebml fuzz/corpus/ebml fuzz/seeds/ebml
+#
+# libFuzzer writes new inputs to the first directory (fuzz/corpus/ebml,
+# ignored by git) and only reads the committed seeds. A crash lands in
+# fuzz/artifacts/ebml; minimise it, then commit it to seeds/ebml with a
+# replay test and a fix, test first (SEC-MED-030).
+
+[package]
+name = "gunmetal-fuzz-targets"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# A workspace root of its own, wherever the checkout sits.
+[workspace]
+
+[dependencies]
+gunmetal-fuzz = { path = "../crates/gunmetal-fuzz", version = "0.0.0" }
+libfuzzer-sys = "0.4.13"
+
+[[bin]]
+name = "ebml"
+path = "fuzz_targets/ebml.rs"
+test = false
+doc = false
+bench = false

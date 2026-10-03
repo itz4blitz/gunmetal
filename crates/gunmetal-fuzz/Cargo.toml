@@ -1,0 +1,16 @@
+[package]
+name = "gunmetal-fuzz"
+description = "Fuzz harnesses for Gunmetal's parsers, shared by cargo-fuzz and stable corpus replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[dependencies]
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+# The fuzzer's working corpus, crash artifacts and coverage output. The
+# committed corpus lives in seeds/.
+/target
+/corpus
+/artifacts
+/coverage

@@ -1,0 +1,73 @@
+name: Fuzz
+
+# Coverage-guided fuzzing of every harness (SEC-TM-033, SEC-MED-029): for an
+# hour each night, and for ten minutes on each pull request that changes
+# the parsers, the harnesses or this setup. A crash, an input that takes
+# more than 5 seconds, or more than 1 GiB of memory fails the job and keeps
+# the input as an artifact. Stable `cargo test` replays the committed seeds
+# in the gate (SEC-MED-028); this job is where new inputs are found.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  pull_request:
+    paths:
+      - crates/gunmetal-core/**
+      - crates/gunmetal-fuzz/**
+      - fuzz/**
+      - .github/workflows/fuzz.yml
+  workflow_dispatch:
+
+# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ebml]
+    env:
+      # libFuzzer instrumentation needs nightly, pinned by date just as the
+      # stable toolchain is pinned by version (SEC-SUP-038).
+      NIGHTLY: nightly-2026-10-01
+      FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '600' || '3600' }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ env.NIGHTLY }}
+      # No prebuilt cargo-fuzz binary is published with checksums, so build
+      # the exact version from crates.io with its own lockfile (SEC-SUP-011).
+      - run: cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+      # cargo-fuzz has no --locked flag, so fail here if fuzz/Cargo.lock is
+      # stale; the build below then resolves nothing new (SEC-SUP-020).
+      - run: cargo +"$NIGHTLY" fetch --locked --manifest-path fuzz/Cargo.toml
+      # The core forbids unsafe code and has no dependencies, so the address
+      # sanitizer would add cost without coverage. cargo-fuzz builds with
+      # optimisations, debug assertions and overflow checks. New inputs go
+      # to the first, scratch directory; the committed seeds are read only.
+      - name: Fuzz
+        run: |
+          mkdir -p "fuzz/corpus/$TARGET"
+          cargo +"$NIGHTLY" fuzz run --sanitizer none "$TARGET" \
+            "fuzz/corpus/$TARGET" "fuzz/seeds/$TARGET" -- \
+            -max_total_time="$FUZZ_SECONDS" -timeout=5 -rss_limit_mb=1024
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
