@@ -82,6 +82,7 @@ on D-07, D-10 and remote access in R1, as those rows record.
 | DCO sign-off (answered 2026-10-03) | Agent commits carry no `Signed-off-by`. The owner's merge commit for each wave into `main` carries the owner's sign-off, covering the wave. |
 | Erasure ledger (answered 2026-10-03) | Kept for the life of the data directory, holding only IDs and clock values, so erased history cannot return from any older backup. |
 | Building order (answered 2026-10-03) | Each wave starts on top of the previous wave branch while the owner reviews it; review changes are folded in by the next wave's integrator. |
+| Web player (answered 2026-10-03) | Start the web player now. It is planned and built in parallel with the server waves, against a small fake server, so there is a real screen within days, and it moves to the real server as server waves 2 to 4 land. The owner chose this over a throwaway thin slice and over finishing the server first. The plan is [client-packages.md](plan/client-packages.md), and its technical choices are [record 12](adr/0012-web-client-toolchain-and-contracts.md). |
 
 ### Technical answers to wave 0's package questions, 2026-10-03
 
