@@ -20,8 +20,23 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 
 [[exemptions.bitflags]]
 version = "2.13.2"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cap-primitives]]
+version = "4.0.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cap-std]]
+version = "4.0.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cc]]
+version = "1.5.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.cfg-if]]
 version = "1.0.5"
@@ -30,13 +45,23 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 
 [[exemptions.errno]]
 version = "0.3.14"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.fastrand]]
 version = "2.5.0"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.find-msvc-tools]]
+version = "0.1.14"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.fs-set-times]]
+version = "0.20.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.getrandom]]
 version = "0.3.4"
@@ -48,20 +73,55 @@ version = "0.4.3"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.io-extras]]
+version = "0.19.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.io-lifetimes]]
+version = "2.0.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.io-lifetimes]]
+version = "3.0.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.ipnet]]
+version = "2.12.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.libc]]
 version = "0.2.190"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.libsqlite3-sys]]
+version = "0.38.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.linux-raw-sys]]
 version = "0.12.1"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.maybe-owned]]
+version = "0.3.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.once_cell]]
 version = "1.21.4"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.pkg-config]]
+version = "0.3.34"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.proc-macro2]]
 version = "1.0.107"
@@ -108,15 +168,25 @@ version = "0.8.11"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.rusqlite]]
+version = "0.40.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.rustix]]
 version = "1.1.5"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.rusty-fork]]
 version = "0.3.1"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.smallvec]]
+version = "1.16.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.syn]]
 version = "2.0.119"
@@ -130,13 +200,118 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 
 [[exemptions.windows-link]]
 version = "0.2.1"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows-sys]]
+version = "0.59.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows-sys]]
+version = "0.60.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.windows-sys]]
 version = "0.61.2"
-criteria = "safe-to-run"
-notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-deploy"
+notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows-targets]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows-targets]]
+version = "0.53.5"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_aarch64_gnullvm]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_aarch64_gnullvm]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_aarch64_msvc]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_aarch64_msvc]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_gnu]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_gnu]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_gnullvm]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_gnullvm]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_msvc]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_i686_msvc]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_gnu]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_gnu]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_gnullvm]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_gnullvm]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_msvc]]
+version = "0.52.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.windows_x86_64_msvc]]
+version = "0.53.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.winx]]
+version = "0.36.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.zerocopy]]
 version = "0.8.59"

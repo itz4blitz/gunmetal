@@ -14,7 +14,10 @@ repository = "https://github.com/PremierStudio/gunmetal"
 homepage = "https://gunmetal.tv"
 
 [workspace.dependencies]
+cap-std = "4.0.3"
 proptest = "1"
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+rustix = { version = "1.1.5", features = ["fs", "process"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
