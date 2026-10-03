@@ -8,10 +8,13 @@
 //!
 //! Ceilings follow owner decision D-03 (the stricter value wins wherever two
 //! documents disagree). A limit whose value a requirement row states outright
-//! cannot be raised at all: the nesting depths (SEC-MED-005), the read and
-//! per-file caps (SEC-MED-010) and the lyrics caps, where SEC-API-090 is
-//! stricter than SEC-MED-049 and the table. Every other limit may be raised
-//! to four times its default, as the table allows.
+//! cannot be raised at all: the nesting depths (SEC-MED-005); the size of one
+//! embedded picture and what a compressed picture may inflate to, because
+//! SEC-MED-045 allows every artwork image at most 32 MiB encoded and
+//! SEC-MED-009 stops inflating at the lower of that cap and the declared
+//! size; the read and per-file caps (SEC-MED-010); and the lyrics caps,
+//! where SEC-API-090 is stricter than SEC-MED-049 and the table. Every other
+//! limit may be raised to four times its default, as the table allows.
 //!
 //! Rows the core does not enforce live with the code that does: the worker's
 //! memory, deadlines and quarantine (the worker host), artwork dimensions
@@ -110,6 +113,8 @@ impl LimitKind {
             // A requirement row states these values outright.
             Self::ContainerDepth
             | Self::EmbeddedFrameDepth
+            | Self::PictureBytes
+            | Self::InflatedPicture
             | Self::ReadBytes
             | Self::FileBytes
             | Self::LyricsBytes
@@ -121,10 +126,8 @@ impl LimitKind {
             | Self::TagFields
             | Self::ShortText
             | Self::LongText
-            | Self::PictureBytes
             | Self::Pictures
             | Self::Id3v2TagBytes
-            | Self::InflatedPicture
             | Self::InflatedCodecPrivate
             | Self::InflatedHeader
             | Self::PlaylistBytes
@@ -327,12 +330,14 @@ mod tests {
             LimitKind::TagFields => (4_096, 16_384),
             LimitKind::ShortText => (4_096, 16_384),
             LimitKind::LongText => (65_536, 262_144),
-            // 32 MiB, raisable to 128 MiB.
-            LimitKind::PictureBytes => (33_554_432, 134_217_728),
+            // SEC-MED-045 states 32 MiB encoded for every artwork image,
+            // embedded pictures included, so neither a picture nor what a
+            // compressed one inflates to (SEC-MED-009) may be raised.
+            LimitKind::PictureBytes => (33_554_432, 33_554_432),
             LimitKind::Pictures => (16, 64),
             // 64 MiB, raisable to 256 MiB.
             LimitKind::Id3v2TagBytes => (67_108_864, 268_435_456),
-            LimitKind::InflatedPicture => (33_554_432, 134_217_728),
+            LimitKind::InflatedPicture => (33_554_432, 33_554_432),
             // 1 MiB, raisable to 4 MiB.
             LimitKind::InflatedCodecPrivate => (1_048_576, 4_194_304),
             // 4 MiB, raisable to 16 MiB.
