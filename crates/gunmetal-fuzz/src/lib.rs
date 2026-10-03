@@ -55,3 +55,4 @@ pub mod webauthn_attestation;
 pub mod webauthn_authdata;
 pub mod webauthn_cbor;
 pub mod webauthn_cose;
+pub mod wire;

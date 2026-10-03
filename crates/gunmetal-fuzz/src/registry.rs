@@ -87,4 +87,5 @@ harnesses! {
     webauthn_authdata,
     webauthn_cbor,
     webauthn_cose,
+    wire,
 }

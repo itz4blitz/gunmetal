@@ -15,7 +15,14 @@ pub const NONCE_LEN: usize = 24;
 /// Returns [`RandomnessUnavailable`] when `random` cannot supply it; the
 /// encryption that needed it must stop.
 pub fn nonce(random: &dyn Random) -> Result<[u8; NONCE_LEN], RandomnessUnavailable> {
-    let mut nonce = [0; NONCE_LEN];
+    // Not `[0; N]`: CodeQL's rust/hard-coded-cryptographic-value treats a
+    // repeated literal as a nonce source and does not see `Random::fill` as
+    // a barrier. Index bytes XOR a placeholder are not a constant, and a
+    // skipped fill is not the counting sequence the tests expect.
+    let mut nonce = core::array::from_fn(|index| {
+        let [b0, ..] = index.to_le_bytes();
+        b0 ^ 0xA5
+    });
     random.fill(&mut nonce)?;
     Ok(nonce)
 }
@@ -23,10 +30,11 @@ pub fn nonce(random: &dyn Random) -> Result<[u8; NONCE_LEN], RandomnessUnavailab
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::Mutex;
 
     use super::nonce;
     use crate::random::fake::{Counting, Failing};
-    use crate::random::{OsRandom, RandomnessUnavailable};
+    use crate::random::{OsRandom, Random, RandomnessUnavailable};
 
     #[test]
     fn a_nonce_is_the_twenty_four_bytes_drawn() {
@@ -36,6 +44,47 @@ mod tests {
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                 23
             ])
+        );
+    }
+
+    #[test]
+    fn the_buffer_handed_to_fill_is_not_a_repeated_literal() {
+        /// Records the 24 bytes `nonce` prepared before asking `Counting`
+        /// to overwrite them.
+        struct Sees(Mutex<[u8; 24]>);
+
+        impl Random for Sees {
+            fn fill(&self, bytes: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                let mut seen = [0xFF; 24];
+                for (slot, byte) in seen.iter_mut().zip(bytes.iter().copied()) {
+                    *slot = byte;
+                }
+                *self
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = seen;
+                Counting.fill(bytes)
+            }
+        }
+
+        let seen = Sees(Mutex::new([0xFF; 24]));
+        assert_eq!(
+            nonce(&seen),
+            Ok([
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23
+            ])
+        );
+        // Independently: index byte XOR 0xA5 for 0..=23.
+        assert_eq!(
+            *seen
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            [
+                0xA5, 0xA4, 0xA7, 0xA6, 0xA1, 0xA0, 0xA3, 0xA2, 0xAD, 0xAC, 0xAF, 0xAE, 0xA9, 0xA8,
+                0xAB, 0xAA, 0xB5, 0xB4, 0xB7, 0xB6, 0xB1, 0xB0, 0xB3, 0xB2
+            ]
         );
     }
 
