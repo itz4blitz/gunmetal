@@ -10,6 +10,7 @@ pub mod crypto;
 pub mod ebml;
 pub mod id;
 pub mod link;
+pub mod logframe;
 pub mod net;
 pub mod parse;
 pub mod problem;
