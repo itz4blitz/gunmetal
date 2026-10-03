@@ -338,9 +338,20 @@ interpreted = "deny"
 include-dependencies = true
 include-workspace = true
 include-archives = true
+#
+# Added by the wave 0 integrator with WP-126's crates, reviewed 2026-10-03:
+# cap-primitives, cap-std, io-extras and io-lifetimes only run rustc on a
+# one-line probe of a language feature. libsqlite3-sys compiles the SQLite
+# C source it bundles with the cc crate (rusqlite's "bundled" feature, owner
+# decision D-02); it fetches nothing and runs no other program.
 allow-build-scripts = [
+    "cap-primitives",
+    "cap-std",
     "getrandom",
+    "io-extras",
+    "io-lifetimes",
     "libc",
+    "libsqlite3-sys",
     "num-traits",
     "rustix",
     "zerocopy",
@@ -352,6 +363,13 @@ allow-build-scripts = [
 [[bans.build.bypass]]
 crate = "zerocopy@0.8.59"
 allow-globs = ["cargo.sh", "ci/*.sh"]
+
+# Reviewed 2026-10-03, for this version only: vcpkg, a build dependency of
+# libsqlite3-sys, has no build script. The shell scripts it ships set up its
+# own test environment, and nothing in the build runs them.
+[[bans.build.bypass]]
+crate = "vcpkg@0.2.15"
+allow-globs = ["setup_vcp.sh", "tests/*.sh"]
 
 # SEC-STD-022: rand's small_rng feature is a non-cryptographic generator.
 [[bans.features]]

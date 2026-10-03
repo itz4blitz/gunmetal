@@ -1920,14 +1920,34 @@ fn only_reviewed_crates_run_build_scripts() {
     );
     assert_eq!(
         build_script_crates(DENY),
-        ["getrandom", "libc", "num-traits", "rustix", "zerocopy"]
+        [
+            "cap-primitives",
+            "cap-std",
+            "getrandom",
+            "io-extras",
+            "io-lifetimes",
+            "libc",
+            "libsqlite3-sys",
+            "num-traits",
+            "rustix",
+            "zerocopy",
+        ]
     );
     // A bypass is reviewed for one version, so an update is reviewed again.
     assert_eq!(
-        rules(&table(DENY, "[bans.build.bypass]")),
+        blocks(DENY, "[[bans.build.bypass]]")
+            .into_iter()
+            .map(|(_, lines)| rules(&lines))
+            .collect::<Vec<_>>(),
         [
-            "crate = \"zerocopy@0.8.59\"",
-            "allow-globs = [\"cargo.sh\", \"ci/*.sh\"]",
+            [
+                "crate = \"zerocopy@0.8.59\"",
+                "allow-globs = [\"cargo.sh\", \"ci/*.sh\"]",
+            ],
+            [
+                "crate = \"vcpkg@0.2.15\"",
+                "allow-globs = [\"setup_vcp.sh\", \"tests/*.sh\"]",
+            ],
         ]
     );
     // The workspace has no build script of its own.
