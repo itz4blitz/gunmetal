@@ -174,15 +174,10 @@ impl RecentPlays {
 }
 
 fn record_latest<K: PartialEq>(slots: &mut Vec<(K, Timestamp)>, key: K, at: Timestamp) {
-    for (held, time) in slots.iter_mut() {
-        if *held == key {
-            if at > *time {
-                *time = at;
-            }
-            return;
-        }
+    match slots.iter_mut().find(|(held, _)| *held == key) {
+        Some((_, time)) => *time = (*time).max(at),
+        None => slots.push((key, at)),
     }
-    slots.push((key, at));
 }
 
 fn lookup<K: PartialEq>(slots: &[(K, Timestamp)], key: &K) -> Recency {
@@ -556,6 +551,30 @@ mod tests {
         // C never, B at 80, A at 100 → [2, 1, 0]. If 50 had stuck, A at 50
         // would come before B: [2, 0, 1].
         assert_eq!(order(&items, Mode::SpreadOut, 0, &recent), vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn recording_the_same_key_twice_keeps_one_slot_at_the_later_time() {
+        let mut twice = RecentPlays::empty();
+        twice.record_artist(ArtistKey::new(1), ts(50));
+        twice.record_artist(ArtistKey::new(1), ts(100));
+        twice.record_album(AlbumKey::new(10), ts(20));
+        twice.record_album(AlbumKey::new(10), ts(20));
+        let mut once = RecentPlays::empty();
+        once.record_artist(ArtistKey::new(1), ts(100));
+        once.record_album(AlbumKey::new(10), ts(20));
+        assert_eq!(twice, once);
+
+        let mut both = RecentPlays::empty();
+        both.record_artist(ArtistKey::new(1), ts(50));
+        both.record_artist(ArtistKey::new(2), ts(80));
+        let mut only_first = RecentPlays::empty();
+        only_first.record_artist(ArtistKey::new(1), ts(50));
+        let mut only_second = RecentPlays::empty();
+        only_second.record_artist(ArtistKey::new(2), ts(80));
+        assert_ne!(both, only_first);
+        assert_ne!(both, only_second);
+        assert_ne!(both, twice);
     }
 
     #[test]
