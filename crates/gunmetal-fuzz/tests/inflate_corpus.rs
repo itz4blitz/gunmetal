@@ -56,7 +56,7 @@ fn bomb() -> Vec<u8> {
 
 /// What a bomb leaves in the buffer: the declared 65,536 octets, all zero.
 fn cap_of_zeros() -> Vec<u8> {
-    std::iter::repeat_n(0, 65_536).collect()
+    (0..65_536).map(|_| 0).collect()
 }
 
 /// Reads seed `name`, checks that it holds exactly `bytes`, and checks that

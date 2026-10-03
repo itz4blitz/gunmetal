@@ -16,6 +16,10 @@
 //! input octet it reads and one for every octet it writes. The buffer never
 //! holds more than its cap, so a call spends at most `1` × input octets +
 //! the cap: a budget of `Budget::for_input(len, 1, cap)` is always enough.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the one streaming decompression helper: miniz_oxide runs only here (SEC-MED-009)"
+)]
 
 use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;

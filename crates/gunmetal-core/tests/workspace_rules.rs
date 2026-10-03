@@ -1533,6 +1533,24 @@ fn tls_certificate_verification_cannot_be_switched_off() {
     );
 }
 
+/// Verifies: SEC-MED-009
+#[test]
+fn only_the_streaming_helper_inflates() {
+    assert_eq!(
+        citing(&workspace_methods(), "SEC-MED-009"),
+        sorted(&[
+            "miniz_oxide::inflate::core::decompress",
+            "miniz_oxide::inflate::core::decompress_with_limit",
+            "miniz_oxide::inflate::decompress_slice_iter_to_slice",
+            "miniz_oxide::inflate::decompress_to_vec",
+            "miniz_oxide::inflate::decompress_to_vec_with_limit",
+            "miniz_oxide::inflate::decompress_to_vec_zlib",
+            "miniz_oxide::inflate::decompress_to_vec_zlib_with_limit",
+            "miniz_oxide::inflate::stream::inflate",
+        ])
+    );
+}
+
 #[test]
 fn public_ids_and_secret_values_each_have_one_door() {
     assert_eq!(
