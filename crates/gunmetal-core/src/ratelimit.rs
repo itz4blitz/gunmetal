@@ -10,7 +10,7 @@
 
 use core::hash::Hash;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::client_context::{ClientContext, PathClass};
 use crate::time::Timestamp;
@@ -270,9 +270,9 @@ pub fn keys(principal: Option<PrincipalKey>, addr: IpAddr) -> LimitKeys {
         ),
         IpAddr::V6(v6) => LimitKeys::new(
             [
-                LimitKey::Ipv6Slash64(mask_v6(v6, 64)),
-                LimitKey::Ipv6Slash56(mask_v6(v6, 56)),
-                LimitKey::Ipv6Slash48(mask_v6(v6, 48)),
+                LimitKey::Ipv6Slash64(mask_v6(v6, SLASH_64)),
+                LimitKey::Ipv6Slash56(mask_v6(v6, SLASH_56)),
+                LimitKey::Ipv6Slash48(mask_v6(v6, SLASH_48)),
                 LimitKey::Global,
             ],
             4,
@@ -288,6 +288,11 @@ pub fn keys(principal: Option<PrincipalKey>, addr: IpAddr) -> LimitKeys {
 /// that bucket cannot share a per-source key with loopback or a
 /// local-direct peer (SEC-NET-052, SEC-NET-068). Authenticated requests
 /// still key on the principal.
+///
+/// Every allowed request also spends a cell of [`LimitKey::Global`],
+/// which loopback and local-direct peers share. The unknown bucket can
+/// therefore never delay them only while its ceiling is below the global
+/// one; the package that sets the rates has to keep it so.
 #[must_use]
 pub fn keys_for(principal: Option<PrincipalKey>, context: &ClientContext) -> LimitKeys {
     if principal.is_some() {
@@ -313,11 +318,18 @@ pub fn keys_for(principal: Option<PrincipalKey>, context: &ClientContext) -> Lim
 /// [`BoundedStore::get`] and a replacement [`BoundedStore::insert`] both
 /// count as a use. A capacity of zero stores nothing; [`check_store`]
 /// fails closed on a grant whose keys do not all fit.
+///
+/// Every operation costs a logarithm of the number of stored keys, so a
+/// flood of requests cannot make the store itself the expensive step.
+/// Each entry carries the sequence number of its latest use: `recency`
+/// holds the entries in that order, and `index` finds an entry's number
+/// from its key.
 #[derive(Debug)]
 pub struct BoundedStore<K, V> {
     capacity: usize,
-    map: HashMap<K, V>,
-    order: VecDeque<K>,
+    index: HashMap<K, u64>,
+    recency: BTreeMap<u64, (K, V)>,
+    next_use: u64,
 }
 
 impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
@@ -326,8 +338,9 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
-            map: HashMap::new(),
-            order: VecDeque::new(),
+            index: HashMap::new(),
+            recency: BTreeMap::new(),
+            next_use: 0,
         }
     }
 
@@ -340,22 +353,24 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
     /// How many keys are stored.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.map.len()
+        self.index.len()
     }
 
     /// Whether the store holds no keys.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.index.is_empty()
     }
 
     /// The value for `key`, recording a use, or `None` if it is absent or
     /// has been evicted.
     pub fn get(&mut self, key: &K) -> Option<&V> {
-        if self.map.contains_key(key) {
-            self.touch(key);
-        }
-        self.map.get(key)
+        let (held, value) = self.take(key)?;
+        self.place(held, value);
+        self.index
+            .get(key)
+            .and_then(|used| self.recency.get(used))
+            .map(|(_, value)| value)
     }
 
     /// Stores `value` at `key`. Returns the previous value when `key` was
@@ -363,22 +378,42 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
     /// used entry; a capacity of zero ignores the insert and returns
     /// `None`.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if let Some(slot) = self.map.get_mut(&key) {
-            let previous = core::mem::replace(slot, value);
-            self.touch(&key);
-            return Some(previous);
+        if !self.index.contains_key(&key) && self.index.len() == self.capacity {
+            let (_, (evicted, _)) = self.recency.pop_first()?;
+            self.index.remove(&evicted);
         }
-        if self.map.len() == self.capacity {
-            let evicted = self.order.pop_front()?;
-            self.map.remove(&evicted);
-        }
-        self.order.push_back(key.clone());
-        self.map.insert(key, value)
+        self.place(key, value)
     }
 
-    fn touch(&mut self, key: &K) {
-        self.order.retain(|held| held != key);
-        self.order.push_back(key.clone());
+    /// Removes `key` and returns its entry.
+    fn take(&mut self, key: &K) -> Option<(K, V)> {
+        let used = self.index.remove(key)?;
+        self.recency.remove(&used)
+    }
+
+    /// Stores `value` at `key` as the most recently used entry, returning
+    /// the value it replaces. Never evicts.
+    fn place(&mut self, key: K, value: V) -> Option<V> {
+        let previous = self.take(&key).map(|(_, old)| old);
+        let used = self.next_use;
+        self.index.insert(key.clone(), used);
+        self.recency.insert(used, (key, value));
+        match used.checked_add(1) {
+            Some(next) => self.next_use = next,
+            None => self.renumber(),
+        }
+        previous
+    }
+
+    /// Restarts the use sequence from zero, keeping the order of use, once
+    /// the sequence has run out of numbers.
+    fn renumber(&mut self) {
+        let entries = core::mem::take(&mut self.recency);
+        self.index.clear();
+        self.next_use = 0;
+        for (_, (key, value)) in entries {
+            self.place(key, value);
+        }
     }
 
     /// Stores every entry as one eviction transaction: members of the
@@ -392,27 +427,14 @@ impl<K: Eq + Hash + Clone, V> BoundedStore<K, V> {
         if entries.len() > self.capacity {
             return false;
         }
-        let new_count = entries
-            .iter()
-            .filter(|(key, _)| !self.map.contains_key(key))
-            .count();
-        let free = self.capacity.saturating_sub(self.map.len());
-        let mut need = new_count.saturating_sub(free);
-        let map = &mut self.map;
-        self.order.retain(|key| {
-            if need == 0 || entries.iter().any(|(held, _)| held == key) {
-                return true;
-            }
-            map.remove(key);
-            need = need.saturating_sub(1);
-            false
-        });
+        // With the group's own keys lifted out, the least recently used
+        // entries left are all outside the group, and there are enough of
+        // them: the group is no larger than the capacity.
+        for (key, _) in &entries {
+            self.take(key);
+        }
         for (key, value) in entries {
-            if self.map.insert(key.clone(), value).is_some() {
-                self.touch(&key);
-            } else {
-                self.order.push_back(key);
-            }
+            self.insert(key, value);
         }
         true
     }
@@ -482,15 +504,13 @@ fn check_store_dyn(
     }
 }
 
-fn mask_v6(addr: Ipv6Addr, prefix: u8) -> Ipv6Addr {
-    let bits = addr.to_bits();
-    let masked = match prefix {
-        64 => bits & 0xffff_ffff_ffff_ffff_0000_0000_0000_0000,
-        56 => bits & 0xffff_ffff_ffff_ff00_0000_0000_0000_0000,
-        48 => bits & 0xffff_ffff_ffff_0000_0000_0000_0000_0000,
-        _ => 0,
-    };
-    Ipv6Addr::from_bits(masked)
+/// The network bits of an IPv6 /64, /56 and /48.
+const SLASH_64: u128 = 0xffff_ffff_ffff_ffff_0000_0000_0000_0000;
+const SLASH_56: u128 = 0xffff_ffff_ffff_ff00_0000_0000_0000_0000;
+const SLASH_48: u128 = 0xffff_ffff_ffff_0000_0000_0000_0000_0000;
+
+fn mask_v6(addr: Ipv6Addr, network: u128) -> Ipv6Addr {
+    Ipv6Addr::from_bits(addr.to_bits() & network)
 }
 
 fn saturating_add(base: i64, delta: i64) -> i64 {
@@ -612,8 +632,27 @@ mod tests {
             Rate::new(u64::try_from(i64::MAX / 2).unwrap(), 3),
             Err(RateError::TooLarge)
         );
-        assert!(Rate::new(u64::try_from(i64::MAX).unwrap(), 1).is_ok());
-        assert!(Rate::new(1, u32::MAX).is_ok());
+        assert_eq!(
+            Rate::new(9_223_372_036_854_775_807, 1),
+            Ok(Rate {
+                interval_ms: i64::MAX,
+                tau_ms: 0,
+            })
+        );
+        assert_eq!(
+            Rate::new(1, u32::MAX),
+            Ok(Rate {
+                interval_ms: 1,
+                tau_ms: 4_294_967_294,
+            })
+        );
+        assert_eq!(
+            Rate::new(1_000, 3),
+            Ok(Rate {
+                interval_ms: 1_000,
+                tau_ms: 2_000,
+            })
+        );
     }
 
     #[test]
@@ -730,11 +769,10 @@ mod tests {
             (u32::MAX, 900_000),
         ];
         for (failures, delay_ms) in STEPS {
-            assert_eq!(secret_delay_ms(failures), delay_ms, "failures={failures}");
+            assert_eq!((failures, secret_delay_ms(failures)), (failures, delay_ms));
             assert_eq!(
-                next_guess_at(failures, ts(START_MS)),
-                ts(START_MS + i64::try_from(delay_ms).unwrap()),
-                "failures={failures}"
+                (failures, next_guess_at(failures, ts(START_MS))),
+                (failures, ts(START_MS + i64::try_from(delay_ms).unwrap()))
             );
         }
     }
@@ -797,8 +835,7 @@ mod tests {
             collected(keys(
                 None,
                 IpAddr::V6(Ipv4Addr::new(203, 0, 113, 7).to_ipv6_mapped())
-            ))[0],
-            "IPv4-mapped IPv6 must share the IPv4 key"
+            ))[0]
         );
     }
 
@@ -820,8 +857,6 @@ mod tests {
         assert_eq!(keys_a[2], keys_b[2]);
         assert_eq!(keys_a[3], LimitKey::Global);
         assert_eq!(collected(keys(None, IpAddr::V6(a))).len(), 4);
-        assert_eq!(mask_v6(a, 0), Ipv6Addr::UNSPECIFIED);
-        assert_eq!(mask_v6(a, 128), Ipv6Addr::UNSPECIFIED);
     }
 
     /// Verifies: SEC-NET-052
@@ -833,10 +868,10 @@ mod tests {
         let a = collected(keys(None, IpAddr::V6(first)));
         let b = collected(keys(None, IpAddr::V6(rotated)));
         let c = collected(keys(None, IpAddr::V6(outside)));
-        assert_ne!(a[0], b[0], "distinct /64s");
-        assert_eq!(a[2], b[2], "same /48");
+        assert_ne!(a[0], b[0]);
+        assert_eq!(a[2], b[2]);
         assert_eq!(a[2], LimitKey::Ipv6Slash48(reference_prefix(first, 48)));
-        assert_ne!(a[2], c[2], "a neighbouring /48 is a different key");
+        assert_ne!(a[2], c[2]);
     }
 
     /// Verifies: SEC-NET-052
@@ -862,6 +897,85 @@ mod tests {
             collected(keys_for(Some(principal(9)), &unknown)),
             [LimitKey::Principal(principal(9)), LimitKey::Global]
         );
+    }
+
+    /// Verifies: SEC-NET-052
+    #[test]
+    fn exhausting_the_unknown_bucket_does_not_delay_loopback_or_home_peers() {
+        // The unknown ceiling (2) is below the global one (255). Each
+        // allowed unknown request also spends a global cell, so this holds
+        // only while the unknown bucket's ceiling is below the global one.
+        let tight = rate(60_000, 2);
+        let generous = rate(1, 255);
+        let rate_of = |key: LimitKey| match key {
+            LimitKey::Unknown => tight,
+            _ => generous,
+        };
+        let unknown = context(v4(172, 17, 0, 1), PathClass::Unknown);
+        let loopback = context(v4(127, 0, 0, 1), PathClass::Loopback);
+        let home = context(v4(192, 168, 1, 20), PathClass::Home);
+        let mut store = BoundedStore::new(16);
+        for _ in 0..2 {
+            assert_eq!(
+                check_store(&mut store, &keys_for(None, &unknown), ts(START_MS), rate_of),
+                Decision::Allow
+            );
+        }
+        for _ in 0..3 {
+            assert_eq!(
+                check_store(&mut store, &keys_for(None, &unknown), ts(START_MS), rate_of),
+                Decision::Deny {
+                    retry_after_ms: 60_000
+                }
+            );
+        }
+        assert_eq!(
+            check_store(
+                &mut store,
+                &keys_for(None, &loopback),
+                ts(START_MS),
+                rate_of
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            check_store(&mut store, &keys_for(None, &home), ts(START_MS), rate_of),
+            Decision::Allow
+        );
+        let once = Some(Tat {
+            theoretical_ms: START_MS + 1,
+            observed_ms: START_MS,
+        });
+        assert_eq!(
+            store.get(&LimitKey::Unknown).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 120_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(Ipv4Addr::LOCALHOST)).copied(),
+            once
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(192, 168, 1, 20)))
+                .copied(),
+            once
+        );
+        // The gateway address itself was never charged.
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(Ipv4Addr::new(172, 17, 0, 1))),
+            None
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 4,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(store.len(), 4);
     }
 
     /// Verifies: SEC-NET-052, SEC-IAM-101
@@ -1075,7 +1189,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-101
     #[test]
     fn a_deny_returns_the_longest_retry_among_the_keys() {
         let a = v4(203, 0, 113, 1);
@@ -1311,16 +1424,25 @@ mod tests {
     /// Verifies: SEC-NET-051, SEC-NET-052
     #[test]
     fn ipv6_rotation_with_capacity_four_still_exhausts_the_slash_48() {
-        rotating_slash_64s_exhaust_slash_48(4);
+        // Room for one request's keys only: the exhausted /48 is evicted.
+        rotating_slash_64s_exhaust_slash_48(4, None);
     }
 
     /// Verifies: SEC-NET-051, SEC-NET-052
     #[test]
     fn ipv6_rotation_with_capacity_five_still_exhausts_the_slash_48() {
-        rotating_slash_64s_exhaust_slash_48(5);
+        // One spare slot: the three least recently used keys go and the
+        // exhausted /48, used more recently, stays.
+        rotating_slash_64s_exhaust_slash_48(
+            5,
+            Some(Tat {
+                theoretical_ms: START_MS + 2_000,
+                observed_ms: START_MS,
+            }),
+        );
     }
 
-    fn rotating_slash_64s_exhaust_slash_48(capacity: usize) {
+    fn rotating_slash_64s_exhaust_slash_48(capacity: usize, exhausted_after: Option<Tat>) {
         let tight = rate(1_000, 2);
         let generous = rate(1, 255);
         let rate_of = |key: LimitKey| match key {
@@ -1401,6 +1523,161 @@ mod tests {
             ),
             Decision::Allow
         );
+        assert_outside_grant_evicted_the_oldest(&mut store, capacity, exhausted_after);
+    }
+
+    /// The grant to `outside` needed three new slots. Every key of the
+    /// grant is stored, the store is exactly full, and the keys evicted
+    /// are the least recently used ones outside the grant.
+    fn assert_outside_grant_evicted_the_oldest(
+        store: &mut BoundedStore<LimitKey, Tat>,
+        capacity: usize,
+        exhausted_after: Option<Tat>,
+    ) {
+        let inside_one = v6([0x2001, 0x0DB8, 0xAAAA, 0x0001, 0, 0, 0, 1]);
+        let inside_two = v6([0x2001, 0x0DB8, 0xAAAA, 0x0002, 0, 0, 0, 1]);
+        let outside = v6([0x2001, 0x0DB8, 0xBBBB, 0x0001, 0, 0, 0, 1]);
+        let slash48 = LimitKey::Ipv6Slash48(reference_prefix(inside_one, 48));
+        assert_eq!(store.len(), capacity);
+        let once = Some(Tat {
+            theoretical_ms: START_MS + 1,
+            observed_ms: START_MS,
+        });
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv6Slash64(reference_prefix(outside, 64)))
+                .copied(),
+            once
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv6Slash56(reference_prefix(outside, 56)))
+                .copied(),
+            once
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv6Slash48(reference_prefix(outside, 48)))
+                .copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 1_000,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 3,
+                observed_ms: START_MS,
+            })
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv6Slash64(reference_prefix(inside_one, 64))),
+            None
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv6Slash64(reference_prefix(inside_two, 64))),
+            None
+        );
+        assert_eq!(
+            store.get(&LimitKey::Ipv6Slash56(reference_prefix(inside_one, 56))),
+            None
+        );
+        assert_eq!(store.get(&slash48).copied(), exhausted_after);
+        assert_eq!(store.len(), capacity);
+    }
+
+    /// Verifies: SEC-NET-051
+    #[test]
+    fn a_new_ipv4_on_a_full_store_evicts_the_least_recently_used_source() {
+        let generous = rate(1, 255);
+        let mut store = BoundedStore::new(4);
+        for host in 1_u8..=4 {
+            assert_eq!(
+                check_store(
+                    &mut store,
+                    &keys(None, v4(203, 0, 113, host)),
+                    ts(START_MS),
+                    |_| generous
+                ),
+                Decision::Allow
+            );
+        }
+        let once = Some(Tat {
+            theoretical_ms: START_MS + 1,
+            observed_ms: START_MS,
+        });
+        assert_eq!(store.len(), 4);
+        assert_eq!(
+            store.get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 1))),
+            None
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 2)))
+                .copied(),
+            once
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 3)))
+                .copied(),
+            once
+        );
+        assert_eq!(
+            store
+                .get(&LimitKey::Ipv4(Ipv4Addr::new(203, 0, 113, 4)))
+                .copied(),
+            once
+        );
+        assert_eq!(
+            store.get(&LimitKey::Global).copied(),
+            Some(Tat {
+                theoretical_ms: START_MS + 4,
+                observed_ms: START_MS,
+            })
+        );
+    }
+
+    /// Verifies: SEC-NET-051
+    #[test]
+    fn a_group_evicts_the_oldest_outsiders_and_never_its_own_members() {
+        let mut store = BoundedStore::new(3);
+        store.insert("a", 1);
+        store.insert("b", 2);
+        store.insert("c", 3);
+        // "a" is the least recently used key and is also in the group, so
+        // the slot for "d" comes from "b", the oldest key outside it.
+        assert!(store.insert_group(vec![("d", 40), ("a", 10)]));
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.get(&"b"), None);
+        assert_eq!(store.get(&"a"), Some(&10));
+        assert_eq!(store.get(&"c"), Some(&3));
+        assert_eq!(store.get(&"d"), Some(&40));
+
+        // Recency after the gets is a, c, d. A group of two new keys takes
+        // the two oldest slots and leaves the newest outsider.
+        assert!(store.insert_group(vec![("e", 5), ("f", 6)]));
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.get(&"a"), None);
+        assert_eq!(store.get(&"c"), None);
+        assert_eq!(store.get(&"d"), Some(&40));
+        assert_eq!(store.get(&"e"), Some(&5));
+        assert_eq!(store.get(&"f"), Some(&6));
+
+        // A key named twice is stored once, with the later value.
+        assert!(store.insert_group(vec![("g", 7), ("g", 8)]));
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.get(&"d"), None);
+        assert_eq!(store.get(&"g"), Some(&8));
+        assert_eq!(store.get(&"e"), Some(&5));
+        assert_eq!(store.get(&"f"), Some(&6));
+
+        // A group that cannot fit changes nothing.
+        assert!(!store.insert_group(vec![("w", 1), ("x", 2), ("y", 3), ("z", 4)]));
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.get(&"w"), None);
+        assert_eq!(store.get(&"g"), Some(&8));
     }
 
     /// Verifies: SEC-NET-051, SEC-IAM-101, SEC-API-057
@@ -1472,6 +1749,44 @@ mod tests {
 
     /// Verifies: SEC-NET-051
     #[test]
+    fn the_order_of_use_survives_the_use_sequence_running_out() {
+        let mut store = BoundedStore::new(3);
+        store.insert("a", 1);
+        store.insert("b", 2);
+        // The next use takes the last sequence number there is.
+        store.next_use = u64::MAX;
+        assert_eq!(store.insert("c", 3), None);
+        assert_eq!(store.len(), 3);
+        // "a" is still the least recently used key and the one evicted.
+        assert_eq!(store.insert("d", 4), None);
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.get(&"a"), None);
+        assert_eq!(store.get(&"b"), Some(&2));
+        assert_eq!(store.get(&"c"), Some(&3));
+        assert_eq!(store.get(&"d"), Some(&4));
+        // After those gets the order of use is b, c, d.
+        assert_eq!(store.insert("e", 5), None);
+        assert_eq!(store.get(&"b"), None);
+        assert_eq!(store.get(&"c"), Some(&3));
+        assert_eq!(store.get(&"d"), Some(&4));
+        assert_eq!(store.get(&"e"), Some(&5));
+        assert_eq!(store.len(), 3);
+
+        // The same when a get, not an insert, takes the last number.
+        let mut store = BoundedStore::new(2);
+        store.insert("a", 1);
+        store.insert("b", 2);
+        store.next_use = u64::MAX;
+        assert_eq!(store.get(&"a"), Some(&1));
+        assert_eq!(store.insert("c", 3), None);
+        assert_eq!(store.get(&"b"), None);
+        assert_eq!(store.get(&"a"), Some(&1));
+        assert_eq!(store.get(&"c"), Some(&3));
+        assert_eq!(store.len(), 2);
+    }
+
+    /// Verifies: SEC-NET-051
+    #[test]
     fn a_missing_key_is_absent_and_a_capacity_of_one_keeps_only_the_latest() {
         let mut store = BoundedStore::new(1);
         assert_eq!(store.get(&"missing"), None);
@@ -1487,6 +1802,27 @@ mod tests {
             any::<u32>().prop_map(|bits| IpAddr::V4(Ipv4Addr::from(bits))),
             any::<u128>().prop_map(|bits| IpAddr::V6(Ipv6Addr::from(bits))),
             any::<u32>().prop_map(|bits| IpAddr::V6(Ipv4Addr::from(bits).to_ipv6_mapped())),
+        ]
+    }
+
+    /// A request drawn from a small pool, so sequences reuse keys, with
+    /// the number of limiter keys it is charged against written out:
+    /// principal and global, IPv4 and global, or /64, /56, /48 and global.
+    /// The IPv6 pool has /64s that share a /56, /56s that share a /48, and
+    /// two separate /48s.
+    fn request_strategy() -> impl Strategy<Value = (Option<PrincipalKey>, IpAddr, usize)> {
+        prop_oneof![
+            (1_u8..5).prop_map(|byte| (Some(principal(byte)), v4(203, 0, 113, 200), 2_usize)),
+            (1_u8..7).prop_map(|host| (None, v4(203, 0, 113, host), 2_usize)),
+            (
+                prop_oneof![Just(0xAAAA_u16), Just(0xBBBB_u16)],
+                prop_oneof![Just(0x0001_u16), Just(0x0002_u16), Just(0x0100_u16)],
+            )
+                .prop_map(|(net48, net64)| (
+                    None,
+                    IpAddr::V6(v6([0x2001, 0x0DB8, net48, net64, 0, 0, 0, 1])),
+                    4_usize,
+                )),
         ]
     }
 
@@ -1514,7 +1850,7 @@ mod tests {
             let elapsed = u64::try_from(now - first).unwrap();
             let extra = elapsed / interval_ms;
             let ceiling = u64::from(burst) + extra;
-            prop_assert!(allowed <= ceiling, "allowed={allowed} ceiling={ceiling}");
+            prop_assert!(allowed <= ceiling);
         }
 
         /// Verifies: SEC-NET-052
@@ -1581,6 +1917,36 @@ mod tests {
             }
         }
 
+        /// Verifies: SEC-NET-051
+        #[test]
+        fn check_store_never_exceeds_capacity_and_keeps_every_granted_key(
+            capacity in 0_usize..8,
+            requests in proptest::collection::vec(request_strategy(), 0..40),
+        ) {
+            // At most 40 requests against a burst of 255 at one instant, so
+            // no counter runs out: a request is refused only when its keys
+            // do not all fit in the store.
+            let generous = rate(1, 255);
+            let mut store = BoundedStore::new(capacity);
+            for (principal, addr, key_count) in requests {
+                let request_keys = keys(principal, addr);
+                let before = store.len();
+                let decision = check_store(&mut store, &request_keys, ts(START_MS), |_| generous);
+                prop_assert!(store.len() <= capacity);
+                prop_assert_eq!(collected(request_keys).len(), key_count);
+                if key_count <= capacity {
+                    prop_assert_eq!(decision, Decision::Allow);
+                    for key in request_keys.iter() {
+                        prop_assert!(store.get(&key).is_some());
+                    }
+                } else {
+                    prop_assert_ne!(decision, Decision::Allow);
+                    prop_assert_eq!(store.len(), before);
+                }
+                prop_assert!(store.len() <= capacity);
+            }
+        }
+
         /// Verifies: SEC-IAM-101, SEC-API-057
         #[test]
         fn the_global_key_never_allows_more_than_its_ceiling(
@@ -1613,10 +1979,10 @@ mod tests {
             }
             let elapsed = u64::try_from(now - first).unwrap();
             let ceiling = u64::from(global_burst) + elapsed / interval_ms;
-            prop_assert!(allowed <= ceiling, "allowed={allowed} ceiling={ceiling}");
+            prop_assert!(allowed <= ceiling);
         }
 
-        /// Verifies: SEC-API-057, SEC-NET-052
+        /// Verifies: SEC-API-057
         #[test]
         fn a_principal_key_ignores_the_address(
             byte in any::<u8>(),
