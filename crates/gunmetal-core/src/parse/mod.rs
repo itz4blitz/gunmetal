@@ -8,6 +8,7 @@ pub mod capacity;
 pub mod cursor;
 pub mod fault;
 pub mod limits;
+pub mod sansio;
 #[cfg(test)]
 mod small_stack;
 
@@ -16,3 +17,4 @@ pub use capacity::{bounded_capacity, bounded_vec};
 pub use cursor::Cursor;
 pub use fault::ParseFault;
 pub use limits::{LimitError, LimitKind, Limits};
+pub use sansio::{DriveError, ReadGuard, ReadRequest, SansIo, Step, Window, drive};
