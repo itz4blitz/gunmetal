@@ -50,7 +50,9 @@ fn encode(outcome: &Result<Enforced, ConfineError>) -> u8 {
     ]
     .into_iter()
     .filter(|(holds, _)| *holds)
-    .fold(MARK, |answer, (_, bit)| answer | bit)
+    .fold(MARK, |answer, (_, bit)| {
+        answer.checked_add(bit).expect("answer bits do not overlap")
+    })
 }
 
 /// Reads an answer back. The process is separate by the fact that it

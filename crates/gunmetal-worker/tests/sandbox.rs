@@ -10,7 +10,7 @@
 
 use gunmetal_worker::sandbox::{
     Cause, Child, Exit, Inherited, Job, Profile, Program, Tier, TierReport, TypedArgs,
-    answer_self_test, apply_landlock_and_seccomp, confine, launch, self_test,
+    answer_self_test, apply_landlock, apply_seccomp, confine, launch, self_test,
 };
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -183,13 +183,12 @@ fn self_fds() -> Vec<u8> {
 /// Applies the real kernel Landlock and seccomp methods in this process
 /// so llvm-cov records them, then exits so the runtime can flush.
 fn cover_kernel() -> ! {
-    let (landlock, seccomp) = apply_landlock_and_seccomp();
-    assert!(landlock, "Landlock must hold on this kernel");
+    assert!(apply_landlock(), "Landlock must hold on this kernel");
     assert!(
         File::open("/etc/hostname").is_err(),
         "Landlock must refuse a path"
     );
-    assert!(seccomp, "seccomp must hold on this kernel");
+    assert!(apply_seccomp(), "seccomp must hold on this kernel");
     process::exit(0);
 }
 

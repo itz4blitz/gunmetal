@@ -137,15 +137,21 @@ pub fn confine(profile: Profile) -> Result<Enforced, ConfineError> {
     confine_with(&mut Linux, profile)
 }
 
-/// Applies Landlock and seccomp to this process, without the floor.
-///
-/// The sandbox test executable calls this in a child so the two kernel
-/// methods run where a coverage file can still be written.
+/// Applies Landlock to this process. The sandbox test calls this before
+/// proving a path is refused, then applies seccomp.
 #[doc(hidden)]
 #[must_use]
-pub fn apply_landlock_and_seccomp() -> (bool, bool) {
-    let mut linux = Linux;
-    (linux.landlock(), linux.seccomp(&[]))
+pub fn apply_landlock() -> bool {
+    Linux.landlock()
+}
+
+/// Installs the seccomp allowlist in this process with no stray
+/// descriptors. The sandbox test calls this after Landlock has been
+/// proved.
+#[doc(hidden)]
+#[must_use]
+pub fn apply_seccomp() -> bool {
+    Linux.seccomp(&[])
 }
 
 #[cfg(test)]

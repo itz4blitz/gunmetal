@@ -68,6 +68,12 @@ const NATIVE: Option<NativeArch> = Some((TargetArch::aarch64, |allowed| allowed.
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 const NATIVE: Option<NativeArch> = None;
 
+/// Flags for listing a `/proc/self` directory: read-only, a directory,
+/// and closed on exec so the listing descriptor is not inherited.
+const PROC_DIR_FLAGS: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::CLOEXEC);
+
 /// The numeric names in a directory of `/proc/self`, and the number of
 /// the descriptor that was opened to read them.
 fn numbers(directory: &str) -> io::Result<(i32, Vec<u32>)> {
@@ -75,12 +81,7 @@ fn numbers(directory: &str) -> io::Result<(i32, Vec<u32>)> {
         clippy::disallowed_methods,
         reason = "the worker reads its own /proc/self entries, fixed paths, before it gives up the filesystem (SEC-MED-022)"
     )]
-    let opened = rustix::fs::openat(
-        CWD,
-        directory,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    );
+    let opened = rustix::fs::openat(CWD, directory, PROC_DIR_FLAGS, Mode::empty());
     opened
         .and_then(|descriptor| {
             let own = descriptor.as_raw_fd();
@@ -133,14 +134,6 @@ fn profile_dir_from(file: &str) -> Option<String> {
         .next()
         .and_then(|prefix| prefix.rsplit_once('/'))
         .map(|(dir, _)| dir.to_owned())
-}
-
-/// The directory llvm-cov asked this process to write a profile into.
-fn profile_dir() -> Option<String> {
-    std::env::var("LLVM_PROFILE_FILE")
-        .ok()
-        .as_deref()
-        .and_then(profile_dir_from)
 }
 
 /// Extra calls a coverage runtime needs to flush a profile after
@@ -237,8 +230,18 @@ const fn extra_profile_allowlist() -> [Allowed; 13] {
     ]
 }
 
-fn extra_profile_calls() -> Vec<Allowed> {
-    extra_profile_calls_from(std::env::var_os("LLVM_PROFILE_FILE").is_some())
+/// Access needed to create and write a coverage profile file.
+fn profile_fs_access() -> landlock::BitFlags<AccessFs> {
+    [
+        AccessFs::ReadFile,
+        AccessFs::WriteFile,
+        AccessFs::ReadDir,
+        AccessFs::MakeReg,
+        AccessFs::RemoveFile,
+        AccessFs::Truncate,
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// Builds the Landlock ruleset: no filesystem access, except the
@@ -251,17 +254,8 @@ fn landlock_ruleset(dir: Option<&str>) -> Result<RulesetCreated, landlock::Rules
         .and_then(|ruleset| ruleset.scope(Scope::from_all(abi)))
         .and_then(Ruleset::create);
     match dir {
-        Some(dir) => created.and_then(|ruleset| {
-            ruleset.add_rules(path_beneath_rules(
-                [dir],
-                AccessFs::ReadFile
-                    | AccessFs::WriteFile
-                    | AccessFs::ReadDir
-                    | AccessFs::MakeReg
-                    | AccessFs::RemoveFile
-                    | AccessFs::Truncate,
-            ))
-        }),
+        Some(dir) => created
+            .and_then(|ruleset| ruleset.add_rules(path_beneath_rules([dir], profile_fs_access()))),
         None => created,
     }
 }
@@ -269,7 +263,11 @@ fn landlock_ruleset(dir: Option<&str>) -> Result<RulesetCreated, landlock::Rules
 /// The compiled filter: every call on the allowlist is allowed when its
 /// checks hold, and anything else kills the process.
 fn program(strays: &[u32], pid: u32) -> Option<BpfProgram> {
-    program_with(strays, pid, extra_profile_calls())
+    program_with(
+        strays,
+        pid,
+        extra_profile_calls_from(std::env::var_os("LLVM_PROFILE_FILE").is_some()),
+    )
 }
 
 fn program_with(
@@ -342,7 +340,8 @@ impl Kernel for Linux {
     }
 
     fn landlock(&mut self) -> bool {
-        landlock_ruleset(profile_dir().as_deref())
+        let dir = std::env::var("LLVM_PROFILE_FILE").ok();
+        landlock_ruleset(dir.as_deref().and_then(profile_dir_from).as_deref())
             .and_then(RulesetCreated::restrict_self)
             .is_ok_and(|status| status.ruleset != RulesetStatus::NotEnforced)
     }
@@ -405,17 +404,12 @@ mod tests {
         );
         assert_eq!(super::profile_dir_from("p.profraw"), None);
         assert_eq!(super::profile_dir_from(""), None);
-        let _ = super::profile_dir();
     }
 
     #[test]
     fn extra_profile_calls_are_empty_without_a_profile_and_listed_with_one() {
         assert!(super::extra_profile_calls_from(false).is_empty());
         assert_eq!(super::extra_profile_calls_from(true).len(), 13);
-        assert_eq!(
-            super::extra_profile_calls(),
-            super::extra_profile_calls_from(std::env::var_os("LLVM_PROFILE_FILE").is_some())
-        );
         let extras = super::extra_profile_allowlist();
         let names: Vec<&str> = extras.iter().map(|row| row.name).collect();
         assert_eq!(
@@ -451,16 +445,50 @@ mod tests {
     }
 
     #[test]
+    fn proc_directory_flags_are_read_only_directory_and_close_on_exec() {
+        use rustix::fs::OFlags;
+
+        assert!(super::PROC_DIR_FLAGS.contains(OFlags::RDONLY));
+        assert!(super::PROC_DIR_FLAGS.contains(OFlags::DIRECTORY));
+        assert!(super::PROC_DIR_FLAGS.contains(OFlags::CLOEXEC));
+    }
+
+    #[test]
+    fn profile_fs_access_can_create_and_write_a_file() {
+        use landlock::AccessFs;
+
+        let access = super::profile_fs_access();
+        for flag in [
+            AccessFs::ReadFile,
+            AccessFs::WriteFile,
+            AccessFs::ReadDir,
+            AccessFs::MakeReg,
+            AccessFs::RemoveFile,
+            AccessFs::Truncate,
+        ] {
+            assert!(access.contains(flag), "{flag:?}");
+        }
+    }
+
+    #[test]
     fn the_running_process_can_clear_dumpable_and_set_no_new_privs() {
+        use rustix::process::DumpableBehavior;
+
         let mut linux = Linux;
+        rustix::process::set_dumpable_behavior(DumpableBehavior::Dumpable).unwrap();
         linux.undumpable().unwrap();
+        assert_eq!(
+            rustix::process::dumpable_behavior().unwrap(),
+            DumpableBehavior::NotDumpable
+        );
         linux.no_new_privs().unwrap();
+        assert!(rustix::thread::no_new_privs().unwrap());
     }
 
     #[test]
     fn the_running_process_can_set_a_core_file_limit() {
         use crate::sandbox::limits::Limit;
-        use rustix::process::Resource;
+        use rustix::process::{Resource, getrlimit};
 
         let mut linux = Linux;
         linux
@@ -470,6 +498,9 @@ mod tests {
                 hard: 0,
             })
             .unwrap();
+        let limit = getrlimit(Resource::Core);
+        assert_eq!(limit.current, Some(0));
+        assert_eq!(limit.maximum, Some(0));
     }
 
     #[test]

@@ -156,11 +156,31 @@ pub fn launch(program: Program, args: TypedArgs, fds: Inherited) -> Result<Child
     spawn(program.executable(), args, fds)
 }
 
+fn empty_argument_error(argv: [&str; 3]) -> Result<(), SpawnError> {
+    if argv.iter().any(|word| word.is_empty()) {
+        Err(SpawnError::Spawn(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a worker argument was empty",
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 fn spawn(
     executable: impl AsRef<std::ffi::OsStr>,
     args: TypedArgs,
     fds: Inherited,
 ) -> Result<Child, SpawnError> {
+    spawn_argv(executable, args.argv(), fds)
+}
+
+fn spawn_argv(
+    executable: impl AsRef<std::ffi::OsStr>,
+    argv: [&'static str; 3],
+    fds: Inherited,
+) -> Result<Child, SpawnError> {
+    empty_argument_error(argv)?;
     let input = OwnedFd::from(fds.child_end);
     let output = input.try_clone();
     let errors = input.try_clone();
@@ -173,7 +193,7 @@ fn spawn(
                 reason = "the sandbox launcher is the one door that starts a process (SEC-MED-063)"
             )]
             let mut command = Command::new(executable);
-            command.args(args.argv()).env_clear();
+            command.args(argv).env_clear();
             for (key, value) in coverage_env(
                 std::env::vars_os().collect(),
                 std::env::current_dir().ok().as_ref(),
@@ -295,6 +315,25 @@ mod tests {
     }
 
     #[test]
+    fn empty_argument_words_are_refused() {
+        let error = super::empty_argument_error(["", "serve", "scan"]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "the worker could not be started: a worker argument was empty"
+        );
+        assert!(super::empty_argument_error(["--gunmetal-worker", "serve", "scan"]).is_ok());
+        assert!(super::empty_argument_error(["--gunmetal-worker", "", "scan"]).is_err());
+        assert!(super::empty_argument_error(["--gunmetal-worker", "serve", ""]).is_err());
+        let (fds, _ours) = super::Inherited::pair().unwrap();
+        assert_eq!(
+            super::spawn_argv("no-such-gunmetal-worker-045", ["", "serve", "scan"], fds)
+                .unwrap_err()
+                .to_string(),
+            "the worker could not be started: a worker argument was empty"
+        );
+    }
+
+    #[test]
     fn spawn_errors_say_what_failed() {
         assert_eq!(
             SpawnError::Descriptor(io::Error::other("no descriptors")).to_string(),
@@ -337,8 +376,18 @@ mod tests {
             fds,
         )
         .unwrap();
-        assert_ne!(child.id(), 0);
+        let first = child.id();
+        assert_ne!(first, 0);
+        let (fds, _ours) = Inherited::pair().unwrap();
+        let other = launch(
+            Program::Worker,
+            TypedArgs::new(Job::SelfTest, Profile::Scan),
+            fds,
+        )
+        .unwrap();
+        assert_ne!(other.id(), first);
         let _ = child.wait().unwrap();
+        let _ = other.wait().unwrap();
     }
 
     #[test]
@@ -359,13 +408,17 @@ mod tests {
         assert_eq!(child.stop().unwrap(), Exit::Killed(Cause::Kill));
 
         let (fds, _ours) = Inherited::pair().unwrap();
-        drop(
-            launch(
-                Program::Worker,
-                TypedArgs::new(Job::Serve, Profile::Scan),
-                fds,
-            )
-            .unwrap(),
+        let leaked = launch(
+            Program::Worker,
+            TypedArgs::new(Job::Serve, Profile::Scan),
+            fds,
+        )
+        .unwrap();
+        let pid = rustix::process::Pid::from_raw(i32::try_from(leaked.id()).unwrap()).unwrap();
+        drop(leaked);
+        assert!(
+            rustix::process::test_kill_process(pid).is_err(),
+            "Drop must stop the child"
         );
     }
 }
