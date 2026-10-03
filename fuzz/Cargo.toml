@@ -74,6 +74,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "id3_structure"
+path = "fuzz_targets/id3_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3v2_tag"
+path = "fuzz_targets/id3v2_tag.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "link"
 path = "fuzz_targets/link.rs"
 test = false

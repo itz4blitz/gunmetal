@@ -19,6 +19,8 @@
 
 pub mod base64;
 pub mod ebml;
+pub mod id3_structure;
+pub mod id3v2_tag;
 pub mod link;
 pub mod net;
 pub mod registry;
