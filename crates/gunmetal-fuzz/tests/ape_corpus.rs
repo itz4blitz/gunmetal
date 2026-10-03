@@ -25,7 +25,7 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 10] = [
+const SEEDS: [&str; 11] = [
     "apev2-with-a-header",
     "before-an-id3v1-tag",
     "binary-locator-and-reserved",
@@ -35,6 +35,7 @@ const SEEDS: [&str; 10] = [
     "header-at-the-end",
     "size-past-the-file-start",
     "text-with-a-tab-and-a-line-feed",
+    "two-forbidden-keys",
     "unterminated-key",
 ];
 
@@ -252,6 +253,35 @@ fn replays_a_forbidden_key_before_a_good_one() {
             ))),
             tail: short_tail(67),
             steps: [3, 0],
+        },
+    );
+}
+
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_two_forbidden_keys_before_a_good_one() {
+    let bytes = [
+        &AUDIO[..],
+        &raw_item(b"TAG", 0, b"x"),
+        &raw_item(b"ID3", 0, b"y"),
+        &raw_item(b"Ok", 0, b"z"),
+        &block(2_000, 70, 3, 0),
+    ]
+    .concat();
+    replay(
+        "two-forbidden-keys",
+        &bytes,
+        &Outcome {
+            whole: Ok(Some(tag(
+                10..80,
+                vec![item("Ok", ApeValue::Text(vec![text("z")]))],
+                vec![
+                    ItemProblem::BadKey { offset: 10 },
+                    ItemProblem::BadKey { offset: 23 },
+                ],
+            ))),
+            tail: short_tail(80),
+            steps: [4, 0],
         },
     );
 }
