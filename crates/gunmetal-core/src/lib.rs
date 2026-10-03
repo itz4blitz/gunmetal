@@ -13,6 +13,7 @@ pub mod link;
 pub mod net;
 pub mod parse;
 pub mod problem;
+pub mod queue;
 pub mod schema;
 pub mod text;
 pub mod time;
