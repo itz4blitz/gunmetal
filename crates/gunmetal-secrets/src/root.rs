@@ -17,6 +17,7 @@ use std::io::{self, Read};
 use gunmetal_fs::dataroot::{DataRoot, DataRootError};
 use gunmetal_fs::path::{DataDir, DataPath};
 
+use crate::crypto::kdf::hkdf_sha256;
 use crate::random::Random;
 use crate::secret::Secret;
 
@@ -25,6 +26,9 @@ pub const ROOT_KEY: DataPath = DataPath::constant(DataDir::Secrets, "root.key");
 
 /// The root secret's length in bytes: 256 bits.
 pub const ROOT_LEN: usize = 32;
+
+/// A derived key's length in bytes: 256 bits.
+pub const KEY_LEN: usize = 32;
 
 /// Why the root secret could not be loaded or made. No variant carries any
 /// of the secret's bytes.
@@ -39,6 +43,10 @@ pub enum SecretsError {
     Read(io::ErrorKind),
     /// The file does not hold exactly [`ROOT_LEN`] bytes.
     Malformed,
+    /// A cryptographic primitive refused its input: a derived key or a
+    /// message longer than the algorithm allows. No call of this crate
+    /// asks for either.
+    Primitive,
 }
 
 /// The server's root secret, from which every other key is derived.
@@ -46,13 +54,6 @@ pub enum SecretsError {
 /// Inventory: root
 #[derive(Debug)]
 pub struct Root {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "read only by the per-purpose key derivation, which waits for the hkdf crate (dependency request in WP-047's pull request); the tests read it"
-        )
-    )]
     secret: Secret<[u8; ROOT_LEN]>,
 }
 
@@ -80,7 +81,7 @@ impl Root {
     }
 
     /// Reads a root secret of exactly [`ROOT_LEN`] bytes from `file`.
-    fn read(file: &mut dyn Read) -> Result<Self, SecretsError> {
+    pub(crate) fn read(file: &mut dyn Read) -> Result<Self, SecretsError> {
         let mut secret = Secret::new([0; ROOT_LEN]);
         let mut beyond = Secret::new([0; 1]);
         file.read_exact(secret.value_mut())
@@ -108,6 +109,24 @@ impl Root {
     }
 }
 
+impl Root {
+    /// The key of generation `generation` for the purpose labelled
+    /// `label`: the HKDF-SHA-256 output for the root secret, no salt and
+    /// the context `gunmetal/v1/<label>/<generation>` (SEC-OPS-015, record
+    /// 9 decision 4).
+    pub(crate) fn derive(
+        &self,
+        label: &str,
+        generation: u64,
+    ) -> Result<Secret<[u8; KEY_LEN]>, SecretsError> {
+        let mut key = Secret::new([0; KEY_LEN]);
+        let info = format!("gunmetal/v1/{label}/{generation}");
+        hkdf_sha256(&[], self.secret.value(), info.as_bytes(), key.value_mut())
+            .or(Err(SecretsError::Primitive))
+            .map(|()| key)
+    }
+}
+
 /// A read that ran out of bytes means the file is too short; any other
 /// failure is reported as it is.
 const fn malformed_if_short(kind: io::ErrorKind) -> SecretsError {
@@ -132,12 +151,7 @@ mod tests {
     use super::{ROOT_KEY, ROOT_LEN, Root, SecretsError};
     use crate::random::OsRandom;
     use crate::random::fake::{Counting, Failing};
-
-    /// The bytes [`Counting`] writes into a root secret.
-    const COUNTED: [u8; ROOT_LEN] = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-        25, 26, 27, 28, 29, 30, 31,
-    ];
+    use crate::testing::{COUNTED, counted_root, hex};
 
     /// Fails loudly when the tests run as root, which ignores file modes and
     /// would let a permission test pass for the wrong reason.
@@ -353,6 +367,32 @@ mod tests {
         assert_eq!(
             outcomes,
             vec![Err(SecretsError::Read(io::ErrorKind::ConnectionReset)); 3]
+        );
+    }
+
+    /// Verifies: SEC-OPS-015
+    ///
+    /// A key is the HKDF-SHA-256 output for the root secret and a context
+    /// that names the purpose and the generation, so another purpose or
+    /// another generation is another key. The expected keys come from an
+    /// HKDF written in Python over `hmac` and `hashlib`.
+    #[test]
+    fn a_derived_key_is_the_hkdf_output_for_its_purpose_and_generation() {
+        let root = counted_root();
+        let key = |label, generation| root.derive(label, generation).map(|key| hex(key.value()));
+        assert_eq!(
+            [
+                key("url_signing", 0),
+                key("url_signing", 1),
+                key("url_signing", 256),
+                key("vault", 0),
+            ],
+            [
+                Ok("951eaa9d6a3c7a9f455da3ff79af2f324383970254da470d81520e926f9dcae4".to_owned()),
+                Ok("0c1a2aedac0fe7b531244df566ed38ccc3f1efd5a764ff3f1745b70c8701d216".to_owned()),
+                Ok("59e9e5288daf15d47003ea9e3bf403d560266133f0733ad7588224e592a38892".to_owned()),
+                Ok("a4b26e1f369a124ae47b55eecaca7afc8e48d88530b7e1d8bad65d39d844ad05".to_owned()),
+            ]
         );
     }
 

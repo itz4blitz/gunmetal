@@ -1,6 +1,6 @@
 [package]
 name = "gunmetal-secrets"
-description = "Gunmetal's secrets and keys door: the one CSPRNG function, the public-ID minting function, the root secret and the Secret wrapper"
+description = "Gunmetal's secrets and keys door: the one CSPRNG function, the public-ID minting function, the root secret, the keys derived from it, the vault and the Secret wrapper"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,9 +9,13 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+chacha20poly1305 = { version = "0.11.0", default-features = false }
 getrandom.workspace = true
 gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
 gunmetal-fs = { path = "../gunmetal-fs", version = "0.0.0" }
+hkdf = { version = "0.13.0", default-features = false }
+hmac = { version = "0.13.0", default-features = false }
+sha2.workspace = true
 
 [dev-dependencies]
 gunmetal-testkit.workspace = true

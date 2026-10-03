@@ -32,6 +32,13 @@ impl<const N: usize> Wipe for [u8; N] {
     }
 }
 
+impl Wipe for Vec<u8> {
+    fn wipe(&mut self) {
+        self.fill(0);
+        black_box(self);
+    }
+}
+
 /// A secret value: never printed, compared with `==` or serialised, and
 /// wiped when dropped.
 pub struct Secret<T: Wipe>(T);
@@ -165,6 +172,13 @@ mod tests {
         assert_eq!(bytes, [0; 32]);
     }
 
+    #[test]
+    fn wiping_a_vector_zeroes_every_byte_and_keeps_its_length() {
+        let mut bytes = vec![0xA5_u8; 40];
+        bytes.wipe();
+        assert_eq!(bytes, vec![0; 40]);
+    }
+
     /// Verifies: SEC-TM-049
     #[test]
     fn dropping_a_secret_wipes_its_value_once() {
@@ -203,6 +217,17 @@ mod tests {
             .take_while(|line| !line.starts_with('['))
             .filter_map(|line| line.split([' ', '.', '=']).find(|name| !name.is_empty()))
             .collect();
-        assert_eq!(dependencies, ["getrandom", "gunmetal-core", "gunmetal-fs"]);
+        assert_eq!(
+            dependencies,
+            [
+                "chacha20poly1305",
+                "getrandom",
+                "gunmetal-core",
+                "gunmetal-fs",
+                "hkdf",
+                "hmac",
+                "sha2"
+            ]
+        );
     }
 }
