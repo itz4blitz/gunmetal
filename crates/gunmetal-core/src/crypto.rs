@@ -2,14 +2,30 @@
 //!
 //! This is the one module in `gunmetal-core` that uses a cryptographic
 //! crate, and it holds SHA-256 and nothing else: the schema digest
-//! ([`crate::schema`]) and the content-identity windows hash with it. Every
-//! other algorithm, keyed or keyless, lives in the secrets crate's crypto
-//! module, never in the core.
+//! ([`crate::schema`]) and the content-identity windows hash with it. It is
+//! public, so every crate that needs SHA-256, such as the worker hashing an
+//! audio window (WP-079), goes through this door rather than using `sha2`
+//! itself.
+//! Every other algorithm, keyed or keyless, lives in the secrets crate's
+//! crypto module, never in the core.
 
 use sha2::{Digest as _, Sha256};
 
 /// The SHA-256 digest of `bytes` (FIPS 180-4).
-pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
+///
+/// ```
+/// // The first example of FIPS 180-4.
+/// assert_eq!(
+///     gunmetal_core::crypto::sha256(b"abc"),
+///     [
+///         0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae,
+///         0x22, 0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61,
+///         0xf2, 0x00, 0x15, 0xad,
+///     ]
+/// );
+/// ```
+#[must_use]
+pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
@@ -28,11 +44,13 @@ mod tests {
     }
 
     /// The core's crypto module computes SHA-256 exactly as FIPS 180-4
-    /// specifies, the one algorithm the cryptographic inventory lists for
-    /// it. The expected digests are the specification's published examples,
-    /// cross-checked with an independent implementation.
+    /// specifies. The expected digests are the specification's published
+    /// examples, cross-checked with an independent implementation.
     ///
-    /// Verifies: SEC-STD-018
+    /// This is a correctness test only, not proof of SEC-STD-018. The
+    /// core's half of that requirement is that no other module uses a
+    /// cryptographic crate, which WP-001's clippy ban on `sha2` outside
+    /// this file is to prove; it stays open until that ban lands.
     #[test]
     fn hashes_the_fips_180_4_examples() {
         assert_eq!(
