@@ -986,7 +986,9 @@ fn the_core_depends_only_on_reviewed_crates() {
             "hybrid-array",
             "libc",
             "sha2",
+            "tinyvec",
             "typenum",
+            "unicode-normalization",
         ]
     );
     // The manifest names only direct dependencies, so the gate also compares

@@ -6,6 +6,7 @@
 pub mod audit_event;
 pub mod base64;
 pub mod client_context;
+pub mod collate;
 pub mod crypto;
 pub mod ebml;
 pub mod id;
