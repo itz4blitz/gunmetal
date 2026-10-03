@@ -253,10 +253,10 @@ mod tests {
             .iter()
             .map(|name| name.vocabulary())
             .collect();
-        assert!(
-            names.windows(2).all(|pair| pair[0] < pair[1]),
-            "names are not strictly ascending: {names:?}"
-        );
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(names, sorted, "names must be unique and in sorted order");
         for name in names {
             let shaped = name.starts_with(|c: char| c.is_ascii_lowercase())
                 && name.ends_with(|c: char| c.is_ascii_lowercase())

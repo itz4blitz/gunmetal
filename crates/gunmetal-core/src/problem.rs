@@ -127,10 +127,10 @@ mod tests {
     #[test]
     fn codes_are_unique_sorted_lower_case_words() {
         let codes: Vec<&str> = ProblemCode::ALL.iter().map(|code| code.code()).collect();
-        assert!(
-            codes.windows(2).all(|pair| pair[0] < pair[1]),
-            "codes are not strictly ascending: {codes:?}"
-        );
+        let mut sorted = codes.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(codes, sorted, "codes must be unique and in sorted order");
         for code in codes {
             let shaped = code.starts_with(|c: char| c.is_ascii_lowercase())
                 && code.ends_with(|c: char| c.is_ascii_lowercase())
@@ -141,11 +141,12 @@ mod tests {
 
     #[test]
     fn statuses_come_from_the_allowed_list() {
-        for code in ProblemCode::ALL {
-            if let Some(status) = code.status() {
-                assert!(ALLOWED_STATUSES.contains(&status), "{code:?}: {status}");
-            }
-        }
+        let outside: Vec<(ProblemCode, u16)> = ProblemCode::ALL
+            .iter()
+            .filter_map(|code| code.status().map(|status| (*code, status)))
+            .filter(|(_, status)| !ALLOWED_STATUSES.contains(status))
+            .collect();
+        assert_eq!(outside, []);
     }
 
     /// Verifies: SEC-API-072
