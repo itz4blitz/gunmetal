@@ -107,3 +107,24 @@ path = "fuzz_targets/values.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "webauthn_authdata"
+path = "fuzz_targets/webauthn_authdata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cbor"
+path = "fuzz_targets/webauthn_cbor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cose"
+path = "fuzz_targets/webauthn_cose.rs"
+test = false
+doc = false
+bench = false
