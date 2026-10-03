@@ -13,7 +13,53 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/PremierStudio/gunmetal"
 homepage = "https://gunmetal.tv"
 
+# The external crates the owner accepted on 2026-10-02 (decisions D-02 and
+# the plan's recommended defaults; docs/plan/work-packages.md, "Proposed
+# external crates"), each at its newest release published at least seven days
+# before 2026-10-03. An entry here is not yet a dependency: nothing is built
+# or audited until a crate names it with `workspace = true`. The package that
+# first does so writes the dependency checklist in its pull request, and the
+# integrator adds the cargo-vet entry and, for the core, the allowlist entry
+# (supply-chain/core-allowlist.toml). Default features are off; each crate
+# turns on only what it needs.
+#
+# Not here on purpose: the cryptographic crates other than sha2, and rustls
+# with its provider, wait for the cryptography record (record 9, WP-125);
+# image waits for its review (SEC-MED-026); symphonia waits for ADR 5; the
+# age, TUF, RSA, ACME, WebAuthn and OIDC choices are still open. The crates
+# the plan does not use, on purpose, stay out: chrono, time, jiff, clap,
+# tracing-subscriber, log, env_logger, anyhow, thiserror, uuid, base64,
+# tempfile and reqwest.
 [workspace.dependencies]
+# Async runtime and HTTP server (owner decision 7).
+axum = { version = "0.8.9", default-features = false }
+tokio = { version = "1.53.1", default-features = false }
+# Files beneath a root handle, and the one SQLite opener (WP-126, decision 4).
+cap-std = { version = "4.0.3", default-features = false }
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+# The worker's sandbox (WP-045).
+landlock = { version = "0.4.7", default-features = false }
+rustix = { version = "1.1.5", default-features = false }
+seccompiler = { version = "0.5.0", default-features = false }
+# The one CSPRNG function (WP-047).
+getrandom = { version = "0.4.3", default-features = false }
+# The core's accepted crates (D-02): wire formats, SHA-256 in
+# src/crypto.rs only, text folding, and the one inflate helper (WP-128).
+miniz_oxide = { version = "0.9.1", default-features = false }
+postcard = { version = "1.1.3", default-features = false }
+serde = { version = "1.0.229", default-features = false }
+sha2 = { version = "0.11.0", default-features = false }
+unicode-normalization = { version = "0.1.25", default-features = false }
+# JSON for the API and the audit log; history imports decode it in the
+# worker only (D-02).
+serde_json = { version = "1.0.151", default-features = false }
+# The configuration file (owner decision 23) and the library watcher
+# (decision 18).
+notify = { version = "8.2.0", default-features = false }
+toml = { version = "1.1.6", default-features = false }
+# The web client's facade over the core (WP-088).
+wasm-bindgen = { version = "0.2.129", default-features = false }
+# Tests.
 proptest = "1"
 
 [workspace.lints.rust]

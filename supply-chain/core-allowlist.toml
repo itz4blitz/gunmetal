@@ -1,0 +1,27 @@
+# The reviewed allowlist of gunmetal-core's normal dependencies (SEC-SUP-025).
+#
+# gunmetal-core is compiled into the server, the web client and the native
+# clients, so every crate it uses at run time ships everywhere. A crate may
+# become a normal dependency of the core, directly or through another crate,
+# only once it is listed here. It is listed after its dependency checklist
+# (docs/security/supply-chain-and-release.md, section 5) is written in a pull
+# request and a code owner approves it (SEC-SUP-005). The integrator adds the
+# entry in the same step as the crate's root Cargo.toml line and its cargo-vet
+# audit or exemption (docs/plan/work-packages.md, "Working in parallel").
+#
+# The owner accepted the core's first crates on 2026-10-02 (decision D-02):
+# serde, postcard, sha2 (in src/crypto.rs only), unicode-normalization and
+# one pure-Rust inflate crate. Acceptance is not review: none is used yet, so
+# none is listed. Each is listed, with every crate it brings with it, when the
+# package that first needs it is reviewed.
+#
+# Checked by the core's tests (direct dependencies, tests/workspace_rules.rs)
+# and by `xtask core-deps` (every crate in `cargo tree -p gunmetal-core -e
+# normal`, WP-008).
+#
+# One entry per crate, sorted by name:
+#
+# [[crate]]
+# name = "serde"
+# reason = "Protocol types serialise to JSON and postcard (D-02)."
+# reviewed = 2026-10-09
