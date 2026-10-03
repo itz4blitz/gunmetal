@@ -34,6 +34,7 @@ pub mod mp4_structure;
 pub mod mpa;
 pub mod net;
 pub mod otp;
+pub mod path;
 pub mod registry;
 pub mod riff;
 pub mod text;

@@ -81,6 +81,12 @@ problems! {
     EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
     /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
     InvalidCode = ("invalid_code", Some(400), "That code is not valid. Check it and try again."),
+    /// A folder offered as a library root, or as an approved link target, is the filesystem root (SEC-MED-037).
+    LibraryRootFilesystemRoot = ("library_root_filesystem_root", Some(400), "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media."),
+    /// A folder offered as a library root, or as an approved link target, equals, contains or lies inside one of Gunmetal's own data, cache, configuration or log directories (SEC-MED-037).
+    LibraryRootOwnData = ("library_root_own_data", Some(400), "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder."),
+    /// A folder offered as a library root, or as an approved link target, is a system directory or lies inside one (SEC-MED-037).
+    LibraryRootSystemFolder = ("library_root_system_folder", Some(400), "This is a system folder, not a media folder. Choose the folder that holds your media."),
     /// A capability URL's expiry has passed, so the client should refresh it and retry (SEC-API-027).
     MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
@@ -122,7 +128,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 9] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 12] = [
         (
             "aiff_unreadable",
             None,
@@ -152,6 +158,21 @@ mod tests {
             "invalid_code",
             Some(400),
             "That code is not valid. Check it and try again.",
+        ),
+        (
+            "library_root_filesystem_root",
+            Some(400),
+            "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media.",
+        ),
+        (
+            "library_root_own_data",
+            Some(400),
+            "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder.",
+        ),
+        (
+            "library_root_system_folder",
+            Some(400),
+            "This is a system folder, not a media folder. Choose the folder that holds your media.",
         ),
         (
             "media_url_expired",

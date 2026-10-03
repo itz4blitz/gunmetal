@@ -67,6 +67,7 @@ harnesses! {
     mpa,
     net,
     otp,
+    path,
     riff,
     text,
     time,
