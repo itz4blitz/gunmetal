@@ -41,3 +41,4 @@ pub mod text;
 pub mod time;
 pub mod token;
 pub mod values;
+pub mod vorbis_comment;

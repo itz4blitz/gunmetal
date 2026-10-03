@@ -219,3 +219,10 @@ path = "fuzz_targets/values.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "vorbis_comment"
+path = "fuzz_targets/vorbis_comment.rs"
+test = false
+doc = false
+bench = false

@@ -73,4 +73,5 @@ harnesses! {
     time,
     token,
     values,
+    vorbis_comment,
 }
