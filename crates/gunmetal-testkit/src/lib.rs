@@ -11,5 +11,6 @@
 pub mod bytes;
 pub mod checksum;
 pub mod clock;
+pub mod mpa;
 pub mod riff;
 pub mod tempdir;

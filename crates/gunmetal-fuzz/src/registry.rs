@@ -57,6 +57,7 @@ harnesses! {
     http_forwarded,
     http_range,
     link,
+    mpa,
     net,
     riff,
     text,

@@ -5,4 +5,5 @@
 
 pub mod aiff;
 pub mod detect;
+pub mod mpa;
 pub mod riff;
