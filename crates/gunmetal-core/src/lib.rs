@@ -18,6 +18,7 @@ pub mod lyrics;
 pub mod net;
 pub mod otp;
 pub mod parse;
+pub mod player;
 pub mod problem;
 pub mod schema;
 pub mod shuffle;
