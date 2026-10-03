@@ -42,6 +42,11 @@ pub const COMPROMISE_COMMANDS: &[&str] = &[
     "gunmetal update",
 ];
 
+/// Status checks the `main` ruleset must require (SEC-SUP-018). The
+/// supply-chain and DCO checks SEC-SUP-002 also names join this list once a
+/// pull-request job produces them.
+pub const REQUIRED_CHECKS: &[&str] = &["actionlint", "codeql", "gate", "zizmor"];
+
 /// Paths that must have a code owner (SEC-SUP-005, SEC-STD-035).
 pub const PROTECTED: &[&str] = &[
     ".github/CODEOWNERS",
@@ -270,6 +275,7 @@ pub fn settings(tree: &dyn Tree, dir: &str) -> Vec<Finding> {
     findings.extend(repo_settings(tree, dir));
     findings.extend(reporting_settings(tree, dir));
     findings.extend(actions_settings(tree, dir));
+    findings.extend(release_settings(tree, dir));
     findings.extend(ruleset_settings(tree, dir));
     findings
 }
@@ -730,7 +736,15 @@ fn actions_settings(tree: &dyn Tree, dir: &str) -> Vec<Finding> {
     }
 }
 
-/// Branch and tag rulesets (SEC-SUP-002, SEC-SUP-003, SEC-SUP-004, SEC-SUP-005).
+/// Immutable releases (SEC-SUP-003).
+fn release_settings(tree: &dyn Tree, dir: &str) -> Vec<Finding> {
+    match dump(tree, dir, "immutable-releases.json") {
+        Err(finding) => vec![finding],
+        Ok(value) => require_true(&value, "enabled", "immutable_releases"),
+    }
+}
+
+/// Branch and tag rulesets (SEC-SUP-003, SEC-SUP-004, SEC-SUP-005, SEC-SUP-018).
 fn ruleset_settings(tree: &dyn Tree, dir: &str) -> Vec<Finding> {
     let mut rulesets = Vec::new();
     for name in tree.files(dir) {
@@ -775,9 +789,16 @@ fn main_ruleset(rulesets: &[Value]) -> Vec<Finding> {
             setting: "ruleset.main.require_code_owner_review".to_owned(),
         });
     }
-    if !required_check(ruleset, "gate") {
+    for context in REQUIRED_CHECKS {
+        if !required_check(ruleset, context) {
+            findings.push(Finding::Drift {
+                setting: format!("ruleset.main.required_status_checks.{context}"),
+            });
+        }
+    }
+    if !bypass_actors(ruleset).is_some_and(<[Value]>::is_empty) {
         findings.push(Finding::Drift {
-            setting: "ruleset.main.required_status_checks.gate".to_owned(),
+            setting: "ruleset.main.bypass_actors".to_owned(),
         });
     }
     findings
@@ -796,14 +817,38 @@ fn tag_ruleset(rulesets: &[Value]) -> Vec<Finding> {
             setting: "ruleset.tag.enforcement".to_owned(),
         });
     }
-    for rule in ["deletion", "update"] {
+    for rule in ["creation", "deletion", "update"] {
         if !has_rule(ruleset, rule) {
             findings.push(Finding::Drift {
                 setting: format!("ruleset.tag.{rule}"),
             });
         }
     }
+    if !bypass_actors(ruleset).is_some_and(|actors| actors.iter().all(maintainer)) {
+        findings.push(Finding::Drift {
+            setting: "ruleset.tag.bypass_actors".to_owned(),
+        });
+    }
     findings
+}
+
+/// The ruleset's bypass list, or `None` when the dump has none to read.
+fn bypass_actors(ruleset: &Value) -> Option<&[Value]> {
+    ruleset.get("bypass_actors").and_then(Value::as_array)
+}
+
+/// Whether a bypass `actor` is an organisation owner or GitHub's built-in
+/// maintain (2) or admin (5) repository role, so only maintainers create
+/// release tags (SEC-SUP-003).
+fn maintainer(actor: &Value) -> bool {
+    match actor.get("actor_type").and_then(Value::as_str) {
+        Some("OrganizationAdmin") => true,
+        Some("RepositoryRole") => matches!(
+            actor.get("actor_id"),
+            Some(Value::Number(id)) if id == "2" || id == "5"
+        ),
+        _ => false,
+    }
 }
 
 /// Commands listed in a ` ```runbook ` fence, in order.
@@ -1434,6 +1479,12 @@ path = [\"fuzz/seeds/**\"]
 
     /// Live settings dumps that match the policy.
     fn live_ok() -> Memory {
+        live_without_immutable_releases()
+            .with("live/immutable-releases.json", r#"{"enabled":true}"#)
+    }
+
+    /// [`live_ok`] without the immutable-releases dump.
+    fn live_without_immutable_releases() -> Memory {
         Memory::default()
             .with("live/org.json", r#"{"two_factor_requirement_enabled":true}"#)
             .with(
@@ -1450,11 +1501,11 @@ path = [\"fuzz/seeds/**\"]
             )
             .with(
                 "live/ruleset-1.json",
-                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"gate"}]}}]}"#,
+                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"actionlint"},{"context":"codeql"},{"context":"gate"},{"context":"zizmor"}]}}],"bypass_actors":[]}"#,
             )
             .with(
                 "live/ruleset-2.json",
-                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"deletion"},{"type":"update"}]}"#,
+                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"creation"},{"type":"deletion"},{"type":"update"}],"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}"#,
             )
     }
 
@@ -1603,13 +1654,12 @@ path = [\"fuzz/seeds/**\"]
         }
     }
 
-    /// Verifies: SEC-SUP-001, SEC-SUP-002, SEC-SUP-003, SEC-SUP-004, SEC-SUP-006, SEC-SUP-007, SEC-SUP-010
+    /// Verifies: SEC-SUP-001, SEC-SUP-006, SEC-SUP-007, SEC-SUP-010
     #[test]
     fn matching_live_settings_pass() {
         assert_eq!(settings(&live_ok(), "live"), []);
     }
 
-    /// Verifies: SEC-SUP-002
     #[test]
     fn a_drifted_ruleset_is_reported_by_setting_name() {
         let tree = live_ok().with(
@@ -1623,6 +1673,123 @@ path = [\"fuzz/seeds/**\"]
                 setting: "ruleset.main.deletion".to_owned(),
             }),
             "{findings:?}"
+        );
+    }
+
+    /// The `main` ruleset with every rule the policy expects and the
+    /// required status checks `checks`.
+    fn main_ruleset(checks: &[&str], bypass: &str) -> String {
+        let contexts: Vec<String> = checks
+            .iter()
+            .map(|check| format!(r#"{{"context":"{check}"}}"#))
+            .collect();
+        format!(
+            r#"{{"enforcement":"active","conditions":{{"ref_name":{{"include":["~DEFAULT_BRANCH"]}}}},"rules":[{{"type":"deletion"}},{{"type":"non_fast_forward"}},{{"type":"required_signatures"}},{{"type":"pull_request","parameters":{{"require_code_owner_review":true}}}},{{"type":"required_status_checks","parameters":{{"required_status_checks":[{}]}}}}]{bypass}}}"#,
+            contexts.join(",")
+        )
+    }
+
+    /// Verifies: SEC-SUP-018
+    #[test]
+    fn the_main_ruleset_must_require_the_gate_codeql_zizmor_and_actionlint() {
+        let tree = live_ok().with(
+            "live/ruleset-1.json",
+            &main_ruleset(&["gate"], r#","bypass_actors":[]"#),
+        );
+        assert_eq!(
+            settings(&tree, "live"),
+            [
+                Finding::Drift {
+                    setting: "ruleset.main.required_status_checks.actionlint".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "ruleset.main.required_status_checks.codeql".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "ruleset.main.required_status_checks.zizmor".to_owned(),
+                },
+            ]
+        );
+        let tree = live_ok().with(
+            "live/ruleset-1.json",
+            &main_ruleset(
+                &["zizmor", "gate", "codeql", "actionlint"],
+                r#","bypass_actors":[]"#,
+            ),
+        );
+        assert_eq!(settings(&tree, "live"), []);
+    }
+
+    #[test]
+    fn any_bypass_actor_on_the_main_ruleset_is_drift() {
+        let all = ["actionlint", "codeql", "gate", "zizmor"];
+        let drift = [Finding::Drift {
+            setting: "ruleset.main.bypass_actors".to_owned(),
+        }];
+        for bypass in [
+            r#","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]"#,
+            r#","bypass_actors":{}"#,
+            "",
+        ] {
+            let tree = live_ok().with("live/ruleset-1.json", &main_ruleset(&all, bypass));
+            assert_eq!(settings(&tree, "live"), drift, "{bypass}");
+        }
+    }
+
+    /// Verifies: SEC-SUP-003
+    #[test]
+    fn release_tags_need_maintainer_only_creation_no_moves_or_deletes_and_immutable_releases() {
+        let tag = |rules: &str, bypass: &str| {
+            live_ok().with(
+                "live/ruleset-2.json",
+                &format!(
+                    r#"{{"enforcement":"active","conditions":{{"ref_name":{{"include":["refs/tags/v*"]}}}},"rules":[{rules}]{bypass}}}"#
+                ),
+            )
+        };
+        let all = r#"{"type":"creation"},{"type":"deletion"},{"type":"update"}"#;
+        let drift = |setting: &str| {
+            vec![Finding::Drift {
+                setting: setting.to_owned(),
+            }]
+        };
+        assert_eq!(
+            settings(
+                &tag(
+                    r#"{"type":"deletion"},{"type":"update"}"#,
+                    r#","bypass_actors":[]"#
+                ),
+                "live"
+            ),
+            drift("ruleset.tag.creation")
+        );
+        for allowed in [
+            r#","bypass_actors":[]"#,
+            r#","bypass_actors":[{"actor_id":2,"actor_type":"RepositoryRole"},{"actor_id":5,"actor_type":"RepositoryRole"},{"actor_id":1,"actor_type":"OrganizationAdmin"}]"#,
+        ] {
+            assert_eq!(settings(&tag(all, allowed), "live"), [], "{allowed}");
+        }
+        for refused in [
+            r#","bypass_actors":[{"actor_id":4,"actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":"5","actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":5,"actor_type":"Integration"}]"#,
+            r#","bypass_actors":[{"actor_id":5}]"#,
+            r#","bypass_actors":{}"#,
+            "",
+        ] {
+            assert_eq!(
+                settings(&tag(all, refused), "live"),
+                drift("ruleset.tag.bypass_actors"),
+                "{refused}"
+            );
+        }
+        let tree = live_ok().with("live/immutable-releases.json", r#"{"enabled":false}"#);
+        assert_eq!(settings(&tree, "live"), drift("immutable_releases"));
+        assert_eq!(
+            settings(&live_without_immutable_releases(), "live"),
+            [Finding::Unreadable {
+                path: "live/immutable-releases.json".to_owned(),
+            }]
         );
     }
 
@@ -2141,7 +2308,7 @@ path = [\"fuzz/seeds/**\"]
     fn default_branch_include_and_sha_pinning_false() {
         let tree = live_ok().with(
             "live/ruleset-1.json",
-            r#"{"enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"gate"}]}}]}"#,
+            r#"{"enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"actionlint"},{"context":"codeql"},{"context":"gate"},{"context":"zizmor"}]}}],"bypass_actors":[]}"#,
         );
         assert_eq!(
             settings(&tree, "live")
@@ -2320,7 +2487,7 @@ updates:
         }));
         let tree = live_ok().with(
             "live/ruleset-1.json",
-            r#"{"enforcement":"disabled","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"gate"}]}}]}"#,
+            r#"{"enforcement":"disabled","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_signatures"},{"type":"pull_request","parameters":{"require_code_owner_review":true}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"actionlint"},{"context":"codeql"},{"context":"gate"},{"context":"zizmor"}]}}],"bypass_actors":[]}"#,
         );
         assert!(settings(&tree, "live").contains(&Finding::Drift {
             setting: "ruleset.main.enforcement".to_owned(),

@@ -26,7 +26,8 @@
 //! - `repo`: repository protections, workflow pinning, REUSE, runbooks and
 //!   CODEOWNERS (WP-124).
 //! - `repo settings <live-dir>`: live GitHub dumps against the expected
-//!   policy (SEC-SUP-001 to SEC-SUP-007).
+//!   policy (SEC-SUP-001, SEC-SUP-003 to SEC-SUP-007, SEC-SUP-010,
+//!   SEC-SUP-018).
 //! - `repo scorecard <json>`: Scorecard thresholds (SEC-SUP-019).
 //! - `repo advisories <json>`: every published advisory has a test named
 //!   after it (SEC-TM-003).
@@ -585,6 +586,7 @@ mod tests {
                     r#"Unreadable { path: "tree/repo.json" }"#,
                     r#"Unreadable { path: "tree/private-vulnerability-reporting.json" }"#,
                     r#"Unreadable { path: "tree/actions-permissions.json" }"#,
+                    r#"Unreadable { path: "tree/immutable-releases.json" }"#,
                     r#"Drift { setting: "ruleset.main" }"#,
                     r#"Drift { setting: "ruleset.tag" }"#,
                 ])),
