@@ -15,8 +15,8 @@ and this repository is still private. Until it is public, people who can
 read it report to the maintainer, @itz4blitz, privately rather than in an
 issue.
 
-An email address for people without a GitHub account is planned but not yet
-set up (see [Pending decisions](#pending-decisions)).
+For now, reports go through GitHub only: on 2026-10-02 the owner decided
+not to run a separate email address yet ([decision register](docs/decisions.md#owner-answers-2026-10-02)).
 
 A useful report says which component and commit or version is affected, how
 to reproduce the problem (a minimal input file or request is ideal), and
@@ -103,7 +103,6 @@ this process starts once the repository is public.
 
 The owner has not yet decided these, so they are not filled in:
 
-- The `security@` email address for reporters without a GitHub account.
 - The security lead, release manager and incident lead, and a deputy for
   each. Until they are named, the maintainer, @itz4blitz, handles reports.
 - The succession plan: who takes over if a maintainer cannot be reached for

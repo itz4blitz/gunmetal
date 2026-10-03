@@ -13,8 +13,12 @@
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is
-  the intended crate, and approves before merge. Agents do not merge, tag or
-  release (SEC-STD-035, SEC-SUP-055). Changes to the paths in
+  the intended crate, and approves before merge. Agents never merge into
+  `main`, tag or release (SEC-STD-035, SEC-SUP-055). During the build,
+  package pull requests merge into their wave branch (`wave-0`, `wave-1`,
+  ...) once the gate passes, through the wave's integrator agent; the owner
+  reviews and merges each wave's single pull request into `main`
+  ([decision D-01](docs/decisions.md#owner-answers-2026-10-02)). Changes to the paths in
   `.github/CODEOWNERS` also need a code owner's approval (SEC-SUP-005).
 - Research and design writing lives under `docs/`: `docs/research` (what
   exists and what people want), `docs/features` (the feature map, with stable
