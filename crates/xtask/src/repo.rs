@@ -31,7 +31,8 @@ pub const BASELINE: &[(&str, i32)] = &[
     ("Signed-Releases", -1),
 ];
 
-/// Compromise-runbook commands, in the order owners run them (SEC-OPS-072).
+/// Compromise-runbook commands, in the order owners run them. `repo` checks
+/// their presence and order only (SEC-OPS-072 also asks CI to run them).
 pub const COMPROMISE_COMMANDS: &[&str] = &[
     "gunmetal audit verify",
     "gunmetal keys rotate",
@@ -561,7 +562,7 @@ fn reuse(tree: &dyn Tree) -> Vec<Finding> {
     findings
 }
 
-/// Runbook files and the compromise command block (SEC-SUP-054, SEC-OPS-072).
+/// Runbook files, and the presence and order of the compromise command block.
 fn runbooks(tree: &dyn Tree) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in [
@@ -577,7 +578,7 @@ fn runbooks(tree: &dyn Tree) -> Vec<Finding> {
     }
     if let Some(text) = tree.read("docs/runbooks/compromise.md") {
         let commands = runbook_block(&text).unwrap_or_default();
-        findings.extend(execute(&commands, &mut Vec::new()));
+        findings.extend(runbook_presence_and_order(&commands));
     }
     findings
 }
@@ -766,21 +767,18 @@ pub fn runbook_block(text: &str) -> Option<Vec<&str>> {
     )
 }
 
-/// Records `commands` when they match [`COMPROMISE_COMMANDS`] in order.
-pub fn execute(commands: &[&str], log: &mut Vec<String>) -> Vec<Finding> {
+/// Checks the presence and order of `commands` against
+/// [`COMPROMISE_COMMANDS`]. Nothing is executed: running the commands
+/// against a test server waits for the package that ships the CLI.
+pub fn runbook_presence_and_order(commands: &[&str]) -> Vec<Finding> {
     match commands.get(..COMPROMISE_COMMANDS.len()) {
-        Some(head) if head == COMPROMISE_COMMANDS => {
-            if let Some(extra) = commands.get(COMPROMISE_COMMANDS.len()) {
-                vec![Finding::MissingRunbookCommand {
-                    command: (*extra).to_owned(),
-                }]
-            } else {
-                for command in commands {
-                    log.push((*command).to_owned());
-                }
-                Vec::new()
-            }
-        }
+        Some(head) if head == COMPROMISE_COMMANDS => commands
+            .get(COMPROMISE_COMMANDS.len())
+            .map(|extra| Finding::MissingRunbookCommand {
+                command: (*extra).to_owned(),
+            })
+            .into_iter()
+            .collect(),
         _ => COMPROMISE_COMMANDS
             .iter()
             .enumerate()
@@ -1135,9 +1133,9 @@ fn contains(tree: &dyn Tree, path: &str, needle: &str) -> Vec<Finding> {
 mod tests {
     use super::{
         BASELINE, BINARY_EXT, COMPROMISE_COMMANDS, Finding, MUST_BE_TEN, PROTECTED, YEAR,
-        advisories, check, comment, cooldown_days, days_in, days_since_epoch, execute,
-        has_ecosystem, is_binary, is_leap, pinned, runbook_block, scorecard, settings, skip_binary,
-        unix_ymd, uses_spec,
+        advisories, check, comment, cooldown_days, days_in, days_since_epoch, has_ecosystem,
+        is_binary, is_leap, pinned, runbook_block, runbook_presence_and_order, scorecard, settings,
+        skip_binary, unix_ymd, uses_spec,
     };
     use crate::ROOT;
     use crate::tree::memory::Memory;
@@ -1635,32 +1633,28 @@ path = [\"fuzz/seeds/**\"]
         }));
     }
 
-    /// Verifies: SEC-OPS-072
     #[test]
-    fn compromise_commands_run_in_order() {
+    fn the_compromise_runbook_lists_every_command_present_and_in_order() {
         let commands = runbook_block(COMPROMISE).expect("block");
-        let mut log = Vec::new();
-        assert_eq!(execute(&commands, &mut log), []);
-        assert_eq!(log, COMPROMISE_COMMANDS);
-        let mut log = Vec::new();
+        assert_eq!(commands, COMPROMISE_COMMANDS);
+        assert_eq!(runbook_presence_and_order(&commands), []);
         assert_eq!(
-            execute(&["gunmetal update"], &mut log).first(),
+            runbook_presence_and_order(&["gunmetal update"]).first(),
             Some(&Finding::MissingRunbookCommand {
                 command: "gunmetal audit verify".to_owned(),
             })
         );
-        assert_eq!(log, [] as [String; 0]);
         let mut extra: Vec<&str> = COMPROMISE_COMMANDS.to_vec();
         extra.push("gunmetal extra");
         assert_eq!(
-            execute(&extra, &mut Vec::new()).last(),
-            Some(&Finding::MissingRunbookCommand {
+            runbook_presence_and_order(&extra),
+            [Finding::MissingRunbookCommand {
                 command: "gunmetal extra".to_owned(),
-            })
+            }]
         );
         let wrong = ["wrong", "wrong", "wrong", "wrong", "wrong", "wrong"];
         assert_eq!(
-            execute(&wrong, &mut Vec::new()).first(),
+            runbook_presence_and_order(&wrong).first(),
             Some(&Finding::MissingRunbookCommand {
                 command: "gunmetal audit verify".to_owned(),
             })
@@ -1702,7 +1696,7 @@ path = [\"fuzz/seeds/**\"]
         }));
     }
 
-    /// Verifies: SEC-SUP-007, SEC-SUP-005, SEC-SUP-010, SEC-SUP-012, SEC-SUP-028, SEC-SUP-030, SEC-SUP-054, SEC-SUP-055, SEC-OPS-072
+    /// Verifies: SEC-SUP-007, SEC-SUP-005, SEC-SUP-010, SEC-SUP-012, SEC-SUP-028, SEC-SUP-030, SEC-SUP-055
     #[test]
     fn the_repository_passes_the_repo_check() {
         let tree = Disk::new(ROOT);
@@ -1989,10 +1983,8 @@ updates:
                 path: "scorecard".to_owned(),
             }]
         );
-        let mut log = Vec::new();
         assert_eq!(runbook_block("no fence"), None);
-        assert_eq!(execute(&[], &mut log).len(), 6);
-        assert!(log.is_empty());
+        assert_eq!(runbook_presence_and_order(&[]).len(), 6);
     }
 
     #[test]

@@ -4,8 +4,10 @@ Last reviewed: 2026-10-03. For an owner who thinks a Gunmetal server was
 broken into (ADM-148, SEC-OPS-072). The project never acts on anyone's
 server: there is no kill switch (ACC-128). These steps run on the host.
 
-CI extracts the `runbook` block and executes the same commands, in order,
-against a test server.
+CI extracts the `runbook` block below and checks the presence and order of
+its commands (`cargo run -p xtask -- repo`). It does not run them yet:
+running them end to end against a test server waits for the package that
+ships the `gunmetal` command line.
 
 ## Before you start
 
