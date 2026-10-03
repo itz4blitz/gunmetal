@@ -71,6 +71,8 @@ macro_rules! problems {
 problems! {
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// A capability URL's expiry has passed, so the client should refresh it and retry (SEC-API-027).
+    MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
 }
@@ -108,11 +110,16 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 3] = [
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
+        ),
+        (
+            "media_url_expired",
+            Some(401),
+            "This media link has expired. Refresh it and try again.",
         ),
         (
             "not_found",
