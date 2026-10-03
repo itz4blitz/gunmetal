@@ -14,7 +14,7 @@
 //! - `fuzz-targets`: the registered harnesses as a JSON array, for the fuzz
 //!   workflow's job matrix.
 //! - `lint-exceptions`: only the modules on the written list turn a clippy
-//!   ban off.
+//!   ban off, and no cargo configuration file in the repository can.
 //! - `lockfile-age requests <base-lock> <head-lock>` and
 //!   `lockfile-age check <base-lock> <head-lock> <responses-dir>`: no crate
 //!   version published less than seven days ago (SEC-SUP-027).

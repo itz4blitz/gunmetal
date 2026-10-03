@@ -12,8 +12,10 @@ pub trait Tree {
     fn read(&self, path: &str) -> Option<String>;
 
     /// The path of every file beneath directory `dir`, relative to `dir` and
-    /// sorted; empty when `dir` does not exist. A symbolic link is listed as
-    /// a file and never followed, so a link cannot make the walk loop.
+    /// sorted; empty when `dir` does not exist. The empty `dir` is the whole
+    /// tree, build output and git's own files included. A symbolic link is
+    /// listed as a file and never followed, so a link cannot make the walk
+    /// loop.
     fn files(&self, dir: &str) -> Vec<String>;
 }
 
@@ -94,7 +96,11 @@ pub mod memory {
         }
 
         fn files(&self, dir: &str) -> Vec<String> {
-            let prefix = format!("{dir}/");
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
             self.0
                 .keys()
                 .filter_map(|path| path.strip_prefix(&prefix))
@@ -106,6 +112,7 @@ pub mod memory {
 
 #[cfg(test)]
 mod tests {
+    use super::memory::Memory;
     use super::{Disk, Tree, is_rust};
     use crate::ROOT;
     use std::path::Path;
@@ -148,6 +155,18 @@ mod tests {
         let disk = Disk::new(Path::new(ROOT));
         assert_eq!(disk.files(FIXTURE), ["alpha.txt", "nested/beta.txt"]);
         assert_eq!(disk.files(&format!("{FIXTURE}/nested")), ["beta.txt"]);
+    }
+
+    #[test]
+    fn lists_every_file_in_the_tree_for_the_empty_directory() {
+        let disk = Disk::new(&Path::new(ROOT).join(FIXTURE));
+        assert_eq!(disk.files(""), ["alpha.txt", "nested/beta.txt"]);
+        let memory = Memory::default()
+            .with("alpha.txt", "")
+            .with("nested/beta.txt", "");
+        assert_eq!(memory.files(""), ["alpha.txt", "nested/beta.txt"]);
+        assert_eq!(memory.files("nested"), ["beta.txt"]);
+        assert_eq!(memory.files("nest"), [""; 0]);
     }
 
     #[test]

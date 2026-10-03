@@ -13,7 +13,15 @@
 //!   clippy confirmed on 2026-10-03);
 //! - a `clippy.toml` or `.clippy.toml` below `crates/`, which would replace
 //!   the root configuration, bans and all, for its crate;
-//! - a crate manifest that does not take the workspace lints unchanged.
+//! - a crate manifest that does not take the workspace lints unchanged;
+//! - a cargo configuration file, `.cargo/config.toml` or the older
+//!   `.cargo/config`, anywhere in the repository. `rustflags` in its
+//!   `[build]` or `[target]` table turn a ban off for the whole build, and
+//!   the gate's clippy step then passes, which a probe confirmed on
+//!   2026-10-03. Its other settings (compiler wrappers, source replacement,
+//!   aliases) change the build where no other check looks, so no such file
+//!   is allowed at all; a package that needs one changes this check, under
+//!   review.
 //!
 //! A list entry whose module no longer names its lint fails too, so the
 //! list stays exactly as long as the exceptions it allows.
@@ -83,9 +91,15 @@ pub enum Finding {
         /// Its path from the repository root.
         path: String,
     },
+    /// A cargo configuration file.
+    CargoConfig {
+        /// Its path from the repository root.
+        path: String,
+    },
 }
 
-/// Checks every file below `crates/` against `exceptions`.
+/// Checks every file below `crates/` against `exceptions`, and the whole
+/// repository for cargo configuration files.
 pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut used = vec![false; exceptions.len()];
@@ -115,6 +129,13 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
                     }
                 }
             }
+        }
+    }
+    for path in tree.files("") {
+        let mut parts = path.rsplit('/');
+        let (name, dir) = (parts.next(), parts.next());
+        if dir == Some(".cargo") && matches!(name, Some("config" | "config.toml")) {
+            findings.push(Finding::CargoConfig { path });
         }
     }
     for (exception, used) in exceptions.iter().zip(used) {
@@ -297,6 +318,32 @@ mod tests {
                 own_lints("crates/both/Cargo.toml"),
                 own_lints("crates/none/Cargo.toml"),
                 own_lints("crates/own/Cargo.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cargo_configuration_anywhere_in_the_repository_fails() {
+        // Rustflags in either file silence a ban for the whole build, which
+        // a probe of cargo clippy confirmed on 2026-10-03.
+        let rustflags = format!("[build]\nrustflags = [\"-Aclippy::{}\"]\n", LINTS[1]);
+        let tree = Memory::default()
+            .with(".cargo/config.toml", &rustflags)
+            .with(".cargo/notes.md", "")
+            .with("crates/demo/.cargo/config.toml", "[alias]\nx = \"run\"\n")
+            .with("docs/cargo/config.toml", "")
+            .with("docs/old.cargo/config.toml", "")
+            .with("fuzz/.cargo/config", &rustflags)
+            .with("fuzz/config.toml", "");
+        let config = |path: &str| Finding::CargoConfig {
+            path: path.to_owned(),
+        };
+        assert_eq!(
+            check(&tree, &[]),
+            [
+                config(".cargo/config.toml"),
+                config("crates/demo/.cargo/config.toml"),
+                config("fuzz/.cargo/config"),
             ]
         );
     }
