@@ -47,10 +47,7 @@ impl<'a> Source<'a> {
     /// The same octets, read unsynchronised when they already were or
     /// when `on` is set.
     pub(super) const fn unsynchronised(self, on: bool) -> Self {
-        Self {
-            unsynchronised: self.unsynchronised || on,
-            ..self
-        }
+        Self::new(self.raw, self.offset, self.unsynchronised || on)
     }
 
     /// Where the octets left are in the tag.
@@ -104,7 +101,13 @@ impl<'a> Source<'a> {
         }
         let mut index = 0;
         let mut read: u64 = 0;
-        while read < len {
+        // Reversing the scheme only drops zeros, so a turn per stored
+        // octet is enough and the walk ends even if a step does not
+        // move (SEC-MED-008).
+        for _ in 0..self.raw.len() {
+            if read >= len {
+                break;
+            }
             let Some((_, next)) = read_at(self.raw, index) else {
                 break;
             };
@@ -118,10 +121,7 @@ impl<'a> Source<'a> {
     /// holds, and returns them as a source of their own.
     fn advance(&mut self, stored: usize) -> Self {
         let (taken, rest) = self.raw.split_at_checked(stored).unwrap_or((self.raw, &[]));
-        let part = Self {
-            raw: taken,
-            ..*self
-        };
+        let part = Self::new(taken, self.offset, self.unsynchronised);
         self.raw = rest;
         self.offset = self.offset.saturating_add(stored_len(taken));
         part
@@ -134,7 +134,11 @@ impl<'a> Source<'a> {
         }
         let mut read = Vec::new();
         let mut index = 0;
-        while let Some((octet, next)) = read_at(self.raw, index) {
+        // One decoded octet per stored octet, then stop (SEC-MED-008).
+        for _ in 0..self.raw.len() {
+            let Some((octet, next)) = read_at(self.raw, index) else {
+                break;
+            };
             read.push(octet);
             index = next;
         }
@@ -232,7 +236,7 @@ mod tests {
         assert_eq!(source.decode().into_owned(), [0x00, 0x7F, 0x00, 0xFF, 0x00]);
     }
 
-    /// Verifies: SEC-MED-001, SEC-TM-032
+    /// Verifies: SEC-MED-001, SEC-MED-008, SEC-TM-032
     #[test]
     fn reports_a_short_read_in_octets_as_read_and_does_not_move() {
         let raw = [0xFF, 0x00, 0x41];
@@ -264,6 +268,15 @@ mod tests {
             })
         );
         assert_eq!(plain, Source::new(&raw, 7, false));
+        assert_eq!(
+            source.split(u64::MAX),
+            Err(ParseFault::Truncated {
+                offset: 7,
+                needed: u64::MAX,
+                available: 2,
+            })
+        );
+        assert_eq!(source, Source::new(&raw, 7, true));
         // Reading nothing always works.
         assert_eq!(source.split(0), Ok(Source::new(&[], 7, true)));
         assert_eq!(plain.split(0), Ok(Source::new(&[], 7, false)));

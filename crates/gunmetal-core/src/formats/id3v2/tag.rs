@@ -323,7 +323,8 @@ pub fn parse(tag: &[u8], limits: &Limits, budget: &mut Budget) -> Result<Id3v2Ta
     }
     let unsynchronised = flags & UNSYNCHRONISED != 0;
     let mut source = Source::new(area, 10, major < 4 && unsynchronised);
-    let extended = if major > 2 && flags & EXTENDED != 0 {
+    // A 2.2 tag with this flag already returned [`Id3v2Error::Compressed`].
+    let extended = if flags & EXTENDED != 0 {
         extended_header(&mut source, major, &mut problems)?
     } else {
         None

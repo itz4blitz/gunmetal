@@ -77,7 +77,12 @@ pub fn run(data: &[u8]) -> Outcome {
     } else {
         plain.clone()
     };
-    let flags = (if unsynchronised { 0x80 } else { 0 }) | (if footer { 0x10 } else { 0 });
+    let flags = match (unsynchronised, footer) {
+        (false, false) => 0,
+        (true, false) => 0x80,
+        (false, true) => 0x10,
+        (true, true) => 0x90,
+    };
     let size = syncsafe(frames.len());
     let mut tag = [&b"ID3"[..], &[major, 0, flags], &size, &frames].concat();
     if footer {
@@ -203,4 +208,56 @@ fn to_u32(value: usize) -> u32 {
 /// `value` as a `u64`.
 fn to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gunmetal_testkit::id3v2::{Tag, Version};
+
+    /// A 2.4 frame with the unsynchronisation flag, or a 2.4 tag with the
+    /// tag's flag, stores a zero after `FF`; the same body without either
+    /// flag is stored as written.
+    ///
+    /// Verifies: SEC-MED-031
+    #[test]
+    fn unsynchronises_a_2_4_frame_only_when_the_frame_or_tag_says_so() {
+        let with_flag = run(&[0x02, 11, 0x02, 2, 0xFF, 0x00]);
+        assert_eq!(
+            with_flag.tag,
+            Tag::new(Version::V24)
+                .frame(b"PRIV", 0x0002, b"\xFF\x00\x00")
+                .build()
+        );
+        let without = run(&[0x02, 11, 0x00, 2, 0xFF, 0x00]);
+        assert_eq!(
+            without.tag,
+            Tag::new(Version::V24)
+                .frame(b"PRIV", 0, b"\xFF\x00")
+                .build()
+        );
+        // 0x11: 2.4, tag unsynchronised, no footer.
+        let tag_flag = run(&[0x11, 11, 0x00, 2, 0xFF, 0x00]);
+        assert_eq!(
+            tag_flag.tag,
+            Tag::new(Version::V24)
+                .unsynchronised()
+                .frame(b"PRIV", 0, b"\xFF\x00\x00")
+                .build()
+        );
+    }
+
+    /// The footer bit is independent of unsynchronisation: a 2.4 recipe
+    /// with only that bit set writes a footer and no unsynchronisation
+    /// flag.
+    ///
+    /// Verifies: SEC-MED-031
+    #[test]
+    fn writes_a_2_4_footer_without_unsynchronising() {
+        assert_eq!(run(&[0x20]).tag, Tag::new(Version::V24).footer().build());
+        assert_eq!(
+            run(&[0x32]).tag,
+            Tag::new(Version::V24).unsynchronised().footer().build()
+        );
+    }
 }
