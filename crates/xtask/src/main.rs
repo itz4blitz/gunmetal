@@ -21,11 +21,14 @@
 //! - `lockfile-age override <codeowners> <reviews> <head-sha>`: a code
 //!   owner of every lock file approved commit `<head-sha>`, which a pull
 //!   request carrying the override label needs instead (SEC-SUP-027).
+//! - `site`: the project site's static files under `site/` hold the
+//!   security baseline's rules for gunmetal.tv (SEC-SUP-008, SEC-STD-016,
+//!   SEC-PRV-054, SEC-PRV-055, SEC-HIS-061).
 //!
 //! Paths are relative to the repository root. A check that finds problems
-//! exits with status 1 and lists them. `check-harnesses` and
-//! `lint-exceptions` also run against the real repository in this crate's
-//! tests, so the gate enforces them on every change.
+//! exits with status 1 and lists them. `check-harnesses`,
+//! `lint-exceptions` and `site` also run against the real repository in
+//! this crate's tests, so the gate enforces them on every change.
 
 mod age_override;
 mod codeowners;
@@ -35,6 +38,7 @@ mod json;
 mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
+mod site;
 mod toml;
 mod tree;
 
@@ -108,6 +112,7 @@ fn dispatch(
             out,
             &lockfile_age::requests(&read(&tree, base)?, &read(&tree, head)?).map_err(rendered)?,
         ),
+        ["site"] => report(site::check(&tree, now)),
         _ => Err(Failure::Usage),
     }
 }
