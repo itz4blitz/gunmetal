@@ -21,6 +21,18 @@
 //! - `lockfile-age override <codeowners> <reviews> <head-sha>`: a code
 //!   owner of every lock file approved commit `<head-sha>`, which a pull
 //!   request carrying the override label needs instead (SEC-SUP-027).
+//! - `js-deps`: every direct JavaScript dependency is listed with a reason
+//!   (SEC-SUP-035).
+//! - `repo`: repository protections, workflow pinning, REUSE, runbooks and
+//!   CODEOWNERS (WP-124).
+//! - `repo settings <live-dir>`: live GitHub dumps against the expected
+//!   policy (SEC-SUP-001, SEC-SUP-003 to SEC-SUP-007, SEC-SUP-010,
+//!   SEC-SUP-018).
+//! - `repo scorecard <json>`: Scorecard thresholds (SEC-SUP-019).
+//! - `repo advisories <json>`: every published advisory has a test named
+//!   after it (SEC-TM-003).
+//! - `repo codeql <sarif>`: no `CodeQL` result at `error` level or security
+//!   severity 7.0 or more (SEC-SUP-018).
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
@@ -31,10 +43,12 @@ mod age_override;
 mod codeowners;
 mod core_deps;
 mod harnesses;
+mod js_deps;
 mod json;
 mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
+mod repo;
 mod toml;
 mod tree;
 
@@ -91,6 +105,7 @@ fn dispatch(
             &tree.read(core_deps::ALLOWLIST).unwrap_or_default(),
         )),
         ["fuzz-targets"] => write(out, &harnesses::targets_json(registered).map_err(rendered)?),
+        ["js-deps"] => report(js_deps::check(&tree)),
         ["lint-exceptions"] => report(lint_exceptions::check(&tree, lint_exceptions::EXCEPTIONS)),
         ["lockfile-age", "check", base, head, responses] => report(lockfile_age::check(
             &tree,
@@ -108,6 +123,11 @@ fn dispatch(
             out,
             &lockfile_age::requests(&read(&tree, base)?, &read(&tree, head)?).map_err(rendered)?,
         ),
+        ["repo"] => report(repo::check(&tree, now)),
+        ["repo", "advisories", json] => report(repo::advisories(&tree, &read(&tree, json)?)),
+        ["repo", "codeql", sarif] => report(repo::codeql(&read(&tree, sarif)?)),
+        ["repo", "scorecard", json] => report(repo::scorecard(&read(&tree, json)?)),
+        ["repo", "settings", dir] => report(repo::settings(&tree, dir)),
         _ => Err(Failure::Usage),
     }
 }
@@ -214,6 +234,12 @@ mod tests {
             &["lockfile-age", "check", "base", "head"],
             &["lockfile-age", "override", "codeowners", "reviews"],
             &["lockfile-age", "requests", "base"],
+            &["js-deps", "extra"],
+            &["repo", "settings"],
+            &["repo", "scorecard"],
+            &["repo", "advisories"],
+            &["repo", "codeql"],
+            &["repo", "unknown"],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),
@@ -473,6 +499,9 @@ mod tests {
                 "missing",
                 "0",
             ],
+            &["repo", "scorecard", "missing"],
+            &["repo", "advisories", "missing"],
+            &["repo", "codeql", "missing"],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),
@@ -494,6 +523,76 @@ mod tests {
         );
         assert_eq!(write(&mut Closed, "text"), Err(Failure::Output));
         assert!(Closed.flush().is_err(), "the closed output refuses a flush");
+    }
+
+    /// Verifies: SEC-SUP-005, SEC-SUP-007, SEC-SUP-010, SEC-SUP-028, SEC-SUP-030, SEC-SUP-035, SEC-SUP-055
+    #[test]
+    fn the_repository_passes_repo_and_js_deps() {
+        assert_eq!(
+            run_in(ROOT, &["repo"], 1_790_985_600, &[]),
+            (Ok(()), String::new())
+        );
+        assert_eq!(run_in(ROOT, &["js-deps"], 0, &[]), (Ok(()), String::new()));
+    }
+
+    #[test]
+    fn repo_scorecard_lists_what_it_finds() {
+        assert_eq!(
+            run_in(FIXTURES, &["repo", "scorecard", "tree/alpha.txt"], 0, &[]),
+            (
+                Err(findings(&[r#"Unreadable { path: "scorecard" }"#])),
+                String::new()
+            )
+        );
+    }
+
+    /// Verifies: SEC-SUP-018
+    #[test]
+    fn repo_codeql_fails_on_a_high_severity_result_in_the_sarif_log() {
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &["repo", "codeql", "codeql/blocking.sarif"],
+                0,
+                &[]
+            ),
+            (
+                Err(findings(&[
+                    r#"CodeqlAlert { rule: "rust/sql-injection", path: "src/db.rs" }"#
+                ])),
+                String::new()
+            )
+        );
+        assert_eq!(
+            run_in(FIXTURES, &["repo", "codeql", "codeql/clean.sarif"], 0, &[]),
+            (Ok(()), String::new())
+        );
+    }
+
+    #[test]
+    fn repo_advisories_and_settings_run_against_named_inputs() {
+        assert_eq!(
+            run_in(FIXTURES, &["repo", "advisories", "tree/alpha.txt"], 0, &[]),
+            (
+                Err(findings(&[r#"Unreadable { path: "advisories" }"#])),
+                String::new()
+            )
+        );
+        assert_eq!(
+            run_in(FIXTURES, &["repo", "settings", "tree"], 0, &[]),
+            (
+                Err(findings(&[
+                    r#"Unreadable { path: "tree/org.json" }"#,
+                    r#"Unreadable { path: "tree/repo.json" }"#,
+                    r#"Unreadable { path: "tree/private-vulnerability-reporting.json" }"#,
+                    r#"Unreadable { path: "tree/actions-permissions.json" }"#,
+                    r#"Unreadable { path: "tree/immutable-releases.json" }"#,
+                    r#"Drift { setting: "ruleset.main" }"#,
+                    r#"Drift { setting: "ruleset.tag" }"#,
+                ])),
+                String::new()
+            )
+        );
     }
 
     #[test]
