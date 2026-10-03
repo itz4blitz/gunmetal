@@ -383,7 +383,8 @@ pub fn codeql(text: &str) -> Vec<Finding> {
     findings
 }
 
-/// Fails when a published advisory in `text` has no `ghsa_…` test in `tree`.
+/// Fails when a published advisory in `text` has no function named
+/// `ghsa_…` after it in the Rust sources of `tree` (SEC-TM-003).
 pub fn advisories(tree: &dyn Tree, text: &str) -> Vec<Finding> {
     let Some(items) = advisory_items(text) else {
         return vec![Finding::Unreadable {
@@ -412,7 +413,10 @@ pub fn advisories(tree: &dyn Tree, text: &str) -> Vec<Finding> {
     findings
 }
 
-/// `SECURITY.md` sections, review date, roles and the reporting alias.
+/// `SECURITY.md` sections, review date, roles, and either a `security@`
+/// alias or the owner's recorded decision to defer one. The last is a guard
+/// on that decision, not proof of SEC-OPS-064, which stays open until an
+/// alias reaching two people exists.
 fn security_md(tree: &dyn Tree, now: u64) -> Vec<Finding> {
     let path = "SECURITY.md";
     let Some(text) = tree.read(path) else {
@@ -795,7 +799,7 @@ fn main_ruleset(rulesets: &[Value]) -> Vec<Finding> {
         }];
     };
     let mut findings = Vec::new();
-    if ruleset.get("enforcement").and_then(Value::as_str) != Some("active") {
+    if !active(ruleset) {
         findings.push(Finding::Drift {
             setting: "ruleset.main.enforcement".to_owned(),
         });
@@ -827,27 +831,51 @@ fn main_ruleset(rulesets: &[Value]) -> Vec<Finding> {
     findings
 }
 
-/// The active `v*` tag ruleset.
+/// The active rulesets covering `v*` tags (SEC-SUP-003). A bypass list
+/// covers every rule in its ruleset, so the rules live in separate rulesets:
+/// `deletion` and `update` each in one nobody can bypass, and `creation` in
+/// one only maintainers can bypass. Rulesets layer, so a second copy of
+/// `deletion` or `update` beside `creation` does no harm. One ruleset holding
+/// all three is drift: with a bypass list its actors can move and delete
+/// release tags, and without one nobody can create them.
 fn tag_ruleset(rulesets: &[Value]) -> Vec<Finding> {
-    let Some(ruleset) = rulesets.iter().find(|value| covers(value, "refs/tags/v*")) else {
+    let covering: Vec<&Value> = rulesets
+        .iter()
+        .filter(|ruleset| covers(ruleset, "refs/tags/v*"))
+        .collect();
+    if covering.is_empty() {
         return vec![Finding::Drift {
             setting: "ruleset.tag".to_owned(),
         }];
-    };
+    }
     let mut findings = Vec::new();
-    if ruleset.get("enforcement").and_then(Value::as_str) != Some("active") {
+    let enforced: Vec<&Value> = covering
+        .iter()
+        .copied()
+        .filter(|ruleset| active(ruleset))
+        .collect();
+    if enforced.len() != covering.len() {
         findings.push(Finding::Drift {
             setting: "ruleset.tag.enforcement".to_owned(),
         });
     }
+    let mut bypassable = false;
     for rule in ["creation", "deletion", "update"] {
-        if !has_rule(ruleset, rule) {
+        let mut holders = enforced
+            .iter()
+            .filter(|ruleset| has_rule(ruleset, rule))
+            .peekable();
+        if holders.peek().is_none() {
             findings.push(Finding::Drift {
                 setting: format!("ruleset.tag.{rule}"),
             });
+        } else if !holders
+            .any(|ruleset| bypass_actors(ruleset).is_some_and(|actors| bypass_suits(rule, actors)))
+        {
+            bypassable = true;
         }
     }
-    if !bypass_actors(ruleset).is_some_and(|actors| actors.iter().all(maintainer)) {
+    if bypassable {
         findings.push(Finding::Drift {
             setting: "ruleset.tag.bypass_actors".to_owned(),
         });
@@ -855,14 +883,29 @@ fn tag_ruleset(rulesets: &[Value]) -> Vec<Finding> {
     findings
 }
 
+/// Whether `ruleset` is enforced.
+fn active(ruleset: &Value) -> bool {
+    ruleset.get("enforcement").and_then(Value::as_str) == Some("active")
+}
+
 /// The ruleset's bypass list, or `None` when the dump has none to read.
 fn bypass_actors(ruleset: &Value) -> Option<&[Value]> {
     ruleset.get("bypass_actors").and_then(Value::as_array)
 }
 
+/// Whether the bypass list `actors` suits a tag ruleset holding `rule`:
+/// somebody, and only maintainers, for `creation`, so maintainers alone
+/// create release tags; nobody for `deletion` and `update` (SEC-SUP-003).
+fn bypass_suits(rule: &str, actors: &[Value]) -> bool {
+    if rule == "creation" {
+        !actors.is_empty() && actors.iter().all(maintainer)
+    } else {
+        actors.is_empty()
+    }
+}
+
 /// Whether a bypass `actor` is an organisation owner or GitHub's built-in
-/// maintain (2) or admin (5) repository role, so only maintainers create
-/// release tags (SEC-SUP-003).
+/// maintain (2) or admin (5) repository role.
 fn maintainer(actor: &Value) -> bool {
     match actor.get("actor_type").and_then(Value::as_str) {
         Some("OrganizationAdmin") => true,
@@ -1102,12 +1145,18 @@ fn advisory_items(text: &str) -> Option<Vec<Value>> {
     }
 }
 
-/// Whether any Rust source contains `needle`.
+/// Whether any Rust source declares a function whose name starts with
+/// `needle`: a line that opens with `fn` and the name. The ID in a comment,
+/// a string or the middle of another name is not a regression test.
 fn mapped(tree: &dyn Tree, needle: &str) -> bool {
+    let declaration = format!("fn {needle}");
     tree.files("").into_iter().any(|path| {
         is_rust(&path)
             && !generated(&path)
-            && tree.read(&path).is_some_and(|text| text.contains(needle))
+            && tree.read(&path).is_some_and(|text| {
+                text.lines()
+                    .any(|line| line.trim_start().starts_with(&declaration))
+            })
     })
 }
 
@@ -1542,7 +1591,11 @@ path = [\"fuzz/seeds/**\"]
             )
             .with(
                 "live/ruleset-2.json",
-                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"creation"},{"type":"deletion"},{"type":"update"}],"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}"#,
+                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"creation"}],"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}"#,
+            )
+            .with(
+                "live/ruleset-3.json",
+                r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"deletion"},{"type":"update"}],"bypass_actors":[]}"#,
             )
     }
 
@@ -1553,13 +1606,43 @@ path = [\"fuzz/seeds/**\"]
 
     /// Verifies: SEC-SUP-007
     #[test]
-    fn a_security_policy_missing_a_required_section_fails() {
+    fn a_security_policy_holding_only_its_scope_misses_every_other_section() {
         let tree = passing().with("SECURITY.md", "## Scope\n");
-        let findings = check(&tree, REVIEWED);
-        assert!(findings.contains(&Finding::MissingSection {
+        let expected: Vec<Finding> = [
+            "## Advisories and CVEs",
+            "## Coding agents",
+            "## Coordinated disclosure",
+            "## Reporting a vulnerability",
+            "## Security roles",
+            "## Succession",
+            "## Supported versions",
+            "## What happens after you report",
+            "14 days",
+            "7 days",
+            "90 days",
+            "CVSS v4.0",
+            "SEC-SUP-055",
+            "Incident lead",
+            "Release manager",
+            "Security lead",
+            "email alias",
+            "Last reviewed",
+        ]
+        .into_iter()
+        .map(|section| Finding::MissingSection {
             path: "SECURITY.md".to_owned(),
-            section: "## Reporting a vulnerability".to_owned(),
-        }));
+            section: section.to_owned(),
+        })
+        .collect();
+        assert_eq!(check(&tree, REVIEWED), expected);
+        let scopeless = passing().with("SECURITY.md", &SECURITY.replace("## Scope", "## Reach"));
+        assert_eq!(
+            check(&scopeless, REVIEWED),
+            [Finding::MissingSection {
+                path: "SECURITY.md".to_owned(),
+                section: "## Scope".to_owned(),
+            }]
+        );
     }
 
     /// Verifies: SEC-SUP-007
@@ -1591,7 +1674,9 @@ path = [\"fuzz/seeds/**\"]
         );
     }
 
-    /// Verifies: SEC-OPS-064
+    /// A guard on the owner's deferral, not proof of SEC-OPS-064: the
+    /// requirement asks for an alias that reaches two people, and the
+    /// recorded decision not to run one yet passes this check.
     #[test]
     fn an_email_alias_or_the_recorded_deferral_is_required() {
         let text = SECURITY.replace("not to run a separate email alias", "mailbox later");
@@ -1613,12 +1698,77 @@ path = [\"fuzz/seeds/**\"]
 
     /// Verifies: SEC-SUP-005, SEC-STD-035
     #[test]
-    fn a_protected_path_with_no_code_owner_fails() {
-        let tree = passing().with(".github/CODEOWNERS", "README.md @itz4blitz\n");
-        let findings = check(&tree, REVIEWED);
-        assert!(findings.contains(&Finding::Unowned {
-            path: "SECURITY.md".to_owned(),
-        }));
+    fn a_codeowners_file_that_owns_nothing_leaves_every_protected_path_unowned() {
+        let tree = passing().with(".github/CODEOWNERS", "NOTES.md @itz4blitz\n");
+        let expected: Vec<Finding> = [
+            ".github/CODEOWNERS",
+            ".github/workflows/build.yml",
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
+            "Cargo.lock",
+            "Cargo.toml",
+            "SECURITY.md",
+            "clippy.toml",
+            "compose.yml",
+            "crates/gunmetal-core/src/audit_event.rs",
+            "crates/gunmetal-core/src/authz/mod.rs",
+            "crates/gunmetal-core/src/client_context.rs",
+            "crates/gunmetal-core/src/crypto.rs",
+            "crates/gunmetal-core/src/formats/mod.rs",
+            "crates/gunmetal-core/src/http/mod.rs",
+            "crates/gunmetal-core/src/inflate.rs",
+            "crates/gunmetal-core/src/lib.rs",
+            "crates/gunmetal-core/src/provider/mod.rs",
+            "crates/gunmetal-core/src/retention.rs",
+            "crates/gunmetal-core/src/tags/mod.rs",
+            "crates/gunmetal-core/src/token/mod.rs",
+            "crates/gunmetal-core/src/webauthn/mod.rs",
+            "crates/gunmetal-durable/src/audit/mod.rs",
+            "crates/gunmetal-egress/src/lib.rs",
+            "crates/gunmetal-fs/src/sqlite.rs",
+            "crates/gunmetal-names/src/lib.rs",
+            "crates/gunmetal-secrets/src/lib.rs",
+            "crates/gunmetal-server/security/policy.rs",
+            "crates/gunmetal-server/src/access/mod.rs",
+            "crates/gunmetal-server/src/audit_cli/mod.rs",
+            "crates/gunmetal-server/src/audit_sink/mod.rs",
+            "crates/gunmetal-server/src/backup/mod.rs",
+            "crates/gunmetal-server/src/erasure/mod.rs",
+            "crates/gunmetal-server/src/keys/mod.rs",
+            "crates/gunmetal-server/src/limiter/mod.rs",
+            "crates/gunmetal-server/src/limits/mod.rs",
+            "crates/gunmetal-server/src/listener.rs",
+            "crates/gunmetal-server/src/oidc/mod.rs",
+            "crates/gunmetal-server/src/passkey/mod.rs",
+            "crates/gunmetal-server/src/posture/mod.rs",
+            "crates/gunmetal-server/src/recovery/mod.rs",
+            "crates/gunmetal-server/src/recovery_codes/mod.rs",
+            "crates/gunmetal-server/src/restore/mod.rs",
+            "crates/gunmetal-server/src/routes.rs",
+            "crates/gunmetal-server/src/session/mod.rs",
+            "crates/gunmetal-server/src/setup/mod.rs",
+            "crates/gunmetal-server/src/shares/mod.rs",
+            "crates/gunmetal-server/src/signin/mod.rs",
+            "crates/gunmetal-server/src/stream/mod.rs",
+            "crates/gunmetal-server/src/users/mod.rs",
+            "crates/gunmetal-server/src/verifier/mod.rs",
+            "crates/gunmetal-server/tests/route_security/mod.rs",
+            "crates/gunmetal-worker/src/sandbox/mod.rs",
+            "deny.toml",
+            "docs/adr/0001-architecture.md",
+            "docs/runbooks/compromise.md",
+            "docs/security/README.md",
+            "Dockerfile",
+            "rust-toolchain.toml",
+            "scripts/gate.sh",
+            "supply-chain/js-direct-deps.toml",
+        ]
+        .into_iter()
+        .map(|path| Finding::Unowned {
+            path: path.to_owned(),
+        })
+        .collect();
+        assert_eq!(check(&tree, REVIEWED), expected);
     }
 
     /// Verifies: SEC-SUP-005
@@ -1790,23 +1940,98 @@ path = [\"fuzz/seeds/**\"]
         }
     }
 
-    /// Verifies: SEC-SUP-001, SEC-SUP-006, SEC-SUP-007, SEC-SUP-010
     #[test]
     fn matching_live_settings_pass() {
         assert_eq!(settings(&live_ok(), "live"), []);
     }
 
+    /// Verifies: SEC-SUP-006
     #[test]
-    fn a_drifted_ruleset_is_reported_by_setting_name() {
+    fn secret_scanning_push_protection_off_is_drift() {
+        let tree = live_ok().with(
+            "live/repo.json",
+            r#"{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"disabled"}}}"#,
+        );
+        assert_eq!(
+            settings(&tree, "live"),
+            drift("secret_scanning_push_protection")
+        );
+        let tree = live_ok().with(
+            "live/repo.json",
+            r#"{"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret_scanning_push_protection":{"status":"enabled"}}}"#,
+        );
+        assert_eq!(settings(&tree, "live"), drift("secret_scanning"));
+        let tree = live_ok().with("live/repo.json", r#"{"security_and_analysis":{}}"#);
+        assert_eq!(
+            settings(&tree, "live"),
+            [
+                Finding::Drift {
+                    setting: "secret_scanning".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "secret_scanning_push_protection".to_owned(),
+                },
+            ]
+        );
+    }
+
+    /// Verifies: SEC-SUP-007
+    #[test]
+    fn private_vulnerability_reporting_off_is_drift() {
+        let tree = live_ok().with(
+            "live/private-vulnerability-reporting.json",
+            r#"{"enabled":false}"#,
+        );
+        assert_eq!(
+            settings(&tree, "live"),
+            drift("private_vulnerability_reporting")
+        );
+        let tree = live_ok().with(
+            "live/private-vulnerability-reporting.json",
+            r#"{"message":"Not Found","status":"404"}"#,
+        );
+        assert_eq!(
+            settings(&tree, "live"),
+            drift("private_vulnerability_reporting")
+        );
+    }
+
+    /// Verifies: SEC-SUP-010
+    #[test]
+    fn an_actions_policy_that_does_not_require_sha_pinning_is_drift() {
+        let tree = live_ok().with(
+            "live/actions-permissions.json",
+            r#"{"sha_pinning_required":false}"#,
+        );
+        assert_eq!(settings(&tree, "live"), drift("sha_pinning_required"));
+        let tree = live_ok().with("live/actions-permissions.json", r#"{"enabled":true}"#);
+        assert_eq!(settings(&tree, "live"), drift("sha_pinning_required"));
+    }
+
+    /// Verifies: SEC-SUP-005, SEC-SUP-018
+    #[test]
+    fn a_main_ruleset_with_no_rules_drifts_on_every_expected_rule() {
         let tree = live_ok().with(
             "live/ruleset-1.json",
             r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[]}"#,
         );
-        let findings = settings(&tree, "live");
-        assert!(findings.iter().any(is_main_ruleset_drift));
-        assert!(findings.contains(&Finding::Drift {
-            setting: "ruleset.main.deletion".to_owned(),
-        }));
+        let expected: Vec<Finding> = [
+            "ruleset.main.deletion",
+            "ruleset.main.non_fast_forward",
+            "ruleset.main.required_signatures",
+            "ruleset.main.require_code_owner_review",
+            "ruleset.main.required_status_checks.actionlint",
+            "ruleset.main.required_status_checks.codeql",
+            "ruleset.main.required_status_checks.gate",
+            "ruleset.main.required_status_checks.zizmor",
+            "ruleset.main.bypass_actors",
+        ]
+        .into_iter()
+        .map(|setting| Finding::Drift {
+            setting: setting.to_owned(),
+        })
+        .collect();
+        assert_eq!(settings(&tree, "live"), expected);
     }
 
     /// The `main` ruleset with every rule the policy expects and the
@@ -1856,65 +2081,231 @@ path = [\"fuzz/seeds/**\"]
     #[test]
     fn any_bypass_actor_on_the_main_ruleset_is_drift() {
         let all = ["actionlint", "codeql", "gate", "zizmor"];
-        let drift = [Finding::Drift {
-            setting: "ruleset.main.bypass_actors".to_owned(),
-        }];
         for bypass in [
             r#","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]"#,
             r#","bypass_actors":{}"#,
             "",
         ] {
             let tree = live_ok().with("live/ruleset-1.json", &main_ruleset(&all, bypass));
-            assert_eq!(settings(&tree, "live"), drift);
+            assert_eq!(settings(&tree, "live"), drift("ruleset.main.bypass_actors"));
+        }
+    }
+
+    /// A `v*` tag ruleset dump, `enforcement` as given, holding `rules` and
+    /// the `bypass` member.
+    fn tag_ruleset_dump(enforcement: &str, rules: &str, bypass: &str) -> String {
+        format!(
+            r#"{{"enforcement":"{enforcement}","conditions":{{"ref_name":{{"include":["refs/tags/v*"]}}}},"rules":[{rules}]{bypass}}}"#
+        )
+    }
+
+    /// [`live_ok`] whose two tag rulesets are replaced by `first` and
+    /// `second`.
+    fn live_with_tag_rulesets(first: &str, second: &str) -> Memory {
+        live_ok()
+            .with("live/ruleset-2.json", first)
+            .with("live/ruleset-3.json", second)
+    }
+
+    /// A ruleset for another tag pattern, which the `v*` check ignores.
+    const OTHER_TAGS: &str = r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/nightly-*"]}},"rules":[{"type":"creation"},{"type":"deletion"},{"type":"update"}],"bypass_actors":[]}"#;
+
+    /// The bypass list holding the repository admin role.
+    const ADMIN_BYPASS: &str =
+        r#","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]"#;
+
+    /// An empty bypass list.
+    const NO_BYPASS: &str = r#","bypass_actors":[]"#;
+
+    /// One drift finding named `setting`.
+    fn drift(setting: &str) -> Vec<Finding> {
+        vec![Finding::Drift {
+            setting: setting.to_owned(),
+        }]
+    }
+
+    /// Verifies: SEC-SUP-003
+    #[test]
+    fn a_bypass_list_on_the_ruleset_that_stops_tag_moves_and_deletes_is_drift() {
+        let all = r#"{"type":"creation"},{"type":"deletion"},{"type":"update"}"#;
+        let single =
+            live_with_tag_rulesets(&tag_ruleset_dump("active", all, ADMIN_BYPASS), OTHER_TAGS);
+        assert_eq!(
+            settings(&single, "live"),
+            drift("ruleset.tag.bypass_actors")
+        );
+        let creation = tag_ruleset_dump("active", r#"{"type":"creation"}"#, ADMIN_BYPASS);
+        let protect = r#"{"type":"deletion"},{"type":"update"}"#;
+        for bypass in [
+            ADMIN_BYPASS,
+            r#","bypass_actors":[{"actor_id":1,"actor_type":"OrganizationAdmin"}]"#,
+            r#","bypass_actors":{}"#,
+            "",
+        ] {
+            let tree =
+                live_with_tag_rulesets(&creation, &tag_ruleset_dump("active", protect, bypass));
+            assert_eq!(settings(&tree, "live"), drift("ruleset.tag.bypass_actors"));
+        }
+        let delete_only = live_with_tag_rulesets(
+            &tag_ruleset_dump(
+                "active",
+                r#"{"type":"creation"},{"type":"update"}"#,
+                ADMIN_BYPASS,
+            ),
+            &tag_ruleset_dump("active", r#"{"type":"deletion"}"#, NO_BYPASS),
+        );
+        assert_eq!(
+            settings(&delete_only, "live"),
+            drift("ruleset.tag.bypass_actors")
+        );
+        let update_only = live_with_tag_rulesets(
+            &tag_ruleset_dump(
+                "active",
+                r#"{"type":"creation"},{"type":"deletion"}"#,
+                ADMIN_BYPASS,
+            ),
+            &tag_ruleset_dump("active", r#"{"type":"update"}"#, NO_BYPASS),
+        );
+        assert_eq!(
+            settings(&update_only, "live"),
+            drift("ruleset.tag.bypass_actors")
+        );
+    }
+
+    /// Verifies: SEC-SUP-003
+    #[test]
+    fn the_split_tag_layout_passes_and_a_missing_tag_rule_is_drift() {
+        assert_eq!(settings(&live_ok(), "live"), []);
+        let creation = tag_ruleset_dump("active", r#"{"type":"creation"}"#, ADMIN_BYPASS);
+        let layered = live_with_tag_rulesets(
+            &tag_ruleset_dump(
+                "active",
+                r#"{"type":"creation"},{"type":"deletion"},{"type":"update"}"#,
+                ADMIN_BYPASS,
+            ),
+            &tag_ruleset_dump(
+                "active",
+                r#"{"type":"deletion"},{"type":"update"}"#,
+                NO_BYPASS,
+            ),
+        );
+        assert_eq!(settings(&layered, "live"), []);
+        let one_rule_each = live_with_tag_rulesets(
+            &creation,
+            &tag_ruleset_dump("active", r#"{"type":"deletion"}"#, NO_BYPASS),
+        )
+        .with(
+            "live/ruleset-4.json",
+            &tag_ruleset_dump("active", r#"{"type":"update"}"#, NO_BYPASS),
+        );
+        assert_eq!(settings(&one_rule_each, "live"), []);
+        for (rules, setting) in [
+            (r#"{"type":"update"}"#, "ruleset.tag.deletion"),
+            (r#"{"type":"deletion"}"#, "ruleset.tag.update"),
+        ] {
+            let tree =
+                live_with_tag_rulesets(&creation, &tag_ruleset_dump("active", rules, NO_BYPASS));
+            assert_eq!(settings(&tree, "live"), drift(setting));
+        }
+        let no_creation = live_with_tag_rulesets(
+            OTHER_TAGS,
+            &tag_ruleset_dump(
+                "active",
+                r#"{"type":"deletion"},{"type":"update"}"#,
+                NO_BYPASS,
+            ),
+        );
+        assert_eq!(
+            settings(&no_creation, "live"),
+            drift("ruleset.tag.creation")
+        );
+        let none = live_with_tag_rulesets(OTHER_TAGS, OTHER_TAGS);
+        assert_eq!(settings(&none, "live"), drift("ruleset.tag"));
+    }
+
+    /// Verifies: SEC-SUP-003
+    #[test]
+    fn only_maintainers_may_bypass_the_tag_creation_rule() {
+        let protect = tag_ruleset_dump(
+            "active",
+            r#"{"type":"deletion"},{"type":"update"}"#,
+            NO_BYPASS,
+        );
+        let with_creation_bypass = |bypass: &str| {
+            live_with_tag_rulesets(
+                &tag_ruleset_dump("active", r#"{"type":"creation"}"#, bypass),
+                &protect,
+            )
+        };
+        for allowed in [
+            r#","bypass_actors":[{"actor_id":2,"actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":2,"actor_type":"RepositoryRole"},{"actor_id":5,"actor_type":"RepositoryRole"},{"actor_id":1,"actor_type":"OrganizationAdmin"}]"#,
+        ] {
+            assert_eq!(settings(&with_creation_bypass(allowed), "live"), []);
+        }
+        for refused in [
+            r#","bypass_actors":[{"actor_id":4,"actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole"},{"actor_id":4,"actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":"5","actor_type":"RepositoryRole"}]"#,
+            r#","bypass_actors":[{"actor_id":5,"actor_type":"Integration"}]"#,
+            r#","bypass_actors":[{"actor_id":5}]"#,
+            r#","bypass_actors":[]"#,
+            r#","bypass_actors":{}"#,
+            "",
+        ] {
+            assert_eq!(
+                settings(&with_creation_bypass(refused), "live"),
+                drift("ruleset.tag.bypass_actors")
+            );
         }
     }
 
     /// Verifies: SEC-SUP-003
     #[test]
-    fn release_tags_need_maintainer_only_creation_no_moves_or_deletes_and_immutable_releases() {
-        let tag = |rules: &str, bypass: &str| {
-            live_ok().with(
-                "live/ruleset-2.json",
-                &format!(
-                    r#"{{"enforcement":"active","conditions":{{"ref_name":{{"include":["refs/tags/v*"]}}}},"rules":[{rules}]{bypass}}}"#
-                ),
-            )
-        };
-        let all = r#"{"type":"creation"},{"type":"deletion"},{"type":"update"}"#;
-        let drift = |setting: &str| {
-            vec![Finding::Drift {
-                setting: setting.to_owned(),
-            }]
-        };
+    fn a_tag_ruleset_that_is_not_active_is_drift_and_its_rules_do_not_count() {
+        let creation = tag_ruleset_dump("active", r#"{"type":"creation"}"#, ADMIN_BYPASS);
+        let protect = r#"{"type":"deletion"},{"type":"update"}"#;
+        let tree =
+            live_with_tag_rulesets(&creation, &tag_ruleset_dump("evaluate", protect, NO_BYPASS));
         assert_eq!(
-            settings(
-                &tag(
-                    r#"{"type":"deletion"},{"type":"update"}"#,
-                    r#","bypass_actors":[]"#
-                ),
-                "live"
-            ),
-            drift("ruleset.tag.creation")
+            settings(&tree, "live"),
+            [
+                Finding::Drift {
+                    setting: "ruleset.tag.enforcement".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "ruleset.tag.deletion".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "ruleset.tag.update".to_owned(),
+                },
+            ]
         );
-        for allowed in [
-            r#","bypass_actors":[]"#,
-            r#","bypass_actors":[{"actor_id":2,"actor_type":"RepositoryRole"},{"actor_id":5,"actor_type":"RepositoryRole"},{"actor_id":1,"actor_type":"OrganizationAdmin"}]"#,
-        ] {
-            assert_eq!(settings(&tag(all, allowed), "live"), []);
-        }
-        for refused in [
-            r#","bypass_actors":[{"actor_id":4,"actor_type":"RepositoryRole"}]"#,
-            r#","bypass_actors":[{"actor_id":"5","actor_type":"RepositoryRole"}]"#,
-            r#","bypass_actors":[{"actor_id":5,"actor_type":"Integration"}]"#,
-            r#","bypass_actors":[{"actor_id":5}]"#,
-            r#","bypass_actors":{}"#,
-            "",
-        ] {
-            assert_eq!(
-                settings(&tag(all, refused), "live"),
-                drift("ruleset.tag.bypass_actors")
-            );
-        }
+        let spare = live_ok().with(
+            "live/ruleset-4.json",
+            &tag_ruleset_dump("disabled", protect, NO_BYPASS),
+        );
+        assert_eq!(settings(&spare, "live"), drift("ruleset.tag.enforcement"));
+        let unstated = live_with_tag_rulesets(
+            r#"{"conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[{"type":"creation"}],"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole"}]}"#,
+            &tag_ruleset_dump("active", protect, NO_BYPASS),
+        );
+        assert_eq!(
+            settings(&unstated, "live"),
+            [
+                Finding::Drift {
+                    setting: "ruleset.tag.enforcement".to_owned(),
+                },
+                Finding::Drift {
+                    setting: "ruleset.tag.creation".to_owned(),
+                },
+            ]
+        );
+    }
+
+    /// Verifies: SEC-SUP-003
+    #[test]
+    fn releases_that_are_not_immutable_are_drift() {
         let tree = live_ok().with("live/immutable-releases.json", r#"{"enabled":false}"#);
         assert_eq!(settings(&tree, "live"), drift("immutable_releases"));
         assert_eq!(
@@ -1933,13 +2324,8 @@ path = [\"fuzz/seeds/**\"]
             r#"{"two_factor_requirement_enabled":false}"#,
         );
         assert_eq!(
-            settings(&tree, "live").into_iter().find(|finding| matches!(
-                finding,
-                Finding::Drift { setting } if setting == "two_factor_requirement_enabled"
-            )),
-            Some(Finding::Drift {
-                setting: "two_factor_requirement_enabled".to_owned(),
-            })
+            settings(&tree, "live"),
+            drift("two_factor_requirement_enabled")
         );
     }
 
@@ -2167,9 +2553,43 @@ path = [\"fuzz/seeds/**\"]
         );
         let tree = passing().with(
             "crates/demo/tests/advisory.rs",
-            "fn ghsa_aaaa_bbbb_cccc_rejects() {}\n",
+            "#[test]\nfn ghsa_aaaa_bbbb_cccc_rejects() {}\n",
         );
         assert_eq!(advisories(&tree, json), []);
+        let nested = passing().with(
+            "crates/demo/src/lib.rs",
+            "mod tests {\n    #[test]\n    fn ghsa_aaaa_bbbb_cccc_rejects() {}\n}\n",
+        );
+        assert_eq!(advisories(&nested, json), []);
+    }
+
+    /// Verifies: SEC-TM-003
+    #[test]
+    fn an_advisory_id_in_a_comment_or_a_string_is_not_a_regression_test() {
+        let json = r#"[{"ghsa_id":"GHSA-aaaa-bbbb-cccc","state":"published"}]"#;
+        for text in [
+            "// ghsa_aaaa_bbbb_cccc is fixed\n",
+            "// fn ghsa_aaaa_bbbb_cccc_rejects() {}\n",
+            "const ID: &str = \"ghsa_aaaa_bbbb_cccc\";\n",
+            "const ID: &str = \"fn ghsa_aaaa_bbbb_cccc\";\n",
+            "fn not_ghsa_aaaa_bbbb_cccc() {}\n",
+            "fn ghsa_aaaa_bbbb() {}\n",
+        ] {
+            let tree = passing().with("crates/demo/tests/advisory.rs", text);
+            assert_eq!(
+                advisories(&tree, json),
+                [Finding::UnmappedAdvisory {
+                    id: "GHSA-aaaa-bbbb-cccc".to_owned(),
+                }]
+            );
+        }
+        let markdown = passing().with("docs/advisory.md", "fn ghsa_aaaa_bbbb_cccc_rejects() {}\n");
+        assert_eq!(
+            advisories(&markdown, json),
+            [Finding::UnmappedAdvisory {
+                id: "GHSA-aaaa-bbbb-cccc".to_owned(),
+            }]
+        );
     }
 
     /// Verifies: SEC-TM-003
@@ -2230,11 +2650,20 @@ path = [\"fuzz/seeds/**\"]
     /// Verifies: SEC-SUP-030
     #[test]
     fn reuse_and_the_licence_text_are_required() {
-        let tree = passing().with("REUSE.toml", "version = 1\n");
-        assert!(check(&tree, REVIEWED).contains(&Finding::MissingSection {
+        let tree = passing().with("REUSE.toml", "version = 2\n");
+        let expected: Vec<Finding> = [
+            "version = 1",
+            "fuzz/seeds/**",
+            "AGPL-3.0-or-later",
+            "SPDX-FileCopyrightText",
+        ]
+        .into_iter()
+        .map(|section| Finding::MissingSection {
             path: "REUSE.toml".to_owned(),
-            section: "fuzz/seeds/**".to_owned(),
-        }));
+            section: section.to_owned(),
+        })
+        .collect();
+        assert_eq!(check(&tree, REVIEWED), expected);
     }
 
     #[test]
@@ -2456,24 +2885,30 @@ path = [\"fuzz/seeds/**\"]
     }
 
     #[test]
-    fn missing_required_files_are_named() {
-        let findings = check(&Memory::default(), REVIEWED);
-        for path in [
+    fn an_empty_tree_misses_every_required_file() {
+        let expected: Vec<Finding> = [
             "SECURITY.md",
             ".github/CODEOWNERS",
             ".github/dependabot.yml",
             ".github/workflows/codeql.yml",
+            ".github/workflows/scorecard.yml",
+            ".github/workflows/settings-drift.yml",
+            ".github/workflows/workflow-lint.yml",
             "REUSE.toml",
             "LICENSES/AGPL-3.0-or-later.txt",
             "docs/runbooks/compromise.md",
-            ".github/pull_request_template.md",
+            "docs/runbooks/signing-key.md",
+            "docs/runbooks/supply-chain.md",
             "CONTRIBUTING.md",
             "AGENTS.md",
-        ] {
-            assert!(findings.contains(&Finding::Missing {
-                path: path.to_owned(),
-            }));
-        }
+            ".github/pull_request_template.md",
+        ]
+        .into_iter()
+        .map(|path| Finding::Missing {
+            path: path.to_owned(),
+        })
+        .collect();
+        assert_eq!(check(&Memory::default(), REVIEWED), expected);
     }
 
     #[test]
@@ -2657,14 +3092,15 @@ updates:
             }]
         );
         assert_eq!(check(&Ghost(passing()), REVIEWED), []);
-        let tree = passing().with(
-            ".github/pull_request_template.md",
-            "advisory ID and class review\n",
-        );
-        assert!(check(&tree, REVIEWED).contains(&Finding::MissingSection {
-            path: ".github/pull_request_template.md".to_owned(),
-            section: "root cause".to_owned(),
-        }));
+        let tree = passing().with(".github/pull_request_template.md", "a fix\n");
+        let expected: Vec<Finding> = ["advisory", "class review", "root cause"]
+            .into_iter()
+            .map(|section| Finding::MissingSection {
+                path: ".github/pull_request_template.md".to_owned(),
+                section: section.to_owned(),
+            })
+            .collect();
+        assert_eq!(check(&tree, REVIEWED), expected);
     }
 
     #[test]
@@ -2697,20 +3133,6 @@ updates:
         );
         assert!(settings(&tree, "live").contains(&Finding::Drift {
             setting: "ruleset.main.required_status_checks.gate".to_owned(),
-        }));
-        let tree = live_ok().with(
-            "live/ruleset-2.json",
-            r#"{"enforcement":"disabled","conditions":{"ref_name":{"include":["refs/tags/v*"]}},"rules":[]}"#,
-        );
-        let findings = settings(&tree, "live");
-        assert!(findings.contains(&Finding::Drift {
-            setting: "ruleset.tag.enforcement".to_owned(),
-        }));
-        assert!(findings.contains(&Finding::Drift {
-            setting: "ruleset.tag.deletion".to_owned(),
-        }));
-        assert!(findings.contains(&Finding::Drift {
-            setting: "ruleset.tag.update".to_owned(),
         }));
     }
 
