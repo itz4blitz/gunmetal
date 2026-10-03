@@ -5,6 +5,7 @@
 
 pub mod base64;
 pub mod ebml;
+pub mod net;
 pub mod text;
 pub mod time;
 pub mod untrusted;
