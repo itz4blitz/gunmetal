@@ -127,13 +127,17 @@ pub(crate) struct Rule {
     pub credential: bool,
 }
 
-/// The people `user.manage` and `user.recover` act on: never an
-/// administrator or the owner.
+/// The people `user.manage` acts on: never an administrator or the owner.
 const NON_ADMINS: &[PrincipalKind] = &[
     PrincipalKind::Member,
     PrincipalKind::ManagedProfile,
     PrincipalKind::Guest,
 ];
+
+/// The people `user.recover` acts on: members and guests. A managed profile
+/// holds no credential to recover, and an administrator is recovered by the
+/// owner alone.
+const RECOVERABLE: &[PrincipalKind] = &[PrincipalKind::Member, PrincipalKind::Guest];
 
 /// The people `session.manage` acts on: anyone but the owner.
 const NON_OWNERS: &[PrincipalKind] = &[
@@ -258,7 +262,7 @@ impl Action {
             Self::InviteGuest => rule(needs(C::InviteGuest), Target::Server, true),
             Self::InviteMember => rule(needs(C::InviteMember), Target::Server, true),
             Self::ManageUser => rule(needs(C::UserManage), Target::Person(NON_ADMINS), false),
-            Self::RecoverUser => rule(needs(C::UserRecover), Target::Person(NON_ADMINS), true),
+            Self::RecoverUser => rule(needs(C::UserRecover), Target::Person(RECOVERABLE), true),
             Self::EndSessions => rule(needs(C::SessionManage), Target::Person(NON_OWNERS), false),
             Self::ManageHouseholdDevices => rule(needs(C::HouseholdDevice), Target::Server, true),
             Self::ManageHouseholdProfiles => {

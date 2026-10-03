@@ -140,11 +140,17 @@ impl Describe for Denial {
 ///
 /// Only [`decide`] can make one. It has no public constructor, its fields
 /// are private, and it cannot be cloned, so holding one proves that the
-/// policy allowed this action for this principal.
+/// policy allowed this action for this principal. It records who that
+/// principal is and, for an action on the principal's own data, whose data
+/// it is, so a reader can refuse a permit that was decided for someone
+/// else.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Permit {
     action: Action,
     libraries: LibrarySet,
+    account: Option<PublicId>,
+    profile: Option<PublicId>,
+    owner: Option<Owner>,
 }
 
 impl Permit {
@@ -159,6 +165,28 @@ impl Permit {
     #[must_use]
     pub const fn libraries(&self) -> &LibrarySet {
         &self.libraries
+    }
+
+    /// The account the decision was made for, if the principal has one.
+    #[must_use]
+    pub const fn account(&self) -> Option<PublicId> {
+        self.account
+    }
+
+    /// The profile the decision was made for, if the principal has one.
+    #[must_use]
+    pub const fn profile(&self) -> Option<PublicId> {
+        self.profile
+    }
+
+    /// The owner of the object the decision was made about, when the
+    /// action acts on something the principal's own account or profile
+    /// owns. A reader of one person's data serves only this owner's, so a
+    /// permit decided for one profile's history cannot open another's
+    /// (SEC-TM-024).
+    #[must_use]
+    pub const fn owner(&self) -> Option<Owner> {
+        self.owner
     }
 }
 
@@ -190,12 +218,13 @@ pub fn decide(
         return Err(Denial::LimitedDevice);
     }
     let libraries = visible_libraries(principal);
-    match (rule.target, resource) {
-        (Target::Server | Target::Library, ResourceFacts::Server) => {}
+    let owner = match (rule.target, resource) {
+        (Target::Server | Target::Library, ResourceFacts::Server) => None,
         (Target::Library, ResourceFacts::Library(library)) => {
             if !libraries.contains(library) {
                 return Err(Denial::NotVisible);
             }
+            None
         }
         (Target::Own, ResourceFacts::Owned(owner)) => {
             let own = match owner {
@@ -205,14 +234,16 @@ pub fn decide(
             if !own {
                 return Err(Denial::NotVisible);
             }
+            Some(*owner)
         }
         (Target::Person(kinds), ResourceFacts::Person { kind, .. }) => {
             if !kinds.contains(kind) {
                 return Err(Denial::TargetNotAllowed(*kind));
             }
+            None
         }
         _ => return Err(Denial::NotVisible),
-    }
+    };
     let runs_server = !matches!(tier, Tier::Everyday);
     if principal.reach == Reach::HomeOnly && !context.is_home() {
         return Err(Denial::Location);
@@ -225,7 +256,13 @@ pub fn decide(
     if needs_fresh && principal.verification != UserVerification::Fresh {
         return Err(Denial::FreshVerificationRequired);
     }
-    Ok(Permit { action, libraries })
+    Ok(Permit {
+        action,
+        libraries,
+        account: principal.account,
+        profile: principal.profile,
+        owner,
+    })
 }
 
 /// Checks the capability chain of step 1.
@@ -251,9 +288,13 @@ fn check_capability(principal: &PrincipalFacts, capability: Capability) -> Resul
     Ok(())
 }
 
-/// The libraries `capabilities` and `listed` reach.
+/// The libraries `capabilities` and `listed` reach: none without
+/// `library.read`, every library with `library.all` as well, and otherwise
+/// the listed ones.
 fn reach(capabilities: CapabilitySet, listed: &[PublicId]) -> LibrarySet {
-    if capabilities.contains(Capability::LibraryAll) {
+    if !capabilities.contains(Capability::LibraryRead) {
+        LibrarySet::listed(Vec::new())
+    } else if capabilities.contains(Capability::LibraryAll) {
         LibrarySet::every()
     } else {
         LibrarySet::listed(listed.to_vec())
@@ -261,7 +302,8 @@ fn reach(capabilities: CapabilitySet, listed: &[PublicId]) -> LibrarySet {
 }
 
 /// The libraries the principal may see: its own reach, within its
-/// credential's scope (SEC-API-020).
+/// credential's scope (SEC-API-020). Every permit carries this set whatever
+/// its action, so a principal that may not browse carries an empty one.
 fn visible_libraries(principal: &PrincipalFacts) -> LibrarySet {
     let own = reach(
         principal
@@ -287,7 +329,8 @@ fn visible_libraries(principal: &PrincipalFacts) -> LibrarySet {
 ///   which nobody may hand out, the owner included (SEC-IAM-075);
 /// - [`Denial::Escalation`] for the first capability the creator cannot use
 ///   itself (SEC-IAM-073);
-/// - [`Denial::NotVisible`] for a library the creator cannot see.
+/// - [`Denial::NotVisible`] for a library the creator cannot see, which
+///   is every library when the creator lacks `library.read`.
 pub fn may_issue(creator: &PrincipalFacts, requested: &Scope) -> Result<Scope, Denial> {
     if creator.scope.is_some() {
         return Err(Denial::ScopedCredential);
@@ -357,7 +400,7 @@ mod compile_fail {
     /// use gunmetal_core::authz::{Action, Context, Denial, LibrarySet, Permit, PrincipalFacts, ResourceFacts, decide};
     ///
     /// fn forge(libraries: LibrarySet) -> Permit {
-    ///     Permit { action: Action::BrowseLibrary, libraries }
+    ///     Permit { action: Action::BrowseLibrary, libraries, account: None, profile: None, owner: None }
     /// }
     /// ```
     struct NoStructLiteral;
@@ -488,6 +531,144 @@ mod tests {
         );
     }
 
+    /// A permit's library set is what storage readers filter by, so an
+    /// action that needs no capability must not carry a set its principal
+    /// could not browse.
+    #[test]
+    fn a_permit_holds_no_library_without_library_read() {
+        let own = ResourceFacts::Owned(Owner::Profile(profile(1)));
+        // Granted library 1, but holding no capability at all.
+        let bare = facts(K::Member, CapabilitySet::EMPTY);
+        assert_eq!(
+            ask(&bare, Action::SignOut, &ResourceFacts::Server, &at_home()),
+            Ok((Action::SignOut, only(&[])))
+        );
+        assert_eq!(
+            ask(&bare, Action::ReadOwnData, &own, &at_home()),
+            Ok((Action::ReadOwnData, only(&[])))
+        );
+        // The same person with `library.read` carries the grant.
+        assert_eq!(
+            ask(
+                &member(),
+                Action::SignOut,
+                &ResourceFacts::Server,
+                &at_home()
+            ),
+            Ok((Action::SignOut, only(&[1])))
+        );
+        // `library.all` widens what `library.read` reaches; alone it
+        // reaches nothing.
+        let mut all = owner();
+        all.capabilities = CapabilitySet::of(&[C::LibraryAll]);
+        assert_eq!(
+            ask(&all, Action::SignOut, &ResourceFacts::Server, &at_home()),
+            Ok((Action::SignOut, only(&[])))
+        );
+        // A key whose scope lacks `library.read` sees no library, whatever
+        // its holder sees and whatever libraries its scope lists.
+        let mut key = member();
+        key.scope = Some(scope(&[C::PlaylistShare], &[1]));
+        assert_eq!(
+            ask(
+                &key,
+                Action::SharePlaylist,
+                &ResourceFacts::Owned(Owner::Account(account(1))),
+                &at_home()
+            ),
+            Ok((Action::SharePlaylist, only(&[])))
+        );
+        assert_eq!(
+            ask(&key, Action::ReadOwnData, &own, &at_home()),
+            Ok((Action::ReadOwnData, only(&[])))
+        );
+        let mut owner_key = owner();
+        owner_key.scope = Some(scope(&[C::LibraryAll, C::HostFiles], &[1]));
+        assert_eq!(
+            ask(
+                &owner_key,
+                Action::SignOut,
+                &ResourceFacts::Server,
+                &at_home()
+            ),
+            Ok((Action::SignOut, only(&[])))
+        );
+        assert_eq!(
+            ask(
+                &owner_key,
+                Action::InspectFile,
+                &ResourceFacts::Library(library(1)),
+                &at_home()
+            ),
+            Err(Denial::NotVisible)
+        );
+    }
+
+    /// Verifies: SEC-TM-024
+    #[test]
+    fn a_permit_records_who_it_was_decided_for_and_whose_object_it_opens() {
+        type Subject = (Option<PublicId>, Option<PublicId>, Option<Owner>);
+        let subject = |principal: &PrincipalFacts, action, resource: &ResourceFacts| {
+            decide(principal, action, resource, &at_home())
+                .map(|permit| (permit.account(), permit.profile(), permit.owner()))
+        };
+        let both =
+            |owner| -> Result<Subject, Denial> { Ok((Some(account(1)), Some(profile(1)), owner)) };
+        assert_eq!(
+            subject(
+                &member(),
+                Action::ReadOwnData,
+                &ResourceFacts::Owned(Owner::Profile(profile(1)))
+            ),
+            both(Some(Owner::Profile(profile(1))))
+        );
+        assert_eq!(
+            subject(
+                &member(),
+                Action::WriteOwnData,
+                &ResourceFacts::Owned(Owner::Account(account(1)))
+            ),
+            both(Some(Owner::Account(account(1))))
+        );
+        // Anything that is not the principal's own object names no owner.
+        assert_eq!(
+            subject(&member(), Action::BrowseLibrary, &ResourceFacts::Server),
+            both(None)
+        );
+        assert_eq!(
+            subject(
+                &member(),
+                Action::StreamMedia,
+                &ResourceFacts::Library(library(1))
+            ),
+            both(None)
+        );
+        assert_eq!(
+            subject(&owner(), Action::ManageUser, &person(K::Member)),
+            both(None)
+        );
+        // The account and the profile are each the principal's own, or
+        // absent when it has none.
+        let mut profile_only = member();
+        profile_only.account = None;
+        profile_only.profile = Some(profile(2));
+        assert_eq!(
+            subject(
+                &profile_only,
+                Action::ReadOwnData,
+                &ResourceFacts::Owned(Owner::Profile(profile(2)))
+            ),
+            Ok((None, Some(profile(2)), Some(Owner::Profile(profile(2)))))
+        );
+        let mut account_only = member();
+        account_only.account = Some(account(2));
+        account_only.profile = None;
+        assert_eq!(
+            subject(&account_only, Action::SignOut, &ResourceFacts::Server),
+            Ok((Some(account(2)), None, None))
+        );
+    }
+
     /// A member granted `library.all` still sees only its grants: its kind
     /// may not hold it (A-564).
     #[test]
@@ -575,7 +756,7 @@ mod tests {
     fn each_action_on_a_person_touches_only_its_kinds() {
         let actions = [
             (Action::ManageUser, "..YYY....."),
-            (Action::RecoverUser, "..YYY....."),
+            (Action::RecoverUser, "..Y.Y....."),
             (Action::EndSessions, ".YYYYY...."),
             (Action::ManageAdministrators, ".YY......."),
             (Action::TransferOwnership, ".YY......."),
@@ -992,7 +1173,6 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-HIS-013
     #[test]
     fn denials_describe_themselves_by_the_catalogue() {
         let cases = [
@@ -1067,6 +1247,17 @@ mod tests {
         assert_eq!(
             may_issue(&parent, &scope(&[C::InviteGuest], &[])),
             Err(Denial::Escalation(C::InviteGuest))
+        );
+        // Nobody hands out a library it cannot browse itself.
+        let mut inviter = facts(K::Member, CapabilitySet::of(&[C::InviteGuest]));
+        inviter.libraries = vec![library(1)];
+        assert_eq!(
+            may_issue(&inviter, &scope(&[C::InviteGuest], &[1])),
+            Err(Denial::NotVisible)
+        );
+        assert_eq!(
+            may_issue(&inviter, &scope(&[C::InviteGuest], &[])),
+            Ok(scope(&[C::InviteGuest], &[]))
         );
         // An administrator may hand out every library and any capability
         // it holds.

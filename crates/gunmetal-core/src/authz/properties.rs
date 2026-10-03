@@ -177,6 +177,29 @@ proptest! {
         let result = decide(&principal, action, &resource, &context(ranks));
         prop_assert!(!allowed(&result) || NEED_NOTHING.contains(&action));
         prop_assert!(!allowed(&result) || matches!(resource, ResourceFacts::Server | ResourceFacts::Owned(_)));
+        // Signing out is always allowed, and its permit carries no library
+        // for a reader to serve.
+        let sign_out = decide(&principal, Action::SignOut, &ResourceFacts::Server, &at_home());
+        let seen = sign_out.as_ref().map(|permit| permit.libraries().restriction());
+        prop_assert_eq!(seen, Ok(Some(&[][..])));
+    }
+
+    /// Whatever the action, a permit's library set holds only libraries the
+    /// principal may browse.
+    #[test]
+    fn a_permit_never_holds_a_library_its_principal_may_not_browse(
+        principal in facts(),
+        action in action(),
+        resource in resource(),
+        ranks in ranks(),
+    ) {
+        let result = decide(&principal, action, &resource, &context(ranks));
+        for n in 0..4 {
+            let library = library(n);
+            let held = result.as_ref().is_ok_and(|permit| permit.libraries().contains(&library));
+            let browse = decide(&principal, Action::BrowseLibrary, &ResourceFacts::Library(library), &at_home());
+            prop_assert!([!held, allowed(&browse)].contains(&true));
+        }
     }
 
     /// Verifies: SEC-IAM-068
@@ -231,7 +254,7 @@ proptest! {
         changed in any::<bool>(),
     ) {
         principal.reach = Reach::Anywhere;
-        let decisions: Vec<Result<Action, Denial>> = PATHS
+        let decisions: Vec<Result<Permit, Denial>> = PATHS
             .into_iter()
             .map(|path| {
                 let context = Context {
@@ -239,11 +262,11 @@ proptest! {
                     network: if changed { Network::Changed } else { Network::Same },
                     remote_admin: RemoteAdmin::Allowed,
                 };
-                decide(&principal, action, &resource, &context).map(|permit| permit.action())
+                decide(&principal, action, &resource, &context)
             })
             .collect();
-        let first = decisions.first().cloned();
-        prop_assert!(decisions.iter().all(|decision| Some(decision) == first.as_ref()));
+        // The whole outcome: the action, the library set and the subject.
+        prop_assert!(decisions.iter().all(|decision| Some(decision) == decisions.first()));
     }
 
     /// Verifies: SEC-API-020
@@ -302,7 +325,9 @@ proptest! {
                 .intersection(creator.kind.ceiling())
                 .intersection(creator.device.ceiling())
                 .contains(Capability::LibraryAll);
+            let reads = creator.effective().contains(Capability::LibraryRead);
             for library in &issued.libraries {
+                prop_assert!(reads);
                 prop_assert!(every || creator.libraries.contains(library));
             }
         }
