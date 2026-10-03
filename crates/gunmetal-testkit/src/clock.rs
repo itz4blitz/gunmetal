@@ -58,13 +58,21 @@ impl ManualClock {
     ///
     /// Panics when the move would take the reading outside `i64`.
     pub fn advance(&self, ms: i64) {
-        if let Err(from) = self
-            .now_ms
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| {
-                now.checked_add(ms)
-            })
-        {
-            panic!("advancing the manual clock by {ms} ms from {from} ms overflows");
+        // `fetch_update` is the same loop, and Rust 1.99 renames it to
+        // `try_update`. This crate's rust-version is 1.85, where only
+        // `compare_exchange` exists, so the loop is written out.
+        let mut now = self.now_ms.load(Ordering::SeqCst);
+        loop {
+            let Some(next) = now.checked_add(ms) else {
+                panic!("advancing the manual clock by {ms} ms from {now} ms overflows");
+            };
+            match self
+                .now_ms
+                .compare_exchange(now, next, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return,
+                Err(current) => now = current,
+            }
         }
     }
 }

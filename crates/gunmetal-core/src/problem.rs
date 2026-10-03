@@ -105,6 +105,7 @@ pub trait Describe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::is_lower_snake;
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
@@ -145,10 +146,7 @@ mod tests {
         sorted.dedup();
         assert_eq!(codes, sorted, "codes must be unique and in sorted order");
         for code in codes {
-            let shaped = code.starts_with(|c: char| c.is_ascii_lowercase())
-                && code.ends_with(|c: char| c.is_ascii_lowercase())
-                && code.chars().all(|c| c.is_ascii_lowercase() || c == '_');
-            assert!(shaped, "code {code:?}");
+            assert!(is_lower_snake(code), "code {code:?}");
         }
     }
 
