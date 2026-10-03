@@ -1,5 +1,6 @@
 /target
 /mutants.out*
+/.claude/worktrees/
 node_modules
 .DS_Store
 *.profraw
