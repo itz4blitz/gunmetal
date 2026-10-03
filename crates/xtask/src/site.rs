@@ -30,10 +30,10 @@
 //! The page scanner is small and fails closed. It reads tags, comments and
 //! declarations as a browser's tokenizer does, and each of these is a
 //! finding: an unterminated tag, quoted value, comment or declaration; a
-//! comment that a browser ends before its `-->` (one that starts `<!-->` or
-//! `<!--->`, or holds `--!>`); a `<` inside a tag, comment or declaration,
-//! where markup could hide from the scanner and still run in a browser that
-//! reads the text around it differently (in `<title>`, say); an attribute
+//! `<` inside a tag, comment or declaration, where markup could hide from
+//! the scanner and still run in a browser that ends a comment before its
+//! `-->` (one that starts `<!-->` or `<!--->`, or holds `--!>`) or reads
+//! the text around it differently (in `<title>`, say); an attribute
 //! with no name; an attribute value with a character reference, which the
 //! scanner does not decode; and an attribute value that only looks like
 //! another origin's address or holds `javascript:` anywhere. It reads
@@ -603,11 +603,11 @@ impl Tag {
 
 /// The start tags in `html`, read as a browser's tokenizer reads them;
 /// `None` when a tag, quoted value, comment or declaration is not
-/// terminated, when a browser would end a comment before its `-->`, when
-/// an attribute has no name, or when a tag, comment or declaration holds a
-/// `<`. So every `<` of the page is read as the start of something, and
-/// markup cannot hide in a comment or a quoted value from a browser that
-/// reads it as text there (in `<title>`, say) and ends that text early.
+/// terminated, when an attribute has no name, or when a tag, comment or
+/// declaration holds a `<`. So every `<` of the page is read as the start
+/// of something, and markup cannot hide in a comment or a quoted value
+/// from a browser that ends the comment early (at `<!-->`, `<!--->` or
+/// `--!>`) or reads the text there differently (in `<title>`, say).
 fn start_tags(html: &str) -> Option<Vec<Tag>> {
     let mut tags = Vec::new();
     let mut rest = html;
@@ -631,9 +631,8 @@ fn markup(text: &str) -> Option<(Option<Tag>, &str)> {
     let end_tag = text.strip_prefix('/');
     let named = end_tag.unwrap_or(text);
     if let Some(comment) = text.strip_prefix("!--") {
-        let (body, after) = comment.split_once("-->")?;
-        let early = body.starts_with('>') || body.starts_with("->") || body.contains("--!>");
-        (!early).then_some((None, after))
+        let (_, after) = comment.split_once("-->")?;
+        Some((None, after))
     } else if named.starts_with(|c: char| c.is_ascii_alphabetic()) {
         let (tag, after) = tag(named)?;
         Some((end_tag.is_none().then_some(tag), after))
