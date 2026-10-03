@@ -96,9 +96,7 @@ impl Filesystem {
     }
 
     /// Reads the type of the filesystem holding `handle`, an open file or
-    /// directory, such as a library folder's root handle. It asks the
-    /// handle rather than a path, so it describes the folder that was
-    /// opened even if its path has been swapped since.
+    /// directory, such as a library folder's root handle.
     ///
     /// # Errors
     ///

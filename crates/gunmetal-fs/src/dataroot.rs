@@ -747,7 +747,10 @@ impl DataRoot {
     /// The check and SQLite's open are separate steps, so it does not
     /// catch a path that was swapped for the open and swapped back before
     /// the check; only an open beneath the handle could, and SQLite has
-    /// none.
+    /// none. SQLite also opens `-wal` and `-shm` by path at the first
+    /// statement, which is after the check, so a data directory swapped
+    /// after the opener returns still gets those files created outside the
+    /// handle.
     pub(crate) fn holds_sqlite_path(&self, path: &DataPath) -> bool {
         let file = path.beneath();
         let parent = path.parent();

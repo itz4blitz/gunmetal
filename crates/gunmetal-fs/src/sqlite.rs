@@ -155,22 +155,24 @@ pub enum Synchronous {
 /// ```
 ///
 /// No method sets `secure_delete`, and this example fails if one is ever
-/// added. A method call reaches a type's own method before a trait's, so
-/// with a `secure_delete` method on `Pragmas` the call below would stop
-/// reaching the trait written here: it would no longer compile, or would
-/// return something other than this text.
+/// added. Rust probes a method call's receivers in order and tries
+/// `&mut self` last, so an inherent `secure_delete` of any receiver —
+/// `self`, `&self` or `&mut self` — is found before this trait method.
+/// Adding one would stop the call below reaching the trait: it would no
+/// longer compile, or would return something other than this text.
 ///
 /// ```
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
-/// trait Absent: Sized {
-///     fn secure_delete(self, _on: bool) -> &'static str {
+/// trait Absent {
+///     fn secure_delete(&mut self, _on: bool) -> &'static str {
 ///         "Pragmas has no secure_delete method"
 ///     }
 /// }
 /// impl Absent for Pragmas {}
 ///
-/// let reached: &'static str = Pragmas::new(Synchronous::Normal).secure_delete(false);
+/// let mut pragmas = Pragmas::new(Synchronous::Normal);
+/// let reached: &'static str = pragmas.secure_delete(false);
 /// assert_eq!(reached, "Pragmas has no secure_delete method");
 /// ```
 ///
@@ -440,9 +442,15 @@ impl ToSql for Bind<'_> {
 
 /// The one call that gives SQLite a path: the data root's resolved
 /// directory joined with `db`'s constant name. SQLite opens that path
-/// itself, outside the data-root handle, so before anything is written the
-/// file and its directory are compared, by device and inode, with what the
-/// handle holds; a connection to anything else is closed and refused.
+/// itself, outside the data-root handle, so the file and its directory are
+/// then compared, by device and inode, with what the handle holds; a
+/// connection to anything else is closed and refused.
+///
+/// Two limits remain. The check and SQLite's open are separate steps, so a
+/// path swapped for the open and swapped back before the check is not
+/// caught. SQLite also opens `-wal` and `-shm` by path at the first
+/// statement, which is after the check, so a data directory swapped after
+/// this function returns still gets those files created outside the handle.
 fn connect(root: &DataRoot, db: &DbFile, flags: OpenFlags) -> Result<Db, DbError> {
     Connection::open_with_flags(root.sqlite_path(db.path()), flags)
         .map_err(driver_error)
