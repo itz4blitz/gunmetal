@@ -30,18 +30,15 @@ pub fn run(data: &[u8]) -> Outcome {
     let header = data.first_chunk().map(|&octets| frame_header(octets));
     let file_len = u64::try_from(data.len()).unwrap_or(u64::MAX);
     let limits = Limits::DEFAULT;
-    let parsed = drive(
+    let stream = drive(
         stream_info(
             &limits,
             Budget::for_input(file_len, STEPS_PER_OCTET, FIXED_STEPS),
         ),
         data,
         &limits,
-    );
-    let stream = match parsed {
-        Ok(stream) => stream,
-        Err(error) => panic!("parser requested a read the guard refuses: {error:?}"),
-    };
+    )
+    .expect("parser requested a read the guard refuses");
     if let Ok(stream) = &stream {
         assert!(
             stream.header.layer == Layer::III
@@ -57,11 +54,13 @@ pub fn run(data: &[u8]) -> Outcome {
                 }),
             "{stream:?} breaks a stream invariant"
         );
-    } else if let Err(MpaError::Fault(ParseFault::BudgetExceeded { .. })) = stream {
-        panic!(
-            "the documented budget was not enough for {} octets",
-            data.len()
-        );
     }
+    assert!(
+        !matches!(
+            stream,
+            Err(MpaError::Fault(ParseFault::BudgetExceeded { .. }))
+        ),
+        "the documented budget was not enough for {file_len} octets"
+    );
     Outcome { header, stream }
 }
