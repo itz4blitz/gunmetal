@@ -249,6 +249,23 @@ mod tests {
     }
 
     #[test]
+    fn reports_empty_authenticator_data_at_the_end_of_the_object() {
+        // "fmt", "none", "attStmt", {} take 19 octets with the map head;
+        // "authData" takes 9 and the empty byte string's head 1, so the
+        // missing authenticator data would start at octet 29.
+        let input = object(&[]);
+        assert_eq!(input.len(), 29);
+        assert_eq!(
+            parse(&input),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 29,
+                needed: 32,
+                available: 0,
+            }))
+        );
+    }
+
+    #[test]
     fn reports_a_bad_credential_key_from_the_object_start() {
         // "fmt", "none", "attStmt", {} take 19 octets with the map head;
         // "authData" and the two-octet byte-string head take 11 more, so

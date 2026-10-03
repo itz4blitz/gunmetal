@@ -324,16 +324,20 @@ mod tests {
     fn reads_attested_credential_data_with_an_eddsa_key() {
         let mut bytes = prefix(AT, 0);
         bytes.extend_from_slice(&attested(&[0x01], &eddsa_key()));
-        let got = parse(&bytes).expect("attested EdDSA");
         assert_eq!(
-            got.attested,
-            Some(AttestedCredential {
-                aaguid: AAGUID,
-                credential_id: &[0x01],
-                public_key: CoseKey::Eddsa { x: P },
+            parse(&bytes),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x40),
+                sign_count: 0,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: &[0x01],
+                    public_key: CoseKey::Eddsa { x: P },
+                }),
+                extensions: None,
             })
         );
-        assert_eq!(got.extensions, None);
     }
 
     #[test]
@@ -341,26 +345,36 @@ mod tests {
         let mut bytes = prefix(AT | ED, 1);
         bytes.extend_from_slice(&attested(CRED_ID, &es256_key()));
         bytes.extend_from_slice(&map(&[(unsigned(1), unsigned(2))]));
-        let got = parse(&bytes).expect("AT and ED");
         assert_eq!(
-            got.attested.as_ref().map(|item| item.credential_id),
-            Some(CRED_ID)
-        );
-        assert_eq!(
-            got.extensions,
-            Some(Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Unsigned(2))]))
+            parse(&bytes),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0xC0),
+                sign_count: 1,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: CRED_ID,
+                    public_key: CoseKey::Es256 { x: X, y: Y },
+                }),
+                extensions: Some(Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Unsigned(2))])),
+            })
         );
         assert_eq!(unsigned(256), [0x19, 0x01, 0x00]);
         assert_eq!(unsigned(65_536), [0x1A, 0x00, 0x01, 0x00, 0x00]);
         let mut wide = prefix(ED, 0);
         wide.extend_from_slice(&map(&[(unsigned(256), unsigned(65_536))]));
-        let got = parse(&wide).expect("wide extension integers");
         assert_eq!(
-            got.extensions,
-            Some(Cbor::Map(vec![(
-                Cbor::Unsigned(256),
-                Cbor::Unsigned(65_536)
-            )]))
+            parse(&wide),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x80),
+                sign_count: 0,
+                attested: None,
+                extensions: Some(Cbor::Map(vec![(
+                    Cbor::Unsigned(256),
+                    Cbor::Unsigned(65_536)
+                )])),
+            })
         );
     }
 
@@ -370,8 +384,21 @@ mod tests {
         let long: Vec<u8> = (0..1023).map(|_| 0xCD).collect();
         let mut ok = prefix(AT, 0);
         ok.extend_from_slice(&attested(&long, &key));
-        let got = parse(&ok).expect("1023-octet id");
-        assert_eq!(got.attested.expect("AT").credential_id.len(), 1023);
+        assert_eq!(long.len(), 1023);
+        assert_eq!(
+            parse(&ok),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x40),
+                sign_count: 0,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: &long,
+                    public_key: CoseKey::Es256 { x: X, y: Y },
+                }),
+                extensions: None,
+            })
+        );
 
         let mut empty = prefix(AT, 0);
         empty.extend_from_slice(&AAGUID);
@@ -568,9 +595,14 @@ mod tests {
         let bytes = prefix(UP, 0);
         let mut budget = Budget::for_input(0, 0, 1);
         assert_eq!(
-            auth_data(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT)
-                .map(|data| data.sign_count),
-            Ok(0)
+            auth_data(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x01),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
         );
         assert_eq!(budget.remaining(), 0);
         let mut budget = Budget::for_input(0, 0, 0);
@@ -598,17 +630,34 @@ mod tests {
 
     #[test]
     fn keeps_backup_eligible_without_backup_state() {
-        let bytes = prefix(BE, 0);
-        let got = parse(&bytes).expect("BE without BS");
+        let flags = |raw, backup_state| Flags {
+            raw,
+            user_present: false,
+            user_verified: false,
+            backup_eligible: true,
+            backup_state,
+            attested_credential_data: false,
+            extension_data: false,
+        };
         assert_eq!(
-            (got.flags.backup_eligible, got.flags.backup_state),
-            (true, false)
+            parse(&prefix(0x08, 0)),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: flags(0x08, false),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
         );
-        let both = prefix(BE | BS, 0);
-        let got = parse(&both).expect("BE and BS");
         assert_eq!(
-            (got.flags.backup_eligible, got.flags.backup_state),
-            (true, true)
+            parse(&prefix(0x18, 0)),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: flags(0x18, true),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
         );
     }
 
