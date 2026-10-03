@@ -54,6 +54,7 @@ harnesses! {
     ebml,
     link,
     net,
+    path,
     text,
     time,
     values,
