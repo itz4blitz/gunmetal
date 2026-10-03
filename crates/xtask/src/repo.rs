@@ -194,10 +194,12 @@ pub enum Finding {
         /// The workflow.
         path: String,
     },
-    /// `actions/checkout` without `persist-credentials: false`.
+    /// An `actions/checkout` step without `persist-credentials: false`.
     PersistCredentials {
         /// The workflow.
         path: String,
+        /// The step's `uses:` line, counted from 1.
+        line: usize,
     },
     /// `pull_request_target` or `workflow_run`.
     DangerousTrigger {
@@ -558,11 +560,14 @@ fn workflow(path: &str, text: &str) -> Vec<Finding> {
             path: path.to_owned(),
         });
     }
-    let mut checkout = false;
-    for line in text.lines() {
+    let lines: Vec<&str> = text.lines().map(comment).collect();
+    for (index, line) in lines.iter().enumerate() {
         if let Some(spec) = uses_spec(line) {
-            if spec.contains("actions/checkout@") {
-                checkout = true;
+            if spec.contains("actions/checkout@") && !drops_credentials(&lines, index) {
+                findings.push(Finding::PersistCredentials {
+                    path: path.to_owned(),
+                    line: index.saturating_add(1),
+                });
             }
             if !pinned(spec) {
                 findings.push(Finding::Unpinned {
@@ -578,12 +583,30 @@ fn workflow(path: &str, text: &str) -> Vec<Finding> {
             });
         }
     }
-    if checkout && !has_line(text, "persist-credentials: false") {
-        findings.push(Finding::PersistCredentials {
-            path: path.to_owned(),
-        });
-    }
     findings
+}
+
+/// Whether the step holding line `at` of `lines` (comments removed) sets
+/// `persist-credentials: false`. The step runs from the `- ` that opens it
+/// to the next line indented no deeper than that dash.
+fn drops_credentials(lines: &[&str], at: usize) -> bool {
+    let depth = indent(lines[at]);
+    let Some(start) = (0..=at).rev().find(|&index| {
+        lines[index].trim_start().starts_with("- ") && (index == at || indent(lines[index]) < depth)
+    }) else {
+        return false;
+    };
+    let dash = indent(lines[start]);
+    lines
+        .iter()
+        .skip(start.saturating_add(1))
+        .take_while(|line| line.trim().is_empty() || indent(line) > dash)
+        .any(|line| line.trim() == "persist-credentials: false")
+}
+
+/// Leading spaces on `line`.
+fn indent(line: &str) -> usize {
+    line.len().saturating_sub(line.trim_start().len())
 }
 
 /// REUSE metadata and the licence text (SEC-SUP-030).
@@ -1194,13 +1217,20 @@ fn dangerous_trigger(line: &str) -> Option<&str> {
     let trimmed = comment(line).trim();
     let trimmed = trimmed.strip_prefix('-').map_or(trimmed, str::trim);
     let trimmed = trimmed.strip_prefix("on:").map_or(trimmed, str::trim);
+    let items: Vec<&str> = trimmed
+        .strip_prefix('[')
+        .and_then(|list| list.strip_suffix(']'))
+        .map_or_else(|| vec![trimmed], |list| list.split(',').collect());
     ["pull_request_target", "workflow_run"]
         .into_iter()
         .find(|trigger| {
-            trimmed == *trigger
-                || trimmed
-                    .strip_prefix(trigger)
-                    .is_some_and(|rest| rest.starts_with(':'))
+            items.iter().any(|item| {
+                let item = item.trim().trim_matches(['"', '\'']);
+                item == *trigger
+                    || item
+                        .strip_prefix(trigger)
+                        .is_some_and(|rest| rest.starts_with(':'))
+            })
         })
 }
 
@@ -1215,11 +1245,6 @@ fn top_permissions(text: &str) -> bool {
                 "permissions: {}" | "permissions:{}" | "permissions: { }"
             )
     })
-}
-
-/// Whether a non-comment line equals `wanted`.
-fn has_line(text: &str, wanted: &str) -> bool {
-    text.lines().any(|line| comment(line).trim() == wanted)
 }
 
 /// `line` without a trailing `#` comment; a whole-line comment is empty.
@@ -1634,8 +1659,109 @@ path = [\"fuzz/seeds/**\"]
         assert!(
             check(&tree, REVIEWED).contains(&Finding::PersistCredentials {
                 path: ".github/workflows/codeql.yml".to_owned(),
+                line: 8,
             })
         );
+    }
+
+    /// The `PersistCredentials` findings for `text` as `codeql.yml`.
+    fn credential_lines(text: &str) -> Vec<usize> {
+        check(
+            &passing().with(".github/workflows/codeql.yml", text),
+            REVIEWED,
+        )
+        .into_iter()
+        .filter_map(|finding| match finding {
+            Finding::PersistCredentials { line, .. } => Some(line),
+            _ => None,
+        })
+        .collect()
+    }
+
+    /// Verifies: SEC-SUP-010
+    #[test]
+    fn each_checkout_step_must_drop_its_own_credentials() {
+        let second = format!(
+            "{}      - name: second
+        uses: actions/checkout@{PINNED_SHA}
+        with:
+          fetch-depth: 0
+      - run: echo
+        env:
+          persist-credentials: false
+",
+            workflow_text()
+        );
+        assert_eq!(credential_lines(&second), [12]);
+        let named = format!(
+            "{}      - name: second
+
+        # keep the token off the disk
+        uses: actions/checkout@{PINNED_SHA}
+        with:
+          persist-credentials: false
+",
+            workflow_text()
+        );
+        assert_eq!(credential_lines(&named), []);
+        let compact = format!(
+            "{}      - name: compact
+        labels:
+        - kept
+        uses: actions/checkout@{PINNED_SHA}
+        with:
+          persist-credentials: false
+",
+            workflow_text()
+        );
+        assert_eq!(credential_lines(&compact), []);
+        let listed = format!(
+            "{}      - uses: actions/checkout@{PINNED_SHA}
+        with:
+          sparse-checkout: |
+            - persist-credentials: false
+",
+            workflow_text()
+        );
+        assert_eq!(credential_lines(&listed), [11]);
+        let first_only = workflow_text().replace(
+            "      - uses: actions/checkout",
+            &format!("      - uses: actions/checkout@{PINNED_SHA}\n      - uses: actions/checkout"),
+        );
+        assert_eq!(credential_lines(&first_only), [8]);
+        let bare = format!(
+            "name: bare\non: push\npermissions: {{}}\njobs:\n  x:\n    uses: actions/checkout@{PINNED_SHA}\n    with:\n      persist-credentials: false\n"
+        );
+        assert_eq!(credential_lines(&bare), [6]);
+    }
+
+    /// Verifies: SEC-SUP-013
+    #[test]
+    fn dangerous_triggers_in_a_flow_sequence_fail() {
+        for (on, trigger) in [
+            (
+                "on: [push, pull_request_target]",
+                Some("pull_request_target"),
+            ),
+            ("on: [ \"workflow_run\" ]", Some("workflow_run")),
+            ("on: ['pull_request_target']", Some("pull_request_target")),
+            ("on: [push, pull_request]", None),
+        ] {
+            let text = workflow_text().replace("on: push", on);
+            let tree = passing().with(".github/workflows/codeql.yml", &text);
+            let found: Vec<Finding> = check(&tree, REVIEWED)
+                .into_iter()
+                .filter(|finding| matches!(finding, Finding::DangerousTrigger { .. }))
+                .collect();
+            let expected: Vec<Finding> = trigger
+                .into_iter()
+                .map(|trigger| Finding::DangerousTrigger {
+                    path: ".github/workflows/codeql.yml".to_owned(),
+                    trigger: trigger.to_owned(),
+                })
+                .collect();
+            assert_eq!(found, expected, "{on}");
+        }
     }
 
     /// Verifies: SEC-SUP-013
@@ -2619,6 +2745,7 @@ jobs:
         }));
         assert!(is_pinning(&Finding::PersistCredentials {
             path: "x".to_owned(),
+            line: 1,
         }));
         assert!(!is_pinning(&missing));
         assert!(is_dependabot(&Finding::ShortCooldown { days: 1 }));
