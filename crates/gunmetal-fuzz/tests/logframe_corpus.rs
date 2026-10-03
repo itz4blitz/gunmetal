@@ -52,7 +52,7 @@ fn damaged(range: std::ops::Range<usize>) -> Item<'static> {
     Item::Damaged { range }
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-030
+/// Verifies: SEC-MED-028
 #[test]
 fn the_corpus_holds_exactly_the_seeds_tested_here() {
     let mut names: Vec<String> = fs::read_dir(seeds_dir())
@@ -76,8 +76,8 @@ fn replays_the_empty_input() {
         "empty",
         &[],
         &Outcome {
-            items: vec![],
-            tail: 0,
+            items: Ok(vec![]),
+            tail: Ok(0),
             header: Err(HeaderError::Missing),
         },
     );
@@ -105,8 +105,8 @@ fn replays_a_whole_record() {
             b'i',
         ],
         &Outcome {
-            items: vec![rec(b"hi")],
-            tail: 11,
+            items: Ok(vec![rec(b"hi")]),
+            tail: Ok(11),
             header: Err(HeaderError::InvalidLength { len: 2 }),
         },
     );
@@ -121,8 +121,8 @@ fn replays_a_torn_tail() {
         "torn-tail",
         &[0x02, 0x00, 0x00, 0x00, 0x14],
         &Outcome {
-            items: vec![damaged(0..5)],
-            tail: 0,
+            items: Ok(vec![damaged(0..5)]),
+            tail: Ok(0),
             header: Err(HeaderError::Damaged { range: 0..5 }),
         },
     );
@@ -138,8 +138,8 @@ fn replays_a_four_gigabyte_length() {
         "four-gigabyte-length",
         &[0xFF; 16],
         &Outcome {
-            items: vec![damaged(0..16)],
-            tail: 0,
+            items: Ok(vec![damaged(0..16)]),
+            tail: Ok(0),
             header: Err(HeaderError::Damaged { range: 0..16 }),
         },
     );
@@ -167,8 +167,8 @@ fn replays_garbage_then_a_record() {
             b'i',
         ],
         &Outcome {
-            items: vec![damaged(0..1), rec(b"hi")],
-            tail: 0,
+            items: Ok(vec![damaged(0..1), rec(b"hi")]),
+            tail: Ok(0),
             header: Err(HeaderError::Damaged { range: 0..1 }),
         },
     );
@@ -213,10 +213,10 @@ fn replays_a_january_header() {
             0x01,
         ],
         &Outcome {
-            items: vec![rec(&[
+            items: Ok(vec![rec(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x01,
-            ])],
-            tail: 28,
+            ])]),
+            tail: Ok(28),
             header: Ok(SegmentHeader {
                 stream: [0; 16],
                 year: 1,
@@ -226,7 +226,7 @@ fn replays_a_january_header() {
     );
 }
 
-/// Verifies: SEC-MED-003, SEC-TM-032
+/// Verifies: SEC-TM-032
 #[test]
 fn run_on_a_payload_above_the_cap() {
     let over = usize::try_from(MAX_PAYLOAD)
@@ -234,6 +234,6 @@ fn run_on_a_payload_above_the_cap() {
         .saturating_add(1);
     let data = vec![0x11; over];
     let outcome = run(&data);
-    assert_eq!(outcome.tail, 0);
+    assert_eq!(outcome.tail, Ok(0));
     assert_eq!(outcome.header, Err(HeaderError::Damaged { range: 0..over }));
 }

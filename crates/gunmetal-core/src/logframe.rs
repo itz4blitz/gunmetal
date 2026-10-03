@@ -19,16 +19,34 @@
 //! Damage elsewhere is reported as [`Item::Damaged`] with the byte range
 //! skipped, and the iterator resynchronises at the next whole record.
 //! Records do not nest: the reader walks the file once and never recurses.
+//!
+//! # Steps (SEC-MED-007)
+//!
+//! [`records`], [`header`] and [`recover_tail`] take a [`Budget`]. Each
+//! candidate offset costs one step, and every octet of `version || payload`
+//! that is actually CRC'd costs one more. Honest framed segments of `n`
+//! octets therefore finish in at most [`STEPS_PER_OCTET`] × `n` +
+//! [`FIXED_STEPS`] steps. A repeating [`MAX_PAYLOAD`] length field is
+//! charged the same way and fails with [`ParseFault::BudgetExceeded`] once
+//! the budget is spent. [`encode`] and [`encode_header`] are writes and
+//! take no budget.
 
 use std::ops::Range;
 
-use crate::parse::Cursor;
+use crate::parse::{Budget, Cursor, ParseFault};
 
 /// The largest payload [`encode`] will write and [`records`] will accept.
 ///
 /// One mebibyte holds a document snapshot of a large playlist. A length
 /// field that claims more is damage, not a reason to skip gigabytes.
 pub const MAX_PAYLOAD: u32 = 1_048_576;
+
+/// Steps charged per octet of a segment, at most (k in SEC-MED-007).
+pub const STEPS_PER_OCTET: u64 = 1;
+
+/// Steps charged once per parse on top of [`STEPS_PER_OCTET`] (c in
+/// SEC-MED-007).
+pub const FIXED_STEPS: u64 = 0;
 
 /// The record format version [`encode`] writes.
 pub const RECORD_VERSION: u8 = 1;
@@ -76,6 +94,8 @@ pub enum HeaderError {
         /// The month that was refused.
         month: u8,
     },
+    /// The parse spent its step budget (SEC-MED-007).
+    Fault(ParseFault),
 }
 
 /// The identifying first record of a segment.
@@ -113,13 +133,15 @@ pub enum Item<'a> {
 
 /// An iterator of [`Item`]s over a segment.
 #[derive(Debug)]
-pub struct Records<'a> {
+pub struct Records<'a, 'b> {
     /// The whole segment.
     segment: &'a [u8],
     /// The next octet to look at.
     pos: usize,
     /// Set once the iterator has yielded its last item.
     done: bool,
+    /// Steps left for this walk (SEC-MED-007).
+    budget: &'b mut Budget,
 }
 
 /// Frames `payload` as one record of version [`RECORD_VERSION`].
@@ -170,23 +192,30 @@ pub fn encode_header(header: &SegmentHeader) -> Result<Vec<u8>, EncodeError> {
 ///
 /// [`HeaderError::Missing`] when the segment is empty,
 /// [`HeaderError::Damaged`] when the first record is not whole,
-/// [`HeaderError::InvalidLength`] when its payload is not 19 octets, and
-/// [`HeaderError::BadMonth`] when the month is not 1–12.
-pub fn header(segment: &[u8]) -> Result<SegmentHeader, HeaderError> {
-    match records(segment).next() {
-        Some(Item::Record(record)) => parse_header_payload(record.payload),
-        Some(Item::Damaged { range }) => Err(HeaderError::Damaged { range }),
+/// [`HeaderError::InvalidLength`] when its payload is not 19 octets,
+/// [`HeaderError::BadMonth`] when the month is not 1–12, and
+/// [`HeaderError::Fault`] when the step budget is spent.
+pub fn header(segment: &[u8], budget: &mut Budget) -> Result<SegmentHeader, HeaderError> {
+    match records(segment, budget).next() {
+        Some(Ok(Item::Record(record))) => parse_header_payload(record.payload),
+        Some(Ok(Item::Damaged { range })) => Err(HeaderError::Damaged { range }),
+        Some(Err(fault)) => Err(HeaderError::Fault(fault)),
         None => Err(HeaderError::Missing),
     }
 }
 
 /// Walks `segment`, yielding each whole record or a damaged range.
+///
+/// # Errors
+///
+/// [`ParseFault::BudgetExceeded`] when the step budget is spent.
 #[must_use]
-pub fn records(segment: &[u8]) -> Records<'_> {
+pub fn records<'a, 'b>(segment: &'a [u8], budget: &'b mut Budget) -> Records<'a, 'b> {
     Records {
         segment,
         pos: 0,
         done: false,
+        budget,
     }
 }
 
@@ -195,17 +224,22 @@ pub fn records(segment: &[u8]) -> Records<'_> {
 /// A torn write at the end is the octets after this length. Damage in the
 /// middle is not repaired: this stops at the first octet that is not the
 /// start of a whole record.
-#[must_use]
-pub fn recover_tail(segment: &[u8]) -> usize {
+///
+/// # Errors
+///
+/// [`ParseFault::BudgetExceeded`] when the step budget is spent.
+pub fn recover_tail(segment: &[u8], budget: &mut Budget) -> Result<usize, ParseFault> {
     let mut pos = 0;
-    while let Some((_, end)) = record_at(segment, pos) {
-        pos = end;
+    loop {
+        match record_at(segment, pos, budget)? {
+            Some((_, end)) => pos = end,
+            None => return Ok(pos),
+        }
     }
-    pos
 }
 
-impl<'a> Iterator for Records<'a> {
-    type Item = Item<'a>;
+impl<'a, 'b> Iterator for Records<'a, 'b> {
+    type Item = Result<Item<'a>, ParseFault>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -216,40 +250,74 @@ impl<'a> Iterator for Records<'a> {
             self.done = true;
             return None;
         }
-        if let Some((record, end)) = record_at(self.segment, pos) {
-            self.pos = end;
-            return Some(Item::Record(record));
+        match record_at(self.segment, pos, self.budget) {
+            Err(fault) => {
+                self.done = true;
+                return Some(Err(fault));
+            }
+            Ok(Some((record, end))) => {
+                self.pos = end;
+                return Some(Ok(Item::Record(record)));
+            }
+            Ok(None) => {}
         }
         for scan in pos.saturating_add(1)..self.segment.len() {
-            if record_at(self.segment, scan).is_some() {
-                self.pos = scan;
-                return Some(Item::Damaged { range: pos..scan });
+            match record_at(self.segment, scan, self.budget) {
+                Err(fault) => {
+                    self.done = true;
+                    return Some(Err(fault));
+                }
+                Ok(Some(_)) => {
+                    self.pos = scan;
+                    return Some(Ok(Item::Damaged { range: pos..scan }));
+                }
+                Ok(None) => {}
             }
         }
         self.done = true;
-        Some(Item::Damaged {
+        Some(Ok(Item::Damaged {
             range: pos..self.segment.len(),
-        })
+        }))
     }
 }
 
 /// A whole record starting at `pos`, and the octet after it.
-fn record_at(segment: &[u8], pos: usize) -> Option<(Record<'_>, usize)> {
-    let rest = segment.get(pos..)?;
-    let mut cursor = Cursor::new(rest);
-    let len = cursor.u32_le().ok()?;
-    if len > MAX_PAYLOAD {
-        return None;
+fn record_at<'a>(
+    segment: &'a [u8],
+    pos: usize,
+    budget: &mut Budget,
+) -> Result<Option<(Record<'a>, usize)>, ParseFault> {
+    let Some(rest) = segment.get(pos..) else {
+        return Ok(None);
+    };
+    if rest.is_empty() {
+        return Ok(None);
     }
-    let crc = cursor.u32_le().ok()?;
-    let version = cursor.u8().ok()?;
-    let payload = cursor.take(u64::from(len)).ok()?;
+    let offset = u64::try_from(pos).unwrap_or(u64::MAX);
+    budget.charge(1, offset)?;
+    let mut cursor = Cursor::at(rest, offset);
+    let Ok(len) = cursor.u32_le() else {
+        return Ok(None);
+    };
+    if len > MAX_PAYLOAD {
+        return Ok(None);
+    }
+    let Ok(crc) = cursor.u32_le() else {
+        return Ok(None);
+    };
+    let Ok(version) = cursor.u8() else {
+        return Ok(None);
+    };
+    let Ok(payload) = cursor.take(u64::from(len)) else {
+        return Ok(None);
+    };
+    budget.charge(u64::from(len).saturating_add(1), offset)?;
     if crc32c_frame(version, payload) != crc {
-        return None;
+        return Ok(None);
     }
     let consumed = rest.len().saturating_sub(cursor.rest().len());
     let end = pos.saturating_add(consumed);
-    Some((Record { version, payload }, end))
+    Ok(Some((Record { version, payload }, end)))
 }
 
 /// Unpacks a 19-octet header payload.
@@ -365,9 +433,32 @@ mod tests {
         payloads.iter().flat_map(|payload| frame(payload)).collect()
     }
 
-    /// Every item [`records`] yields over `bytes`.
-    fn items(bytes: &[u8]) -> Vec<Item<'_>> {
-        records(bytes).collect()
+    /// A budget of the documented k and c for `bytes`.
+    fn input_budget(bytes: &[u8]) -> Budget {
+        Budget::for_input(
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            STEPS_PER_OCTET,
+            FIXED_STEPS,
+        )
+    }
+
+    /// Every item [`records`] yields over `bytes` under the documented
+    /// budget.
+    fn items(bytes: &[u8]) -> Result<Vec<Item<'_>>, ParseFault> {
+        let mut budget = input_budget(bytes);
+        records(bytes, &mut budget).collect()
+    }
+
+    /// [`recover_tail`] of `bytes` under the documented budget.
+    fn tail(bytes: &[u8]) -> Result<usize, ParseFault> {
+        let mut budget = input_budget(bytes);
+        recover_tail(bytes, &mut budget)
+    }
+
+    /// [`header`] of `bytes` under the documented budget.
+    fn read_header(bytes: &[u8]) -> Result<SegmentHeader, HeaderError> {
+        let mut budget = input_budget(bytes);
+        header(bytes, &mut budget)
     }
 
     /// The payload of a whole record, or `None` when the item is damage.
@@ -431,7 +522,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn encode_writes_the_independently_framed_bytes() {
         // length 2, CRC-32C of [0x01, 'h', 'i'] = 0xC1D99F14, version 1, "hi".
@@ -456,7 +546,7 @@ mod tests {
         assert_eq!(encode(b"abc"), Ok(frame(b"abc")));
     }
 
-    /// Verifies: SEC-MED-003, SEC-TM-032
+    /// Verifies: SEC-TM-032
     #[test]
     fn encode_refuses_a_payload_above_the_cap() {
         let over = usize::try_from(u64::from(MAX_PAYLOAD) + 1).expect("cap fits usize");
@@ -471,28 +561,32 @@ mod tests {
         let payload = filled(max, 0xAA);
         let framed = encode(&payload).expect("a payload of the cap is accepted");
         assert_eq!(framed.len(), 9 + max);
-        assert_eq!(items(&framed), [rec(&payload)]);
-        assert_eq!(recover_tail(&framed), framed.len());
+        assert_eq!(items(&framed), Ok(vec![rec(&payload)]));
+        assert_eq!(tail(&framed), Ok(framed.len()));
     }
 
     /// Verifies: SEC-MED-001, SEC-MED-008
     #[test]
     fn records_yields_encoded_payloads_in_order() {
         let bytes = segment(&[b"one".as_slice(), b"two", b""]);
-        assert_eq!(items(&bytes), [rec(b"one"), rec(b"two"), rec(b"")]);
-        assert_eq!(items(&[]), []);
-        assert_eq!(items(&frame(b"hi")), [rec(b"hi")]);
+        assert_eq!(items(&bytes), Ok(vec![rec(b"one"), rec(b"two"), rec(b"")]));
+        assert_eq!(items(&[]), Ok(vec![]));
+        assert_eq!(items(&frame(b"hi")), Ok(vec![rec(b"hi")]));
         assert_eq!(payload_of(&rec(b"hi")), Some(b"hi".as_slice()));
-        let mut empty = records(&[]);
+        let mut empty_budget = input_budget(&[]);
+        let mut empty = records(&[], &mut empty_budget);
         assert_eq!(empty.next(), None);
         assert_eq!(empty.next(), None);
         let framed = frame(b"hi");
-        let mut walk = records(&framed);
-        assert_eq!(walk.next(), Some(rec(b"hi")));
+        let mut walk_budget = input_budget(&framed);
+        let mut walk = records(&framed, &mut walk_budget);
+        assert_eq!(walk.next(), Some(Ok(rec(b"hi"))));
         assert_eq!(walk.next(), None);
         assert_eq!(walk.next(), None);
-        let mut garbage = records(&[0xFF]);
-        assert_eq!(garbage.next(), Some(damaged(0..1)));
+        let garbage_bytes = [0xFF];
+        let mut garbage_budget = input_budget(&garbage_bytes);
+        let mut garbage = records(&garbage_bytes, &mut garbage_budget);
+        assert_eq!(garbage.next(), Some(Ok(damaged(0..1))));
         assert_eq!(garbage.next(), None);
         assert_eq!(garbage.next(), None);
     }
@@ -503,26 +597,26 @@ mod tests {
         let bytes = frame_version(2, b"keep");
         assert_eq!(
             items(&bytes),
-            [Item::Record(Record {
+            Ok(vec![Item::Record(Record {
                 version: 2,
                 payload: b"keep",
-            })]
+            })])
         );
     }
 
-    /// Verifies: SEC-MED-001, SEC-MED-008, SEC-HIS-036
+    /// Verifies: SEC-MED-001, SEC-MED-008
     #[test]
     fn recover_tail_keeps_a_record_cut_at_every_byte() {
         let bytes = frame(b"tail");
         assert_eq!(bytes.len(), 13);
-        assert_eq!(recover_tail(&[]), 0);
-        assert_eq!(items(&[]), []);
+        assert_eq!(tail(&[]), Ok(0));
+        assert_eq!(items(&[]), Ok(vec![]));
         for cut in 1..bytes.len() {
-            assert_eq!(recover_tail(&bytes[..cut]), 0, "cut {cut}");
-            assert_eq!(items(&bytes[..cut]), [damaged(0..cut)], "cut {cut}");
+            assert_eq!(tail(&bytes[..cut]), Ok(0), "cut {cut}");
+            assert_eq!(items(&bytes[..cut]), Ok(vec![damaged(0..cut)]), "cut {cut}");
         }
-        assert_eq!(recover_tail(&bytes), bytes.len());
-        assert_eq!(items(&bytes), [rec(b"tail")]);
+        assert_eq!(tail(&bytes), Ok(bytes.len()));
+        assert_eq!(items(&bytes), Ok(vec![rec(b"tail")]));
     }
 
     /// Verifies: SEC-MED-001, SEC-MED-008
@@ -533,10 +627,10 @@ mod tests {
         let mut bytes = first.clone();
         bytes.extend(&second);
         let first_end = first.len();
-        assert_eq!(recover_tail(&bytes), bytes.len());
+        assert_eq!(tail(&bytes), Ok(bytes.len()));
         for extra in 0..second.len() {
             let cut = first_end + extra;
-            assert_eq!(recover_tail(&bytes[..cut]), first_end, "cut {cut}");
+            assert_eq!(tail(&bytes[..cut]), Ok(first_end), "cut {cut}");
         }
     }
 
@@ -556,14 +650,18 @@ mod tests {
         bytes[middle_at + 9] ^= 0x01;
         assert_eq!(
             items(&bytes),
-            [rec(b"one"), damaged(middle_at..last_at), rec(b"three"),]
+            Ok(vec![
+                rec(b"one"),
+                damaged(middle_at..last_at),
+                rec(b"three"),
+            ])
         );
         // Tail recovery does not skip damage: it stops at the first bad
         // record, so a middle flip is not treated as a torn write.
-        assert_eq!(recover_tail(&bytes), middle_at);
+        assert_eq!(tail(&bytes), Ok(middle_at));
     }
 
-    /// Verifies: SEC-MED-003, SEC-MED-006, SEC-TM-032
+    /// Verifies: SEC-TM-032
     #[test]
     fn a_length_field_claiming_four_gigabytes_is_damage() {
         let first = frame(b"ok");
@@ -576,13 +674,13 @@ mod tests {
         bytes.extend(&last);
         assert_eq!(
             items(&bytes),
-            [rec(b"ok"), damaged(gap_at..last_at), rec(b"after"),]
+            Ok(vec![rec(b"ok"), damaged(gap_at..last_at), rec(b"after"),])
         );
         // 16 octets of 0xFF as a lone segment: no whole record, no
         // allocation of 4 GiB.
         let huge = [0xFF; 16];
-        assert_eq!(items(&huge), [damaged(0..16)]);
-        assert_eq!(recover_tail(&huge), 0);
+        assert_eq!(items(&huge), Ok(vec![damaged(0..16)]));
+        assert_eq!(tail(&huge), Ok(0));
     }
 
     /// Verifies: SEC-MED-001, SEC-MED-008
@@ -606,13 +704,13 @@ mod tests {
         bytes[fourth_at + 9] ^= 0x01;
         assert_eq!(
             items(&bytes),
-            [
+            Ok(vec![
                 rec(b"A"),
                 damaged(second_at..third_at),
                 rec(b"C"),
                 damaged(fourth_at..fifth_at),
                 rec(b"E"),
-            ]
+            ])
         );
     }
 
@@ -622,9 +720,11 @@ mod tests {
         let mut bytes = frame(b"x");
         let last = bytes.len() - 1;
         bytes[last] ^= 0x80;
-        assert_eq!(items(&bytes), [damaged(0..bytes.len())]);
-        assert_eq!(payload_of(&items(&bytes)[0]), None);
-        assert_eq!(recover_tail(&bytes), 0);
+        let mut ample = Budget::for_input(0, 0, 1024);
+        let got: Result<Vec<_>, _> = records(&bytes, &mut ample).collect();
+        assert_eq!(got, Ok(vec![damaged(0..bytes.len())]));
+        assert_eq!(payload_of(&got.expect("ample budget")[0]), None);
+        assert_eq!(tail(&bytes), Ok(0));
     }
 
     #[test]
@@ -638,7 +738,7 @@ mod tests {
         payload.extend(2026_u16.to_le_bytes());
         payload.push(10);
         assert_eq!(encode_header(&header), Ok(frame(&payload)));
-        assert_eq!(super::header(&frame(&payload)), Ok(header));
+        assert_eq!(read_header(&frame(&payload)), Ok(header));
         assert_eq!(
             encode_header(&SegmentHeader {
                 stream: [0; 16],
@@ -677,42 +777,42 @@ mod tests {
 
     #[test]
     fn header_reports_each_kind_of_refusal() {
-        assert_eq!(super::header(&[]), Err(HeaderError::Missing));
+        assert_eq!(read_header(&[]), Err(HeaderError::Missing));
         assert_eq!(
-            super::header(&[0x00, 0x01, 0x02]),
+            read_header(&[0x00, 0x01, 0x02]),
             Err(HeaderError::Damaged { range: 0..3 })
         );
         assert_eq!(
-            super::header(&frame(b"short")),
+            read_header(&frame(b"short")),
             Err(HeaderError::InvalidLength { len: 5 })
         );
         assert_eq!(
-            super::header(&frame(&filled(16, 0))),
+            read_header(&frame(&filled(16, 0))),
             Err(HeaderError::InvalidLength { len: 16 })
         );
         assert_eq!(
-            super::header(&frame(&filled(17, 0))),
+            read_header(&frame(&filled(17, 0))),
             Err(HeaderError::InvalidLength { len: 17 })
         );
         assert_eq!(
-            super::header(&frame(&filled(18, 0))),
+            read_header(&frame(&filled(18, 0))),
             Err(HeaderError::InvalidLength { len: 18 })
         );
         let mut long = filled(20, 0);
         long[18] = 6;
         assert_eq!(
-            super::header(&frame(&long)),
+            read_header(&frame(&long)),
             Err(HeaderError::InvalidLength { len: 20 })
         );
         let mut payload = filled(19, 0);
         payload[18] = 0;
         assert_eq!(
-            super::header(&frame(&payload)),
+            read_header(&frame(&payload)),
             Err(HeaderError::BadMonth { month: 0 })
         );
         payload[18] = 12;
         assert_eq!(
-            super::header(&frame(&payload)),
+            read_header(&frame(&payload)),
             Ok(SegmentHeader {
                 stream: [0; 16],
                 year: 0,
@@ -726,23 +826,24 @@ mod tests {
     fn a_single_garbage_octet_before_a_record_is_a_one_octet_range() {
         let mut bytes = vec![0xFF];
         bytes.extend(frame(b"ok"));
-        assert_eq!(items(&bytes), [damaged(0..1), rec(b"ok")]);
-        assert_eq!(recover_tail(&bytes), 0);
-        assert!(record_at(b"abc", 3).is_none());
-        assert!(record_at(b"abc", 4).is_none());
+        assert_eq!(items(&bytes), Ok(vec![damaged(0..1), rec(b"ok")]));
+        assert_eq!(tail(&bytes), Ok(0));
+        let mut past_end = input_budget(b"abc");
+        assert_eq!(record_at(b"abc", 3, &mut past_end), Ok(None));
+        assert_eq!(record_at(b"abc", 4, &mut past_end), Ok(None));
     }
 
-    /// Verifies: SEC-MED-003, SEC-MED-006, SEC-TM-032
+    /// Verifies: SEC-TM-032
     #[test]
     fn a_payload_one_over_the_cap_is_damage_when_the_bytes_are_present() {
         let over = usize::try_from(u64::from(MAX_PAYLOAD) + 1).expect("cap fits usize");
         let payload = filled(over, 0xAA);
         let bytes = frame_version(RECORD_VERSION, &payload);
-        assert_eq!(items(&bytes), [damaged(0..bytes.len())]);
-        assert_eq!(recover_tail(&bytes), 0);
+        assert_eq!(items(&bytes), Ok(vec![damaged(0..bytes.len())]));
+        assert_eq!(tail(&bytes), Ok(0));
     }
 
-    /// Verifies: SEC-MED-003, SEC-MED-006, SEC-TM-032
+    /// Verifies: SEC-TM-032
     #[test]
     fn a_declared_length_of_the_cap_plus_one_is_damage_in_a_short_buffer() {
         // length = MAX_PAYLOAD + 1 as u32, then eight more octets. The
@@ -750,8 +851,10 @@ mod tests {
         let mut bytes = (MAX_PAYLOAD + 1).to_le_bytes().to_vec();
         bytes.extend([0, 0, 0, 0, RECORD_VERSION, 0x00, 0x00, 0x00]);
         assert_eq!(bytes.len(), 12);
-        assert_eq!(items(&bytes), [damaged(0..12)]);
-        assert_eq!(recover_tail(&bytes), 0);
+        let mut ample = Budget::for_input(0, 0, 1024);
+        let got: Result<Vec<_>, _> = records(&bytes, &mut ample).collect();
+        assert_eq!(got, Ok(vec![damaged(0..12)]));
+        assert_eq!(tail(&bytes), Ok(0));
     }
 
     /// Verifies: SEC-MED-001, SEC-MED-008
@@ -766,27 +869,92 @@ mod tests {
         bytes.extend(&last);
         assert_eq!(
             items(&bytes),
-            [
+            Ok(vec![
                 rec(b"left"),
                 damaged(first.len()..first.len() + middle.len()),
                 rec(b"right"),
-            ]
+            ])
         );
     }
 
-    /// Verifies: SEC-MED-005, SEC-MED-007, SEC-MED-008
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn a_repeating_max_payload_length_field_exhausts_a_tight_budget() {
+        let field = MAX_PAYLOAD.to_le_bytes();
+        let mut bytes = Vec::new();
+        for _ in 0..64 {
+            bytes.extend(field);
+        }
+        let mut budget = Budget::for_input(0, 0, 0);
+        let mut walk = records(&bytes, &mut budget);
+        assert_eq!(
+            walk.next(),
+            Some(Err(ParseFault::BudgetExceeded { offset: 0 }))
+        );
+        assert_eq!(walk.next(), None);
+        assert_eq!(budget.remaining(), 0);
+        let mut header_budget = Budget::for_input(0, 0, 0);
+        assert_eq!(
+            header(&bytes, &mut header_budget),
+            Err(HeaderError::Fault(ParseFault::BudgetExceeded { offset: 0 }))
+        );
+        let mut tail_budget = Budget::for_input(0, 0, 0);
+        assert_eq!(
+            recover_tail(&bytes, &mut tail_budget),
+            Err(ParseFault::BudgetExceeded { offset: 0 })
+        );
+    }
+
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn a_whole_record_charges_the_candidate_and_each_crc_octet() {
+        let bytes = frame(b"hi");
+        assert_eq!((STEPS_PER_OCTET, FIXED_STEPS), (1, 0));
+        let mut enough = Budget::for_input(0, 0, 4);
+        assert_eq!(
+            records(&bytes, &mut enough).collect::<Result<Vec<_>, _>>(),
+            Ok(vec![rec(b"hi")])
+        );
+        assert_eq!(enough.remaining(), 0);
+        let mut short = Budget::for_input(0, 0, 3);
+        assert_eq!(
+            records(&bytes, &mut short).next(),
+            Some(Err(ParseFault::BudgetExceeded { offset: 0 }))
+        );
+        assert_eq!(short.remaining(), 0);
+        let mut none = Budget::for_input(0, 0, 0);
+        assert_eq!(
+            records(&bytes, &mut none).next(),
+            Some(Err(ParseFault::BudgetExceeded { offset: 0 }))
+        );
+        let mut header_short = Budget::for_input(0, 0, 3);
+        assert_eq!(
+            header(&bytes, &mut header_short),
+            Err(HeaderError::Fault(ParseFault::BudgetExceeded { offset: 0 }))
+        );
+        let mut tail_short = Budget::for_input(0, 0, 3);
+        assert_eq!(
+            recover_tail(&bytes, &mut tail_short),
+            Err(ParseFault::BudgetExceeded { offset: 0 })
+        );
+        let mut tail_enough = Budget::for_input(0, 0, 4);
+        assert_eq!(recover_tail(&bytes, &mut tail_enough), Ok(bytes.len()));
+        assert_eq!(tail_enough.remaining(), 0);
+    }
+
+    /// Verifies: SEC-MED-008
     #[test]
     fn walking_any_prefix_of_a_framed_record_terminates() {
         let bytes = frame(&[0x55; 40]);
         for cut in 0..=bytes.len() {
-            let yielded: Vec<_> = records(&bytes[..cut]).collect();
+            let yielded = items(&bytes[..cut]).expect("documented budget covers a prefix");
             assert!(yielded.len() <= bytes.len());
-            assert!(recover_tail(&bytes[..cut]) <= cut);
+            assert!(tail(&bytes[..cut]).expect("documented budget covers a prefix") <= cut);
         }
     }
 
     proptest! {
-        /// Verifies: SEC-MED-001, SEC-MED-008
+        /// Verifies: SEC-MED-001, SEC-MED-007, SEC-MED-008
         #[test]
         fn encode_then_records_yields_the_payloads_in_order(
             payloads in vec(vec(any::<u8>(), 0..48), 0..8),
@@ -795,12 +963,11 @@ mod tests {
             for payload in &payloads {
                 bytes.extend(encode(payload).expect("payloads are under the cap"));
             }
-            let got: Vec<&[u8]> = records(&bytes).filter_map(|item| payload_of(&item)).collect();
-            let expected: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
-            prop_assert_eq!(got, expected);
+            let expected: Vec<Item<'_>> = payloads.iter().map(|payload| rec(payload)).collect();
+            prop_assert_eq!(items(&bytes), Ok(expected));
         }
 
-        /// Verifies: SEC-MED-001, SEC-MED-008
+        /// Verifies: SEC-MED-001, SEC-MED-007, SEC-MED-008
         #[test]
         fn recover_tail_keeps_exactly_the_whole_records_before_a_cut(
             payloads in vec(vec(any::<u8>(), 0..24), 1..6),
@@ -823,37 +990,106 @@ mod tests {
                 .filter(|&end| end <= cut)
                 .max()
                 .unwrap_or(0);
-            prop_assert_eq!(recover_tail(&bytes[..cut]), expected);
+            prop_assert_eq!(tail(&bytes[..cut]), Ok(expected));
         }
 
-        /// Verifies: SEC-MED-001, SEC-MED-005, SEC-MED-007, SEC-MED-008, SEC-HIS-036
+        /// Verifies: SEC-MED-001, SEC-MED-007, SEC-MED-008
         #[test]
         fn never_panics_and_every_item_stays_inside_the_input(
             bytes in vec(any::<u8>(), 0..128),
         ) {
             let len = bytes.len();
-            let yielded: Vec<_> = records(&bytes).collect();
-            prop_assert!(yielded.len() <= len + 1);
-            for item in &yielded {
-                match item {
-                    Item::Record(record) => {
-                        prop_assert!(record.payload.len() <= bytes.len());
-                    }
-                    Item::Damaged { range } => {
-                        prop_assert!(range.start < range.end);
-                        prop_assert!(range.end <= len);
+            match items(&bytes) {
+                Ok(yielded) => {
+                    prop_assert!(yielded.len() <= len + 1);
+                    for item in &yielded {
+                        match item {
+                            Item::Record(record) => {
+                                prop_assert!(record.payload.len() <= bytes.len());
+                            }
+                            Item::Damaged { range } => {
+                                prop_assert!(range.start < range.end);
+                                prop_assert!(range.end <= len);
+                            }
+                        }
                     }
                 }
+                Err(ParseFault::BudgetExceeded { offset }) => {
+                    prop_assert!(offset <= u64::try_from(len).unwrap_or(u64::MAX));
+                }
+                Err(other) => {
+                    return Err(TestCaseError::fail(format!("{other:?}")));
+                }
             }
-            let tail = recover_tail(&bytes);
-            prop_assert!(tail <= len);
-            let _ = header(&bytes);
+            match tail(&bytes) {
+                Ok(end) => prop_assert!(end <= len),
+                Err(ParseFault::BudgetExceeded { offset }) => {
+                    prop_assert!(offset <= u64::try_from(len).unwrap_or(u64::MAX));
+                }
+                Err(other) => {
+                    return Err(TestCaseError::fail(format!("{other:?}")));
+                }
+            }
+            let _ = read_header(&bytes);
             let _ = encode(&bytes);
             let _ = encode_header(&SegmentHeader {
                 stream: [0; 16],
                 year: 2026,
                 month: bytes.first().copied().unwrap_or(1),
             });
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn highly_repetitive_input_finishes_or_reports_budget_exceeded(
+            byte in any::<u8>(),
+            len in 0..256usize,
+        ) {
+            let bytes = filled(len, byte);
+            match items(&bytes) {
+                Ok(yielded) => {
+                    prop_assert!(yielded.len() <= len + 1);
+                }
+                Err(ParseFault::BudgetExceeded { offset }) => {
+                    prop_assert!(offset <= u64::try_from(len).unwrap_or(u64::MAX));
+                }
+                Err(other) => {
+                    return Err(TestCaseError::fail(format!("{other:?}")));
+                }
+            }
+            match tail(&bytes) {
+                Ok(end) => prop_assert!(end <= len),
+                Err(ParseFault::BudgetExceeded { offset }) => {
+                    prop_assert!(offset <= u64::try_from(len).unwrap_or(u64::MAX));
+                }
+                Err(other) => {
+                    return Err(TestCaseError::fail(format!("{other:?}")));
+                }
+            }
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn repeating_max_payload_length_fields_finish_or_report_budget_exceeded(
+            reps in 0..64usize,
+        ) {
+            let field = MAX_PAYLOAD.to_le_bytes();
+            let mut bytes = Vec::new();
+            for _ in 0..reps {
+                bytes.extend(field);
+            }
+            let len = bytes.len();
+            match items(&bytes) {
+                Ok(yielded) => {
+                    prop_assert!(yielded.len() <= len + 1);
+                }
+                Err(ParseFault::BudgetExceeded { offset }) => {
+                    prop_assert!(offset <= u64::try_from(len).unwrap_or(u64::MAX));
+                }
+                Err(other) => {
+                    return Err(TestCaseError::fail(format!("{other:?}")));
+                }
+            }
         }
     }
 }
