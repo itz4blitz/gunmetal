@@ -933,7 +933,8 @@ pub(crate) mod tests {
         type Output = (P::Output, Vec<ReadRequest>);
 
         fn resume(&mut self, window: Window<'_>) -> Step<Self::Output> {
-            let keep = usize::try_from(self.cut.saturating_sub(window.offset)).unwrap();
+            let keep =
+                usize::try_from(self.cut.saturating_sub(window.offset)).unwrap_or(usize::MAX);
             let bytes = &window.bytes[..window.bytes.len().min(keep)];
             match self.inner.resume(Window { bytes, ..window }) {
                 Step::Need(request) => {
@@ -996,6 +997,46 @@ pub(crate) mod tests {
     /// Parses `file` as if it shrank to `cut` octets while being read.
     fn parse_shrinking(file: &[u8], cut: u64) -> Result<WavFile, RiffError> {
         run_under(file, cut, &Limits::DEFAULT, enough(file)).0
+    }
+
+    /// Verifies: SEC-MED-004
+    #[test]
+    fn unclipped_resume_keeps_the_whole_window() {
+        // parse() / run_under() use cut = u64::MAX as "do not clip". On
+        // 32-bit that value does not fit in usize; converting it with
+        // unwrap panics on the first resume. The helper must keep the
+        // whole window instead.
+        struct Echo;
+        impl SansIo for Echo {
+            type Output = Vec<u8>;
+            fn resume(&mut self, window: Window<'_>) -> Step<Self::Output> {
+                Step::Done(window.bytes.to_vec())
+            }
+        }
+        let resume = |cut: u64, offset: u64, bytes: &[u8]| {
+            let mut recorder = Recorder {
+                inner: Echo,
+                cut,
+                ceiling: 1,
+                requests: Vec::new(),
+            };
+            recorder.resume(Window {
+                offset,
+                bytes,
+                file_len: 64,
+            })
+        };
+        let bytes = [1_u8, 2, 3, 4];
+        assert_eq!(
+            resume(u64::MAX, 0, &bytes),
+            Step::Done((vec![1, 2, 3, 4], Vec::new()))
+        );
+        assert_eq!(
+            resume(u64::MAX, 8, &bytes),
+            Step::Done((vec![1, 2, 3, 4], Vec::new()))
+        );
+        assert_eq!(resume(2, 0, &bytes), Step::Done((vec![1, 2], Vec::new())));
+        assert_eq!(resume(8, 8, &bytes), Step::Done((Vec::new(), Vec::new())));
     }
 
     /// Chunks laid out by `write`.
