@@ -442,7 +442,6 @@ mod tests {
     use super::Format::{Aiff, Flac, Gif, Jpeg, Lrc, M3u, Mp4, Mpeg, Ogg, Png, Wav, Webp};
     use super::*;
     use crate::parse::ParseFault::{BudgetExceeded, NotSyncsafe, Truncated};
-    use crate::parse::small_stack::on_small_stack;
     use crate::parse::{Limits, ReadGuard, ReadRequest, drive};
     use gunmetal_testkit::bytes::{Bits, Bytes};
     use proptest::collection::vec;
@@ -456,6 +455,20 @@ mod tests {
     /// after eight; a detector that never stops fails its test here instead
     /// of hanging it.
     const CEILING: usize = 16;
+
+    /// The stack size SEC-MED-001 names, in octets.
+    const SMALL_STACK: usize = 262_144;
+
+    /// Runs `work` on a 256 KiB stack so a recursive detector fails its test
+    /// instead of passing on the runner's larger stack (SEC-MED-001).
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(work)
+            .expect("the test thread starts")
+            .join()
+            .expect("the code under test returned instead of panicking")
+    }
 
     /// Runs detection over `file` as [`drive`] does, and returns every read
     /// it asked for with what it returned. A read the host refuses, which a
@@ -1325,9 +1338,9 @@ mod tests {
 
     /// Detection reads the start of the file and what follows each of up to
     /// seven leading tags, one step of its budget each, and no more. Eight
-    /// tags is the element-count bound: a ninth is not visited.
+    /// reads is the step budget: a ninth tag is not visited.
     ///
-    /// Verifies: SEC-MED-006, SEC-MED-007, SEC-TM-032
+    /// Verifies: SEC-MED-007, SEC-TM-032
     #[test]
     fn reads_at_most_eight_windows() {
         let seven = joined(&[&empty_tags(7), &flac()]);
@@ -1995,9 +2008,9 @@ mod tests {
         /// Any input, named anything, gets exactly the model's reads and
         /// result on a 256 KiB stack: at most eight reads, each inside the
         /// file, each after the last. Detection does not recurse, so a
-        /// 256 KiB stack is enough for every input (SEC-MED-005).
+        /// 256 KiB stack is enough for every input (SEC-MED-001).
         ///
-        /// Verifies: SEC-MED-001, SEC-MED-005, SEC-MED-007, SEC-MED-008, SEC-MED-010, SEC-TM-032
+        /// Verifies: SEC-MED-001, SEC-MED-007, SEC-MED-008, SEC-MED-010, SEC-TM-032
         #[test]
         fn reads_and_returns_exactly_as_the_model_does_for_any_input(file in damaged_file(), hint in select(hints())) {
             let (reads, outcome) = model(&file, hint.as_deref());
