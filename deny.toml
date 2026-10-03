@@ -344,6 +344,10 @@ include-archives = true
 # one-line probe of a language feature. libsqlite3-sys compiles the SQLite
 # C source it bundles with the cc crate (rusqlite's "bundled" feature, owner
 # decision D-02); it fetches nothing and runs no other program.
+#
+# Added with WP-039's postcard and serde (D-02), reviewed 2026-10-03:
+# proc-macro2, quote, serde, serde_core and thiserror only run rustc on
+# probes of the compiler's version and features, and set cfg flags.
 allow-build-scripts = [
     "cap-primitives",
     "cap-std",
@@ -353,7 +357,12 @@ allow-build-scripts = [
     "libc",
     "libsqlite3-sys",
     "num-traits",
+    "proc-macro2",
+    "quote",
     "rustix",
+    "serde",
+    "serde_core",
+    "thiserror",
     "zerocopy",
 ]
 

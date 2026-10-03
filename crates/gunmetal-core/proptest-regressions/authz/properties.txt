@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f35e97a4b1681a691db4a5d0f25abc08413fefbc9f6a22bea60535c8f14d1a65 # shrinks to mut principal = PrincipalFacts { kind: Administrator, account: None, profile: None, capabilities: CapabilitySet(0), libraries: [], device: Personal, elevation: Ordinary, verification: Stale, reach: Anywhere, scope: None }, grants = [], resource = Server, ranks = (0, 0, 0)
+cc 3eafa1847477bb8490e3616f52a67570263e5f8b36f90aa919feeacf87a40e44 # shrinks to mut principal = PrincipalFacts { kind: Administrator, account: None, profile: None, capabilities: CapabilitySet(0), libraries: [], device: Personal, elevation: Ordinary, verification: Stale, reach: Anywhere, scope: None }, grants = [], resource = Server, ranks = (0, 0, 0)
+cc 335b3a926b832fc3726a58f278171dce2c4efbddc6aed3c4c13268149084ebba # shrinks to mut principal = PrincipalFacts { kind: Owner, account: None, profile: None, capabilities: CapabilitySet(0), libraries: [], device: Personal, elevation: Ordinary, verification: Stale, reach: Anywhere, scope: None }, action = BrowseLibrary, resource = Server, ranks = (0, 0, 0)
+cc af1dab39e0934bf1069ec2d8eb8453393175368175e9d8a93fad78c71a1fdc42 # shrinks to principal = PrincipalFacts { kind: Owner, account: None, profile: None, capabilities: CapabilitySet(4096), libraries: [PublicId { kind: Library, bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }], device: Personal, elevation: Elevated, verification: Stale, reach: Anywhere, scope: None }, action = ReadAuditLog, resource = Server, ranks = (0, 0, 0)
