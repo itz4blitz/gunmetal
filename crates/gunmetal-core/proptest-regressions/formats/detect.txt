@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a060bc0fd7c6a2a844681841e0e8c1690a99fa5ef87591a508c97e53e45da3de # shrinks to (format, file, start) = (Flac, [102, 76, 97, 67, 0, 0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0)
+cc b8cdc2d49316c0d9be822a1f3c74bd8a377c4ff6956f10a8bc55fefa1f9cb4af # shrinks to file = [73, 68, 51, 2, 0, 0, 0, 0, 0, 0, 73, 68, 51, 2, 0, 0, 0, 0, 0, 0, 73, 68, 51, 2, 0, 0, 0, 0, 0, 0, 73, 68, 51, 2, 0, 0, 0, 0, 0, 0, 73, 68, 51, 2, 0, 0, 0, 0, 0, 0, 79, 103, 103, 83, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 160, 15, 31, 13, 44, 250, 230, 140, 224, 147, 58, 231, 47, 163, 197, 171, 255, 178, 117, 216, 155, 167, 93, 32, 47, 211, 52, 52, 62, 40, 114, 37, 167, 6], hint = Some("png")
+cc 2b6a038bfe9e80396534b076a98434b2314cb90cb6a2f3b837af7b51876237ed # shrinks to (format, file, start) = (Lrc, [91], 0)

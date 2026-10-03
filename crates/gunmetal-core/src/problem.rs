@@ -69,26 +69,60 @@ macro_rules! problems {
 }
 
 problems! {
+    /// An AIFF or AIFF-C file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
+    AiffUnreadable = ("aiff_unreadable", None, "We couldn't read this AIFF file. It may be damaged, or written in a way we don't support."),
+    /// One item of an APE tag was skipped, or reading its items stopped early; the tag's other items and the rest of the file were kept (SEC-MED-017).
+    ApeItemSkipped = ("ape_item_skipped", None, "We skipped a damaged field in this file's APE tag."),
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// A trusted proxy sent a forwarding chain the server could not read: malformed, over long, or in both chain headers at once (SEC-NET-018).
+    BadForwardingHeader = ("bad_forwarding_header", Some(400), "A proxy in front of this server sent forwarding information we couldn't read."),
     /// A request body was larger than its route allows, and was refused before it was decoded (SEC-API-060).
     BodyTooLarge = ("body_too_large", Some(413), "That request is too large."),
     /// A request carried a credential somewhere other than the session cookie or the Authorization header, or carried two (SEC-API-004, SEC-EXT-006).
     CredentialMisplaced = ("credential_misplaced", Some(400), "Send credentials only in the Authorization header or the session cookie, and only once."),
     /// A cookie-authenticated request did not come from the server's own pages (SEC-API-033, SEC-API-034).
     CrossSiteRequest = ("cross_site_request", Some(403), "This request was refused because it didn't come from this server's own pages."),
+    /// An `ID3v1` or APE tag at the end of a file could not be read and was skipped; the rest of the file was kept (SEC-MED-017).
+    EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
+    /// The caller is signed in but may not do this (SEC-IAM-068).
+    Forbidden = ("forbidden", Some(403), "You don't have permission to do that."),
     /// Request handling failed unexpectedly. Nothing about the failure reaches the client (SEC-API-073, SEC-TM-040).
     InternalError = ("internal_error", Some(500), "Something went wrong on the server. Try again later."),
+    /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
+    InvalidCode = ("invalid_code", Some(400), "That code is not valid. Check it and try again."),
     /// A request's parameters or body were not in the form its route expects (SEC-API-067).
     InvalidRequest = ("invalid_request", Some(400), "The request wasn't in the expected form."),
+    /// A folder offered as a library root, or as an approved link target, is the filesystem root (SEC-MED-037).
+    LibraryRootFilesystemRoot = ("library_root_filesystem_root", Some(400), "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media."),
+    /// A folder offered as a library root, or as an approved link target, equals, contains or lies inside one of Gunmetal's own data, cache, configuration or log directories (SEC-MED-037).
+    LibraryRootOwnData = ("library_root_own_data", Some(400), "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder."),
+    /// A folder offered as a library root, or as an approved link target, is a system directory or lies inside one (SEC-MED-037).
+    LibraryRootSystemFolder = ("library_root_system_folder", Some(400), "This is a system folder, not a media folder. Choose the folder that holds your media."),
+    /// A capability URL's expiry has passed, so the client should refresh it and retry (SEC-API-027).
+    MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// The route does not take this method (SEC-API-008).
     MethodNotAllowed = ("method_not_allowed", Some(405), "That action isn't available here."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// An Ogg Opus stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    OpusHeaderUnreadable = ("opus_header_unreadable", None, "This file's Opus stream headers are damaged or use a version we can't read."),
+    /// A queue operation does not fit the queue as it is: it names an entry that is not there, adds an entry whose ID is taken, or has nothing to act on. It changed nothing.
+    QueueRefused = ("queue_refused", Some(409), "That change doesn't fit the queue as it is now, so it wasn't made."),
+    /// A queue operation was built on an older version of the queue. It changed nothing; the client rebuilds it on the current version.
+    QueueStale = ("queue_stale", Some(409), "The queue changed somewhere else first, so this change wasn't made."),
+    /// An MP4 file's sample tables, which map play times to positions in the file, could not be joined into a seek index (WP-018).
+    SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
+    /// The action needs an administrator session or a fresh check with a passkey first (SEC-IAM-041, SEC-TM-017).
+    StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
     /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
     UnknownHost = ("unknown_host", Some(421), "This server doesn't answer to that name."),
     /// A request body was not JSON, or was compressed (SEC-API-035, SEC-API-065).
     UnsupportedBody = ("unsupported_body", Some(415), "The request body must be JSON, sent without compression."),
+    /// An Ogg Vorbis stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
+    /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
+    WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -124,11 +158,26 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 10] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 27] = [
+        (
+            "aiff_unreadable",
+            None,
+            "We couldn't read this AIFF file. It may be damaged, or written in a way we don't support.",
+        ),
+        (
+            "ape_item_skipped",
+            None,
+            "We skipped a damaged field in this file's APE tag.",
+        ),
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
+        ),
+        (
+            "bad_forwarding_header",
+            Some(400),
+            "A proxy in front of this server sent forwarding information we couldn't read.",
         ),
         ("body_too_large", Some(413), "That request is too large."),
         (
@@ -142,34 +191,84 @@ mod tests {
             "This request was refused because it didn't come from this server's own pages.",
         ),
         (
-            "internal_error",
-            Some(500),
-            "Something went wrong on the server. Try again later.",
+            "end_tag_skipped",
+            None,
+            "We couldn't read a tag at the end of this file, so we skipped it.",
         ),
         (
-            "invalid_request",
+            "forbidden",
+            Some(403),
+            "You don't have permission to do that.",
+        ),
+        ("internal_error", Some(500), "Something went wrong on the server. Try again later."),
+        (
+            "invalid_code",
             Some(400),
-            "The request wasn't in the expected form.",
+            "That code is not valid. Check it and try again.",
+        ),
+        ("invalid_request", Some(400), "The request wasn't in the expected form."),
+        (
+            "library_root_filesystem_root",
+            Some(400),
+            "This is the top of the file system, which holds everything on this computer. Choose the folder that holds your media.",
         ),
         (
-            "method_not_allowed",
-            Some(405),
-            "That action isn't available here.",
+            "library_root_own_data",
+            Some(400),
+            "This folder overlaps the folders where Gunmetal keeps its own data, so other people could download that data. Choose another folder.",
         ),
+        (
+            "library_root_system_folder",
+            Some(400),
+            "This is a system folder, not a media folder. Choose the folder that holds your media.",
+        ),
+        (
+            "media_url_expired",
+            Some(401),
+            "This media link has expired. Refresh it and try again.",
+        ),
+        ("method_not_allowed", Some(405), "That action isn't available here."),
         (
             "not_found",
             Some(404),
             "We couldn't find that. It may have been removed, or you may not have access to it.",
         ),
         (
-            "unknown_host",
-            Some(421),
-            "This server doesn't answer to that name.",
+            "opus_header_unreadable",
+            None,
+            "This file's Opus stream headers are damaged or use a version we can't read.",
         ),
         (
-            "unsupported_body",
-            Some(415),
-            "The request body must be JSON, sent without compression.",
+            "queue_refused",
+            Some(409),
+            "That change doesn't fit the queue as it is now, so it wasn't made.",
+        ),
+        (
+            "queue_stale",
+            Some(409),
+            "The queue changed somewhere else first, so this change wasn't made.",
+        ),
+        (
+            "sample_table_damaged",
+            None,
+            "The part of this file that maps play times to positions is damaged, so seeking in it won't work.",
+        ),
+        (
+            "step_up_required",
+            Some(403),
+            "Confirm it's you with your passkey, then try again.",
+        ),
+        ("unknown_host", Some(421), "This server doesn't answer to that name."),
+        ("unsupported_body", Some(415), "The request body must be JSON, sent without compression."),
+        (
+            "vorbis_header_unreadable",
+            None,
+            "This file's Vorbis stream headers are damaged or use a version we can't read.",
+        ),
+        (
+            "wav_unreadable",
+            None,
+            "We couldn't read this WAV file. It may be damaged, or written in a way we don't support.",
         ),
     ];
 

@@ -1,0 +1,172 @@
+name: Workflow lint
+
+# zizmor, actionlint and REUSE on every pull request and every push to main
+# or a wave branch (SEC-SUP-010 to SEC-SUP-015, SEC-SUP-018, SEC-SUP-030,
+# SEC-HIS-058). Every zizmor finding fails the job, at any severity. Canary
+# steps prove zizmor fails on an unpinned action, default permissions, an
+# ad-hoc package install and a Dependabot update with no cooldown.
+on:
+  pull_request:
+  push:
+    branches: [main, "wave-*"]
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      # crates.io checksums the crate; --locked uses zizmor's own lockfile
+      # (SEC-SUP-011).
+      - run: cargo install zizmor --version 1.30.1 --locked
+      # Every finding fails the job, whatever its severity: some audits that
+      # SEC-SUP-011 (unpinned-tools, adhoc-packages), SEC-SUP-012
+      # (excessive-permissions) and SEC-SUP-028 (dependabot-cooldown,
+      # dependabot-execution) name report at low or medium severity.
+      - name: zizmor on the repository
+        run: zizmor --offline .github
+      # Each canary is a scratch input that must fail with the named audit.
+      # excessive-permissions, adhoc-packages and dependabot-cooldown report
+      # at low or medium severity, so they prove no severity floor hides
+      # those audits. unpinned-tools has no canary: none of the inputs tried
+      # made zizmor 1.30.1 report it.
+      - name: zizmor fails on its canaries
+        run: |
+          set -eu
+          mkdir -p scratch/unpinned scratch/permissions scratch/packages scratch/cooldown \
+            scratch/execution
+          printf '%s\n' \
+            'name: unpinned' \
+            'on: push' \
+            'permissions: {}' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - uses: actions/checkout@v4' \
+            > scratch/unpinned/unpinned.yml
+          printf '%s\n' \
+            'name: permissions' \
+            'on: push' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - run: echo default permissions' \
+            > scratch/permissions/permissions.yml
+          printf '%s\n' \
+            'name: packages' \
+            'on: push' \
+            'permissions: {}' \
+            'jobs:' \
+            '  x:' \
+            '    runs-on: ubuntu-latest' \
+            '    steps:' \
+            '      - run: npm install --global left-pad' \
+            > scratch/packages/packages.yml
+          printf '%s\n' \
+            'version: 2' \
+            'updates:' \
+            '  - package-ecosystem: cargo' \
+            '    directory: /' \
+            '    schedule:' \
+            '      interval: weekly' \
+            > scratch/cooldown/dependabot.yml
+          printf '%s\n' \
+            'version: 2' \
+            'updates:' \
+            '  - package-ecosystem: cargo' \
+            '    directory: /' \
+            '    insecure-external-code-execution: allow' \
+            '    schedule:' \
+            '      interval: weekly' \
+            '    cooldown:' \
+            '      default-days: 7' \
+            > scratch/execution/dependabot.yml
+          for canary in \
+            unpinned-uses:scratch/unpinned/unpinned.yml \
+            excessive-permissions:scratch/permissions/permissions.yml \
+            adhoc-packages:scratch/packages/packages.yml \
+            dependabot-cooldown:scratch/cooldown/dependabot.yml \
+            dependabot-execution:scratch/execution/dependabot.yml; do
+            audit="${canary%%:*}"
+            input="${canary#*:}"
+            if zizmor --offline "$input" > scratch/out.txt 2>&1; then
+              echo "::error::zizmor passed its $audit canary"
+              exit 1
+            fi
+            if ! grep -q "\[$audit\]" scratch/out.txt; then
+              cat scratch/out.txt
+              echo "::error::zizmor did not report $audit on its canary"
+              exit 1
+            fi
+          done
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # taiki-e/install-action v2.87.22 has no actionlint manifest, and
+      # fallback is disabled (SEC-SUP-011). Pin the GitHub release tarball
+      # by SHA-256 instead.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          set -eu
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$archive" -C "$HOME/.local/bin" actionlint
+          rm -f "$archive"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: actionlint
+
+  reuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Docker action pinned by commit SHA. The image is the action's own
+      # Dockerfile at that commit (SEC-SUP-010, SEC-SUP-030).
+      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+
+  js-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - run: cargo run --locked --quiet -p xtask -- js-deps
