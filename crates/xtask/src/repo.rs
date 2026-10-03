@@ -1669,18 +1669,21 @@ path = [\"fuzz/seeds/**\"]
         );
     }
 
-    /// The `PersistCredentials` findings for `text` as `codeql.yml`.
-    fn credential_lines(text: &str) -> Vec<usize> {
-        check(
+    /// Every finding for `text` as `codeql.yml`, next to the
+    /// `PersistCredentials` findings expected at `lines`.
+    fn credential_lines(text: &str, lines: &[usize]) -> (Vec<Finding>, Vec<Finding>) {
+        let found = check(
             &passing().with(".github/workflows/codeql.yml", text),
             REVIEWED,
-        )
-        .into_iter()
-        .filter_map(|finding| match finding {
-            Finding::PersistCredentials { line, .. } => Some(line),
-            _ => None,
-        })
-        .collect()
+        );
+        let expected = lines
+            .iter()
+            .map(|&line| Finding::PersistCredentials {
+                path: ".github/workflows/codeql.yml".to_owned(),
+                line,
+            })
+            .collect();
+        (found, expected)
     }
 
     #[test]
@@ -1696,7 +1699,8 @@ path = [\"fuzz/seeds/**\"]
 ",
             workflow_text()
         );
-        assert_eq!(credential_lines(&second), [12]);
+        let (found, expected) = credential_lines(&second, &[12]);
+        assert_eq!(found, expected);
         let named = format!(
             "{}      - name: second
 
@@ -1707,7 +1711,8 @@ path = [\"fuzz/seeds/**\"]
 ",
             workflow_text()
         );
-        assert_eq!(credential_lines(&named), []);
+        let (found, expected) = credential_lines(&named, &[]);
+        assert_eq!(found, expected);
         let compact = format!(
             "{}      - name: compact
         labels:
@@ -1718,7 +1723,8 @@ path = [\"fuzz/seeds/**\"]
 ",
             workflow_text()
         );
-        assert_eq!(credential_lines(&compact), []);
+        let (found, expected) = credential_lines(&compact, &[]);
+        assert_eq!(found, expected);
         let listed = format!(
             "{}      - uses: actions/checkout@{PINNED_SHA}
         with:
@@ -1727,16 +1733,19 @@ path = [\"fuzz/seeds/**\"]
 ",
             workflow_text()
         );
-        assert_eq!(credential_lines(&listed), [11]);
+        let (found, expected) = credential_lines(&listed, &[11]);
+        assert_eq!(found, expected);
         let first_only = workflow_text().replace(
             "      - uses: actions/checkout",
             &format!("      - uses: actions/checkout@{PINNED_SHA}\n      - uses: actions/checkout"),
         );
-        assert_eq!(credential_lines(&first_only), [8]);
+        let (found, expected) = credential_lines(&first_only, &[8]);
+        assert_eq!(found, expected);
         let bare = format!(
             "name: bare\non: push\npermissions: {{}}\njobs:\n  x:\n    uses: actions/checkout@{PINNED_SHA}\n    with:\n      persist-credentials: false\n"
         );
-        assert_eq!(credential_lines(&bare), [6]);
+        let (found, expected) = credential_lines(&bare, &[6]);
+        assert_eq!(found, expected);
     }
 
     /// Verifies: SEC-SUP-013
