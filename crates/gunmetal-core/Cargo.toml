@@ -12,6 +12,7 @@ homepage.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+gunmetal-testkit.workspace = true
 proptest.workspace = true
 
 # A crate with lints of its own cannot also inherit the workspace's table, so
