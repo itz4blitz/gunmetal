@@ -18,6 +18,7 @@
 //! `fuzz/seeds/<name>/`.
 
 pub mod base64;
+pub mod detect;
 pub mod ebml;
 pub mod link;
 pub mod net;
