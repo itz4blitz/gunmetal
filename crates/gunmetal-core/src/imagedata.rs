@@ -4,12 +4,21 @@
 //! The placeholder scheme is **`ThumbHash`** (Evan Wallace, 2023),
 //! described at <https://evanw.github.io/thumbhash/>. [`placeholder`]
 //! follows the published JavaScript encoder `rgbaToThumbHash` in
-//! `js/thumbhash.js` of <https://github.com/evanw/thumbhash> step for step,
-//! so its output matches that encoder's byte for byte: a DCT of the image in
-//! a luma and two chroma channels, plus alpha when any pixel is not opaque,
-//! packed with the aspect ratio into at most [`Placeholder::MAX_LEN`] octets.
-//! `ThumbHash` was chosen over `BlurHash` because it keeps alpha and the
-//! aspect ratio and needs no parameters.
+//! `js/thumbhash.js` of <https://github.com/evanw/thumbhash> step for step:
+//! a DCT of the image in a luma and two chroma channels, plus alpha when any
+//! pixel is not opaque, packed with the aspect ratio into at most
+//! [`Placeholder::MAX_LEN`] octets. `ThumbHash` was chosen over `BlurHash`
+//! because it keeps alpha and the aspect ratio and needs no parameters.
+//!
+//! The output matches the published encoder's byte for byte wherever a
+//! channel varies. Where a channel is flat (a solid colour, or either chroma
+//! channel of a greyscale image), its coefficients are not 0 but the rounding
+//! error of `cos`, about 1e-17, and the scheme scales them to the full range
+//! of a nibble. Those nibbles therefore depend on the target's maths library.
+//! The header stores a scale of 0 for such a channel, so every decoder draws
+//! the same picture whatever they hold, but two hashes of the same image made
+//! on different targets may differ in those octets: compare placeholders by
+//! what they decode to, never octet for octet.
 //!
 //! [`palette`] returns up to three candidates for the artwork tint in
 //! `docs/ui/design-language.md`, each in OKLCH with its WCAG contrast
@@ -131,16 +140,22 @@ pub fn placeholder(rgba: &[u8], width: u16, height: u16) -> Result<Placeholder, 
     Ok(Placeholder::new(&thumbhash(&pixels, width, height)))
 }
 
-/// Up to [`MAX_SWATCHES`] palette candidates, the most common colour first.
+/// Up to [`MAX_SWATCHES`] palette candidates, ordered by their share of the
+/// image, the largest first.
 ///
 /// Fully transparent pixels are left out, and an image of nothing else has
 /// no candidates. The rest are split into three clusters by median cut
-/// (repeatedly halving the cluster with the widest red, green or blue range
-/// at its median along that channel; ties go to the later cluster and the
-/// later channel). Each cluster's mean colour is a candidate, largest
-/// cluster first. Near-grey candidates are dropped when any other remains,
-/// and a candidate whose rounded OKLCH value repeats an earlier one is
-/// dropped.
+/// (repeatedly cutting the cluster with the widest red, green or blue range
+/// at the median value of that channel; ties go to the later cluster and the
+/// later channel). A cut falls between two channel values, so pixels of one
+/// colour are never parted. Each cluster's mean colour is a candidate,
+/// largest cluster first. Near-grey candidates are dropped when any other
+/// remains, and a candidate whose rounded OKLCH value repeats an earlier one
+/// is dropped.
+///
+/// The order is by share alone. `docs/ui/design-language.md` speaks of a
+/// base, a vivid and a deep colour: choosing those roles from the candidates'
+/// lightness, chroma and contrast is left to the caller.
 ///
 /// # Errors
 ///
@@ -396,16 +411,35 @@ fn median_cut(pixels: Vec<[u8; 3]>) -> Vec<Vec<[u8; 3]>> {
     clusters
 }
 
-/// Halves `cluster` at its median along its widest channel, or returns it
-/// whole when every pixel is the same colour.
-fn split(mut cluster: Vec<[u8; 3]>) -> Vec<Vec<[u8; 3]>> {
+/// Cuts `cluster` in two along its widest channel, or returns it whole when
+/// every pixel is the same colour.
+///
+/// The cut is between two values of that channel, never at a pixel count, so
+/// pixels of one colour always stay together: pixels below the channel's
+/// median value go one way and the rest the other. When the median is also
+/// the lowest value, nothing is below it, and the pixels at the median are
+/// parted from those above it instead. Both parts hold a pixel either way,
+/// because the channel has more than one value.
+fn split(cluster: Vec<[u8; 3]>) -> Vec<Vec<[u8; 3]>> {
     let (range, channel) = widest(&cluster);
     if range == 0 {
         return vec![cluster];
     }
-    cluster.sort_by_key(|pixel| component(*pixel, channel));
-    let upper = cluster.split_off(cluster.len().wrapping_div(2));
-    vec![cluster, upper]
+    let mut values: Vec<u8> = cluster
+        .iter()
+        .map(|pixel| component(*pixel, channel))
+        .collect();
+    values.sort_unstable();
+    let lowest = values.first().copied().unwrap_or(0);
+    let median = values
+        .get(values.len().wrapping_div(2))
+        .copied()
+        .unwrap_or(0);
+    let highest_below = median.saturating_sub(1).max(lowest);
+    let (lower, upper) = cluster
+        .into_iter()
+        .partition(|pixel| component(*pixel, channel) <= highest_below);
+    vec![lower, upper]
 }
 
 /// The range of `cluster` along its widest channel, and that channel.
@@ -1100,6 +1134,31 @@ mod tests {
         assert_eq!(palette(&rgba, 8, 4), Ok(vec![RED, BLUE]));
     }
 
+    /// A cut never parts pixels of one colour, however unequal the shares:
+    /// seven columns of one colour and one of the other are still exactly
+    /// those two colours, the larger share first.
+    #[test]
+    fn the_palette_of_an_unequal_split_is_both_colours() {
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        let mostly_red = image(8, 1, |x, _| if x < 7 { red } else { blue });
+        assert_eq!(palette(&mostly_red, 8, 1), Ok(vec![RED, BLUE]));
+        let mostly_blue = image(8, 1, |x, _| if x < 1 { red } else { blue });
+        assert_eq!(palette(&mostly_blue, 8, 1), Ok(vec![BLUE, RED]));
+    }
+
+    /// Six red, three lime and one blue pixel: no share is a half or a
+    /// quarter of the image, and the palette is exactly the three colours.
+    #[test]
+    fn the_palette_of_three_unequal_shares_is_the_three_colours() {
+        let rgba = image(10, 1, |x, _| match x {
+            0..=5 => [255, 0, 0, 255],
+            6..=8 => [0, 255, 0, 255],
+            _ => [0, 0, 255, 255],
+        });
+        assert_eq!(palette(&rgba, 10, 1), Ok(vec![RED, LIME, BLUE]));
+    }
+
     /// Median cut on the gradient, worked by hand: the first cut falls
     /// between columns 7 and 8 (red and blue span the same range, and a tie
     /// goes to the later channel, blue), the second splits the later of the
@@ -1115,6 +1174,17 @@ mod tests {
                 swatch(426, 285, 268, 221, 952),
             ])
         );
+    }
+
+    /// The median of the widest channel is also its lowest value, and that
+    /// value is not 0: the cut still falls above it, between the two greys.
+    #[test]
+    fn a_cut_falls_above_a_median_that_is_the_lowest_value() {
+        let rgba = image(4, 1, |x, _| match x {
+            0..=2 => [128, 128, 128, 255],
+            _ => [255, 255, 255, 255],
+        });
+        assert_eq!(palette(&rgba, 4, 1), Ok(vec![GREY, WHITE]));
     }
 
     #[test]
