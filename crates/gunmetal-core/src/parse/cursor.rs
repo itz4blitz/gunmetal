@@ -634,6 +634,66 @@ mod tests {
         out
     }
 
+    /// Checks the model against the cursor on a sequence that takes every
+    /// branch of the model, so the property below rests on a model known to
+    /// agree everywhere.
+    #[test]
+    fn the_model_agrees_with_the_cursor_on_every_kind_of_read() {
+        let mut bytes = BYTES.to_vec();
+        bytes.extend([0x01, 0x02, 0x03, 0x04]); // a syncsafe integer
+        bytes.extend([0x00, 0x80, 0x00, 0x00]); // not a syncsafe integer
+        bytes.extend(0x20..0x40_u8);
+        let reads = [
+            Read::U8,
+            Read::U16Be,
+            Read::U16Le,
+            Read::U24Be,
+            Read::Syncsafe,
+            Read::Syncsafe,
+            Read::U32Be,
+            Read::U32Le,
+            Read::U64Be,
+            Read::U64Le,
+            Read::Take(2),
+            Read::Skip(1),
+            Read::Sub(3),
+            Read::Take(7),
+            Read::U64Be,
+            Read::Skip(u64::MAX),
+            Read::Sub(6),
+            Read::U8,
+        ];
+        let expected = model(&bytes, 1_000, &reads);
+        assert_eq!(run(&bytes, 1_000, &reads), expected);
+        let summary: Vec<_> = expected
+            .iter()
+            .map(|(got, offset)| (got.is_ok(), *offset))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (true, 1_001),
+                (true, 1_003),
+                (true, 1_005),
+                (true, 1_008),
+                (true, 1_012),
+                (false, 1_012),
+                (true, 1_016),
+                (true, 1_020),
+                (true, 1_028),
+                (true, 1_036),
+                (true, 1_038),
+                (true, 1_039),
+                (true, 1_042),
+                (false, 1_042),
+                (false, 1_042),
+                (false, 1_042),
+                (true, 1_048),
+                (false, 1_048),
+            ]
+        );
+    }
+
     proptest! {
         /// Verifies: SEC-MED-001, SEC-MED-004, SEC-TM-032
         #[test]
