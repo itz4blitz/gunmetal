@@ -30,6 +30,7 @@ the end.
 The client itself (React Native, TypeScript) is not in this plan. Where a
 package exists only so the client can call the core on the device, it says
 so.
+The web player's packages are in [client-packages.md](client-packages.md).
 
 Claims this plan could not check against a source are marked "(unverified)".
 Choices that go beyond the feature map, the ADRs or the security baseline
