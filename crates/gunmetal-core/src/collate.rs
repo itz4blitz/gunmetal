@@ -2,8 +2,10 @@
 //!
 //! [`fold`] is the matching form of a string: case, canonical and
 //! compatibility decomposition (diacritics, width, ligatures), then
-//! punctuation removed. Kana voicing marks and Hangul syllables are kept,
-//! so が and か stay distinct (MUS-020); transliteration is DIS-092 (R2).
+//! punctuation removed. Kana voicing marks are kept, so が and か stay
+//! distinct (MUS-020); Hangul syllables decompose to conjoining jamo, which
+//! are letters, so composed and decomposed Korean fold alike and syllables
+//! stay distinct. Transliteration is DIS-092 (R2).
 //! [`sort_key`] builds a total order that honours a sort-name tag when one
 //! is present, strips one leading article for [`Lang`], and compares digit
 //! runs as numbers so "Track 2" precedes "Track 10". The alphabet jump
@@ -87,10 +89,11 @@ enum Part {
 ///
 /// Combining marks are dropped after compatibility decomposition, so
 /// "Björk" and "Bjork" match, except the kana voicing marks U+3099 and
-/// U+309A, which keep が and か distinct. Hangul syllables are not
-/// decomposed. Typographic ligatures and fullwidth Latin become ASCII.
-/// Punctuation, including both straight and curly apostrophes, is dropped,
-/// and whitespace collapses to single spaces.
+/// U+309A, which keep が and か distinct and keep their place after a
+/// space. Hangul syllables become conjoining jamo, so "한" and its
+/// decomposed form match. Typographic ligatures and fullwidth Latin become
+/// ASCII. Punctuation, including both straight and curly apostrophes, is
+/// dropped, and whitespace collapses to single spaces.
 #[must_use]
 pub fn fold(s: &str) -> String {
     let mut out = String::new();
@@ -100,11 +103,7 @@ pub fn fold(s: &str) -> String {
             pending_space = !out.is_empty();
             return;
         }
-        if is_kana_voicing(c) {
-            out.push(c);
-            return;
-        }
-        if is_apostrophe(c) || !c.is_alphanumeric() {
+        if !is_kept(c) {
             return;
         }
         if pending_space {
@@ -174,13 +173,9 @@ fn significant(digits: &str) -> &str {
 }
 
 /// Compatibility-decomposed, case-folded characters of `s`, without
-/// combining marks other than kana voicing. Hangul syllables stay composed.
+/// combining marks other than kana voicing.
 fn for_each_folded(s: &str, mut emit: impl FnMut(char)) {
     for c in s.chars() {
-        if is_hangul_syllable(c) {
-            emit(c);
-            continue;
-        }
         decompose_compatible(c, |piece| {
             if is_kana_voicing(piece) {
                 emit(piece);
@@ -192,10 +187,6 @@ fn for_each_folded(s: &str, mut emit: impl FnMut(char)) {
             fold_case(piece, &mut emit);
         });
     }
-}
-
-fn is_hangul_syllable(c: char) -> bool {
-    matches!(c, '\u{AC00}'..='\u{D7A3}')
 }
 
 fn is_kana_voicing(c: char) -> bool {
@@ -214,6 +205,12 @@ fn fold_case(c: char, mut emit: impl FnMut(char)) {
             other => emit(other),
         }
     }
+}
+
+/// Whether a folded, non-whitespace character belongs in matching text:
+/// a letter or digit other than an apostrophe, or a kana voicing mark.
+fn is_kept(c: char) -> bool {
+    is_kana_voicing(c) || (c.is_alphanumeric() && !is_apostrophe(c))
 }
 
 fn is_apostrophe(c: char) -> bool {
@@ -348,11 +345,7 @@ fn push_text_char(text: &mut String, c: char) {
         }
         return;
     }
-    if is_kana_voicing(c) {
-        text.push(c);
-        return;
-    }
-    if c.is_alphanumeric() && !is_apostrophe(c) {
+    if is_kept(c) {
         text.push(c);
     }
 }
@@ -477,10 +470,10 @@ mod tests {
     }
 
     #[test]
-    fn voiced_kana_and_hangul_syllables_keep_their_identity() {
+    fn voiced_kana_keep_their_identity() {
         // NFKD of が is か + U+3099; of ぱ is は + U+309A. Dropping every
         // combining mark would make がき and かき compare equal (MUS-020).
-        // Transliteration is DIS-092 (R2). Hangul syllables stay composed.
+        // Transliteration is DIS-092 (R2).
         assert_eq!(fold("が"), "か\u{3099}");
         assert_eq!(fold("か"), "か");
         assert_ne!(fold("が"), fold("か"));
@@ -489,10 +482,35 @@ mod tests {
         assert_eq!(fold("は"), "は");
         assert_eq!(key("がき"), key("か\u{3099}き"));
         assert_ne!(key("がき"), key("かき"));
-        assert_eq!(fold("한"), "한");
-        assert_eq!(fold("가"), "가");
-        assert_eq!(fold("힣"), "힣");
-        assert_ne!(fold("한"), "\u{1112}\u{1161}\u{11AB}");
+    }
+
+    #[test]
+    fn a_voicing_mark_after_whitespace_stays_after_the_space() {
+        // A voicing mark that follows a space belongs to no kana. It keeps
+        // its place, as sort_key's text does, rather than jumping onto the
+        // kana before the space.
+        assert_eq!(fold("か \u{3099}x"), "か \u{3099}x");
+        assert_ne!(fold("か \u{3099}x"), fold("か\u{3099} x"));
+        assert_eq!(fold("か  \u{309A}"), "か \u{309A}");
+        assert_eq!(fold(" \u{3099}"), "\u{3099}");
+        assert_eq!(key("か \u{3099}x"), key("か  \u{3099}x"));
+        assert_ne!(key("か \u{3099}x"), key("か\u{3099} x"));
+    }
+
+    #[test]
+    fn composed_and_decomposed_hangul_fold_and_sort_alike() {
+        // NFKD turns a syllable into conjoining jamo, which are letters
+        // (Lo), not combining marks, so they are kept and syllables stay
+        // distinct. An NFC tag and an NFD filename then match.
+        assert_eq!(fold("한"), "\u{1112}\u{1161}\u{11AB}");
+        assert_eq!(fold("한"), fold("\u{1112}\u{1161}\u{11AB}"));
+        assert_eq!(fold("하"), "\u{1112}\u{1161}");
+        assert_ne!(fold("한"), fold("하"));
+        assert_eq!(key("한"), key("\u{1112}\u{1161}\u{11AB}"));
+        assert!(key("하") < key("한"));
+        assert!(key("\u{1112}\u{1161}") < key("한"));
+        assert_eq!(fold("가"), "\u{1100}\u{1161}");
+        assert_eq!(fold("힣"), "\u{1112}\u{1175}\u{11C2}");
     }
 
     #[test]
@@ -678,6 +696,7 @@ mod tests {
         // round as f64. Significant-digit strings keep order and leading-zero
         // equality without parse/unwrap on the production path.
         const TWO: &str = concat!("1", "0000000000000000000000000000000000000000", "2");
+        const THREE: &str = concat!("1", "0000000000000000000000000000000000000000", "3");
         const TEN: &str = concat!("1", "0000000000000000000000000000000000000000", "10");
         const TWO_PADDED: &str = concat!("01", "0000000000000000000000000000000000000000", "2");
         const BARE_TWO: &str = concat!("0000000000000000000000000000000000000000", "2");
@@ -689,6 +708,12 @@ mod tests {
         assert_eq!(key(BARE_TWO), key("2"));
         assert_eq!(key(BARE_TWO), key("02"));
         assert!(key(BARE_TWO) < key(BARE_TEN));
+        // Equal as f64 (both round to 1e41) but different as digits.
+        assert_eq!(THREE.len(), 42);
+        assert_eq!(TWO.parse::<f64>().ok(), THREE.parse::<f64>().ok());
+        assert!(key(TWO) < key(THREE));
+        assert!(key(THREE) > key(TWO));
+        assert_ne!(key(TWO), key(THREE));
     }
 
     #[test]
@@ -918,7 +943,7 @@ mod tests {
         }
 
         /// Compatibility decomposition and case folding of the input do not
-        /// change the key, except Hangul syllables stay composed.
+        /// change the key.
         #[test]
         fn sort_key_is_stable_under_folding(
             s in arb_text(),
@@ -927,10 +952,6 @@ mod tests {
             let decomposed: String = {
                 let mut out = String::new();
                 for c in s.chars() {
-                    if matches!(c, '\u{AC00}'..='\u{D7A3}') {
-                        out.push(c);
-                        continue;
-                    }
                     decompose_compatible(c, |piece| out.push(piece));
                 }
                 out
