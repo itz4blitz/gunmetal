@@ -5,6 +5,7 @@
 
 pub mod audit_event;
 pub mod base64;
+pub mod catalog;
 pub mod client_context;
 pub mod crypto;
 pub mod ebml;
