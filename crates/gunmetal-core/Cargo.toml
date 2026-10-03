@@ -13,5 +13,33 @@ homepage.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 
-[lints]
-workspace = true
+# A crate with lints of its own cannot also inherit the workspace's table, so
+# the workspace lints are repeated here first; the core's tests fail if one
+# is missing (tests/workspace_rules.rs).
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+await_holding_lock = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+# SEC-MED-002: the core returns a typed error for every input and never
+# panics or overflows. clippy.toml lets tests unwrap, expect, panic and index.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+string_slice = "deny"
+large_stack_arrays = "deny"
+# The only exception to a lint above is an #[expect(lint, reason = "...")]
+# whose reason states the invariant that makes it safe, and a test covers
+# that invariant. #[allow] is refused, and so is an #[expect] with no reason.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

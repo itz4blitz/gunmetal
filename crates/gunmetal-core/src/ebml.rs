@@ -32,6 +32,22 @@ pub enum VintError {
 /// Returns a [`VintError`] when `input` does not start with a complete,
 /// well-formed variable-size integer.
 pub fn decode_vint(input: &[u8]) -> Result<Vint, VintError> {
+    split_vint(input).map(|split| split.vint)
+}
+
+/// A variable-size integer taken from the start of its input.
+struct SplitVint<'a> {
+    /// The integer.
+    vint: Vint,
+    /// The octets that encoded it, length marker included.
+    octets: &'a [u8],
+    /// The input after those octets.
+    rest: &'a [u8],
+}
+
+/// Decodes the variable-size integer at the start of `input` and splits it
+/// from the octets after it.
+fn split_vint(input: &[u8]) -> Result<SplitVint<'_>, VintError> {
     let Some(&first) = input.first() else {
         return Err(VintError::Empty);
     };
@@ -40,22 +56,36 @@ pub fn decode_vint(input: &[u8]) -> Result<Vint, VintError> {
     }
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "a u8 has at most 8 leading zeros"
+        clippy::arithmetic_side_effects,
+        reason = "first is non-zero, so it has at most 7 leading zeros and the width is 1 to 8"
     )]
     let width = first.leading_zeros() as u8 + 1;
-    let Some(octets) = input.get(..usize::from(width)) else {
+    let Some((octets, rest)) = input.split_at_checked(usize::from(width)) else {
         return Err(VintError::Truncated {
             needed: width,
             available: input.len(),
         });
     };
-    let mut padded = [0; 8];
-    padded[8 - octets.len()..].copy_from_slice(octets);
     let marker = 1 << (7 * u32::from(width));
-    Ok(Vint {
-        value: u64::from_be_bytes(padded) ^ marker,
-        width,
+    Ok(SplitVint {
+        vint: Vint {
+            value: u64::from_be_bytes(right_aligned(octets)) ^ marker,
+            width,
+        },
+        octets,
+        rest,
     })
+}
+
+/// `octets`, of which there are at most `N`, right-aligned in `N` zero
+/// octets, so that reading the result big-endian gives the integer they
+/// encode.
+fn right_aligned<const N: usize>(octets: &[u8]) -> [u8; N] {
+    let mut padded = [0; N];
+    for (slot, &octet) in padded.iter_mut().rev().zip(octets.iter().rev()) {
+        *slot = octet;
+    }
+    padded
 }
 
 /// An element ID with its length marker retained, which is how the Matroska
@@ -108,24 +138,39 @@ const MAX_ID_WIDTH: u8 = 4;
 /// Returns a [`HeaderError`] when `input` does not start with a complete,
 /// well-formed element ID followed by a data size.
 pub fn decode_element_header(input: &[u8]) -> Result<ElementHeader, HeaderError> {
-    let id = decode_vint(input).map_err(HeaderError::Id)?;
-    if id.width > MAX_ID_WIDTH {
-        return Err(HeaderError::IdTooLong { width: id.width });
+    split_element_header(input).map(|(header, _)| header)
+}
+
+/// Decodes the element header at the start of `input` and splits it from the
+/// octets after it.
+fn split_element_header(input: &[u8]) -> Result<(ElementHeader, &[u8]), HeaderError> {
+    let id = split_vint(input).map_err(HeaderError::Id)?;
+    if id.vint.width > MAX_ID_WIDTH {
+        return Err(HeaderError::IdTooLong {
+            width: id.vint.width,
+        });
     }
-    let (id_octets, rest) = input.split_at(usize::from(id.width));
-    let mut padded = [0; 4];
-    padded[4 - id_octets.len()..].copy_from_slice(id_octets);
-    let size = decode_vint(rest).map_err(HeaderError::Size)?;
-    let all_data_bits_set = (1 << (7 * u32::from(size.width))) - 1;
-    Ok(ElementHeader {
-        id: ElementId(u32::from_be_bytes(padded)),
-        size: if size.value == all_data_bits_set {
+    let size = split_vint(id.rest).map_err(HeaderError::Size)?;
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "the width is 1 to 8, so the shift is at most 56 and its result at least 128"
+    )]
+    let all_data_bits_set = (1 << (7 * u32::from(size.vint.width))) - 1;
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "an ID is at most 4 octets and a data size at most 8, so the sum is at most 12"
+    )]
+    let header_len = id.vint.width + size.vint.width;
+    let header = ElementHeader {
+        id: ElementId(u32::from_be_bytes(right_aligned(id.octets))),
+        size: if size.vint.value == all_data_bits_set {
             DataSize::Unknown
         } else {
-            DataSize::Known(size.value)
+            DataSize::Known(size.vint.value)
         },
-        header_len: id.width + size.width,
-    })
+        header_len,
+    };
+    Ok((header, size.rest))
 }
 
 /// An element whose body lies entirely inside the parsed input.
@@ -185,37 +230,37 @@ impl ElementError {
 #[derive(Debug, Clone)]
 pub struct Elements<'a> {
     input: &'a [u8],
-    /// Where the next element starts. Equal to `input.len()` once finished.
-    offset: usize,
+    /// The part of `input` not read yet, which is always a suffix of it.
+    /// Empty once finished.
+    rest: &'a [u8],
 }
 
 impl<'a> Iterator for Elements<'a> {
     type Item = Result<Element<'a>, ElementError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let offset = self.offset;
-        let rest = &self.input[offset..];
+        let rest = self.rest;
         if rest.is_empty() {
             return None;
         }
+        // `rest` is a suffix of `input`, so the subtraction never saturates.
+        let offset = self.input.len().saturating_sub(rest.len());
         // Finished unless this element turns out to be well formed.
-        self.offset = self.input.len();
+        self.rest = &[];
 
-        let header = match decode_element_header(rest) {
-            Ok(header) => header,
+        let (header, after_header) = match split_element_header(rest) {
+            Ok(split) => split,
             Err(error) => return Some(Err(ElementError::Header { offset, error })),
         };
-        let header_len = usize::from(header.header_len);
-        let after_header = &rest[header_len..];
         let DataSize::Known(needed) = header.size else {
             return Some(Err(ElementError::UnknownSize {
                 offset,
                 id: header.id,
             }));
         };
-        let Some(body) = usize::try_from(needed)
+        let Some((body, after_body)) = usize::try_from(needed)
             .ok()
-            .and_then(|len| after_header.get(..len))
+            .and_then(|len| after_header.split_at_checked(len))
         else {
             return Some(Err(ElementError::BodyTruncated {
                 offset,
@@ -224,7 +269,7 @@ impl<'a> Iterator for Elements<'a> {
                 available: after_header.len(),
             }));
         };
-        self.offset = offset + header_len + body.len();
+        self.rest = after_body;
         Some(Ok(Element {
             id: header.id,
             body,
@@ -237,10 +282,14 @@ impl<'a> Iterator for Elements<'a> {
 /// After yielding an error the iterator is finished and yields nothing more.
 #[must_use]
 pub fn elements(input: &[u8]) -> Elements<'_> {
-    Elements { input, offset: 0 }
+    Elements { input, rest: input }
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the oracles and generators work with widths of at most 8 and inputs of a few hundred octets"
+)]
 mod tests {
     use super::*;
     use proptest::collection::vec;
