@@ -18,7 +18,7 @@ pub mod fault;
 pub mod limits;
 pub mod sansio;
 #[cfg(test)]
-mod small_stack;
+pub(crate) mod small_stack;
 
 pub use budget::{Budget, Depth};
 pub use capacity::{bounded_capacity, bounded_vec};
