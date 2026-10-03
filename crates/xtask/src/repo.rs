@@ -1544,13 +1544,10 @@ path = [\"fuzz/seeds/**\"]
     fn a_security_policy_missing_a_required_section_fails() {
         let tree = passing().with("SECURITY.md", "## Scope\n");
         let findings = check(&tree, REVIEWED);
-        assert!(
-            findings.contains(&Finding::MissingSection {
-                path: "SECURITY.md".to_owned(),
-                section: "## Reporting a vulnerability".to_owned(),
-            }),
-            "{findings:?}"
-        );
+        assert!(findings.contains(&Finding::MissingSection {
+            path: "SECURITY.md".to_owned(),
+            section: "## Reporting a vulnerability".to_owned(),
+        }));
     }
 
     /// Verifies: SEC-SUP-007
@@ -1607,12 +1604,9 @@ path = [\"fuzz/seeds/**\"]
     fn a_protected_path_with_no_code_owner_fails() {
         let tree = passing().with(".github/CODEOWNERS", "README.md @itz4blitz\n");
         let findings = check(&tree, REVIEWED);
-        assert!(
-            findings.contains(&Finding::Unowned {
-                path: "SECURITY.md".to_owned(),
-            }),
-            "{findings:?}"
-        );
+        assert!(findings.contains(&Finding::Unowned {
+            path: "SECURITY.md".to_owned(),
+        }));
     }
 
     /// Verifies: SEC-SUP-005
@@ -1760,7 +1754,7 @@ path = [\"fuzz/seeds/**\"]
                     trigger: trigger.to_owned(),
                 })
                 .collect();
-            assert_eq!(found, expected, "{on}");
+            assert_eq!(found, expected);
         }
     }
 
@@ -1770,13 +1764,10 @@ path = [\"fuzz/seeds/**\"]
         for trigger in ["pull_request_target", "workflow_run"] {
             let text = workflow_text().replace("on: push", &format!("on:\n  {trigger}:"));
             let tree = passing().with(".github/workflows/codeql.yml", &text);
-            assert!(
-                check(&tree, REVIEWED).contains(&Finding::DangerousTrigger {
-                    path: ".github/workflows/codeql.yml".to_owned(),
-                    trigger: trigger.to_owned(),
-                }),
-                "{trigger}"
-            );
+            assert!(check(&tree, REVIEWED).contains(&Finding::DangerousTrigger {
+                path: ".github/workflows/codeql.yml".to_owned(),
+                trigger: trigger.to_owned(),
+            }));
         }
     }
 
@@ -1793,13 +1784,10 @@ path = [\"fuzz/seeds/**\"]
             r#"{"enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/main"]}},"rules":[]}"#,
         );
         let findings = settings(&tree, "live");
-        assert!(findings.iter().any(is_main_ruleset_drift), "{findings:?}");
-        assert!(
-            findings.contains(&Finding::Drift {
-                setting: "ruleset.main.deletion".to_owned(),
-            }),
-            "{findings:?}"
-        );
+        assert!(findings.iter().any(is_main_ruleset_drift));
+        assert!(findings.contains(&Finding::Drift {
+            setting: "ruleset.main.deletion".to_owned(),
+        }));
     }
 
     /// The `main` ruleset with every rule the policy expects and the
@@ -1858,7 +1846,7 @@ path = [\"fuzz/seeds/**\"]
             "",
         ] {
             let tree = live_ok().with("live/ruleset-1.json", &main_ruleset(&all, bypass));
-            assert_eq!(settings(&tree, "live"), drift, "{bypass}");
+            assert_eq!(settings(&tree, "live"), drift);
         }
     }
 
@@ -1893,7 +1881,7 @@ path = [\"fuzz/seeds/**\"]
             r#","bypass_actors":[]"#,
             r#","bypass_actors":[{"actor_id":2,"actor_type":"RepositoryRole"},{"actor_id":5,"actor_type":"RepositoryRole"},{"actor_id":1,"actor_type":"OrganizationAdmin"}]"#,
         ] {
-            assert_eq!(settings(&tag(all, allowed), "live"), [], "{allowed}");
+            assert_eq!(settings(&tag(all, allowed), "live"), []);
         }
         for refused in [
             r#","bypass_actors":[{"actor_id":4,"actor_type":"RepositoryRole"}]"#,
@@ -1905,8 +1893,7 @@ path = [\"fuzz/seeds/**\"]
         ] {
             assert_eq!(
                 settings(&tag(all, refused), "live"),
-                drift("ruleset.tag.bypass_actors"),
-                "{refused}"
+                drift("ruleset.tag.bypass_actors")
             );
         }
         let tree = live_ok().with("live/immutable-releases.json", r#"{"enabled":false}"#);
@@ -2061,7 +2048,7 @@ path = [\"fuzz/seeds/**\"]
             ),
             sarif("", &rule, &format!("{},5", sarif_result("rust/a", ""))),
         ] {
-            assert_eq!(codeql(&text), unreadable, "{text}");
+            assert_eq!(codeql(&text), unreadable);
         }
     }
 
@@ -2394,12 +2381,9 @@ path = [\"fuzz/seeds/**\"]
             "CONTRIBUTING.md",
             "AGENTS.md",
         ] {
-            assert!(
-                findings.contains(&Finding::Missing {
-                    path: path.to_owned(),
-                }),
-                "{path}"
-            );
+            assert!(findings.contains(&Finding::Missing {
+                path: path.to_owned(),
+            }));
         }
     }
 
@@ -2689,7 +2673,7 @@ updates:
         assert_eq!(unix_ymd("2000-03-01"), Some(951_868_800));
         assert_eq!(unix_ymd("2024-03-01"), Some(1_709_251_200));
         for ext in BINARY_EXT {
-            assert!(is_binary(&format!("a.{ext}")), "{ext}");
+            assert!(is_binary(&format!("a.{ext}")));
         }
         let text = "\
 name: listed

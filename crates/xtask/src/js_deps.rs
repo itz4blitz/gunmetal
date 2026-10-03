@@ -251,8 +251,7 @@ mod tests {
                 check(&tree),
                 [Finding::Unreadable {
                     path: "package.json".to_owned(),
-                }],
-                "{text}"
+                }]
             );
         }
     }
