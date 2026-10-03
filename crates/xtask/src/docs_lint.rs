@@ -1120,11 +1120,10 @@ fn cited_ids(text: &str) -> Vec<String> {
     let mut ids = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;
-    while i < bytes.len() {
+    while i != bytes.len() {
         if let Some(id) = take_id(text, i) {
-            let len = id.len();
-            ids.push(id);
-            i = i.saturating_add(len);
+            ids.push(id.clone());
+            i = i.saturating_add(id.len().max(1)).min(bytes.len());
             continue;
         }
         i = i.saturating_add(1);
@@ -1134,11 +1133,7 @@ fn cited_ids(text: &str) -> Vec<String> {
 
 /// An ID starting at byte `at`, if the boundaries hold.
 fn take_id(text: &str, at: usize) -> Option<String> {
-    let before = if at == 0 {
-        None
-    } else {
-        text.get(..at).and_then(|h| h.chars().next_back())
-    };
+    let before = text.get(..at).and_then(|h| h.chars().next_back());
     if before.is_some_and(|ch| ch.is_ascii_alphanumeric()) {
         return None;
     }
@@ -2131,6 +2126,62 @@ Crosses TB1; threat TM-T01.
         assert_eq!(super::rest_from("ab", 5), "");
         assert_eq!(super::rest_from("", 0), "");
         assert_eq!(super::rest_after("", usize::MAX, 4), "");
+    }
+
+    #[test]
+    fn validator_edges_are_named() {
+        assert_eq!(super::default_on("On until asked"), Some(true));
+        assert_eq!(super::default_on("Off until asked"), Some(false));
+        assert!(super::is_token_edge(' '));
+        assert!(super::is_token_edge(';'));
+        assert!(!super::is_token_edge('a'));
+        assert!(!super::is_token_edge('0'));
+        assert!(!super::is_token_edge('.'));
+        assert!(!super::is_token_edge('-'));
+        assert_eq!(super::cells("|---|---|"), None);
+        assert_eq!(
+            super::cells("| a | b |").as_deref(),
+            Some([String::from("a"), String::from("b")].as_slice())
+        );
+        assert!(super::is_sec_id("SEC-API-001"));
+        assert!(!super::is_sec_id("SEC--001"));
+        assert!(!super::is_sec_id("SEC-Aa-001"));
+        assert!(!super::is_sec_id("SEC-API-"));
+        assert!(!super::is_sec_id("SEC-API-0a"));
+        assert!(super::is_feature_id("ACC-001"));
+        assert!(!super::is_feature_id("-001"));
+        assert!(!super::is_feature_id("Acc-001"));
+        assert!(!super::is_feature_id("ACC-"));
+        assert!(!super::is_feature_id("ACC-0a"));
+        assert!(super::is_tb("TB1"));
+        assert!(!super::is_tb("TB"));
+        assert!(!super::is_tb("TBx"));
+        assert!(super::is_tmt("TM-T01"));
+        assert!(!super::is_tmt("TM-T"));
+        assert!(!super::is_tmt("TM-Tx"));
+        assert_eq!(
+            super::parameters(
+                "| cookie.session | Strict | before |\n### Security parameters\n| Key | Value | Why |\n| cookie.session | Lax | why |\n### Next\n",
+            ),
+            [(String::from("cookie.session"), String::from("Lax"))]
+        );
+        assert_eq!(
+            super::egress_rows(
+                "| Metadata providers | On | n | n | n | SEC-TM-001 |\n### Egress inventory\n| Purpose | Default | Trigger | Dest | Auth | Control |\n| Metadata providers | Off | n | n | n | SEC-TM-001 |\n### Next\n",
+            )
+            .into_iter()
+            .map(|(purpose, default, _)| (purpose, default))
+            .collect::<Vec<_>>(),
+            [(String::from("Metadata providers"), String::from("Off"))]
+        );
+        assert_eq!(super::find_directive("ximg-src 'self'", "img-src"), None);
+        assert_eq!(super::find_directive("img-srcx 'self'", "img-src"), None);
+        assert_eq!(
+            super::find_directive("img-src 'self'", "img-src").as_deref(),
+            Some("'self'")
+        );
+        assert_eq!(super::cited_ids("SEC-API-001"), ["SEC-API-001"]);
+        assert_eq!(super::cited_ids("xSEC-API-001"), Vec::<String>::new());
     }
 
     #[test]

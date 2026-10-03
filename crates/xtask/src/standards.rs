@@ -366,7 +366,10 @@ fn parse_citations(standards: &str) -> Vec<Citation> {
 fn asvs_citations(standards: &str) -> Vec<Citation> {
     let mut found = Vec::new();
     let mut rest = standards;
-    while let Some(at) = find_word(rest, "ASVS") {
+    for _ in 0..standards.len() {
+        let Some(at) = find_word(rest, "ASVS") else {
+            break;
+        };
         let after = rest_from(rest, at.saturating_add(4)).trim_start();
         let (superseded, after) = asvs_edition(after);
         if let Some(edition) = superseded {
@@ -487,7 +490,10 @@ fn top10_citations(standards: &str) -> Vec<Citation> {
         });
     }
     let mut rest = standards;
-    while let Some(at) = find_a_id(rest) {
+    for _ in 0..standards.len() {
+        let Some(at) = find_a_id(rest) else {
+            break;
+        };
         let id = rest
             .get(at..at.saturating_add(3))
             .map_or("", |s| s)
@@ -614,7 +620,10 @@ fn ssdf_citations(standards: &str) -> Vec<Citation> {
 fn find_word(haystack: &str, needle: &str) -> Option<usize> {
     let mut rest = haystack;
     let mut base: usize = 0;
-    while let Some(at) = rest.find(needle) {
+    for _ in 0..haystack.len() {
+        let Some(at) = rest.find(needle) else {
+            break;
+        };
         let before = rest.get(..at).and_then(|h| h.chars().next_back());
         let after = rest
             .get(at.saturating_add(needle.len())..)
@@ -635,7 +644,7 @@ fn find_word(haystack: &str, needle: &str) -> Option<usize> {
 fn find_a_id(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i: usize = 0;
-    while i.saturating_add(3) <= bytes.len() {
+    while i != bytes.len() && i.saturating_add(3) <= bytes.len() {
         let a = bytes.get(i).copied();
         let d1 = bytes.get(i.saturating_add(1)).copied();
         let d2 = bytes.get(i.saturating_add(2)).copied();
@@ -1288,6 +1297,110 @@ Recorded deviations
         assert_eq!(super::feed_versions("nope\nv\n"), Vec::<String>::new());
         assert_eq!(super::json_string("\"abc\\"), None);
         assert_eq!(super::version_parts("99999999999x"), Vec::<u32>::new());
+        assert_eq!(super::version_parts("1.x2"), vec![1, 2]);
+        assert!(!super::is_asvs_edition("4.0."));
+        assert!(!super::is_asvs_edition("4.0.x"));
+        assert!(super::is_asvs_edition("4.0.3"));
+        assert!(!super::is_asvs_id("1.2.3.4"));
+        assert!(!super::is_asvs_id(".1.1"));
+        assert!(!super::is_asvs_id("1..1"));
+        assert!(!super::is_asvs_id("1.1."));
+        assert!(!super::is_asvs_id("a.1.1"));
+        assert!(!super::is_asvs_id("1.b.1"));
+        assert!(!super::is_asvs_id("1.1.c"));
+        assert!(!super::is_asvs_id("5.0.0"));
+    }
+
+    #[test]
+    fn parse_edges_are_named() {
+        assert_eq!(super::year_token("20x6"), None);
+        assert_eq!(super::year_token("2026"), Some(String::from("2026")));
+        assert!(super::is_draft("1.2-rc1"));
+        assert!(!super::is_draft("1.2"));
+        let stamp = super::date_seconds("2026-10-01").expect("2026-10-01 is a date");
+        assert!(!super::expired("2026-10-01", stamp));
+        assert!(!super::expired(
+            "2026-10-01",
+            stamp.saturating_add(31_536_000)
+        ));
+        assert!(super::expired(
+            "2026-10-01",
+            stamp.saturating_add(31_536_001)
+        ));
+        assert!(super::date_seconds("1970-01-01").is_some());
+        assert_eq!(super::date_seconds("2026-13-01"), None);
+        assert_eq!(super::date_seconds("2026-10-32"), None);
+        assert_eq!(super::table_cells("|---|---|"), None);
+        assert_eq!(
+            super::table_cells("| a | b |").as_deref(),
+            Some([String::from("a"), String::from("b")].as_slice())
+        );
+        let comments = Memory::default()
+            .with(super::ASVS, "# note\n\n15.1.1 1\n")
+            .with(super::CWE, "# note\n\n79\n");
+        assert_eq!(
+            super::load_asvs(&comments).0,
+            [String::from("15.1.1")].into_iter().collect()
+        );
+        assert_eq!(
+            super::load_ids(&comments, super::CWE),
+            [String::from("79")].into_iter().collect()
+        );
+        assert_eq!(
+            super::asvs_citations("ASVS 4.0,10.2.1")
+                .iter()
+                .filter_map(|c| c.superseded.as_deref())
+                .collect::<Vec<_>>(),
+            ["ASVS 4.0"]
+        );
+        assert!(
+            super::masvs_citations("MASVS-AUTH-1.2")
+                .iter()
+                .any(|c| c.superseded.is_some())
+        );
+        let partial = super::register_rows(
+            "\
+### Register
+
+| ASVS | Deviation | Compensating control | Owner | Review date |
+|---|---|---|---|---|
+| 15.1.6 | why |  | docs | 2026-10-01 |
+",
+        );
+        assert!(!partial.get("15.1.6").expect("row").complete());
+        let kept = super::register_rows(
+            "\
+Recorded deviations
+
+| ASVS | Deviation | Compensating control | Owner | Review date |
+|---|---|---|---|---|
+| 15.1.6 | why | how | docs | 2026-10-01 |
+### The Register and Recorded
+| 15.1.1 | why | how | docs | 2026-10-01 |
+",
+        );
+        assert!(kept.contains_key("15.1.1"));
+    }
+
+    #[test]
+    fn a_cited_asvs_item_covers_the_chapter() {
+        let tree = repo().with(super::ASVS, "10.2.1 1\n").with(
+            super::COVERAGE,
+            "\
+| Chapter | Items | Target |
+|---|---|---|
+| V10 Encoding | 0 | **L1** |
+",
+        );
+        assert_eq!(coverage(&tree, 0), []);
+        assert!(super::cited_asvs(&tree).contains("10.2.1"));
+        let superseded = edited(
+            "docs/security/identity-and-access.md",
+            "| ASVS 10.2.1 |",
+            "| ASVS 4.0 10.2.1 |",
+        );
+        assert!(!super::cited_asvs(&superseded).contains("4.0"));
+        assert!(super::cited_asvs(&superseded).contains("10.2.1"));
     }
 
     /// Verifies: SEC-STD-002, SEC-STD-003

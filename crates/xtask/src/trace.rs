@@ -120,7 +120,10 @@ fn verifies_list(line: &str) -> Option<Vec<String>> {
     let after = line.split("Verifies:").nth(1)?;
     let mut ids = Vec::new();
     let mut rest = after;
-    while let Some(at) = rest.find("SEC-") {
+    for _ in 0..after.len() {
+        let Some(at) = rest.find("SEC-") else {
+            break;
+        };
         let token = rest_from(rest, at);
         let id: String = token
             .chars()
@@ -129,7 +132,7 @@ fn verifies_list(line: &str) -> Option<Vec<String>> {
         if is_sec(&id) {
             ids.push(id);
         }
-        rest = rest_from(rest, at + 4);
+        rest = rest_from(rest, at.saturating_add(4));
     }
     Some(ids)
 }
@@ -161,7 +164,7 @@ fn review_ids(tree: &dyn Tree) -> BTreeSet<String> {
 fn has_date(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut i: usize = 0;
-    while i.saturating_add(10) <= bytes.len() {
+    while i != bytes.len() && i.saturating_add(10) <= bytes.len() {
         let slice = text.get(i..i.saturating_add(10)).map_or("", |s| s);
         if is_date(slice) {
             return true;
@@ -202,7 +205,10 @@ fn is_date(token: &str) -> bool {
 fn sec_ids(text: &str) -> Vec<String> {
     let mut ids = Vec::new();
     let mut rest = text;
-    while let Some(at) = rest.find("SEC-") {
+    for _ in 0..text.len() {
+        let Some(at) = rest.find("SEC-") else {
+            break;
+        };
         let token = rest_from(rest, at);
         let id: String = token
             .chars()
@@ -211,7 +217,7 @@ fn sec_ids(text: &str) -> Vec<String> {
         if is_sec(&id) {
             ids.push(id);
         }
-        rest = rest_from(rest, at + 4);
+        rest = rest_from(rest, at.saturating_add(4));
     }
     ids
 }
@@ -397,6 +403,10 @@ mod tests {
             super::verifies_list("/// Verifies: SEC-AA, SEC-"),
             Some(Vec::new())
         );
+        assert_eq!(super::sec_ids("SEC-AA-001"), ["SEC-AA-001"]);
+        assert_eq!(super::sec_ids("nope"), Vec::<String>::new());
+        assert!(super::has_date("Reviewed on 2026-10-02."));
+        assert!(!super::has_date("no date"));
         assert_eq!(super::verifies_list("nope"), None);
         assert!(!super::has_date("short"));
         assert!(!super::is_date("2026-10"));
