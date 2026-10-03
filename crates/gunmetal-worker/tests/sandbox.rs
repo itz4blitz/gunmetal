@@ -17,7 +17,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::os::unix::process::ExitStatusExt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::process::{self, Command};
+use std::process::{self, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -189,6 +189,9 @@ fn cover_kernel() -> ! {
         "Landlock must refuse a path"
     );
     assert!(apply_seccomp(), "seccomp must hold on this kernel");
+    // read(0) is on the allowlist. The parent inspects /proc while this
+    // process waits, then closes stdin so we can exit and flush coverage.
+    wait_until_stopped();
     process::exit(0);
 }
 
@@ -335,11 +338,36 @@ fn linux_landlock_and_seccomp_hold() {
     }) {
         command.env("LLVM_PROFILE_FILE", profile);
     }
-    let status = command.status().expect("cover-kernel child");
+    command.stdin(Stdio::piped());
+    let mut child = command.spawn().expect("cover-kernel child");
+    let pid = child.id();
+    let mut mode = None;
+    for _ in 0..100 {
+        thread::sleep(Duration::from_millis(10));
+        mode = seccomp_mode(pid);
+        if mode == Some(2) {
+            break;
+        }
+    }
+    assert_eq!(
+        mode,
+        Some(2),
+        "seccomp filter must be installed, got {mode:?}"
+    );
+    drop(child.stdin.take());
+    let status = child.wait().expect("wait cover-kernel");
     assert!(
         status.success() || status.signal() == Some(31),
         "cover-kernel must exit or die of SIGSYS after applying the filter, got {status:?}"
     );
+}
+
+fn seccomp_mode(pid: u32) -> Option<u8> {
+    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status.lines().find_map(|line| {
+        line.strip_prefix("Seccomp:")
+            .and_then(|rest| rest.trim().parse().ok())
+    })
 }
 
 /// Verifies: SEC-MED-018, SEC-MED-021, SEC-TM-044
