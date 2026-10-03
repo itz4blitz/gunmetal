@@ -291,17 +291,12 @@ fn push_text(frame: &mut Vec<u8>, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::hex_lower;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
     use proptest::sample::subsequence;
-    use std::fmt::Write as _;
-
-    /// Writes a digest as lowercase hexadecimal.
-    fn hex(digest: [u8; 32]) -> String {
-        digest.iter().fold(String::new(), |mut out, byte| {
-            write!(out, "{byte:02x}").unwrap();
-            out
-        })
-    }
+    use proptest::test_runner::{Config, TestRunner};
 
     /// A part with no columns.
     const fn bare(name: &'static str, sql: &'static str) -> SchemaPart {
@@ -380,16 +375,16 @@ mod tests {
 
     #[test]
     fn digests_the_parts_in_name_order_with_every_field_length_prefixed() {
-        assert_eq!(hex(sha256(FRAME)), FRAME_DIGEST);
+        assert_eq!(hex_lower(sha256(FRAME)), FRAME_DIGEST);
         let schema = Schema::new(&[CATALOGUE, ACCOUNTS]).unwrap();
-        assert_eq!(hex(schema.digest()), FRAME_DIGEST);
+        assert_eq!(hex_lower(schema.digest()), FRAME_DIGEST);
     }
 
     #[test]
     fn digests_an_empty_schema_as_the_prefix_alone() {
         // SHA-256 of "gunmetal schema digest v1", computed with hashlib.
         assert_eq!(
-            hex(Schema::new(&[]).unwrap().digest()),
+            hex_lower(Schema::new(&[]).unwrap().digest()),
             "1a8772e43f1b3824c4cc55a59c7d40d3586711d23a8bc16b46e75cccfb36ff17"
         );
     }
@@ -674,94 +669,118 @@ mod tests {
     /// printable ASCII, so each split yields a valid name.
     const SPLIT: &str = "catalogue.tracks";
 
-    proptest! {
-        #[test]
-        fn gives_the_same_digest_for_the_parts_in_any_order(
-            parts in subsequence(
-                vec![
-                    ACCOUNTS,
-                    CATALOGUE,
-                    bare("history", "CREATE TABLE play (at);"),
-                    bare("settings", ""),
-                ],
-                0..=4,
-            ).prop_shuffle(),
-        ) {
-            let mut sorted = parts.clone();
-            sorted.sort_by_key(|part| part.name);
-            let shuffled = Schema::new(&parts).unwrap();
-            prop_assert_eq!(shuffled.parts(), &sorted[..]);
-            prop_assert_eq!(shuffled.digest(), Schema::new(&sorted).unwrap().digest());
-        }
+    #[test]
+    fn gives_the_same_digest_for_the_parts_in_any_order() {
+        TestRunner::new(Config::default())
+            .run(
+                &subsequence(
+                    vec![
+                        ACCOUNTS,
+                        CATALOGUE,
+                        bare("history", "CREATE TABLE play (at);"),
+                        bare("settings", ""),
+                    ],
+                    0..=4,
+                )
+                .prop_shuffle(),
+                |parts| {
+                    let mut sorted = parts.clone();
+                    sorted.sort_by_key(|part| part.name);
+                    let shuffled = Schema::new(&parts).unwrap();
+                    prop_assert_eq!(shuffled.parts(), &sorted[..]);
+                    prop_assert_eq!(shuffled.digest(), Schema::new(&sorted).unwrap().digest());
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn changes_the_digest_wherever_text_moves_between_two_parts(
-            first in 0..=SPLIT.len(),
-            second in 0..=SPLIT.len(),
-        ) {
-            let at = |cut: usize| {
-                Schema::new(&[bare("a", &SPLIT[..cut]), bare("b", &SPLIT[cut..])])
+    #[test]
+    fn changes_the_digest_wherever_text_moves_between_two_parts() {
+        TestRunner::new(Config::default())
+            .run(&(0..=SPLIT.len(), 0..=SPLIT.len()), |(first, second)| {
+                let at = |cut: usize| {
+                    Schema::new(&[bare("a", &SPLIT[..cut]), bare("b", &SPLIT[cut..])])
+                        .unwrap()
+                        .digest()
+                };
+                prop_assert_eq!(at(first) == at(second), first == second);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn changes_the_digest_wherever_text_moves_between_a_name_and_its_sql() {
+        TestRunner::new(Config::default())
+            .run(&(1..=SPLIT.len(), 1..=SPLIT.len()), |(first, second)| {
+                let at = |cut: usize| {
+                    Schema::new(&[bare(&SPLIT[..cut], &SPLIT[cut..])])
+                        .unwrap()
+                        .digest()
+                };
+                prop_assert_eq!(at(first) == at(second), first == second);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn changes_the_digest_wherever_text_moves_between_a_table_and_its_column() {
+        TestRunner::new(Config::default())
+            .run(&(0..=SPLIT.len(), 0..=SPLIT.len()), |(first, second)| {
+                let at = |cut: usize| {
+                    let columns = Box::leak(Box::new([column(
+                        &SPLIT[..cut],
+                        &SPLIT[cut..],
+                        DataClass::Library,
+                    )]));
+                    Schema::new(&[SchemaPart {
+                        name: "part",
+                        sql: "",
+                        columns,
+                    }])
                     .unwrap()
                     .digest()
-            };
-            prop_assert_eq!(at(first) == at(second), first == second);
-        }
+                };
+                prop_assert_eq!(at(first) == at(second), first == second);
+                Ok(())
+            })
+            .unwrap();
+    }
 
-        #[test]
-        fn changes_the_digest_wherever_text_moves_between_a_name_and_its_sql(
-            first in 1..=SPLIT.len(),
-            second in 1..=SPLIT.len(),
-        ) {
-            let at = |cut: usize| {
-                Schema::new(&[bare(&SPLIT[..cut], &SPLIT[cut..])]).unwrap().digest()
-            };
-            prop_assert_eq!(at(first) == at(second), first == second);
-        }
+    #[test]
+    fn accepts_a_name_exactly_when_it_is_non_empty_printable_ascii() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof!["[!-~]{0,12}", any::<String>(), "[ -\u{7f}\u{e9}]{0,12}",],
+                |name| {
+                    // Independent oracle: the printable ASCII range is '!' to '~'.
+                    let valid = !name.is_empty() && name.chars().all(|c| ('!'..='~').contains(&c));
+                    let name: &'static str = Box::leak(name.into_boxed_str());
+                    let expected = if valid {
+                        Ok(vec![bare(name, "")])
+                    } else {
+                        Err(SchemaError::InvalidName { name })
+                    };
+                    prop_assert_eq!(
+                        Schema::new(&[bare(name, "")]).map(|schema| schema.parts().to_vec()),
+                        expected
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn changes_the_digest_wherever_text_moves_between_a_table_and_its_column(
-            first in 0..=SPLIT.len(),
-            second in 0..=SPLIT.len(),
-        ) {
-            let at = |cut: usize| {
-                let columns = Box::leak(Box::new([
-                    column(&SPLIT[..cut], &SPLIT[cut..], DataClass::Library),
-                ]));
-                Schema::new(&[SchemaPart { name: "part", sql: "", columns }])
-                    .unwrap()
-                    .digest()
-            };
-            prop_assert_eq!(at(first) == at(second), first == second);
-        }
-
-        #[test]
-        fn accepts_a_name_exactly_when_it_is_non_empty_printable_ascii(
-            name in prop_oneof![
-                "[!-~]{0,12}",
-                any::<String>(),
-                "[ -\u{7f}\u{e9}]{0,12}",
-            ],
-        ) {
-            // Independent oracle: the printable ASCII range is '!' to '~'.
-            let valid = !name.is_empty() && name.chars().all(|c| ('!'..='~').contains(&c));
-            let name: &'static str = Box::leak(name.into_boxed_str());
-            let expected = if valid {
-                Ok(vec![bare(name, "")])
-            } else {
-                Err(SchemaError::InvalidName { name })
-            };
-            prop_assert_eq!(
-                Schema::new(&[bare(name, "")]).map(|schema| schema.parts().to_vec()),
-                expected
-            );
-        }
-
-        #[test]
-        fn accepts_the_declared_columns_in_any_order(
-            columns in Just(live_columns()).prop_shuffle(),
-        ) {
-            let schema = Schema::new(&[ACCOUNTS, CATALOGUE]).unwrap();
-            prop_assert_eq!(schema.check_classes(&columns), Ok(()));
-        }
+    #[test]
+    fn accepts_the_declared_columns_in_any_order() {
+        TestRunner::new(Config::default())
+            .run(&Just(live_columns()).prop_shuffle(), |columns| {
+                let schema = Schema::new(&[ACCOUNTS, CATALOGUE]).unwrap();
+                prop_assert_eq!(schema.check_classes(&columns), Ok(()));
+                Ok(())
+            })
+            .unwrap();
     }
 }

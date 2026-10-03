@@ -41,13 +41,12 @@ pub fn bounded_vec<T>(declared: u64, min_item_len: u64, remaining: u64, ceiling:
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "test oracles and generators work with small, bounded values"
-)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     #[test]
     fn takes_the_declared_count_when_it_is_smallest() {
@@ -142,26 +141,32 @@ mod tests {
         assert_eq!((items.len(), items.capacity()), (0, 0));
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-003, SEC-MED-004
-        #[test]
-        fn is_the_smallest_of_its_three_bounds(
-            declared in prop_oneof![any::<u64>(), 0_u64..2_000],
-            min_item_len in prop_oneof![any::<u64>(), 0_u64..16],
-            remaining in prop_oneof![any::<u64>(), 0_u64..2_000],
-            ceiling in prop_oneof![any::<u64>(), 0_u64..2_000],
-        ) {
-            // Independent model in u128: the three bounds, then saturate to
-            // the target's usize.
-            let by_octets = u128::from(remaining) / u128::from(min_item_len.max(1));
-            let smallest = u128::from(declared).min(by_octets).min(u128::from(ceiling));
-            let expected = usize::try_from(smallest).unwrap_or(usize::MAX);
-            let capacity = bounded_capacity(declared, min_item_len, remaining, ceiling);
-            prop_assert_eq!(capacity, expected);
-            let capacity = u128::try_from(capacity).unwrap_or(u128::MAX);
-            prop_assert!(capacity <= u128::from(declared));
-            prop_assert!(capacity <= by_octets);
-            prop_assert!(capacity <= u128::from(ceiling));
-        }
+    /// Verifies: SEC-MED-003, SEC-MED-004
+    #[test]
+    fn is_the_smallest_of_its_three_bounds() {
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    prop_oneof![any::<u64>(), 0_u64..2_000],
+                    prop_oneof![any::<u64>(), 0_u64..16],
+                    prop_oneof![any::<u64>(), 0_u64..2_000],
+                    prop_oneof![any::<u64>(), 0_u64..2_000],
+                ),
+                |(declared, min_item_len, remaining, ceiling)| {
+                    // Independent model in u128: the three bounds, then saturate to
+                    // the target's usize.
+                    let by_octets = u128::from(remaining) / u128::from(min_item_len.max(1));
+                    let smallest = u128::from(declared).min(by_octets).min(u128::from(ceiling));
+                    let expected = usize::try_from(smallest).unwrap_or(usize::MAX);
+                    let capacity = bounded_capacity(declared, min_item_len, remaining, ceiling);
+                    prop_assert_eq!(capacity, expected);
+                    let capacity = u128::try_from(capacity).unwrap_or(u128::MAX);
+                    prop_assert!(capacity <= u128::from(declared));
+                    prop_assert!(capacity <= by_octets);
+                    prop_assert!(capacity <= u128::from(ceiling));
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

@@ -150,7 +150,9 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
     use proptest::sample::select;
+    use proptest::{prop_oneof, proptest};
 
     fn text(value: &str, truncated: bool, replaced: bool) -> Text {
         Text {

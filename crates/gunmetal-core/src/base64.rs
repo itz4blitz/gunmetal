@@ -162,6 +162,8 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
+    use proptest::{prop_oneof, proptest};
 
     /// Decodes `input` as it arrives from outside.
     fn decode(input: &[u8], alphabet: Alphabet, max_out: usize) -> Result<Vec<u8>, B64Error> {

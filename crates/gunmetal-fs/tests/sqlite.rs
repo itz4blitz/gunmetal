@@ -18,6 +18,8 @@ use gunmetal_fs::sqlite::{
     Db, DbError, DbFile, Pragmas, Query, Row, Synchronous, Value, open_db, open_untrusted,
 };
 use proptest::prelude::*;
+// Direct imports: Qodana does not resolve these macros through `prelude::*`.
+use proptest::{prop_oneof, proptest};
 use support::{TempDir, assert_not_root, mode, names, open, set_mode};
 
 const LIBRARY: DbFile = DbFile::new(DataDir::Cache, "library.db");

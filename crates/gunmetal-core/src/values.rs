@@ -600,6 +600,9 @@ impl Duration {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     fn malformed(field: Field) -> ValueError {
         ValueError::Malformed { field }
@@ -1072,75 +1075,99 @@ mod tests {
         );
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-014
-        #[test]
-        fn writing_then_reading_an_mbid_returns_it(bytes in any::<[u8; 16]>()) {
-            prop_assert_eq!(Mbid::parse(Untrusted::new(&Mbid(bytes).to_string())), Ok(Mbid(bytes)));
-        }
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn writing_then_reading_an_mbid_returns_it() {
+        TestRunner::new(Config::default())
+            .run(&any::<[u8; 16]>(), |bytes| {
+                prop_assert_eq!(
+                    Mbid::parse(Untrusted::new(&Mbid(bytes).to_string())),
+                    Ok(Mbid(bytes))
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
 
-        /// Verifies: SEC-MED-014
-        #[test]
-        fn writing_then_reading_a_number_returns_it(
-            number in 1_u16..=9999,
-            extra in 0_u16..=9999,
-            form in 0_usize..3,
-        ) {
-            let total = number.saturating_add(extra).min(9999);
-            let text = match form {
-                0 => format!("{number}/{total}"),
-                1 => format!("{number:04} of {total}"),
-                _ => format!("{number}"),
-            };
-            let expected = NumberOf { number, total: (form < 2).then_some(total) };
-            prop_assert_eq!(NumberOf::parse(Untrusted::new(&text)), Ok(expected));
-        }
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn writing_then_reading_a_number_returns_it() {
+        TestRunner::new(Config::default())
+            .run(
+                &(1_u16..=9999, 0_u16..=9999, 0_usize..3),
+                |(number, extra, form)| {
+                    let total = number.saturating_add(extra).min(9999);
+                    let text = match form {
+                        0 => format!("{number}/{total}"),
+                        1 => format!("{number:04} of {total}"),
+                        _ => format!("{number}"),
+                    };
+                    let expected = NumberOf {
+                        number,
+                        total: (form < 2).then_some(total),
+                    };
+                    prop_assert_eq!(NumberOf::parse(Untrusted::new(&text)), Ok(expected));
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Whatever any parser accepts lies inside its documented range.
-        ///
-        /// Verifies: SEC-MED-014
-        #[test]
-        fn accepted_values_lie_inside_their_ranges(
-            text in prop_oneof![
-                // Always valid, so every check below runs on every test run.
-                "[1-9][0-9]{0,2} ?/ ?[1-9][0-9]{3}",
-                "[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])(T[0-9:]{0,8})?",
-                "[-+]?[0-9]{1,3}([.,][0-9]{1,3})?( ?[dD][bB])?",
-                "[0-9]([.,][0-9]{1,6})?",
-                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
-                // Near misses and noise.
-                "[0-9]{1,5}( ?/ ?[0-9]{1,5}| [oO][fF] [0-9]{1,5})?",
-                "[0-9]{4}(-[0-9]{1,2}(-[0-9]{1,2})?)?([Tt ].{0,8})?",
-                "[0-9a-fA-F-]{36}",
-                ".{0,40}",
-            ],
-        ) {
-            if let Ok(number) = NumberOf::parse(Untrusted::new(&text)) {
-                prop_assert!((1..=9999).contains(&number.number()));
-                prop_assert!(number.total().is_none_or(|total| (number.number()..=9999).contains(&total)));
-            }
-            if let Ok(date) = PartialDate::parse(Untrusted::new(&text)) {
-                prop_assert!((1..=9999).contains(&date.year()));
-                prop_assert!(date.month().is_none_or(|month| (1..=12).contains(&month)));
-                prop_assert!(date.day().is_none_or(|day| date.month().is_some() && (1..=31).contains(&day)));
-            }
-            if let Ok(gain) = GainDb::parse(Untrusted::new(&text)) {
-                prop_assert!(gain.db().is_finite() && (-128.0..=128.0).contains(&gain.db()));
-            }
-            if let Ok(peak) = PeakRatio::parse(Untrusted::new(&text)) {
-                prop_assert!(peak.ratio().is_finite() && (0.0..=16.0).contains(&peak.ratio()));
-            }
-            if let Ok(mbid) = Mbid::parse(Untrusted::new(&text)) {
-                prop_assert_eq!(mbid.to_string(), text.to_ascii_lowercase());
-            }
-        }
+    /// Whatever any parser accepts lies inside its documented range.
+    ///
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn accepted_values_lie_inside_their_ranges() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof![
+                    // Always valid, so every check below runs on every test run.
+                    "[1-9][0-9]{0,2} ?/ ?[1-9][0-9]{3}",
+                    "[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])(T[0-9:]{0,8})?",
+                    "[-+]?[0-9]{1,3}([.,][0-9]{1,3})?( ?[dD][bB])?",
+                    "[0-9]([.,][0-9]{1,6})?",
+                    "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                    // Near misses and noise.
+                    "[0-9]{1,5}( ?/ ?[0-9]{1,5}| [oO][fF] [0-9]{1,5})?",
+                    "[0-9]{4}(-[0-9]{1,2}(-[0-9]{1,2})?)?([Tt ].{0,8})?",
+                    "[0-9a-fA-F-]{36}",
+                    ".{0,40}",
+                ],
+                |text| {
+                    if let Ok(number) = NumberOf::parse(Untrusted::new(&text)) {
+                        prop_assert!((1..=9999).contains(&number.number()));
+                        prop_assert!(number.total().is_none_or(|total| (number.number()..=9999).contains(&total)));
+                    }
+                    if let Ok(date) = PartialDate::parse(Untrusted::new(&text)) {
+                        prop_assert!((1..=9999).contains(&date.year()));
+                        prop_assert!(date.month().is_none_or(|month| (1..=12).contains(&month)));
+                        prop_assert!(date.day().is_none_or(|day| date.month().is_some() && (1..=31).contains(&day)));
+                    }
+                    if let Ok(gain) = GainDb::parse(Untrusted::new(&text)) {
+                        prop_assert!(gain.db().is_finite() && (-128.0..=128.0).contains(&gain.db()));
+                    }
+                    if let Ok(peak) = PeakRatio::parse(Untrusted::new(&text)) {
+                        prop_assert!(peak.ratio().is_finite() && (0.0..=16.0).contains(&peak.ratio()));
+                    }
+                    if let Ok(mbid) = Mbid::parse(Untrusted::new(&text)) {
+                        prop_assert_eq!(mbid.to_string(), text.to_ascii_lowercase());
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Verifies: SEC-MED-014
-        #[test]
-        fn every_q7_8_gain_is_exact_and_in_range(raw in any::<i16>()) {
-            let gain = GainDb::from_q7_8(raw);
-            prop_assert_eq!(GainDb::new(gain.db()), Ok(gain));
-            prop_assert_eq!((gain.db() * 256.0).to_bits(), f32::from(raw).to_bits());
-        }
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn every_q7_8_gain_is_exact_and_in_range() {
+        TestRunner::new(Config::default())
+            .run(&any::<i16>(), |raw| {
+                let gain = GainDb::from_q7_8(raw);
+                prop_assert_eq!(GainDb::new(gain.db()), Ok(gain));
+                prop_assert_eq!((gain.db() * 256.0).to_bits(), f32::from(raw).to_bits());
+                Ok(())
+            })
+            .unwrap();
     }
 }
