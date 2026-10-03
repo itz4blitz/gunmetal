@@ -86,7 +86,7 @@ hash-chained, append-only security log, kept apart from listening history.
 Each user can read their own events and gets an alert for new devices and
 credential changes.
 
-The design has 103 live requirements: 81 R1, 17 R2, 0 R3 and 5 Later, plus 7 withdrawn rows kept so their IDs stay stable.
+The design has 103 live requirements: 70 R1, 0 R1.1, 11 R1.2, 0 R1.3, 17 R2, 0 R3 and 5 Later, plus 7 withdrawn rows kept so their IDs stay stable.
 
 ## Threats
 
@@ -146,8 +146,9 @@ from draft-ietf-oauth-cross-device-security. "Gate" means `scripts/gate.sh`:
 100% coverage and zero surviving mutants.
 
 Release scope assumed here. R1 is the server and the web client: owner
-claim, passkeys, OIDC, invitations, accounts and library grants, browser
-sessions, byte serving, recovery and the security log. R2 adds native phone,
+claim, passkeys, invitations, accounts and library grants, browser
+sessions, byte serving, recovery and the security log. R1.2 adds OIDC
+sign-in and music share links. R2 adds native phone,
 TV and desktop clients, device keys, TV pairing, remote access over iroh,
 household devices, managed profiles, parental filters and offline grants.
 Adapters, API keys, plugins, public links and server-to-server features are
@@ -180,17 +181,17 @@ Later. Any of them that ships earlier brings its requirements with it.
 | SEC-IAM-023 | An account must be able to hold several credentials, and adding or removing one must require user verification in the previous 5 minutes and must notify the account's other devices. | ASVS 6.3.7, 6.5.6, 7.5.1; NIST §4.1.2 | R1 | Integration tests with an injected clock |
 | SEC-IAM-024 | Removing an account's last credential must be refused unless the account is being deleted. | ASVS 6.4.4; CWE-640 | R1 | Integration test |
 | SEC-IAM-025 | The server must not offer account passwords, security questions, emailed or texted codes or links, or TOTP, for sign-in or for recovery. This is the decision of SEC-STD-006: there is no password path at all, and a person without a passkey-capable browser signs in by browser pairing (SEC-IAM-108). | ASVS 6.1.3, 6.3.6, 6.4.2; RFC 9700 §2.4; A07:2025; CWE-521, CWE-640 | R1 | Route-table CI check that no such endpoint exists; docs lint (SEC-STD-006) that fails if any password or TOTP requirement is live; review at each release |
-| SEC-IAM-026 | OIDC sign-in must use the authorization code flow with PKCE (S256), a state value and a nonce, with the server as a confidential client, and must reject implicit and hybrid responses. | ASVS 10.2.1, 10.4.4, 10.4.6, 10.5.1; RFC 9700 §2.1.1, §2.1.2; RFC 7636; OpenID Connect Core 1.0 §3.1 | R1 | Integration tests against a real provider in a container and a hostile test provider (missing or wrong state, nonce or verifier; token in the fragment) |
-| SEC-IAM-027 | ID tokens must be verified with keys from the provider's JWKS using algorithms pinned per provider (never "none", never a public key used as an HMAC secret), and iss, aud, azp where present, exp, iat and nonce must all be checked. | ASVS 9.1.1, 9.1.2, 9.1.3, 9.2.1, 9.2.3, 10.5.3, 10.5.4; OpenID Connect Core 1.0 §3.1.3.7; RFC 8725; CWE-347 | R1 | Unit tests with forged tokens (alg none, HS256 keyed with the RSA public key, wrong aud or iss, expired, replayed nonce); fuzz target on the JWS parser |
-| SEC-IAM-028 | An OIDC identity must be keyed only by the pair (issuer, subject); email, preferred_username and name must never create, find or link an account. | ASVS 6.8.1, 10.3.3, 10.5.2; CWE-287, CWE-290 | R1 | Integration test: a hostile provider returns a victim's email under a new subject and gets no access to the victim's account |
-| SEC-IAM-029 | Linking an OIDC identity to an existing account must happen only inside that account's session after user verification in the previous 5 minutes, or by redeeming an invitation. | ASVS 6.3.7, 7.5.1; CWE-287 | R1 | Integration test |
-| SEC-IAM-030 | OIDC auto-registration must be off by default; when it is on, new accounts must get no library grants and only the guest preset until an administrator approves them. | ASVS 8.2.1; A01:2025, A06:2025; CWE-1188 | R1 | Integration tests with the setting off and on |
-| SEC-IAM-031 | Provider claims must never confer the owner role, and mapping a claim to administrator must be off by default and enabled only by the owner, per provider. | ASVS 6.8.4, 8.2.1; CWE-269 | R1 | Unit tests on the claim mapper |
-| SEC-IAM-032 | Server-side calls to an OIDC provider must verify TLS certificates and must not follow redirects to another host, and the server must never fetch a URL taken from a claim. | ASVS 12.3.2, 13.2.4, 15.3.2; A01:2025; API7:2023; CWE-295, CWE-918 | R1 | Integration tests: a provider with an untrusted certificate fails closed; a cross-host redirect is refused; a picture claim pointing at an internal address causes no request |
-| SEC-IAM-033 | The OIDC redirect URI must be one exact registered URL on the configured origin, and any post-sign-in return target must be a relative path from an allowlist of client routes. | ASVS 3.7.2, 10.4.1; RFC 9700 §2.1; CWE-601, CWE-79 | R1 | Property test generating hostile return targets (javascript: and data: schemes, //host, /\host, encoded and mixed forms), all rejected |
-| SEC-IAM-034 | Each authorization request must be bound to the one provider it was sent to, and the iss response parameter must be checked whenever the provider advertises RFC 9207 support. | ASVS 10.2.2; RFC 9207; RFC 9700 §2.1 | R1 | Integration test with two configured providers attempting a mix-up |
-| SEC-IAM-035 | Sessions created through OIDC must have lifetimes set by Gunmetal, and disabling the account or removing its OIDC link must end every session created through that link. | ASVS 7.1.3, 7.4.2, 7.6.1 | R1 | Integration test |
-| SEC-IAM-036 | Administrator elevation for an account with no passkey must require a fresh provider sign-in (max_age=0) whose auth_time is less than 5 minutes old, and must otherwise be refused; it never satisfies a fresh-uv action or the owner role (SEC-IAM-107). | ASVS 6.8.4, 7.5.3, 10.3.4 | R1 | Integration test with a provider that ignores max_age (elevation refused) |
+| SEC-IAM-026 | OIDC sign-in must use the authorization code flow with PKCE (S256), a state value and a nonce, with the server as a confidential client, and must reject implicit and hybrid responses. | ASVS 10.2.1, 10.4.4, 10.4.6, 10.5.1; RFC 9700 §2.1.1, §2.1.2; RFC 7636; OpenID Connect Core 1.0 §3.1 | R1.2 | Integration tests against a real provider in a container and a hostile test provider (missing or wrong state, nonce or verifier; token in the fragment) |
+| SEC-IAM-027 | ID tokens must be verified with keys from the provider's JWKS using algorithms pinned per provider (never "none", never a public key used as an HMAC secret), and iss, aud, azp where present, exp, iat and nonce must all be checked. | ASVS 9.1.1, 9.1.2, 9.1.3, 9.2.1, 9.2.3, 10.5.3, 10.5.4; OpenID Connect Core 1.0 §3.1.3.7; RFC 8725; CWE-347 | R1.2 | Unit tests with forged tokens (alg none, HS256 keyed with the RSA public key, wrong aud or iss, expired, replayed nonce); fuzz target on the JWS parser |
+| SEC-IAM-028 | An OIDC identity must be keyed only by the pair (issuer, subject); email, preferred_username and name must never create, find or link an account. | ASVS 6.8.1, 10.3.3, 10.5.2; CWE-287, CWE-290 | R1.2 | Integration test: a hostile provider returns a victim's email under a new subject and gets no access to the victim's account |
+| SEC-IAM-029 | Linking an OIDC identity to an existing account must happen only inside that account's session after user verification in the previous 5 minutes, or by redeeming an invitation. | ASVS 6.3.7, 7.5.1; CWE-287 | R1.2 | Integration test |
+| SEC-IAM-030 | OIDC auto-registration must be off by default; when it is on, new accounts must get no library grants and only the guest preset until an administrator approves them. | ASVS 8.2.1; A01:2025, A06:2025; CWE-1188 | R1.2 | Integration tests with the setting off and on |
+| SEC-IAM-031 | Provider claims must never confer the owner role, and mapping a claim to administrator must be off by default and enabled only by the owner, per provider. | ASVS 6.8.4, 8.2.1; CWE-269 | R1.2 | Unit tests on the claim mapper |
+| SEC-IAM-032 | Server-side calls to an OIDC provider must verify TLS certificates and must not follow redirects to another host, and the server must never fetch a URL taken from a claim. | ASVS 12.3.2, 13.2.4, 15.3.2; A01:2025; API7:2023; CWE-295, CWE-918 | R1.2 | Integration tests: a provider with an untrusted certificate fails closed; a cross-host redirect is refused; a picture claim pointing at an internal address causes no request |
+| SEC-IAM-033 | The OIDC redirect URI must be one exact registered URL on the configured origin, and any post-sign-in return target must be a relative path from an allowlist of client routes. | ASVS 3.7.2, 10.4.1; RFC 9700 §2.1; CWE-601, CWE-79 | R1.2 | Property test generating hostile return targets (javascript: and data: schemes, //host, /\host, encoded and mixed forms), all rejected |
+| SEC-IAM-034 | Each authorization request must be bound to the one provider it was sent to, and the iss response parameter must be checked whenever the provider advertises RFC 9207 support. | ASVS 10.2.2; RFC 9207; RFC 9700 §2.1 | R1.2 | Integration test with two configured providers attempting a mix-up |
+| SEC-IAM-035 | Sessions created through OIDC must have lifetimes set by Gunmetal, and disabling the account or removing its OIDC link must end every session created through that link. | ASVS 7.1.3, 7.4.2, 7.6.1 | R1.2 | Integration test |
+| SEC-IAM-036 | Administrator elevation for an account with no passkey must require a fresh provider sign-in (max_age=0) whose auth_time is less than 5 minutes old, and must otherwise be refused; it never satisfies a fresh-uv action or the owner role (SEC-IAM-107). | ASVS 6.8.4, 7.5.3, 10.3.4 | R1.2 | Integration test with a provider that ignores max_age (elevation refused) |
 | SEC-IAM-037 | First-party session and access tokens must be opaque values with at least 256 bits from a CSPRNG, stored server-side only as SHA-256 hashes and checked by lookup on every request; first-party sessions must not be JWTs. | ASVS 7.2.1, 7.2.2, 7.2.3, 11.5.1; CWE-330, CWE-312 | R1 | Unit test of the generator; integration tests that the database holds no raw token and a modified token fails |
 | SEC-IAM-038 | A new session token must be issued at sign-in, at elevation and at every profile switch, and the previous token must stop working. | ASVS 7.2.4; CWE-384 | R1 | Integration test |
 | SEC-IAM-039 | **Withdrawn 2026-10-02: merged into SEC-API-032.** One session-cookie definition. | ASVS 3.3.1, 3.3.2, 3.3.3, 3.3.4; CWE-614, CWE-1004, CWE-1275 | Withdrawn | Proved by the tests of SEC-API-032 |
@@ -1006,6 +1007,10 @@ a central account.
    servers exist. It must hold no accounts, and servers must work fully
    without it. Without it, release 1's web client is effectively for
    people who can set up HTTPS.
+   *Answered (D-07, 2026-10-02):* the name service, its naming client and
+   its Certificate Transparency monitoring are R2. R1 gets HTTPS through
+   the owner's own domain with automatic certificates, a tailnet, or
+   localhost on the same machine (SEC-NET-013).
 2. **No account passwords at all?** Recommendation: yes. Trade-off: people
    with no passkey-capable device need cross-device sign-in, a hardware
    key, a native app or OIDC. Legacy apps wait for app passwords. If the

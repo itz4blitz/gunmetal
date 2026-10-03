@@ -39,7 +39,7 @@ the web client that runs in browsers. It is written before any of that code
 exists, so that every control below is a property of the framework layer
 (the route table, the middleware chain, the data-access layer and the
 client's build rules) rather than something each feature must remember. Most
-of the 86 R1 requirements are built once and then hold for every endpoint
+of the 85 R1 requirements are built once and then hold for every endpoint
 added afterwards, and each one becomes a test.
 
 **The account model is not settled yet.** Record 1 points at passkeys, OIDC
@@ -392,7 +392,7 @@ surviving mutants like the parsers.
 | ID | Requirement | Standards | Release | Verified by |
 |---|---|---|---|---|
 | SEC-API-096 | An invitation link must carry a secret of at least 128 bits in the URL fragment, which the landing page sends in a `POST` body to redeem; invitations must expire (7 days by default), have a use count, be revocable, and their redemption must be rate-limited. | ASVS 6.4.1, 11.5.1, 14.2.1; API6:2023; CWE-598, CWE-613 | R1 | Integration tests of expiry, use count, revocation and rate limit; access-log test that the secret never reaches the server in a request line. |
-| SEC-API-097 | Public share links (R1 for music; video links off until the owner enables them in R2) must use the fragment pattern, carry at least 128 bits, be scoped to one object and its rights (listen-only by default; downloads only when the owner allows them server-wide), take their owner from the session, expire (30 days by default), support an optional password under SEC-STD-008 and SEC-API-056, be visible and editable only by their owner and admins, stop working on the next request after revocation, send no link-preview metadata unless the sharer turns it on, and enforce per-link limits: 2 concurrent streams by default, a total-bytes or uses cap, and a distinct-address count that suspends the link and alerts the sharer when exceeded. Managed profiles cannot create them. | ASVS 8.2.2, 8.3.2, 14.2.1; API1:2023, API4:2023, API6:2023; CWE-639, CWE-613, CWE-770 | R1 | Cross-principal and revocation integration tests as for SEC-API-011 and SEC-API-028; integration test that preview tags are absent by default; integration test of each per-link limit and of the suspension alert |
+| SEC-API-097 | Public share links (R1 for music; video links off until the owner enables them in R2) must use the fragment pattern, carry at least 128 bits, be scoped to one object and its rights (listen-only by default; downloads only when the owner allows them server-wide), take their owner from the session, expire (30 days by default), support an optional password under SEC-STD-008 and SEC-API-056, be visible and editable only by their owner and admins, stop working on the next request after revocation, send no link-preview metadata unless the sharer turns it on, and enforce per-link limits: 2 concurrent streams by default, a total-bytes or uses cap, and a distinct-address count that suspends the link and alerts the sharer when exceeded. Managed profiles cannot create them. | ASVS 8.2.2, 8.3.2, 14.2.1; API1:2023, API4:2023, API6:2023; CWE-639, CWE-613, CWE-770 | R1.2 | Cross-principal and revocation integration tests as for SEC-API-011 and SEC-API-028; integration test that preview tags are absent by default; integration test of each per-link limit and of the suspension alert |
 | SEC-API-098 | Signed media routes may send `Access-Control-Allow-Origin: *` (never with credentials) and `Cross-Origin-Resource-Policy: cross-origin` only for the representations a cast receiver needs. | ASVS 3.4.2, 3.5.8; CWE-942 | R2 | Integration test that only cast representations carry these headers. |
 | SEC-API-099 | Document formats (EPUB, PDF and similar) must render only on a separate sandbox origin (a different hostname that receives no cookies) or after conversion to a safe model by the core, never on the application origin. | ASVS 3.2.1, 3.5.8; CWE-79 | Later | Integration test of origins and headers once the feature exists; manual review of the feature design |
 
@@ -923,6 +923,10 @@ Things we must never do, and where each lesson came from.
      people to click through warnings and are reported not to support
      WebAuthn in Chrome (unverified), and plain HTTP on the LAN would mean
      sessions anyone on the Wi-Fi can capture.
+   - *Answered (D-07, 2026-10-02):* the name service, its naming client
+     and its Certificate Transparency monitoring are R2. R1 gets HTTPS
+     through the owner's own domain with automatic certificates, a
+     tailnet, or localhost on the same machine (SEC-NET-013).
 2. **Web client session: HttpOnly cookie or bearer token in JavaScript?**
    *Recommendation:* the cookie, as specified. *Trade-off:* cookies need the
    CSRF layers in this document; bearer tokens avoid CSRF but put the token

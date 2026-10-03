@@ -66,11 +66,11 @@ The key decisions:
    re-encoded by the server, so clients, and especially smart TVs running
    unpatched browser engines, never decode an attacker's image bytes.
 5. **Zero egress by default, one door when it is opened.** An R1 server makes
-   no outbound connection unless the owner enables something, apart from the
-   naming purpose the install chose (the project name service, if the owner
-   accepts OD-1), which is disclosed on the console and listed in the egress
-   inventory below. Every
-   outbound call goes through one egress client that checks the resolved
+   no outbound connection unless the owner enables something (ACME for the
+   owner's own domain, the update check); from R2, also the naming purpose
+   when the install chose the project name service (D-07), which is then
+   disclosed on the console. Each purpose is listed in the egress inventory
+   below. Every outbound call goes through one egress client that checks the resolved
    address, refuses private and metadata ranges unless granted, refuses
    cross-host redirects and always verifies TLS.
 6. **Revocation is immediate and visible.** Sessions are opaque and checked
@@ -91,13 +91,14 @@ The biggest R1 residual risk is a household that cannot get HTTPS.
 Browsers allow passkeys only in a secure context, and Chrome (since M110) and
 Firefox refuse WebAuthn on pages with certificate errors. The baseline does
 not answer that with a cleartext password: over plain HTTP, every peer but
-loopback gets only a help page (SEC-NET-001). It makes HTTPS the default
-instead, through the per-server name service (OD-1, with a narrow pre-claim
-exception, SEC-OPS-007), with own domain, tailnet and localhost as tested
-alternatives. How ordinary households get HTTPS remains the owner's most
-important call.
+loopback gets only a help page (SEC-NET-001). In R1, HTTPS comes through the
+owner's own domain with automatic certificates (ACME), a tailnet, or the
+same machine (localhost) (SEC-NET-013; owner answer to D-07, 2026-10-02).
+The per-server name service, with its narrow pre-claim exception
+(SEC-OPS-007), is R2. A household that has none of these cannot use
+passkeys in R1 until it sets one up.
 
-There are 60 live requirements: 49 R1, 10 R2, 1 R3 and 0 Later, plus 15 withdrawn rows kept so their IDs stay stable.
+There are 60 live requirements: 48 R1, 0 R1.1, 1 R1.2, 0 R1.3, 10 R2, 1 R3 and 0 Later, plus 15 withdrawn rows kept so their IDs stay stable.
 
 ## Threats
 
@@ -401,7 +402,7 @@ Security Top 10 2023; MASVS is v2.1.0; SP 800-63B-4 is the final of July
 | SEC-TM-019 | **Withdrawn 2026-10-02: merged into SEC-IAM-078, SEC-IAM-079.** Including redemption only in a native app or secure context, the script-free landing page, and the pending state for member-level invitations. | ASVS 6.4.1, 7.2.3, 14.2.1; Top 10 A01, A07; CWE-598, CWE-613, CWE-285 | Withdrawn | Proved by the tests of SEC-IAM-078, SEC-IAM-079 |
 | SEC-TM-020 | **Withdrawn 2026-10-02: merged into SEC-IAM-062.** One PIN rule, scoped to the pair (household device, profile). | ASVS 6.3.1, 8.2.1, 8.3.1; SP 800-63B-4 §3.2.2; CWE-307, CWE-602 | Withdrawn | Proved by the tests of SEC-IAM-062 |
 | SEC-TM-021 | **Withdrawn 2026-10-02: merged into SEC-IAM-056, SEC-IAM-058, SEC-IAM-060, SEC-IAM-108.** One pairing specification for browsers (R1) and devices (R2). | RFC 8628 §5.1, §5.4; ASVS 6.5.1, 6.5.5, 6.6.2, 6.6.3; Top 10 A07; CWE-290, CWE-1390 | Withdrawn | Proved by the tests of SEC-IAM-056, SEC-IAM-058, SEC-IAM-060, SEC-IAM-108 |
-| SEC-TM-022 | OIDC sign-in must use the authorization code flow with PKCE, exact redirect URIs, state and nonce, issuer and audience checks, and TLS through the egress client; it must never fetch URLs supplied in claims (such as pictures), must namespace identities by issuer, and must redirect after sign-in only to same-origin relative paths. | ASVS 10.1.2, 10.2.1, 10.2.2, 10.5.1, 10.5.2, 10.5.3, 10.5.4, 6.8.1, 6.8.2, 3.7.2; RFC 9700; RFC 7636; Top 10 A07; CWE-601, CWE-918, CWE-295 | R1 | Integration tests against a local test identity provider: wrong issuer, wrong audience, replayed nonce, missing PKCE, mix-up, external redirect target and picture URL are each refused with the exact error |
+| SEC-TM-022 | OIDC sign-in must use the authorization code flow with PKCE, exact redirect URIs, state and nonce, issuer and audience checks, and TLS through the egress client; it must never fetch URLs supplied in claims (such as pictures), must namespace identities by issuer, and must redirect after sign-in only to same-origin relative paths. | ASVS 10.1.2, 10.2.1, 10.2.2, 10.5.1, 10.5.2, 10.5.3, 10.5.4, 6.8.1, 6.8.2, 3.7.2; RFC 9700; RFC 7636; Top 10 A07; CWE-601, CWE-918, CWE-295 | R1.2 | Integration tests against a local test identity provider: wrong issuer, wrong audience, replayed nonce, missing PKCE, mix-up, external redirect target and picture URL are each refused with the exact error |
 | SEC-TM-023 | **Withdrawn 2026-10-02: merged into SEC-API-023.** External identifiers carry at least 128 random bits; a version-4 UUID does not qualify. | ASVS 8.2.2, 11.5.1; RFC 9562; API1; CWE-639, CWE-340 | Withdrawn | Proved by the tests of SEC-API-023 |
 | SEC-TM-024 | Every read and write of a user-visible object must pass through one authorization layer that takes the subject (account, profile, device, session scope), the action and the object and applies ownership, library grants, profile restrictions and share scope; handlers must not reach storage any other way. | ASVS 8.2.2, 8.2.3, 8.3.1, 8.4.1; Top 10 A01; API1, API3, API5; CWE-639, CWE-863 | R1 | Unit and property tests of the policy function in gunmetal-core with zero surviving mutants; architecture test proving storage functions are not visible outside the authorization layer |
 | SEC-TM-025 | For every route, WebSocket message, sync endpoint and adapter endpoint, an integration test must replay one user's object IDs as a second user, a restricted profile, a revoked session and an anonymous caller, and assert each is refused with a response identical in status and body to one for a non-existent object. | ASVS 8.2.2, 8.4.1, 6.3.8; Top 10 A01; API1, API5; CWE-639, CWE-204 | R1 | Generated integration test suite (the cross-user matrix); CI check that fails when a route is missing from the matrix |
@@ -427,7 +428,7 @@ Security Top 10 2023; MASVS is v2.1.0; SP 800-63B-4 is the final of July
 | SEC-TM-045 | Features that need isolation must follow the isolation table of SEC-MED-024: native decoders and FFmpeg are off unless the full jail is available; memory-safe core parsing runs at the documented floor with a visible reduced-isolation notice; every gap is reported by `gunmetal doctor` and the admin dashboard; and no setting may run jailed work unconfined. | ASVS 16.5.3; Top 10 A10, A02; CWE-636 | R1 | Integration test with the capability probe forced to fail per isolation control, asserting which features stay on, which go off, and the exact doctor report; configuration-schema test that no key disables confinement |
 | SEC-TM-046 | No API, setting or plugin may set an executable path, command template, script hook or shell command; external programs may be located only from installation-time configuration owned by root and must be checked (version and digest) before first use. | ASVS 1.2.5, 13.2.2, 15.2.5; Top 10 A05; CWE-15, CWE-78, CWE-114, CWE-426 | R1 | Configuration-schema test that no field accepts an executable or command; integration test that a changed binary digest disables the feature with a doctor warning |
 | SEC-TM-047 | FFmpeg must run only in the jail, with input and output as descriptors (never file names), arguments built from a typed enumeration (never from strings), protocols limited to pipe and fd, reference-following demuxers (concat, playlist-style and image-sequence inputs) disabled, never through a shell or a Windows batch file; GPU access, when the owner enables it, must be limited to render nodes. | ASVS 1.2.5, 15.2.5; Top 10 A05; CWE-78, CWE-88, CWE-610, CWE-918 | R2 | Integration tests with crafted HLS-concat and reference-following files asserting no file or network access was attempted (jail audit log empty); property test that generated metadata never changes the shape of the argument vector; integration test of the device allowlist |
-| SEC-TM-048 | The server must make no outbound connection that is not in the egress inventory in this file for its configuration (by default in R1, only the naming purpose when the install chose the project name service), and every outbound connection must go through one egress client (SEC-EXT-001, SEC-API-077) that enforces a per-purpose host allowlist, checks the resolved address at connect time against loopback, private, link-local, multicast and cloud-metadata ranges unless granted, refuses cross-host redirects, always verifies TLS, and caps time and response size. | ASVS 1.3.6, 12.3.1, 12.3.2, 13.1.1, 13.2.4, 13.2.5, 15.3.2; Top 10 A01; API7, API10; CWE-918, CWE-295, CWE-441 | R1 | Integration test in a network namespace with a test DNS server that maps allowed names to private and metadata addresses and serves redirects, asserting each disallowed connection is refused and audit-logged; integration test that a scan and playback session opens no outbound socket; CI check that HTTP clients are built only in the egress module |
+| SEC-TM-048 | The server must make no outbound connection that is not in the egress inventory in this file for its configuration (in R1, none by default; ACME only when the owner configured an own domain; from R2, also the naming purpose when the install chose the project name service, D-07), and every outbound connection must go through one egress client (SEC-EXT-001, SEC-API-077) that enforces a per-purpose host allowlist, checks the resolved address at connect time against loopback, private, link-local, multicast and cloud-metadata ranges unless granted, refuses cross-host redirects, always verifies TLS, and caps time and response size. | ASVS 1.3.6, 12.3.1, 12.3.2, 13.1.1, 13.2.4, 13.2.5, 15.3.2; Top 10 A01; API7, API10; CWE-918, CWE-295, CWE-441 | R1 | Integration test in a network namespace with a test DNS server that maps allowed names to private and metadata addresses and serves redirects, asserting each disallowed connection is refused and audit-logged; integration test that a scan and playback session opens no outbound socket; CI check that HTTP clients are built only in the egress module |
 | SEC-TM-049 | Server signing and root keys must live only in key files under SEC-OPS-012, and replayed third-party secrets only under SEC-OPS-017; every secret must be held in memory in wrappers that cannot be printed and are zeroed on drop (extended to every decrypted secret by SEC-STD-023), be excluded from diagnostics bundles and exports, and be rotatable without data loss. | ASVS 11.1.1, 11.1.2, 13.1.4, 13.3.1, 13.3.2, 13.3.4; Top 10 A04; CWE-312, CWE-522, CWE-732 | R1 | Integration tests of file modes, of a byte scan of the SQLite files and a diagnostics bundle finding no secret, and of rotation keeping data readable while old capabilities fail; compile-fail test that a secret cannot be formatted |
 | SEC-TM-050 | Every stored field and every log and event field must carry a data classification (public, internal, personal, sensitive personal, secret) in the schema, and that classification must decide logging, backup encryption, export and admin visibility. | ASVS 14.1.1, 14.1.2, 16.2.5; Top 10 A04; CWE-359 | R1 | CI schema lint that fails on an unclassified field; unit tests that the logging and export layers drop or mask each class as specified |
 | SEC-TM-051 | Accounts, credential public keys, devices, roles, grants, restrictions, invitations and shares must live in the durable, backed-up store and not the rebuildable cache, and while the cache is rebuilt any item whose restriction status is unknown must be hidden from restricted profiles. | ASVS 16.5.3, 8.2.2; Top 10 A06, A10; CWE-636, CWE-1188 | R1 | Integration test that deletes the cache, rebuilds it and samples a restricted profile's view during and after the rebuild, asserting it never sees an item outside its policy |
@@ -459,9 +460,13 @@ Security Top 10 2023; MASVS is v2.1.0; SP 800-63B-4 is the final of July
 **Bound by requirements in [standards-coverage.md](standards-coverage.md).** SEC-STD-001 to SEC-STD-004 (pinned standards, coverage register, version watch, requirement-to-test traceability), SEC-STD-010 (technologies kept out), SEC-STD-019, SEC-STD-021 and SEC-STD-022 (crypto implementations, failures and randomness), SEC-STD-023 (no core dumps of secrets), SEC-STD-030 (limits register) and SEC-STD-034 (independent review before R1, external assessment before R2).
 The 2026-10-02 challenge review merged duplicated controls into one owner each; withdrawn rows above say where their content went, and [threat-model.md](threat-model.md#control-ownership) lists every owner.
 
-Count: 60 live requirements: 49 R1, 10 R2, 1 R3 and 0 Later, plus 15 withdrawn rows kept so their IDs stay stable.
+Count: 60 live requirements: 48 R1, 0 R1.1, 1 R1.2, 0 R1.3, 10 R2, 1 R3 and 0 Later, plus 15 withdrawn rows kept so their IDs stay stable.
 
-Release values are exactly R1, R2, R3, Later or Withdrawn in every file. A
+Release values are exactly R1, R1.1, R1.2, R1.3, R2, R3, Later or
+Withdrawn in every file. R1.1, R1.2 and R1.3 are the point releases after
+R1 that the owner adopted on 2026-10-02 (decision D-10); a requirement
+whose only surface moved to one of them is mandatory in that release, and
+that release cannot ship without it (SEC-STD-004). A
 withdrawn row keeps its ID and points to the requirement that now owns its
 content; citations of a withdrawn ID resolve to that owner (SEC-TM-073).
 
@@ -473,8 +478,11 @@ it protects; anything that exists in R1 is R1 even if it grows later.
 
 | Release | Surfaces that exist from this release |
 |---|---|
-| R1 Music | Linux server builds; the scan worker (memory-safe core parsing in a separate process); the web client, over HTTPS or to loopback; music library, queue and player; local accounts with passkeys and OIDC; browser pairing for browsers without a passkey; invitations; recovery codes, admin recovery links and host-only owner recovery; music share links; in-app owner alerts; the audit log; encrypted backups and restore-at-setup; the update and advisory feed; the per-server name service with ACME and CT monitoring (pending OD-1); reverse-proxy and Tailscale Serve recipes; avatar and artwork uploads |
-| R2 Video | The remuxer and sandboxed FFmpeg; native Android, iOS, Android TV and tvOS apps; device keys and TV device authorisation; households, profiles, PINs and managed profiles; offline downloads; iroh remote access, relays and the browser edge; plugins; the Jellyfin and OpenSubsonic adapters with app and API keys; webhooks; video share links (off by default); macOS or Windows server builds, if they ship |
+| R1 Music | Linux server builds; the scan worker (memory-safe core parsing in a separate process); the web client, over HTTPS or to loopback; music library, queue and player; local accounts with passkeys; browser pairing for browsers without a passkey; invitations; recovery codes, admin recovery links and host-only owner recovery; in-app owner alerts; the audit log; encrypted backups and restore-at-setup; the update and advisory feed; HTTPS through the owner's own domain with ACME, a tailnet (Tailscale Serve) or the same machine (D-07); remote use only through the owner's reverse proxy or tailnet, with reverse-proxy and Tailscale Serve recipes; embedded and folder artwork |
+| R1.1 | Playlist files (M3U, M3U8, PLS) imported or found in libraries; built-in metadata providers (MusicBrainz, Cover Art Archive) through the egress client, off until the owner turns one on; avatar and other image uploads |
+| R1.2 | OIDC sign-in; music share links; diagnostic bundles |
+| R1.3 | Smart playlists and the rule language; library radio; measured loudness; folder view; 32-bit ARM server builds |
+| R2 Video | The project-run per-server name service, its naming client and its Certificate Transparency monitoring (D-07); the remuxer and sandboxed FFmpeg; native Android, iOS, Android TV and tvOS apps; device keys and TV device authorisation; households, profiles, PINs and managed profiles; offline downloads; iroh remote access, relays and the browser edge; plugins; the Jellyfin and OpenSubsonic adapters with app and API keys; webhooks; video share links (off by default); macOS or Windows server builds, if they ship |
 | R3 Live | M3U and XMLTV sources, HLS and tuners, guide data |
 | Later | Samsung and LG web-build TVs; the desktop shell; cast credentials; books and documents; automatic updates; email alerts; importers for rival databases; Device Bound Session Credentials; any delegated third-party access |
 
@@ -566,12 +574,12 @@ searching and playing contact nothing.
 
 | Purpose | Default | Destination | Data sent | Release | Owner |
 |---|---|---|---|---|---|
-| Naming: label registration and DNS-01 updates | On when the install chose the project name service (recommended, OD-1); allowed before the claim | The project name service | Random label, public key, TXT value, signature | R1 | SEC-NET-010, SEC-OPS-007 |
+| Naming: label registration and DNS-01 updates | On when the install chose the project name service (recommended, OD-1); allowed before the claim | The project name service | Random label, public key, TXT value, signature | R2 | SEC-NET-010, SEC-OPS-007 |
 | ACME certificate issuance | On with project or own-domain naming; allowed before the claim | The configured CA | Certificate request; ACME account key | R1 | SEC-TM-010 |
-| Certificate Transparency monitoring | On with project naming, from the claim | Two independent CT monitors | The server's own name | R1 | SEC-NET-069 |
+| Certificate Transparency monitoring | On with project naming, from the claim | Two independent CT monitors | The server's own name | R2 | SEC-NET-069 |
 | Update and advisory feed | The owner's first-run answer | The project feed (static files) | A plain GET with no identifiers | R1 | SEC-OPS-047, SEC-SUP-051 |
-| OIDC discovery, keys and tokens | When the owner configures a provider | The configured issuer | Standard OIDC requests | R1 | SEC-TM-022 |
-| Metadata, artwork and lyrics providers | Off until the owner turns one on in the required setup step | The provider | The fields the setup screen lists | R1 | SEC-PRV-013 |
+| OIDC discovery, keys and tokens | When the owner configures a provider | The configured issuer | Standard OIDC requests | R1.2 | SEC-TM-022 |
+| Metadata, artwork and lyrics providers | Off until the owner turns one on in the required setup step | The provider | The fields the setup screen lists | R1.1 | SEC-PRV-013 |
 | Relays, address lookup and the browser edge | Off until the owner turns on remote access | Configured relays and edge | As SEC-NET-037 to SEC-NET-039 state | R2 | SEC-NET-037 |
 | Plugins and webhooks | Off; per grant or allowlisted host | Granted hosts | Per grant | R2 | SEC-EXT-001, SEC-EXT-045 |
 | Live TV sources | Off; per source | The source | Per source | R3 | SEC-TM-071 |

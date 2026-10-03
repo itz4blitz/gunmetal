@@ -23,13 +23,18 @@ architecture actually provides one.
 
 Release assumptions used in the tables:
 
-- Releases (R1, R2, R3, Later, No), the Demand scale, row ownership and the
-  terms "the user log" and "the identity store" are defined once in the
-  [feature map README](README.md). A row whose Release cell would differ
-  between maps names one owning row; the other maps point at it.
-- No video feature is R1. Several mechanisms these rows reuse arrive with
-  music in R1: the user log, signed stream URLs, settings sync, the sleep
-  timer, the persistent queue and the playback decision type. The native
+- Releases (R1, R1.1, R1.2, R1.3, R2, R3, Later, No), the Demand scale,
+  row ownership and the terms "the user log" and "the identity store" are
+  defined once in the [feature map README](README.md). A row whose Release
+  cell would differ between maps names one owning row; the other maps point
+  at it.
+- No video feature is in R1 or in its point releases R1.1 to R1.3. Several
+  mechanisms these rows reuse arrive with music first. In R1: the user log,
+  signed stream URLs, preferences that follow a person (ACC-012), the
+  persistent queue and the playback decision type, whose R1 use is the
+  stated reason for an unplayable track (MUS-229). In R1.1: device-scoped
+  settings (CLI-030) and the sleep timer (MUS-076). In R1.2: the
+  per-session decision record and its API (ADM-100, INT-134). The native
   background audio and lock-screen module (MUS-074) and the handoff control
   channel (CLI-101) arrive with the R2 native clients.
 - R2 clients are taken to mean Android phones and tablets, Android TV and
@@ -40,11 +45,13 @@ Release assumptions used in the tables:
   Later surface and its hardening rule (SEC-CLI-069) is Later (SEC-TM-074).
   The feature map README now lists it as Later too; open decision 17
   asks the owner to confirm.
-- Rows about remote playback assume iroh remote access ships in R2, as the
-  release key says. If it slips, those rows apply on the local network, or
-  through the owner's reverse proxy or tailnet, until it lands. That is
-  about reach only: being on the home network never grants access by
-  itself (SEC-IAM-013).
+- Rows about remote playback assume built-in remote access (iroh) ships in
+  R2, as the owner decided ([decision register](../decisions.md#owner-answers-2026-10-02))
+  and the release key says. Until it lands, and if it slips, those rows
+  apply on the local network or through the owner's reverse proxy or
+  tailnet, the same remote path R1 music uses (ACC-097). That is about
+  reach only: being on the home network never grants access by itself
+  (SEC-IAM-013).
 - UI surface names are used consistently so the UI map can group them:
   "Player" surfaces are inside the playback screen, "Pre-play sheet" is the
   sheet between the title page and playback, and "Admin" surfaces are owner
@@ -53,11 +60,11 @@ Release assumptions used in the tables:
   [docs/security/](../security/README.md) that a builder must satisfy for
   that row; a row is done only when their tests exist (SEC-STD-004). A
   requirement takes the release of the first surface it protects
-  (SEC-TM-074), so an R1 requirement cited by an R2 row already binds the R1
-  mechanism the row reuses. Rows that are pure player behaviour cite the
-  player baseline: SEC-CLI-048 for the native libmpv build and SEC-API-044
-  for the web client's Content Security Policy. "n/a" marks rows that will
-  not be built.
+  (SEC-TM-074), so an R1 or R1.x requirement cited by an R2 row already
+  binds the earlier mechanism the row reuses. Rows that are pure player
+  behaviour cite the player baseline: SEC-CLI-048 for the native libmpv
+  build and SEC-API-044 for the web client's Content Security Policy. "n/a"
+  marks rows that will not be built.
 
 ### Delivery and the playback decision
 
@@ -427,11 +434,13 @@ needs a faster transcoder.
 
 **Dependencies on other parts of the plan.**
 
-- *R1 music.* The user log, signed stream URLs, settings sync, the sleep
-  timer, the persistent queue and the decision reason type arrive with music
-  in R1 and are reused here. The native background audio and lock-screen
-  module (MUS-074) and the handoff channel (CLI-101) arrive with the R2
-  native clients.
+- *R1 music and its point releases.* The user log, signed stream URLs,
+  synced preferences (ACC-012), the persistent queue and the decision
+  reason type arrive with music in R1; device-scoped settings (CLI-030) and
+  the sleep timer (MUS-076) in R1.1; the per-session decision record and
+  its API (ADM-100, INT-134) in R1.2. All are reused here. The native
+  background audio and lock-screen module (MUS-074) and the handoff channel
+  (CLI-101) arrive with the R2 native clients.
   If any of them is designed only for audio, video will pay to rework it.
 - *Library map.* Versions, editions, extras, trailers, episode order with
   gaps, the per-file stream index, chapters, font attachments and the stable

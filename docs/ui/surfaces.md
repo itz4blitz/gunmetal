@@ -42,7 +42,9 @@ surfaces from SUR-130 upward, and they are listed under their own group.
 Every entry gives:
 
 - **Release**: the first release in which the surface exists on at least
-  one client. A part of a surface can arrive later, and the entry says so.
+  one client: R1, a point release (R1.1, R1.2 or R1.3), R2, R3, Later or
+  No. A part of a surface can arrive later, and the entry says so, naming
+  the release of each part.
 - **Purpose**: why the surface exists, in one or two sentences.
 - **Shows**: what is on it.
 - **Actions**: what a person can do there.
@@ -54,22 +56,33 @@ Every entry gives:
   grouped by the release in which each feature reaches it. A feature that is
   older than the surface reaches it when the surface ships: for example
   loves (DIS-045) are R1, but they reach the film page (SUR-040) in R2, so
-  DIS-045 is listed there under R2.
+  DIS-045 is listed there under R2. The point releases work the same way:
+  the track info sheet (SUR-013) arrives in R1.1, so the R1 rows it shows
+  are listed there under R1.1.
 
 The [surface index](#surface-index) lists every surface with its release and
-the number of rows it serves. The [coverage](#coverage) section proves that
-every R1 and R2 feature with a UI entry has a home, and ends with the
-features that do not.
+the number of rows it serves. The [coverage](#coverage) section checks
+that every feature of R1, its point releases and R2 with a UI entry has a
+home, and ends with the features that do not.
 
 ### Releases
 
 The release key is the feature map's
-([README, Releases](../features/README.md#releases)):
+([README, Releases](../features/README.md#releases)), with the point
+releases the owner adopted on 2026-10-02 (D-10 in the
+[decision register](../decisions.md#owner-answers-2026-10-02)). R1 is the
+smaller first release that the register's
+[R1 scope](../decisions.md#r1-scope) lists, and the rest of the earlier R1
+arrives in R1.1, R1.2 and R1.3, exactly as that section lists them. The
+release values are R1, R1.1, R1.2, R1.3, R2, R3, Later and No.
 
 | Release | What it contains | Clients |
 |---|---|---|
-| **R1** (music) | Server, web client, music library and player. No remuxer or transcoder. | The web client and the installable web app, in browsers on desktops, laptops, tablets and phones, reached only over HTTPS or on localhost (SEC-NET-001). |
-| **R2** (video) | Movies and TV, the remuxer, sandboxed transcoding, native TV and mobile clients, and everything that needs a native app or a sandbox (downloads, handoff, casting, plugins, video share links, household profiles, API keys and adapters). | Android phones and tablets, Android TV, Google TV and Fire OS, and the web client. |
+| **R1** (music) | Server, web client, music library and player, as the R1 scope lists them. No remuxer or transcoder. HTTPS through the owner's own domain with automatic certificates, a tailnet name or localhost, and remote use through the owner's reverse proxy or a tailnet (D-07). | The web client, in browsers on desktops, laptops, tablets and phones, reached only over HTTPS or on localhost (SEC-NET-001). |
+| **R1.1** (bring your music in) | Playlist files and history imports, built-in MusicBrainz and cover-art lookups, ratings, richer credits and browsing, offline loading and installing the web app, profile pictures, continue on this device. | As R1, plus the installable web app (CLI-003). |
+| **R1.2** (the household and the admin) | Single sign-on through the household's identity provider, music share links, a second administrator, the admins' live view with each person's choice to show titles, stopping a stream, an arrangeable Home, diagnostics, restore from the admin screens, translations. | As R1.1. |
+| **R1.3** (discovery and analysis) | The rule language and smart playlists, library radio and suggestions, measured loudness (if ADR 5 is accepted), folder view, manual curation, 32-bit ARM builds. | As R1.1. |
+| **R2** (video) | Movies and TV, the remuxer, sandboxed transcoding, native TV and mobile clients, and everything that needs a native app or a sandbox (downloads, handoff, casting, plugins, video share links, household profiles, API keys and adapters). Also the project's per-server HTTPS name service with its naming client and Certificate Transparency monitoring, and built-in remote access over iroh with relays and the browser edge (D-07). | Android phones and tablets, Android TV, Google TV and Fire OS, and the web client. |
 | **R3** (live) | M3U playlists and live TV. | As R2. |
 | **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, the desktop shell (the security baseline's release scope, SEC-TM-074; owner to confirm), audiobooks, podcasts, photos and watch together. | |
 | **No** | Deliberately not doing. | |
@@ -78,8 +91,8 @@ The release key is the feature map's
 
 | Form factor | Input and setting | R1 | R2 | Later |
 |---|---|---|---|---|
-| **Web and desktop** | Mouse or trackpad, keyboard, a large window, usually one person | The web client served by the server (CLI-001), in a browser tab or installed as a web app in its own window (CLI-003) | The web client and the installable web app, as in R1, with the R2 web features | The desktop shell for Windows, macOS and Linux (CLI-014), Later because the security baseline puts it there (SEC-TM-074, SEC-CLI-069; owner to confirm); ten-foot mode on a PC (CLI-015) |
-| **Phone** | Touch, one hand, small screen, often moving, often on mobile data | The web client at phone width (CLI-149) and the installable web app. No offline listening, no car, and background playback on iPhone is unreliable (unverified), as CLI-003 states. | The Android app (CLI-004), with downloads, background audio, lock screen and Android Auto | iPhone (CLI-005), "R2 if the App Store licence decision allows" |
+| **Web and desktop** | Mouse or trackpad, keyboard, a large window, usually one person | The web client served by the server (CLI-001), in a browser tab; from R1.1 also installed as a web app in its own window (CLI-003) | The web client and the installable web app, as in R1.1, with the R2 web features | The desktop shell for Windows, macOS and Linux (CLI-014), Later because the security baseline puts it there (SEC-TM-074, SEC-CLI-069; owner to confirm); ten-foot mode on a PC (CLI-015) |
+| **Phone** | Touch, one hand, small screen, often moving, often on mobile data | The web client at phone width (CLI-149), installable as a web app from R1.1. No offline listening, no car, and background playback on iPhone is unreliable (unverified), as CLI-003 states. | The Android app (CLI-004), with downloads, background audio, lock screen and Android Auto | iPhone (CLI-005), "R2 if the App Store licence decision allows" |
 | **Tablet** | Touch, often landscape, sometimes a keyboard, often shared in a household | The web client, laid out by the width classes below; no tablet-specific layout ships in R1. | The Android tablet layout (CLI-053): a side panel for browsing while the player stays visible, reflowing on rotation | iPad |
 | **TV** | A D-pad remote with Back, Home and media keys; viewed from about ten feet; shared by a household | None. No TV client exists in R1. | Android TV, Google TV and Fire OS (CLI-006, CLI-008) | Apple TV, Samsung and LG, Roku through the Jellyfin adapter |
 
@@ -109,8 +122,9 @@ These rules are decided in the feature map and constrain every layout below.
    DIS-015). This is the lesson of Plex's 2025 TV redesign: the research
    records a 504-vote "roll back" thread and Plex restoring its left
    navigation in an August 2026 preview. The consequence for R1 is that
-   its navigation has to leave room for video, live TV and native features
-   without moving anything when they arrive.
+   its navigation has to leave room for the point releases R1.1 to R1.3,
+   video, live TV and native features without moving anything when they
+   arrive.
 2. **Back returns to the exact place**, including the scroll position
    (DIS-112) and, on TV, the focused row and tile (CLI-036).
 3. **One context menu everywhere** with the same actions on every item
@@ -176,10 +190,10 @@ later releases add to them without moving them.
 | **Search** | R1 | Search (SUR-032) | Shared by music, video and, in R3, live TV. Kind chips scope it (LAT-013). |
 | **Library** | R1 | Library (SUR-022) | Per-kind tabs. In R2 it gains the same Music and Watch switch, and a Downloads entry on devices that download. |
 | **Live** | R3 | Live TV home (SUR-120) | Present only when the live TV module is on (LIV-001). |
-| **Account menu** | R1 | Account menu (SUR-006) | Settings, Account (with Sessions and devices, Security events, What admins can see and Recovery), History, Hidden, Admin (administrators on personal devices only, behind the admin session), Sign out. R2 adds profile and server switching. |
+| **Account menu** | R1 | Account menu (SUR-006) | Settings, Account (with Sessions and devices, Security events, What admins can see and Recovery), History, Hidden (from R1.1), Admin (administrators on personal devices only, behind the admin session), Sign out. R2 adds profile and server switching. |
 
-Pinned items (DIS-013, CLI-037) and playlists (MUS-132, MUS-139) are not
-destinations, but wide layouts and the TV rail show them in the navigation
+Pinned items (DIS-013 from R1.2; CLI-037 on TV) and playlists (MUS-132;
+pinned playlists from R1.1, MUS-139) are not destinations, but wide layouts and the TV rail show them in the navigation
 itself so that a daily album or library is one or two presses away.
 
 ### How music and video coexist
@@ -232,8 +246,8 @@ and the now-playing bar along the bottom (CLI-060). At the expanded class
 the right pane overlays the content instead of sitting beside it, and at the
 medium class the sidebar becomes a navigation rail and the queue opens as a
 side sheet (**Proposal**, following the width classes). The sidebar holds Home, Search
-and Library at the top, then pinned items, then playlists (MUS-132,
-MUS-139; folders from R2, MUS-136), and the account menu and status
+and Library at the top, then pinned items (from R1.2), then playlists
+(MUS-132, MUS-139; folders from R2, MUS-136), and the account menu and status
 indicator at the bottom (**Proposal** for the order). The right pane holds
 the queue at full height (MUS-119), or lyrics, or the track info sheet; it
 can be resized or closed. Spotify set this pattern and Feishin copies it,
@@ -276,7 +290,8 @@ full-screen player, the video player, sheets, and the sign-in and setup
 flows. Status appears as a quiet banner only when something is wrong
 (CLI-025).
 
-**R1 limits.** The phone in R1 is a browser or an installed web app. It
+**R1 limits.** The phone in R1 is a browser, and from R1.1 also an
+installed web app. It
 gets lock-screen controls through the browser (CLI-070, MUS-073) but no
 downloads, no car and unreliable background playback on iPhone
 (unverified), and the app says so (CLI-003).
@@ -374,9 +389,9 @@ and focus tests.
 | SUR-000 | Every surface | Shell and persistent controls | R1 | 14 |
 | SUR-001 | Navigation shell | Shell and persistent controls | R1 | 14 |
 | SUR-002 | Now-playing bar | Shell and persistent controls | R1 | 18 |
-| SUR-003 | Status layer and notice centre | Shell and persistent controls | R1 | 26 |
-| SUR-004 | Context menu | Shell and persistent controls | R1 | 36 |
-| SUR-005 | Selection bar and drag and drop | Shell and persistent controls | R1 | 6 |
+| SUR-003 | Status layer and notice centre | Shell and persistent controls | R1 | 27 |
+| SUR-004 | Context menu | Shell and persistent controls | R1 | 37 |
+| SUR-005 | Selection bar and drag and drop | Shell and persistent controls | R1.1 | 6 |
 | SUR-006 | Account menu and profile picker | Shell and persistent controls | R1 | 13 |
 | SUR-007 | Command palette and shortcut help | Shell and persistent controls | R2 | 4 |
 | SUR-008 | Confirmation and step-up prompt | Shell and persistent controls | R1 | 1 |
@@ -384,20 +399,20 @@ and focus tests.
 | SUR-010 | Full-screen player | Listening | R1 | 38 |
 | SUR-011 | Queue | Listening | R1 | 20 |
 | SUR-012 | Lyrics view | Listening | R1 | 12 |
-| SUR-013 | Track info sheet | Listening | R1 | 27 |
+| SUR-013 | Track info sheet | Listening | R1.1 | 28 |
 | SUR-014 | Device picker and remote mode | Listening | R2 | 11 |
 | SUR-015 | Add-to-playlist sheet | Listening | R1 | 3 |
 | SUR-020 | Home | Home, library, browse and search | R1 | 51 |
-| SUR-021 | Home editor | Home, library, browse and search | R1 | 7 |
+| SUR-021 | Home editor | Home, library, browse and search | R1.2 | 7 |
 | SUR-022 | Library | Home, library, browse and search | R1 | 30 |
 | SUR-023 | Lists, grids, rows and browse controls | Home, library, browse and search | R1 | 60 |
 | SUR-024 | Artist page | Home, library, browse and search | R1 | 40 |
 | SUR-025 | Album page | Home, library, browse and search | R1 | 34 |
 | SUR-026 | Playlist page | Home, library, browse and search | R1 | 10 |
-| SUR-027 | Rule editor | Home, library, browse and search | R1 | 12 |
+| SUR-027 | Rule editor | Home, library, browse and search | R1.3 | 12 |
 | SUR-028 | Browse pages | Home, library, browse and search | R1 | 12 |
 | SUR-029 | History page | Home, library, browse and search | R1 | 8 |
-| SUR-030 | Hidden page | Home, library, browse and search | R1 | 3 |
+| SUR-030 | Hidden page | Home, library, browse and search | R1.1 | 3 |
 | SUR-031 | Statistics page | Home, library, browse and search | R2 | 2 |
 | SUR-032 | Search | Home, library, browse and search | R1 | 18 |
 | SUR-040 | Title page | Watching | R2 | 34 |
@@ -417,9 +432,9 @@ and focus tests.
 | SUR-054 | Car | Devices, offline and the operating system | R2 | 11 |
 | SUR-055 | TV launcher rows | Devices, offline and the operating system | R2 | 3 |
 | SUR-056 | Watch controls | Devices, offline and the operating system | R2 | 1 |
-| SUR-057 | Install, deep links and operating-system hooks | Devices, offline and the operating system | R1 | 4 |
-| SUR-058 | Share sheet | Devices, offline and the operating system | R1 | 10 |
-| SUR-059 | Public share page | Devices, offline and the operating system | R1 | 1 |
+| SUR-057 | Install, deep links and operating-system hooks | Devices, offline and the operating system | R1.1 | 4 |
+| SUR-058 | Share sheet | Devices, offline and the operating system | R1.2 | 10 |
+| SUR-059 | Public share page | Devices, offline and the operating system | R1.2 | 1 |
 | SUR-060 | TV screensaver | Devices, offline and the operating system | R2 | 3 |
 | SUR-061 | Pairing and approval | Devices, offline and the operating system | R1 | 7 |
 | SUR-070 | Sign-in | Sign-in, settings and account | R1 | 9 |
@@ -427,35 +442,35 @@ and focus tests.
 | SUR-072 | Server picker | Sign-in, settings and account | R2 | 5 |
 | SUR-073 | Settings | Sign-in, settings and account | R1 | 16 |
 | SUR-074 | Settings: playback, sound and subtitles | Sign-in, settings and account | R1 | 43 |
-| SUR-075 | Settings: data, downloads and storage | Sign-in, settings and account | R1 | 10 |
+| SUR-075 | Settings: data, downloads and storage | Sign-in, settings and account | R1.1 | 10 |
 | SUR-076 | Settings: appearance, accessibility and language | Sign-in, settings and account | R1 | 11 |
 | SUR-077 | Settings: this device, connection and help | Sign-in, settings and account | R1 | 8 |
 | SUR-078 | Account | Sign-in, settings and account | R1 | 47 |
-| SUR-079 | Profiles and guardian controls | Sign-in, settings and account | R1 | 26 |
+| SUR-079 | Profiles and guardian controls | Sign-in, settings and account | R1.1 | 26 |
 | SUR-080 | Startup page | Setup and administration | R1 | 12 |
-| SUR-081 | Emergency page | Setup and administration | R1 | 1 |
-| SUR-082 | Welcome (first-run setup) | Setup and administration | R1 | 26 |
-| SUR-083 | Admin dashboard | Setup and administration | R1 | 29 |
-| SUR-084 | Sessions | Setup and administration | R1 | 17 |
+| SUR-081 | Emergency page | Setup and administration | R1.2 | 1 |
+| SUR-082 | Welcome (first-run setup) | Setup and administration | R1 | 27 |
+| SUR-083 | Admin dashboard | Setup and administration | R1 | 30 |
+| SUR-084 | Sessions | Setup and administration | R1.2 | 17 |
 | SUR-085 | Libraries and library settings | Setup and administration | R1 | 37 |
 | SUR-086 | Library health | Setup and administration | R1 | 27 |
-| SUR-087 | Review queue | Setup and administration | R1 | 3 |
-| SUR-088 | File inspector | Setup and administration | R1 | 11 |
-| SUR-089 | Corrections and metadata editor | Setup and administration | R1 | 33 |
+| SUR-087 | Review queue | Setup and administration | R1.3 | 3 |
+| SUR-088 | File inspector | Setup and administration | R1.2 | 11 |
+| SUR-089 | Corrections and metadata editor | Setup and administration | R1.3 | 33 |
 | SUR-090 | Users and invitations | Setup and administration | R1 | 17 |
 | SUR-091 | Household, policies, devices and shares | Setup and administration | R2 | 13 |
 | SUR-092 | Sign-in and security settings | Setup and administration | R1 | 5 |
-| SUR-093 | Network and remote access | Setup and administration | R1 | 14 |
+| SUR-093 | Network and remote access | Setup and administration | R1 | 15 |
 | SUR-094 | Integrations, tokens and webhooks | Setup and administration | R2 | 42 |
 | SUR-095 | Plugins and providers | Setup and administration | R2 | 22 |
 | SUR-096 | Compatibility adapters | Setup and administration | R2 | 7 |
-| SUR-097 | Migration | Setup and administration | R1 | 11 |
+| SUR-097 | Migration | Setup and administration | R1.1 | 11 |
 | SUR-098 | Backups and export | Setup and administration | R1 | 12 |
 | SUR-099 | Updates | Setup and administration | R1 | 6 |
 | SUR-100 | Tasks and activity | Setup and administration | R1 | 22 |
 | SUR-101 | Alerts and logs | Setup and administration | R1 | 14 |
 | SUR-102 | Diagnostics | Setup and administration | R1 | 11 |
-| SUR-103 | Server settings and about | Setup and administration | R1 | 9 |
+| SUR-103 | Server settings and about | Setup and administration | R1 | 10 |
 | SUR-104 | Totals and statistics for administrators | Setup and administration | R2 | 2 |
 | SUR-105 | Trash | Setup and administration | R1 | 2 |
 | SUR-106 | Video tools | Setup and administration | R2 | 3 |
@@ -474,15 +489,16 @@ and focus tests.
 | SUR-125 | Radio | Live TV | R3 | 4 |
 | SUR-130 | Sessions and devices | Sign-in, settings and account | R1 | 4 |
 | SUR-131 | Security events | Sign-in, settings and account | R1 | 2 |
-| SUR-132 | What admins can see, and privacy choices | Sign-in, settings and account | R1 | 2 |
-| SUR-133 | Recovery | Sign-in, settings and account | R1 | 0 |
+| SUR-132 | What admins can see, and privacy choices | Sign-in, settings and account | R1 | 3 |
+| SUR-133 | Recovery | Sign-in, settings and account | R1 | 3 |
 
 ## Surface inventory
 
 ### Shell and persistent controls
 
 #### SUR-000 Every surface
-- **Release:** R1.
+- **Release:** R1. Lists that keep working without the server for what
+  the device holds arrive in R1.1 (CLI-026).
 - **Purpose:** Collects the features that are rules for every screen rather
   than a place on one: accessibility, text size, motion, keyboard and focus,
   right-to-left layouts, offline behaviour and per-person discovery. A
@@ -495,12 +511,14 @@ and focus tests.
   VoiceOver once Apple builds exist (CLI-135). *Web and desktop:* full
   keyboard use with a visible focus ring (CLI-138); WCAG 2.2 AA is the
   recommended release bar (clients open decision 9). *All:* reduced motion
-  (CLI-140), motor accessibility (CLI-142), and every list keeps working
-  without the server for what the device holds (CLI-026, MUS-209).
-- **Serves:** R1: CLI-026, CLI-135, CLI-138, CLI-139, CLI-140, CLI-142, DIS-140. R2: CLI-036, CLI-045, CLI-137, CLI-147, DIS-160, MUS-209. Later: CLI-014 (the desktop shell, SEC-TM-074).
+  (CLI-140), motor accessibility (CLI-142), and, from R1.1, every list keeps
+  working without the server for what the device holds (CLI-026; MUS-209
+  in R2).
+- **Serves:** R1: CLI-135, CLI-138, CLI-139, CLI-140, CLI-142, DIS-140. R1.1: CLI-026. R2: CLI-036, CLI-045, CLI-137, CLI-147, DIS-160, MUS-209. Later: CLI-014 (the desktop shell, SEC-TM-074).
 
 #### SUR-001 Navigation shell
-- **Release:** R1 (web, wide and phone-width). R2 adds the TV rail, the
+- **Release:** R1 (web, wide and phone-width). R1.2 extends the promise
+  that nothing moves to the Home layout (DIS-015). R2 adds the TV rail, the
   tablet layout, the native phone frame and the Music and Watch switch.
 - **Purpose:** The frame that holds every destination and keeps each one in
   the same place across releases.
@@ -515,10 +533,12 @@ and focus tests.
   (CLI-149; CLI-004 in R2). *Tablet:* the web layout chosen by width in R1;
   a side navigation rail with a browsing side panel in R2 (CLI-053). *Web
   and desktop:* sidebar, content, right pane and bottom bar (CLI-060).
-- **Serves:** R1: CLI-001, CLI-060, CLI-149, DIS-015, DIS-112. R2: CLI-004, CLI-006, CLI-008, CLI-035, CLI-037, CLI-053, DIS-017, DIS-159, LAT-012.
+- **Serves:** R1: CLI-001, CLI-060, CLI-149, DIS-112. R1.2: DIS-015. R2: CLI-004, CLI-006, CLI-008, CLI-035, CLI-037, CLI-053, DIS-017, DIS-159, LAT-012.
 
 #### SUR-002 Now-playing bar
-- **Release:** R1.
+- **Release:** R1. The device slot's "Continue on this device" prompt
+  arrives in R1.1 (CLI-103), and the source label for radio in R1.3
+  (DIS-067).
 - **Purpose:** Keeps playback visible and controllable on every screen, in
   a fixed place (MUS-108, MUS-113).
 - **Shows:** Artwork, title, the credit line with every artist linked
@@ -526,16 +546,17 @@ and focus tests.
   (MUS-109), the compact quality badge that says whether the original file
   is playing ("Original"; "Converted" from R2) on every layout, phone width
   included (MUS-099, MUS-066), the private-session indicator while one is on
-  (ACC-117), the source label for radio (DIS-067), and the device slot,
-  which in R1 holds only a "Continue on this device" prompt when another of
-  the profile's sessions last played the queue (CLI-103) and is otherwise
-  empty. When another session starts playback, this one pauses at its
-  point and shows the same prompt: the last Play wins (MUS-122). From R2:
+  (ACC-117), the source label for radio (DIS-067, from R1.3), and the
+  device slot, which keeps its place from R1 and is empty in R1; from R1.1
+  it holds only a "Continue on this device" prompt when another of the
+  profile's sessions last played the queue (CLI-103). When another session
+  starts playback, this one pauses at its point: the last Play wins
+  (MUS-122), and from R1.1 the bar shows the same prompt. From R2:
   the Devices button in the same slot, with the output device (MUS-197),
   the Opus badge on mobile data (MUS-106) and a per-person quality cap
   (ACC-107). A video appears in the bar only in listen-only mode (VID-065).
 - **Actions:** Play or pause, skip, love, open the full-screen player, open
-  the queue, continue on this device; on wide layouts, open the player's
+  the queue, continue on this device (R1.1); on wide layouts, open the player's
   options menu, whose first item is Private session; from R2, open the
   device picker and return to the paused music context after a video.
 - **Form factors:** *TV:* no bar. **Proposal:** the rail's fixed Now
@@ -551,28 +572,32 @@ and focus tests.
   started from the player's options menu in at most two interactions, which
   on wide layouts means from the bar's Options button (SEC-PRV-024).
   Titles and credit lines are rendered as text (SEC-CLI-001).
-- **Serves:** R1: ACC-117, CLI-103, DIS-045, DIS-053, DIS-067, LAT-006, MUS-001, MUS-066, MUS-099, MUS-108, MUS-109, MUS-122, MUS-180. R2: ACC-107, LAT-098, MUS-101, MUS-106. R3: LIV-167.
+- **Serves:** R1: ACC-117, DIS-045, DIS-053, LAT-006, MUS-001, MUS-066, MUS-099, MUS-108, MUS-109, MUS-122, MUS-180. R1.1: CLI-103. R1.3: DIS-067. R2: ACC-107, LAT-098, MUS-101, MUS-106. R3: LIV-167.
 
 #### SUR-003 Status layer and notice centre
 - **Release:** R1, including the notice centre, because R1 delivers
-  security alerts in the app only (SEC-OPS-032, SEC-IAM-098).
+  security alerts in the app only (SEC-OPS-032, SEC-IAM-098). R1.1 adds
+  the quiet "server unreachable" banner and the undo toast (CLI-025,
+  DIS-023); R1.2 adds banners from an administrator who stopped a stream
+  (ACC-073, ADM-102). "Update needed" arrives with the native apps in R2
+  (CLI-032).
 - **Purpose:** Tells the truth about the connection, sync, scans, server
   messages and security events without blocking anything.
 - **Shows:** The connection indicator (ACC-003; home or away and relay
   state from R2, CLI-029, ACC-105, ACC-096), sync status (DIS-002,
-  MUS-214), the quiet "server unreachable" banner and dimmed items that
-  cannot play (CLI-025, ADM-085, LIB-032), the first-scan progress banner
-  (MUS-043, MUS-042), "Update needed" for old clients (CLI-032), the
-  unsupported-browser notice (CLI-002), the undo toast (DIS-023; queue undo
-  MUS-121 in R2), a notice when a damaged file was skipped, linking to the
+  MUS-214), the quiet "server unreachable" banner (CLI-025, from R1.1) and
+  dimmed items that cannot play (ADM-085, LIB-032), the first-scan progress
+  banner (MUS-043, MUS-042), "Update needed" for old native clients
+  (CLI-032, R2), the unsupported-browser notice (CLI-002), the undo toast
+  (DIS-023, from R1.1; queue undo MUS-121 in R2), a notice when a damaged file was skipped, linking to the
   health report (MUS-079), the "too many streams" notice when a stream
   limit refuses music playback, saying which limit and what to do
   (ACC-075, SEC-TM-068, SEC-API-031; the player's "Not allowed" state), and
   banners from the administrator (ACC-073,
-  ADM-102; scheduled notices ADM-103 and messages ACC-074 in R2). From R1,
+  ADM-102, from R1.2; scheduled notices ADM-103 and messages ACC-074 in R2). From R1,
   the notice centre keeps security notices for this account: a new device
   or credential, a removed credential, use of recovery and the recovery
-  hold, a changed identity-provider link, a role change and bursts of
+  hold, a changed identity-provider link (from R1.2), a role change and bursts of
   failed attempts (ACC-071, SEC-IAM-098); for the owner and admins, the
   owner alerts of SEC-OPS-032, with a persistent banner for critical ones.
   It also shows "Your session has ended" when this device was signed out
@@ -597,21 +622,29 @@ and focus tests.
   critical owner alerts cannot be muted, only batched (SEC-OPS-034). On a
   lock screen, security notices say only that something happened
   (SEC-CLI-062). Managed profiles never receive security alerts.
-- **Serves:** R1: ACC-003, ACC-071, ACC-073, ACC-075, ADM-085, ADM-102, CLI-002, CLI-025, CLI-032, DIS-002, DIS-023, LIB-032, MUS-042, MUS-043, MUS-079, MUS-229. R2: ACC-074, ACC-096, ACC-105, ADM-008, ADM-103, CLI-029, CLI-094, INT-050, MUS-209, MUS-214, VID-009.
+- **Serves:** R1: ACC-003, ACC-071, ACC-075, ADM-085, CLI-002, DIS-002, LIB-032, MUS-042, MUS-043, MUS-079, MUS-229. R1.1: CLI-025, DIS-023. R1.2: ACC-073, ADM-102. R2: ACC-074, ACC-096, ACC-105, ADM-008, ADM-103, CLI-029, CLI-032, CLI-094, INT-050, MUS-209, MUS-214, VID-009.
 
 #### SUR-004 Context menu
-- **Release:** R1.
+- **Release:** R1. R1.1 adds Rate, Info, Dismiss and, for administrators,
+  "Look up on MusicBrainz" on albums (DIS-047, MUS-181, DIS-022, LIB-111);
+  R1.2 adds Pin, the Home row menu, Copy link, Share for music and, for
+  administrators, File info (DIS-013, DIS-003, CLI-034, INT-147, ACC-086,
+  LIB-195); R1.3 adds Start radio and, for administrators, Merge and Split
+  (MUS-165, DIS-067, LIB-041, LIB-058).
 - **Purpose:** The same actions on every item, everywhere (DIS-111,
   MUS-062), so a large app feels small.
 - **Shows:** For music items: Play next (MUS-117), Add to queue and Play last
-  (MUS-118), Start radio (MUS-165, DIS-067), Add to playlist (opens SUR-015),
-  Love and Rate (DIS-045, DIS-047, MUS-181), Go to artist or album, Info
-  (opens SUR-013), Pin (DIS-013), Copy link (CLI-034, INT-147), Share for
-  music tracks, albums and playlists (opens SUR-058; ACC-086), and "Copy
-  ID" in developer mode (INT-008). On Continue rows: Dismiss (DIS-022). On
-  history rows: Remove this play (MUS-184, DIS-052). For administrators, in
-  an admin session on a personal device: Rescan (LIB-012), File info
-  (LIB-195), Merge and Split (LIB-041, LIB-058). From R2: Tag (MUS-023),
+  (MUS-118), Add to playlist (opens SUR-015), Love (DIS-045), Go to artist
+  or album, and "Copy ID" in developer mode (INT-008). On history rows:
+  Remove this play (MUS-184, DIS-052). For administrators, in an admin
+  session on a personal device: Rescan (LIB-012). From R1.1: Rate (DIS-047,
+  MUS-181), Info (opens SUR-013), Dismiss on Continue rows (DIS-022), and
+  for administrators "Look up on MusicBrainz" on albums (LIB-111). From
+  R1.2: Pin (DIS-013), the Home row menu (DIS-003), Copy link (CLI-034,
+  INT-147), Share for music tracks, albums and playlists (opens SUR-058;
+  ACC-086), and for administrators File info (LIB-195). From R1.3: Start
+  radio (MUS-165, DIS-067), and for administrators Merge and Split
+  (LIB-041, LIB-058). From R2: Tag (MUS-023),
   Hide, Snooze, Less like this and Keep out of my taste (MUS-170, DIS-054,
   DIS-055, DIS-057), Mark played (DIS-033), Watch video (MUS-029, LIB-189),
   Download and Download to another device (CLI-097), Share for films and
@@ -625,10 +658,11 @@ and focus tests.
   and long-press; from R2, swipe actions on rows (MUS-065) and a long-press
   preview sheet (MUS-064). *Tablet:* as phone, plus right-click with a
   pointer. *Web and desktop:* right-click and a "more" button (MUS-062).
-- **Serves:** R1: CLI-034, DIS-003, DIS-013, DIS-022, DIS-045, DIS-047, DIS-052, DIS-067, DIS-111, INT-008, INT-147, LIB-012, MUS-062, MUS-117, MUS-118, MUS-165, MUS-184. R2: CLI-037, CLI-039, CLI-052, DIS-027, DIS-033, DIS-039, DIS-054, DIS-055, DIS-057, DIS-126, DIS-162, LIB-175, LIB-189, MUS-023, MUS-029, MUS-064, MUS-170, VID-181. R3: LIV-103.
+- **Serves:** R1: DIS-045, DIS-052, DIS-111, INT-008, LIB-012, MUS-062, MUS-117, MUS-118, MUS-184. R1.1: DIS-022, DIS-047, LIB-111. R1.2: CLI-034, DIS-003, DIS-013, INT-147. R1.3: DIS-067, MUS-165. R2: CLI-037, CLI-039, CLI-052, DIS-027, DIS-033, DIS-039, DIS-054, DIS-055, DIS-057, DIS-126, DIS-162, LIB-175, LIB-189, MUS-023, MUS-029, MUS-064, MUS-170, VID-181. R3: LIV-103.
 
 #### SUR-005 Selection bar and drag and drop
-- **Release:** R1.
+- **Release:** R1.1, with multi-select and drag and drop (DIS-110,
+  CLI-062, MUS-063), which moved from R1.
 - **Purpose:** Act on many items at once (DIS-110, CLI-062).
 - **Shows:** The number selected and the actions that apply to all of them:
   play, add to queue, add to playlist, love, remove. From R2: mark played
@@ -644,16 +678,19 @@ and focus tests.
   and playlist rows have drag handles. *Tablet:* as phone, and in R2 drag
   from the browsing panel onto the player panel's queue. *Web and desktop:*
   click, Shift-click and Ctrl- or Cmd-click, and drag.
-- **Serves:** R1: CLI-062, DIS-110, MUS-063. R2: DIS-033, LIB-163, LIB-180.
+- **Serves:** R1.1: CLI-062, DIS-110, MUS-063. R2: DIS-033, LIB-163, LIB-180.
 
 #### SUR-006 Account menu and profile picker
-- **Release:** R1 (account menu). R2 (profile picker, PIN and switching).
+- **Release:** R1 (account menu). R1.1 adds the profile's name and
+  picture (ACC-011) and the Hidden page. R2 (profile picker, PIN and
+  switching).
 - **Purpose:** Shows who is using the app and leads to personal and server
   settings.
-- **Shows:** The profile's name and picture (ACC-011), the private-session
+- **Shows:** The person's name, with the profile's own name and picture
+  from R1.1 (ACC-011), the private-session
   badge while one is active (DIS-053, MUS-185), and links to Settings,
   Account, Sessions and devices (SUR-130), Security events (SUR-131), What
-  admins can see (SUR-132), History, Hidden, Admin (administrators on a
+  admins can see (SUR-132), History, Hidden (from R1.1), Admin (administrators on a
   personal device only; opening it asks for the passkey and starts the
   admin session, SEC-IAM-041, SEC-CLI-024) and Sign out. Signing out ends
   the session on the server and clears this account's data from the
@@ -668,7 +705,7 @@ and focus tests.
   number pad. *Phone:* an avatar at the top of Home (**Proposal**).
   *Tablet:* the same avatar at the foot of the rail. *Web and desktop:* the
   avatar at the foot of the sidebar.
-- **Serves:** R1: ACC-011, ACC-017, ACC-117, DIS-053, MUS-185. R2: ACC-016, ACC-018, ACC-019, ACC-020, CLI-050, DIS-141, DIS-142, DIS-153.
+- **Serves:** R1: ACC-017, ACC-117, DIS-053, MUS-185. R1.1: ACC-011. R2: ACC-016, ACC-018, ACC-019, ACC-020, CLI-050, DIS-141, DIS-142, DIS-153.
 
 #### SUR-007 Command palette and shortcut help
 - **Release:** R2.
@@ -720,10 +757,10 @@ and focus tests.
   so an upload cannot reach the filesystem by name or attack the parser
   (ACC-125).
 - **Shows:** The chosen file, what it will be used for, and a typed error if
-  it cannot be read. R1 uses it for backup uploads (ADM-069), M3U imports
-  (MUS-140), listening-history files (ADM-042, INT-107) and playlist imports
-  (ADM-043). From R2 it also takes artwork (LIB-138) and subtitle files
-  (VID-075).
+  it cannot be read. R1 uses it for backup uploads (ADM-069). From R1.1 it
+  also takes M3U imports (MUS-140), listening-history files (ADM-042,
+  INT-107) and playlist imports (ADM-043), and from R2 artwork (LIB-138)
+  and subtitle files (VID-075).
 - **Actions:** Choose or drop a file, cancel.
 - **Form factors:** *TV:* not offered (**Proposal**). *Phone and tablet:*
   the system file picker. *Web and desktop:* a file picker and a drop zone.
@@ -738,25 +775,28 @@ and focus tests.
 ### Listening
 
 #### SUR-010 Full-screen player
-- **Release:** R1.
+- **Release:** R1. R1.1 adds shuffle by album, the sleep timer and the
+  info button (MUS-127, MUS-076, MUS-114); R1.3 adds radio as a source
+  (DIS-067).
 - **Purpose:** The music player at its fullest: artwork-led, honest about
   what it is playing, and quick to control (MUS-110).
 - **Shows:** Large artwork with colours computed at scan time (MUS-110,
   MUS-039), the title and the credit exactly as tagged with every name
   linked (MUS-002), a "Playing from" link to the album or playlist
   (MUS-123), an always-visible scrubber with exact seeking (MUS-071),
-  transport controls, shuffle and repeat (MUS-126, MUS-127, MUS-077), love
-  (MUS-109), the quality badge (MUS-099), the buffer state (MUS-070), and
-  the gain mode in the player info (MUS-087). The player menu holds the
-  sleep timer (MUS-076) and Private session (ACC-117, MUS-185). Buttons
-  open the queue, lyrics and info. From R2: info cards under the player
+  transport controls, shuffle and repeat (MUS-126, MUS-077; shuffle by
+  album from R1.1, MUS-127), love (MUS-109), the quality badge (MUS-099),
+  the buffer state (MUS-070), and the gain mode in the player info
+  (MUS-087). The player menu holds Private session (ACC-117, MUS-185) and,
+  from R1.1, the sleep timer (MUS-076). Buttons open the queue, lyrics and,
+  from R1.1, info. From R2: info cards under the player
   (MUS-111), landscape (MUS-112, CLI-054), a large-text layout for car
   mounts (MUS-228), the equaliser quick toggle (MUS-094), remote mode when
   controlling another device (CLI-102, MUS-198), and "watch the video" for
   songs that have one (LAT-091, LAT-098).
-- **Actions:** All transport actions, swipe the artwork to skip, love, rate,
-  start a private session, set a sleep timer, open queue, lyrics, info and
-  (R2) the device picker.
+- **Actions:** All transport actions, swipe the artwork to skip, love,
+  rate (R1.1), start a private session, set a sleep timer (R1.1), open
+  queue, lyrics, info (R1.1) and (R2) the device picker.
 - **Form factors:** *TV:* TV Now Playing (R2), the rail's fixed first
   entry: artwork-led, with a rail of the next queue items below it and a
   dim ambient mode (CLI-041, MUS-223, DIS-167); remote keys drive it, and
@@ -773,72 +813,82 @@ and focus tests.
   off or after a period without playback the person picks, 6 hours by
   default. From R2, private plays are never handed to the operating
   system's recents or home-screen rows (SEC-PRV-058).
-- **Serves:** R1: ACC-117, DIS-067, MUS-001, MUS-002, MUS-039, MUS-070, MUS-071, MUS-076, MUS-077, MUS-099, MUS-109, MUS-110, MUS-113, MUS-116, MUS-122, MUS-123, MUS-126, MUS-127, MUS-185, MUS-227. R2: ACC-107, CLI-041, CLI-045, CLI-054, CLI-098, CLI-102, DIS-055, DIS-167, INT-105, LAT-091, LAT-099, MUS-068, MUS-078, MUS-094, MUS-111, MUS-112, MUS-223, MUS-228.
+- **Serves:** R1: ACC-117, MUS-001, MUS-002, MUS-039, MUS-070, MUS-071, MUS-077, MUS-099, MUS-109, MUS-110, MUS-113, MUS-116, MUS-122, MUS-123, MUS-126, MUS-185, MUS-227. R1.1: MUS-076, MUS-127. R1.3: DIS-067. R2: ACC-107, CLI-041, CLI-045, CLI-054, CLI-098, CLI-102, DIS-055, DIS-167, INT-105, LAT-091, LAT-099, MUS-068, MUS-078, MUS-094, MUS-111, MUS-112, MUS-223, MUS-228.
 
 #### SUR-011 Queue
-- **Release:** R1.
+- **Release:** R1, with the "Up next" and "From" lanes. R1.1 adds
+  reordering while shuffled, reshuffling, saving the queue as a playlist,
+  the sleep timer and multi-select with drag and drop (MUS-120, MUS-128,
+  MUS-125, MUS-076, MUS-063, CLI-062); R1.3 adds the "Continue with" lane
+  (MUS-129, DIS-070, MUS-165).
 - **Purpose:** Shows and edits what plays next, with the three lanes that
   keep a person's own picks separate from the album and from suggestions
   (MUS-116).
-- **Shows:** "Up next" (your picks), "From" (the album or playlist), and an
-  optional "Continue with" lane that is off by default (MUS-129, DIS-070,
-  MUS-165). Every item says where it came from (MUS-123). Unplayable items
+- **Shows:** "Up next" (your picks), "From" (the album or playlist), and,
+  from R1.3, an optional "Continue with" lane that is off by default
+  (MUS-129, DIS-070, MUS-165). Every item says where it came from (MUS-123). Unplayable items
   are dimmed with the reason (MUS-229). From R2: queue history above the
   current track (MUS-124), the queue switcher for saved queues and the
   music and video contexts (MUS-131), and video items (VID-181).
-- **Actions:** Reorder, even while shuffled (MUS-120); remove; edit the
-  whole queue (MUS-119); save it as a playlist (MUS-125); reshuffle the rest
-  (MUS-128); set a sleep timer from the queue menu, the same action as in
-  the player's options menu, since MUS-076 names both (MUS-076); turn the
-  suggestions lane on. In R1, removing one row acts at once, and "Clear Up
-  next", "Clear queue" and removing a multi-selection ask first, because
-  nothing can bring them back. From R2: undo an edit, which replaces those
+- **Actions:** Reorder (even while shuffled from R1.1, MUS-120); remove;
+  edit the whole queue (MUS-119). From R1.1: save it as a playlist
+  (MUS-125); reshuffle the rest (MUS-128); set a sleep timer from the queue
+  menu, the same action as in the player's options menu, since MUS-076
+  names both (MUS-076). From R1.3: turn the suggestions lane on. In R1,
+  removing one row acts at once, and "Clear Up next", "Clear queue" and,
+  from R1.1, removing a multi-selection ask first, because nothing can
+  bring them back. From R2: undo an edit, which replaces those
   confirmations (MUS-121), and swipe rows to remove them (MUS-065).
 - **Form factors:** *TV:* the queue rail below TV Now Playing (CLI-041,
   MUS-223); reorder with the remote. *Phone:* a sheet from the player or the
   bar (CLI-149). *Tablet:* the player side panel in R2. *Web and desktop:*
   the right pane at full height, resizable, keeping durations and album
   names (CLI-060, MUS-119).
-- **Serves:** R1: CLI-062, DIS-070, LAT-006, MUS-063, MUS-076, MUS-116, MUS-119, MUS-120, MUS-122, MUS-123, MUS-125, MUS-128, MUS-129, MUS-165, MUS-229. R2: CLI-041, MUS-065, MUS-124, MUS-131, MUS-223.
+- **Serves:** R1: LAT-006, MUS-116, MUS-119, MUS-122, MUS-123, MUS-229. R1.1: CLI-062, MUS-063, MUS-076, MUS-120, MUS-125, MUS-128. R1.3: DIS-070, MUS-129, MUS-165. R2: CLI-041, MUS-065, MUS-124, MUS-131, MUS-223.
 
 #### SUR-012 Lyrics view
-- **Release:** R1.
+- **Release:** R1. R1.1 adds word-by-word timing and a view that stays open
+  across tracks (MUS-156, MUS-158).
 - **Purpose:** Lyrics that are simply there, free, from the files
   (MUS-154 to MUS-156).
 - **Shows:** Embedded lyrics (MUS-154, LIB-067), synced LRC lyrics with the
-  current line highlighted (MUS-155), and word-by-word timing where the file
-  has it (MUS-156). The view stays open across tracks when a person wants it
-  to (MUS-158). From R2: multi-voice TTML (MUS-157, LIB-069), full-screen
+  current line highlighted (MUS-155), and, from R1.1, word-by-word timing
+  where the file has it (MUS-156) and a view that stays open across tracks
+  when a person wants it to (MUS-158). From R2: multi-voice TTML (MUS-157, LIB-069), full-screen
   lyrics with tap to seek (MUS-159), lyrics offline (MUS-160), and a "Find
   lyrics" action backed by a plugin (MUS-162, INT-078, LIB-070).
-- **Actions:** Scroll, tap a line to seek (R2), keep open, find lyrics (R2).
+- **Actions:** Scroll, tap a line to seek (R2), keep open (R1.1), find
+  lyrics (R2).
 - **Form factors:** *TV:* **Proposal:** a lyrics panel inside TV Now
   Playing; no feature row names TV lyrics yet. *Phone:* a panel in the
   player; beside the artwork in landscape (R2). *Tablet:* in the player
   side panel. *Web and desktop:* the right pane or the full content area.
 - **Security:** lyrics are parsed into a timed-line model within size
   limits and rendered only as text (SEC-MED-049, SEC-API-090, SEC-CLI-001).
-- **Serves:** R1: LIB-067, MUS-154, MUS-155, MUS-156, MUS-158. R2: INT-078, LIB-069, LIB-070, MUS-157, MUS-159, MUS-160, MUS-162.
+- **Serves:** R1: LIB-067, MUS-154, MUS-155. R1.1: MUS-156, MUS-158. R2: INT-078, LIB-069, LIB-070, MUS-157, MUS-159, MUS-160, MUS-162.
 
 #### SUR-013 Track info sheet
-- **Release:** R1.
+- **Release:** R1.1, with the sheet itself (MUS-114), which moved from R1;
+  the R1 rows it shows reach it then, and "Why is this here?" joins it
+  (LIB-098). Measured loudness joins in R1.3 (MUS-086, LIB-066).
 - **Purpose:** Says everything about a track's file, its tags and how it is
   being played, so a person never has to guess (MUS-114).
 - **Shows:** Format and technical details (MUS-021, MUS-032, LIB-063), how
   each field was read and where it came from (MUS-034, MUS-037), MusicBrainz
   IDs (MUS-036, INT-009), the credits panel with roles (MUS-055, MUS-005),
-  the gain source and the gain applied, or "estimated" or "measured"
-  (MUS-084, MUS-089, MUS-090, LIB-065, LIB-066, MUS-086), gapless and
+  the gain source and the gain applied, or "estimated", or from R1.3
+  "measured" (MUS-084, MUS-089, MUS-090, LIB-065; LIB-066, MUS-086), "Why
+  is this here?" with the reasons but no file paths (LIB-098), gapless and
   encoder-delay status (MUS-067, MUS-069), the rating control (MUS-181),
   and "Upgraded on" when a better copy replaced the file (LIB-030). From R2:
   BPM and key (MUS-022), more formats (MUS-033), the source file of a CUE
   album (MUS-041), and the signal path (MUS-103).
-- **Actions:** Rate, copy a field, open File info (administrators,
-  SUR-088).
+- **Actions:** Rate, copy a field, open File info (administrators, from
+  R1.2, SUR-088).
 - **Form factors:** *TV:* a side sheet from the long-press menu's Info.
   *Phone:* a bottom sheet. *Tablet:* a sheet or the side panel. *Web and
   desktop:* the right pane or a dialog.
-- **Serves:** R1: INT-009, LIB-030, LIB-063, LIB-065, LIB-066, MUS-005, MUS-021, MUS-032, MUS-034, MUS-036, MUS-037, MUS-055, MUS-067, MUS-069, MUS-084, MUS-086, MUS-087, MUS-089, MUS-090, MUS-099, MUS-114, MUS-181. R2: INT-120, MUS-022, MUS-033, MUS-041, MUS-103.
+- **Serves:** R1.1: INT-009, LIB-030, LIB-063, LIB-065, LIB-098, MUS-005, MUS-021, MUS-032, MUS-034, MUS-036, MUS-037, MUS-055, MUS-067, MUS-069, MUS-084, MUS-087, MUS-089, MUS-090, MUS-099, MUS-114, MUS-181. R1.3: LIB-066, MUS-086. R2: INT-120, MUS-022, MUS-033, MUS-041, MUS-103.
 
 #### SUR-014 Device picker and remote mode
 - **Release:** R2.
@@ -868,33 +918,37 @@ and focus tests.
 - **Serves:** R2: CLI-067, CLI-101, CLI-102, CLI-106, INT-137, MUS-197, MUS-198, MUS-200, MUS-203, VID-144, VID-145.
 
 #### SUR-015 Add-to-playlist sheet
-- **Release:** R1.
+- **Release:** R1. The duplicate warning arrives in R1.1 (MUS-134).
 - **Purpose:** Adds items to a playlist quickly, warning about duplicates
   (MUS-133, MUS-134).
 - **Shows:** Recent and pinned playlists, a search field, "New playlist",
-  and the duplicate warning. From R2 the same sheet adds to collections
+  and, from R1.1, the duplicate warning. From R2 the same sheet adds to collections
   (DIS-128).
-- **Actions:** Add, create and add, skip duplicates or add anyway.
+- **Actions:** Add, create and add, skip duplicates or add anyway (R1.1).
 - **Form factors:** *TV:* a side sheet (R2). *Phone and tablet:* a bottom
-  sheet. *Web and desktop:* a popover, plus dragging onto a sidebar
-  playlist.
-- **Serves:** R1: MUS-133, MUS-134. R2: DIS-128.
+  sheet. *Web and desktop:* a popover, plus, from R1.1, dragging onto a
+  sidebar playlist.
+- **Serves:** R1: MUS-133. R1.1: MUS-134. R2: DIS-128.
 
 ### Home, library, browse and search
 
 #### SUR-020 Home
-- **Release:** R1 (the music Home). R2 adds the Watch Home, the kids Home
-  and the combined option. R3 adds live TV rows.
+- **Release:** R1 (the music Home). R1.2 makes it arrangeable and the same
+  on every device, with pinned shortcuts and uncapped rows (DIS-003,
+  MUS-049, DIS-007, DIS-013, DIS-009); R1.3 adds "Because you played" rows
+  (DIS-061, DIS-062). R2 adds the Watch Home, the kids Home and the
+  combined option. R3 adds live TV rows.
 - **Purpose:** A start page made only of the household's own media
-  (DIS-001), drawn instantly from the synced library (DIS-002), arranged by
-  each person (DIS-003, MUS-049) and the same on every device (DIS-007).
-- **Shows:** In R1: pinned shortcuts at the top (DIS-013), Continue
-  listening as the first row (MUS-050, DIS-020), Recently played (DIS-021),
-  Recently added grouped by album, where upgrades do not count as new
-  (DIS-035, DIS-036, DIS-038, MUS-059), Loved tracks (MUS-149), "Because you
-  played" rows (DIS-061) with a reason on every suggestion (DIS-062), rows
-  as long as you like with "See all" (DIS-009), and helpful first-run cards
-  and empty states (DIS-004). From R2: the Music and Watch switch (DIS-017),
+  (DIS-001), drawn instantly from the synced library (DIS-002), and from
+  R1.2 arranged by each person (DIS-003, MUS-049) and the same on every
+  device (DIS-007).
+- **Shows:** In R1: Continue listening as the first row (MUS-050,
+  DIS-020), Recently played (DIS-021), Recently added grouped by album,
+  where upgrades do not count as new (DIS-035, DIS-036, DIS-038, MUS-059),
+  Loved tracks (MUS-149), and helpful first-run cards and empty states
+  (DIS-004). From R1.2: pinned shortcuts at the top (DIS-013) and rows as
+  long as you like with "See all" (DIS-009). From R1.3: "Because you
+  played" rows (DIS-061) with a reason on every suggestion (DIS-062). From R2: the Music and Watch switch (DIS-017),
   Continue Watching, the "Next to watch" row (the feature map's Next Up,
   DIS-025, and the next film of a started series, DIS-031) and new
   episodes (DIS-024 to DIS-026,
@@ -906,8 +960,9 @@ and focus tests.
   the kids Home (DIS-152, DIS-154), discovery for restricted profiles
   (ACC-031), and an optional merged Home across servers (CLI-018). From
   R3: On now and starting soon (DIS-041).
-- **Actions:** Play, open, dismiss from a Continue row with undo (DIS-022,
-  DIS-023), open "See all", enter the Home editor.
+- **Actions:** Play, open; from R1.1, dismiss from a Continue row with
+  undo (DIS-022, DIS-023); from R1.2, open "See all" and enter the Home
+  editor.
 - **Form factors:** *TV:* the backdrop follows focus (DIS-164), rows stay
   smooth on cheap sticks (DIS-161, CLI-038), and the TV can keep its own
   denser layout (DIS-008); the launcher rows (SUR-055) mirror it. *Phone:*
@@ -916,10 +971,11 @@ and focus tests.
   Spotify's "Customize Start Screen" idea has 15,697 votes and is marked
   "Not Right Now", and that Plexamp's arrangeable Home needs Plex Pass, so a
   free, arrangeable Home is a real edge.
-- **Serves:** R1: DIS-001, DIS-002, DIS-004, DIS-007, DIS-009, DIS-013, DIS-020, DIS-021, DIS-035, DIS-036, DIS-061, DIS-062, MUS-049, MUS-050, MUS-059, MUS-149. R2: ACC-031, CLI-051, DIS-016, DIS-024, DIS-025, DIS-026, DIS-029, DIS-030, DIS-031, DIS-037, DIS-040, DIS-043, DIS-048, DIS-063, DIS-064, DIS-065, DIS-066, DIS-069, DIS-072, DIS-123, DIS-126, DIS-127, DIS-152, DIS-154, DIS-161, DIS-164, DIS-167, INT-120, LAT-011, LAT-012, MUS-166, MUS-167, MUS-168, MUS-175, MUS-176.
+- **Serves:** R1: DIS-001, DIS-002, DIS-004, DIS-020, DIS-021, DIS-035, DIS-036, MUS-050, MUS-059, MUS-149. R1.2: DIS-007, DIS-009, DIS-013, MUS-049. R1.3: DIS-061, DIS-062. R2: ACC-031, CLI-051, DIS-016, DIS-024, DIS-025, DIS-026, DIS-029, DIS-030, DIS-031, DIS-037, DIS-040, DIS-043, DIS-048, DIS-063, DIS-064, DIS-065, DIS-066, DIS-069, DIS-072, DIS-123, DIS-126, DIS-127, DIS-152, DIS-154, DIS-161, DIS-164, DIS-167, INT-120, LAT-011, LAT-012, MUS-166, MUS-167, MUS-168, MUS-175, MUS-176.
 
 #### SUR-021 Home editor
-- **Release:** R1.
+- **Release:** R1.2, with the arrangeable Home (DIS-003, MUS-049), which
+  moved from R1.
 - **Purpose:** Lets each person add, remove, rename and reorder Home rows,
   and turn any filter into a row (DIS-003, MUS-049).
 - **Shows:** The rows in order with drag handles, an add-row sheet listing
@@ -927,25 +983,30 @@ and focus tests.
   (DIS-012). From R2: row settings for artwork shape and hiding finished
   items (DIS-010, DIS-011), per-device overrides (DIS-008), and "reset to
   household default" (DIS-005). From R3: live TV rows by choice (LIV-077).
-- **Actions:** Add a row (opening SUR-027 for a new rule), rename, reorder,
-  remove, reset.
+- **Actions:** Add a row (opening SUR-027 for a new rule, from R1.3),
+  rename, reorder, remove, reset.
 - **Form factors:** *TV:* **Proposal:** reorder and hide rows with the
   remote; creating rules happens on another device. *Phone and tablet:* an
   edit mode with drag handles. *Web and desktop:* inline edit mode.
-- **Serves:** R1: DIS-003, DIS-012, MUS-049. R2: DIS-005, DIS-008, DIS-010, DIS-011.
+- **Serves:** R1.2: DIS-003, DIS-012, MUS-049. R2: DIS-005, DIS-008, DIS-010, DIS-011.
 
 #### SUR-022 Library
-- **Release:** R1. Watch tabs and Downloads are R2.
+- **Release:** R1. R1.1 adds playlist files found in music folders,
+  remembered sorts, pinned playlists and multi-select (LIB-192, MUS-056,
+  MUS-139, MUS-063, CLI-062); R1.3 adds the Folders tab, smart playlists
+  and the Spoken word list (LIB-008, MUS-028, DIS-106, DIS-121, LAT-010).
+  Watch tabs and Downloads are R2.
 - **Purpose:** The whole collection, by kind, for people who browse rather
   than search.
 - **Shows:** Music tabs (**Proposal** for the set and order): Artists,
-  Albums, Songs, Playlists, Folders (LIB-008, MUS-028, DIS-106) and Loved
-  (DIS-046), with a plain Spoken word list when the admin has flagged
-  spoken-word folders (LAT-010). A library switcher when the person can see
+  Albums, Songs, Playlists, Folders from R1.3 (LIB-008, MUS-028, DIS-106)
+  and Loved (DIS-046), with, from R1.3, a plain Spoken word list when the
+  admin has flagged spoken-word folders (LAT-010). A library switcher when the person can see
   several libraries (MUS-027, LIB-004). During the first scan the library
   fills in live (MUS-043, LIB-021), and an empty library explains what is
-  happening (ADM-031). Playlist files found in music folders appear as
-  playlists (LIB-192). From R2: Watch tabs for films, shows, collections and
+  happening (ADM-031). From R1.1, playlist files found in music folders
+  appear as playlists (LIB-192). From R2: playlists written through the API
+  (INT-138), Watch tabs for films, shows, collections and
   home videos (DIS-118, LIB-010), music videos (LAT-095), playlist folders
   (MUS-136), video playlists (VID-183), service playlists (INT-109), and
   Downloads on devices that download. Later: the household blend
@@ -955,102 +1016,129 @@ and focus tests.
 - **Form factors:** *TV:* each library is its own rail entry (CLI-037), and
   its grid has a letter column. *Phone:* tabs as chips under the switch.
   *Tablet:* as phone, with more columns. *Web and desktop:* the sidebar
-  lists playlists and pins (MUS-132, MUS-139), and the tabs sit at the top
-  of the content.
-- **Serves:** R1: ADM-031, CLI-062, DIS-046, DIS-106, DIS-121, INT-138, LAT-010, LIB-004, LIB-008, LIB-021, LIB-192, MUS-027, MUS-028, MUS-043, MUS-056, MUS-063, MUS-132, MUS-139, MUS-149, MUS-208. R2: DIS-072, DIS-118, DIS-124, INT-109, LAT-095, LIB-010, LIB-150, MUS-136, VID-183. Later: DIS-184.
+  lists playlists (MUS-132) and, from R1.1, pinned playlists (MUS-139),
+  and the tabs sit at the top of the content.
+- **Serves:** R1: ADM-031, DIS-046, LIB-004, LIB-021, MUS-027, MUS-043, MUS-132, MUS-149, MUS-208. R1.1: CLI-062, LIB-192, MUS-056, MUS-063, MUS-139. R1.3: DIS-106, DIS-121, LAT-010, LIB-008, MUS-028. R2: DIS-072, DIS-118, DIS-124, INT-109, INT-138, LAT-095, LIB-010, LIB-150, MUS-136, VID-183. Later: DIS-184.
 
 #### SUR-023 Lists, grids, rows and browse controls
-- **Release:** R1.
+- **Release:** R1: endless lists and grids, track rows, hearts, tiles,
+  quality badges and the sort menu. R1.1 adds the explicit badge, the view
+  toggle, the filter sheet, the alphabet jump and find in a list (MUS-047,
+  DIS-107, DIS-102, DIS-103, DIS-105, DIS-101, CLI-040, DIS-091), with the
+  release-type, date, mood and role fields they use (MUS-010, MUS-013,
+  MUS-019, MUS-005); R1.3 adds the marker on items waiting in the review
+  queue (LIB-099).
 - **Purpose:** The shared components that every list and grid is made of,
   so sorting, filtering, jumping and row content behave the same
   everywhere.
 - **Shows:** Endless smooth lists and grids (DIS-100); track rows with
-  every credited artist linked, play counts and the explicit badge
-  (MUS-001, MUS-002, MUS-182, MUS-047); hearts on rows (MUS-180); tiles with
+  every credited artist linked, play counts and, from R1.1, the explicit
+  badge (MUS-001, MUS-002, MUS-182; MUS-047); hearts on rows (MUS-180); tiles with
   artwork sized for the device (LIB-142, MUS-040, LIB-134) and quality
-  badges (LIB-146); a view toggle for grid, list and compact (DIS-107,
-  MUS-057); a sort menu (DIS-104, MUS-056, MUS-013); a filter sheet with
-  chips (DIS-102), remembered per view (DIS-103) and savable (DIS-105); an
-  alphabet jump (DIS-101, MUS-058, MUS-020, CLI-040); and find inside a list
-  (DIS-091). From R2: the "Downloaded" filter (CLI-026), language and
+  badges (LIB-146); and a sort menu with natural sort (DIS-104, MUS-020),
+  which from R1.1 remembers its choice and sorts by original or release
+  date (MUS-056, MUS-013). From R1.1: a view toggle for grid, list and
+  compact (DIS-107, MUS-057); a filter sheet with chips (DIS-102),
+  remembered per view (DIS-103) and savable (DIS-105); an alphabet jump
+  (DIS-101, MUS-058, CLI-040); and find inside a list (DIS-091). From R2: the "Downloaded" filter (CLI-026), language and
   quality filters (DIS-113), progress on cards (DIS-032), box sets that
   collapse (DIS-116), a "plays directly here" filter (VID-015), and "Edited"
   and "Unmatched" chips (LIB-174, LIB-102).
-- **Actions:** Sort, filter, save a filter as a view or a Home row, switch
-  view, jump to a letter, find in the list.
+- **Actions:** Sort; from R1.1, filter, save a filter as a view (and as a
+  Home row from R1.2), switch view, jump to a letter and find in the list.
 - **Form factors:** *TV:* a letter column on every grid (DIS-163, CLI-040)
   and virtualised grids that stay smooth on the cheapest supported stick
-  (CLI-038). *Phone:* a fast scroller at the edge (CLI-040). *Tablet:* as
-  phone. *Web and desktop:* type to jump, plus a letter column on long
-  lists.
-- **Serves:** R1: CLI-026, CLI-040, DIS-035, DIS-038, DIS-047, DIS-051, DIS-091, DIS-100, DIS-101, DIS-102, DIS-103, DIS-104, DIS-105, DIS-107, DIS-163, LIB-044, LIB-052, LIB-053, LIB-054, LIB-063, LIB-099, LIB-142, LIB-146, MUS-001, MUS-002, MUS-005, MUS-010, MUS-013, MUS-017, MUS-019, MUS-020, MUS-021, MUS-040, MUS-047, MUS-056, MUS-057, MUS-058, MUS-059, MUS-180, MUS-182, MUS-229. R2: ACC-024, CLI-023, CLI-038, DIS-032, DIS-037, DIS-040, DIS-113, DIS-116, DIS-150, DIS-161, LAT-013, LAT-091, LIB-087, LIB-102, LIB-174, LIB-180, LIB-197, MUS-078, VID-015.
+  (CLI-038). *Phone:* a fast scroller at the edge (CLI-040, from R1.1).
+  *Tablet:* as phone. *Web and desktop:* from R1.1, type to jump, plus a
+  letter column on long lists.
+- **Serves:** R1: DIS-035, DIS-038, DIS-051, DIS-100, DIS-104, LIB-044, LIB-053, LIB-063, LIB-142, LIB-146, MUS-001, MUS-002, MUS-017, MUS-020, MUS-021, MUS-040, MUS-059, MUS-180, MUS-182, MUS-229. R1.1: CLI-026, CLI-040, DIS-047, DIS-091, DIS-101, DIS-102, DIS-103, DIS-105, DIS-107, DIS-163, LIB-052, LIB-054, MUS-005, MUS-010, MUS-013, MUS-019, MUS-047, MUS-056, MUS-057, MUS-058. R1.3: LIB-099. R2: ACC-024, CLI-023, CLI-038, DIS-032, DIS-037, DIS-040, DIS-113, DIS-116, DIS-150, DIS-161, LAT-013, LAT-091, LIB-087, LIB-102, LIB-174, LIB-180, LIB-197, MUS-078, VID-015.
 
 #### SUR-024 Artist page
-- **Release:** R1.
+- **Release:** R1. R1.1 adds release-type sections and release groups, role
+  tabs, the artist image, "Your top tracks", ratings, sorting the
+  discography and one page across libraries (MUS-010, MUS-008, MUS-005,
+  MUS-024, DIS-071, DIS-047, MUS-053, LIB-187); R1.3 adds More like this
+  and, for administrators, merge, split and alias (DIS-060, MUS-007,
+  LIB-041).
 - **Purpose:** One page per artist that gets credits, roles and editions
-  right (MUS-051), across every library the person can see (LIB-187).
-- **Shows:** The header with the local artist image (MUS-024) and a
-  disambiguation line for same-name artists (MUS-006, LIB-040); sections by
-  release type (MUS-010, LIB-048) with one tile per release group (MUS-008,
-  LIB-047); "Appears on" (MUS-004, MUS-011, LIB-042, LIB-049); role tabs
-  for composer, conductor, producer and the rest (MUS-005, LIB-043); "All
-  songs" (MUS-052); "Your top tracks" (DIS-071); your plays, loves and
-  ratings (DIS-050, DIS-045, DIS-047, DIS-051); and More like this
-  (DIS-060). From R2: biography and photos (MUS-025, LIB-113, LIB-127), a
+  right (MUS-051), across every library the person can see from R1.1
+  (LIB-187).
+- **Shows:** The header with a disambiguation line for same-name artists
+  (MUS-006, LIB-040), and the local artist image from R1.1 (MUS-024); the
+  albums, in sections by release type with one tile per release group
+  from R1.1 (MUS-010, LIB-048, MUS-008, LIB-047); "Appears on" (MUS-004,
+  MUS-011, LIB-042, LIB-049); from R1.1, role tabs for composer,
+  conductor, producer and the rest (MUS-005, LIB-043); "All songs"
+  (MUS-052); "Your top tracks" from R1.1 (DIS-071); your plays and loves
+  (DIS-050, DIS-045, DIS-051), with ratings from R1.1 (DIS-047); and More
+  like this from R1.3 (DIS-060). From R2: biography and photos (MUS-025, LIB-113, LIB-127), a
   follow button with new releases (MUS-176, DIS-043, INT-050), "where to
   buy" for missing albums (MUS-231), and a videos shelf (LAT-092, LAT-094,
-  LIB-189, MUS-029). In R1 the artist page with role tabs is also the
-  person page for music (DIS-087).
-- **Actions:** Play, shuffle, start radio, love, pin, sort the discography
-  (MUS-053); for administrators, merge, split and alias (MUS-007, LIB-041).
+  LIB-189, MUS-029). From R1.1 the artist page with role tabs is also
+  the person page for music (DIS-087).
+- **Actions:** Play, shuffle, love; sort the discography from R1.1
+  (MUS-053); pin from R1.2; start radio from R1.3; for administrators,
+  merge, split and alias from R1.3 (MUS-007, LIB-041).
   From R2: follow, download, edit.
 - **Form factors:** *TV:* Play and Shuffle take focus first (**Proposal**).
   *Phone:* a collapsing header. *Tablet:* the header beside the sections in
   landscape. *Web and desktop:* a wide header with sections below.
-- **Serves:** R1: DIS-045, DIS-047, DIS-050, DIS-051, DIS-060, DIS-071, DIS-087, LIB-040, LIB-041, LIB-042, LIB-043, LIB-047, LIB-048, LIB-049, LIB-187, MUS-001, MUS-003, MUS-004, MUS-005, MUS-006, MUS-007, MUS-008, MUS-010, MUS-011, MUS-024, MUS-051, MUS-052, MUS-053, MUS-180, MUS-182. R2: DIS-043, LAT-092, LAT-094, LIB-113, LIB-127, LIB-189, MUS-025, MUS-029, MUS-176, MUS-231.
+- **Serves:** R1: DIS-045, DIS-050, DIS-051, LIB-040, LIB-042, LIB-049, MUS-001, MUS-003, MUS-004, MUS-006, MUS-011, MUS-051, MUS-052, MUS-180, MUS-182. R1.1: DIS-047, DIS-071, DIS-087, LIB-043, LIB-047, LIB-048, LIB-187, MUS-005, MUS-008, MUS-010, MUS-024, MUS-053. R1.3: DIS-060, LIB-041, MUS-007. R2: DIS-043, LAT-092, LAT-094, LIB-113, LIB-127, LIB-189, MUS-025, MUS-029, MUS-176, MUS-231.
 
 #### SUR-025 Album page
-- **Release:** R1.
+- **Release:** R1. R1.1 adds original and release dates, the "Other
+  versions" row, album details such as label and mood, and rating
+  (MUS-013, MUS-008, LIB-054, DIS-047); R1.3 adds the folder breadcrumb,
+  More like this and, for administrators, merge and split (LIB-008,
+  DIS-060, LIB-058). Work headings arrive in R2 (LIB-056, MUS-014).
 - **Purpose:** An album as it was released: discs, works, editions and
   credits (MUS-054).
 - **Shows:** Artwork from the file or folder (MUS-039, LIB-135), the album
   artist apart from track artists (MUS-003, LIB-039) and linked credits in
-  the header (MUS-001, MUS-002, LIB-037), original and release dates
-  (MUS-013, LIB-052), disc headers with disc titles and "Play disc"
-  (MUS-012, LIB-050), tracks grouped under work headings (LIB-056),
-  technical badges (MUS-021, LIB-063), an "Other versions" row (MUS-008,
-  LIB-047), your plays (DIS-050), album details such as label and mood
-  (LIB-054), and a breadcrumb to the folder (LIB-008). From R2: per-disc art
-  (LIB-137), work headers from tags (MUS-014), CUE-sheet albums that look
+  the header (MUS-001, MUS-002, LIB-037), disc headers with disc titles
+  and "Play disc" (MUS-012, LIB-050), technical badges (MUS-021, LIB-063)
+  and your plays (DIS-050); from R1.1, original and release dates (MUS-013,
+  LIB-052), an "Other versions" row (MUS-008, LIB-047) and album details
+  such as label and mood (LIB-054); and from R1.3 a breadcrumb to the
+  folder (LIB-008). From R2: per-disc art (LIB-137), tracks grouped under
+  work headings from tags (LIB-056, MUS-014), CUE-sheet albums that look
   like any other album (MUS-041, LIB-071), and "where to buy" (MUS-231).
-- **Actions:** Play, shuffle, queue, love, rate, add to playlist; for
-  administrators, merge and split (LIB-058). From R2: download and edit.
+- **Actions:** Play, shuffle, queue, love, add to playlist; rate from
+  R1.1; for administrators, merge and split from R1.3 (LIB-058). From R2: download and edit.
 - **Form factors:** *TV:* artwork left, tracks right, Play focused first
   (**Proposal**). *Phone:* artwork above the track list. *Tablet and web:*
   artwork beside the track list.
-- **Serves:** R1: DIS-045, DIS-047, DIS-050, DIS-051, DIS-060, LIB-008, LIB-030, LIB-037, LIB-039, LIB-047, LIB-050, LIB-052, LIB-054, LIB-056, LIB-058, LIB-063, LIB-134, LIB-135, LIB-146, MUS-001, MUS-002, MUS-003, MUS-008, MUS-011, MUS-012, MUS-013, MUS-021, MUS-039, MUS-054, MUS-180. R2: LIB-071, LIB-137, MUS-014, MUS-041.
+- **Serves:** R1: DIS-045, DIS-050, DIS-051, LIB-030, LIB-037, LIB-039, LIB-050, LIB-063, LIB-134, LIB-135, LIB-146, MUS-001, MUS-002, MUS-003, MUS-011, MUS-012, MUS-021, MUS-039, MUS-054, MUS-180. R1.1: DIS-047, LIB-047, LIB-052, LIB-054, MUS-008, MUS-013. R1.3: DIS-060, LIB-008, LIB-058. R2: LIB-056, LIB-071, LIB-137, MUS-014, MUS-041.
 
 #### SUR-026 Playlist page
-- **Release:** R1.
+- **Release:** R1 for manual playlists (MUS-132). R1.1 adds the automatic
+  cover, search, sort and filter inside a playlist, M3U import and export,
+  pinning and loving (MUS-137, MUS-135, MUS-140, MUS-139); R1.3 adds smart
+  playlists (MUS-143, MUS-144). Playlists written through the API appear
+  from R2 (INT-138).
 - **Purpose:** Manual and smart playlists, with the tools to manage long
   ones (MUS-132, MUS-143).
-- **Shows:** The tracks, an automatic cover (MUS-137), search, sort and
-  filter inside the playlist (MUS-135), and for a smart playlist its rules
-  and when it last refreshed (MUS-143, DIS-121). Playlists written through
-  the API appear like any other (INT-138). From R2: a custom image
+- **Shows:** The tracks; from R1.1, an automatic cover (MUS-137) and
+  search, sort and filter inside the playlist (MUS-135); and from R1.3,
+  for a smart playlist, its rules and when it last refreshed (MUS-143,
+  DIS-121). From R2: playlists written through the API, which appear like
+  any other (INT-138), a custom image
   (MUS-138), collaborators and sharing (ACC-091, MUS-150), offline editing
   (MUS-152), "Keep downloaded" (CLI-080) and "keep out of my taste"
   (DIS-057).
-- **Actions:** Play, shuffle, reorder, remove, rename, import and export M3U
-  (MUS-140), edit rules (opens SUR-027), pin and love (MUS-139).
+- **Actions:** Play, shuffle, reorder, remove, rename; from R1.1, import
+  and export M3U (MUS-140), pin and love (MUS-139); from R1.3, edit rules
+  (opens SUR-027).
 - **Form factors:** *TV:* playing and light reordering only; editing
   happens on phone or web (**Proposal**; CLI-052 puts full library
   management on the phone). *Phone and tablet:* drag handles in an edit
-  mode. *Web and desktop:* drag and drop, multi-select.
-- **Serves:** R1: MUS-132, MUS-135, MUS-137, MUS-140, MUS-143, MUS-144. R2: ACC-091, CLI-052, DIS-057, MUS-152.
+  mode. *Web and desktop:* drag and drop and multi-select, from R1.1
+  (CLI-062).
+- **Serves:** R1: MUS-132. R1.1: MUS-135, MUS-137, MUS-140. R1.3: MUS-143, MUS-144. R2: ACC-091, CLI-052, DIS-057, MUS-152.
 
 #### SUR-027 Rule editor
-- **Release:** R1.
+- **Release:** R1.3, with the rule language and smart playlists (DIS-119,
+  MUS-143), which moved from R1.
 - **Purpose:** One visual editor for the one rule language (DIS-119) behind
   smart playlists, Home rows and saved filters, with a live preview
   (DIS-120, MUS-144).
@@ -1068,23 +1156,24 @@ and focus tests.
   desktop:* a dialog with the preview beside it. The research notes that
   Navidrome makes people write JSON for smart playlists and that Plexamp's
   are good; the editor has to be at least as easy as Plexamp's.
-- **Serves:** R1: DIS-119, DIS-120, DIS-121, DIS-122, MUS-017, MUS-144, MUS-145, MUS-146. R2: DIS-123, MUS-022, MUS-023, MUS-147.
+- **Serves:** R1.3: DIS-119, DIS-120, DIS-121, DIS-122, MUS-017, MUS-144, MUS-145, MUS-146. R2: DIS-123, MUS-022, MUS-023, MUS-147.
 
 #### SUR-028 Browse pages
-- **Release:** R1.
+- **Release:** R1 (genre pages). R1.1 adds mood, style and label pages and
+  role pages such as Composers (MUS-019, LIB-043).
 - **Purpose:** Pages built from the household's own tags: genre, mood,
   decade, label, and people by role (DIS-109, MUS-060).
-- **Shows:** Genre pages from multi-valued genres (MUS-017, LIB-053), mood,
-  style and label pages (MUS-019), and a Composers page and other role
-  pages (LIB-043). From R2: personal tags (MUS-023), stations (DIS-068),
+- **Shows:** Genre pages from multi-valued genres (MUS-017, LIB-053), and,
+  from R1.1, mood, style and label pages (MUS-019) and a Composers page and
+  other role pages (LIB-043). From R2: personal tags (MUS-023), stations (DIS-068),
   studio, network and country pages (DIS-114), genre, mood and decade rows
   (DIS-063), and a genre page that notes what was merged into it (DIS-108).
-- **Actions:** Open, play, start radio, pin.
+- **Actions:** Open, play; pin from R1.2; start radio from R1.3.
 - **Form factors:** *TV:* reached from Home rows and search rather than the
   rail (**Proposal**). *Phone:* a "Browse" section at the top of Search
   (**Proposal**). *Tablet and web:* the same, plus a Browse link in the
   Library header.
-- **Serves:** R1: DIS-109, LIB-043, LIB-053, MUS-017, MUS-019, MUS-060. R2: DIS-063, DIS-068, DIS-108, DIS-114, LIB-102, MUS-023.
+- **Serves:** R1: DIS-109, LIB-053, MUS-017, MUS-060. R1.1: LIB-043, MUS-019. R2: DIS-063, DIS-068, DIS-108, DIS-114, LIB-102, MUS-023.
 
 #### SUR-029 History page
 - **Release:** R1.
@@ -1106,14 +1195,15 @@ and focus tests.
 - **Serves:** R1: ACC-118, CLI-093, DIS-021, DIS-050, DIS-052, MUS-183. R2: DIS-066, INT-093.
 
 #### SUR-030 Hidden page
-- **Release:** R1. Hide and snooze arrive in R2.
+- **Release:** R1.1, with dismissing and undo (DIS-023), which moved from
+  R1. Hide and snooze arrive in R2.
 - **Purpose:** One place to see and undo what a person has dismissed or
   hidden (DIS-023).
 - **Shows:** Items dismissed from Continue rows; from R2, hidden and snoozed
   items and their snooze dates (DIS-054, MUS-170).
 - **Actions:** Restore, change a snooze.
 - **Form factors:** The same list on every form factor.
-- **Serves:** R1: DIS-023. R2: DIS-054, MUS-170.
+- **Serves:** R1.1: DIS-023. R2: DIS-054, MUS-170.
 
 #### SUR-031 Statistics page
 - **Release:** R2.
@@ -1126,18 +1216,19 @@ and focus tests.
 - **Serves:** R2: MUS-186, MUS-187.
 
 #### SUR-032 Search
-- **Release:** R1.
+- **Release:** R1. R1.1 adds tags, genres and moods, people by role, the
+  scope selector and recent searches (DIS-086, DIS-087, DIS-088, DIS-089).
 - **Purpose:** One search box over everything a person can see, answered on
   the device (DIS-083, DIS-084).
-- **Shows:** Results grouped by type with type chips (MUS-061, DIS-083),
-  forgiving matches (DIS-085), tags, genres and moods (DIS-086), people by
-  role (DIS-087), a scope selector (DIS-088) and recent searches when the
-  box is empty (DIS-089). From R2: transliteration (DIS-092), a Lyrics chip
+- **Shows:** Results grouped by type with type chips (MUS-061, DIS-083)
+  and forgiving matches (DIS-085). From R1.1: tags, genres and moods
+  (DIS-086), people by role (DIS-087), a scope selector (DIS-088) and
+  recent searches when the box is empty (DIS-089). From R2: transliteration (DIS-092), a Lyrics chip
   (DIS-093, MUS-161), voice search (DIS-094, CLI-044), duplicates collapsed
   (DIS-095), and kind chips (LAT-013). From R3: a Live TV chip and guide
   results (DIS-096, LIV-072).
-- **Actions:** Type, scope, open, play, queue, save a search as a rule (R3,
-  LIV-119).
+- **Actions:** Type, scope (R1.1), open, play, queue, save a search as a
+  rule (R3, LIV-119).
 - **Form factors:** *TV:* a rail entry with an on-screen keyboard and the
   remote's microphone (CLI-044). *Phone:* the Search tab, with Browse above
   the results when empty (**Proposal**). *Tablet:* as phone. *Web and
@@ -1148,7 +1239,7 @@ and focus tests.
   the server never stores or logs search terms (SEC-PRV-004). The index on
   the device holds only what this profile may see, artwork and search terms
   included (SEC-CLI-020).
-- **Serves:** R1: CLI-022, DIS-083, DIS-084, DIS-085, DIS-086, DIS-087, DIS-088, DIS-089, MUS-061. R2: CLI-044, DIS-092, DIS-093, DIS-094, DIS-095, LAT-013, MUS-161. R3: LIV-072, LIV-119.
+- **Serves:** R1: CLI-022, DIS-083, DIS-084, DIS-085, MUS-061. R1.1: DIS-086, DIS-087, DIS-088, DIS-089. R2: CLI-044, DIS-092, DIS-093, DIS-094, DIS-095, LAT-013, MUS-161. R3: LIV-072, LIV-119.
 
 ### Watching
 
@@ -1218,8 +1309,8 @@ phone they share the app with music under the Music and Watch switch.
 - **Serves:** R2: DIS-031, DIS-124, DIS-128, DIS-129, DIS-130, DIS-131, DIS-132, INT-139, LIB-163, LIB-164, LIB-165, LIB-166, LIB-168, LIB-169.
 
 #### SUR-043 Person page
-- **Release:** R2. In R1, the artist page's role tabs serve music people
-  (DIS-087).
+- **Release:** R2. From R1.1, the artist page's role tabs serve music
+  people (DIS-087).
 - **Purpose:** Everything one person made or appeared in, by role (LIB-188,
   LAT-002).
 - **Shows:** Photo, roles as tabs (actor, director, writer, composer and so
@@ -1475,7 +1566,8 @@ phone they share the app with music under the Music and Watch switch.
 - **Serves:** R2: CLI-127.
 
 #### SUR-057 Install, deep links and operating-system hooks
-- **Release:** R1.
+- **Release:** R1.1 for installing the web app (CLI-003); R1.2 for links
+  that open an item (CLI-034, DIS-173, INT-147). Both moved from R1.
 - **Purpose:** Get Gunmetal onto a device and open the right item from a
   link or an automation (CLI-003, CLI-034, DIS-173).
 - **Shows:** The browser's install prompt, the home-screen icon and the
@@ -1485,7 +1577,7 @@ phone they share the app with music under the Music and Watch switch.
   automation hooks through the system settings and share sheet (INT-148).
 - **Actions:** Install, open a link, run an automation.
 - **Form factors:** *TV:* not applicable in R2. *Phone and tablet:* home
-  screen and app links. *Web and desktop:* the installed web app from R1;
+  screen and app links. *Web and desktop:* the installed web app from R1.1;
   desktop installers arrive with the desktop shell, Later (SEC-TM-074).
 - **Security:** every inbound link and code is parsed by one function in
   the core into a closed set of routes, and none changes anything without a
@@ -1495,11 +1587,12 @@ phone they share the app with music under the Music and Watch switch.
   that names the server and says what will happen (SEC-CLI-013). Native
   apps from R2 accept links only through verified app links, never a
   custom URL scheme (SEC-CLI-039).
-- **Serves:** R1: CLI-003, CLI-034, DIS-173. R2: INT-148.
+- **Serves:** R1.1: CLI-003. R1.2: CLI-034, DIS-173. R2: INT-148.
 
 #### SUR-058 Share sheet
-- **Release:** R1 for music tracks, albums and playlists (ACC-086; security
-  README decision 7, owner to confirm). R2 adds film and episode links, off
+- **Release:** R1.2 for music tracks, albums and playlists (ACC-086),
+  where the adopted R1 scope places music share links (D-10); SEC-API-097
+  and SEC-STD-008 ship with them. R2 adds film and episode links, off
   until the owner enables them (ACC-092), the guest capability (ACC-135),
   sharing a playlist with people on the server, and the native share
   sheets. Without a share link, "Copy link" in the context menu still needs
@@ -1517,7 +1610,7 @@ phone they share the app with music under the Music and Watch switch.
 - **Actions:** Create, copy, revoke.
 - **Form factors:** *TV:* not offered (**Proposal**). *Phone and tablet:*
   the system share sheet with Gunmetal's options first (R2), a dialog in
-  the R1 web client. *Web and desktop:* a dialog.
+  the web client. *Web and desktop:* a dialog.
 - **Security:** a link carries a 128-bit secret in its fragment, covers one
   object, takes its sharer from the session, and stops working on the next
   request after revocation; a link that reaches too many distinct addresses
@@ -1525,11 +1618,11 @@ phone they share the app with music under the Music and Watch switch.
   share password follows the guessing delays and never disables the link
   (SEC-API-056, SEC-STD-008). Only the sharer and admins can see or change
   a link. Managed profiles cannot create links (SEC-PRV-029).
-- **Serves:** R1: ACC-086, ACC-087, ACC-088, CLI-034, INT-147, MUS-151. R2: ACC-092, ACC-135, INT-148, MUS-150.
+- **Serves:** R1.2: ACC-086, ACC-087, ACC-088, CLI-034, INT-147, MUS-151. R2: ACC-092, ACC-135, INT-148, MUS-150.
 
 #### SUR-059 Public share page
-- **Release:** R1 for music (ACC-086; owner to confirm). R2 adds the guest
-  player that ACC-135 defines.
+- **Release:** R1.2 for music (ACC-086; D-10). R2 adds the guest player
+  that ACC-135 defines.
 - **Purpose:** What someone without an account sees when they open a share
   link: a minimal listening page (ACC-086) or the guest player that
   ACC-135 defines.
@@ -1547,7 +1640,7 @@ phone they share the app with music under the Music and Watch switch.
   (SEC-PRV-031); its media URLs are short-lived capabilities re-checked on
   every request (SEC-API-026, SEC-API-028); its strings are rendered as
   text (SEC-CLI-001).
-- **Serves:** R1: ACC-086.
+- **Serves:** R1.2: ACC-086.
 
 #### SUR-060 TV screensaver
 - **Release:** R2.
@@ -1606,17 +1699,20 @@ phone they share the app with music under the Music and Watch switch.
 ### Sign-in, settings and account
 
 #### SUR-070 Sign-in
-- **Release:** R1.
+- **Release:** R1. Sign-in through the household's identity provider, and
+  the server's name and message after sign-in, arrive in R1.2 (ACC-057,
+  ADM-140).
 - **Purpose:** Modern sign-in with no vendor account and no password:
-  passkeys, single sign-on through the owner's identity provider, and
-  approval from a signed-in device for a browser that cannot use a passkey
+  passkeys, single sign-on through the owner's identity provider (from
+  R1.2), and approval from a signed-in device for a browser that cannot use a passkey
   (ACC-050, ACC-057, ACC-062). Passwords and authenticator-app codes
   (ACC-052, ACC-053) are not offered (SEC-IAM-025; owner to confirm).
 - **Shows:** A generic page: no list of users (ACC-007), and no server name,
   message, library name or version before sign-in (SEC-NET-047,
-  SEC-API-005); a device that has signed in before shows the name it
-  remembers, and the name and message appear after sign-in (ADM-140). The
-  passkey button; "Continue with" the configured provider; "Use another
+  SEC-API-005); from R1.2, a device that has signed in before shows the
+  name it remembers, and the name and message appear after sign-in
+  (ADM-140). The passkey button; from R1.2, "Continue with" the configured
+  provider; "Use another
   device" (ACC-062, opening SUR-061); one uniform message for any failure
   and plain delay messages after repeated failures (ACC-063); after sign-in,
   the one plain question "Is this your own device?" (ACC-079); "Use a
@@ -1630,15 +1726,15 @@ phone they share the app with music under the Music and Watch switch.
 - **Security:** sign-in is usernameless and reveals nothing about whether an
   account or credential exists, by content, status or timing (SEC-IAM-022,
   SEC-API-058). Passkey failures are throttled per source but never disable
-  a credential (SEC-API-056). The identity-provider flow keeps every token
-  on the server (SEC-CLI-026). The session cookie is `__Host-`, HttpOnly
+  a credential (SEC-API-056). From R1.2, the identity-provider flow keeps
+  every token on the server (SEC-CLI-026). The session cookie is `__Host-`, HttpOnly
   and never readable by scripts (SEC-API-032). The answer to "Is this your
   own device?" sets the session: own device, 30 days with 7 idle and
   persistent storage; shared, memory only, a browser-session cookie and 30
   idle minutes (SEC-IAM-041, SEC-CLI-010; the default answer is owner to
   confirm). A post-sign-in return target is only a relative path from an
   allowlist (SEC-IAM-033).
-- **Serves:** R1: ACC-004, ACC-007, ACC-050, ACC-057, ACC-062, ACC-063, ACC-079, ADM-140, CLI-150.
+- **Serves:** R1: ACC-004, ACC-007, ACC-050, ACC-062, ACC-063, ACC-079, CLI-150. R1.2: ACC-057, ADM-140.
 
 #### SUR-071 Invite landing and first launch
 - **Release:** R1 (the invite landing in the web client). R2 (app first
@@ -1646,12 +1742,14 @@ phone they share the app with music under the Music and Watch switch.
 - **Purpose:** Turn an invitation link or QR code into a working account
   with as few steps as possible (ACC-080), without letting a forwarded link
   quietly admit a stranger.
-- **Shows:** Who invited the person and to which server, what will happen,
+- **Shows:** Who invited the person and to which server (by the name the
+  owner gave it from R1.2, ADM-140), what will happen,
   and a privacy notice generated from the server's real settings: what is
   stored about them, who can see what, retention, what leaves the server,
   and how to export and delete, in at most five plain sentences with "More
   details" (SEC-PRV-053). Then account creation with the person's own
-  passkey, or their link to the owner's identity provider; no password
+  passkey, or, from R1.2, their link to the owner's identity provider; no
+  password
   (SEC-IAM-079). For an invitation that makes the person a household member
   or grants more than one library, a waiting screen with a short matching
   code to read to the inviter, until the inviter confirms (SEC-IAM-079).
@@ -1668,8 +1766,8 @@ phone they share the app with music under the Music and Watch switch.
   bar before any request and redeems nothing until the person confirms on
   a screen that names the server (SEC-CLI-013, SEC-NET-036); it sends the
   secret in a POST body, rate-limited, with the same response for any
-  failure (SEC-API-096, SEC-API-058). The server's name appears here
-  because the invitation authorises it (owner to confirm). A pending
+  failure (SEC-API-096, SEC-API-058). From R1.2, the server's name
+  appears here because the invitation authorises it (owner to confirm). A pending
   account holds no grants until confirmed (SEC-IAM-079).
 - **Serves:** R1: ACC-080. R2: ACC-082, ACC-104.
 
@@ -1688,7 +1786,8 @@ phone they share the app with music under the Music and Watch switch.
 - **Serves:** R2: ACC-014, ACC-083, ACC-104, CLI-018, CLI-028.
 
 #### SUR-073 Settings
-- **Release:** R1.
+- **Release:** R1. R1.1 adds the client side of settings that follow the
+  person, with per-device settings marked "this device" (CLI-030).
 - **Purpose:** Each person's preferences, which follow them across devices,
   with anything that applies to one device marked "this device" (ACC-012,
   CLI-030). This entry is the Settings home and its general sections; the
@@ -1705,13 +1804,15 @@ phone they share the app with music under the Music and Watch switch.
 - **Form factors:** *TV:* a focused list with large text; only settings that
   make sense on a TV. *Phone:* a stacked list. *Tablet:* list and detail
   side by side. *Web and desktop:* sections in a side list.
-- **Serves:** R1: ACC-012, ACC-113, ACC-114, CLI-030, LIB-146. R2: CLI-051, CLI-152, DIS-008, DIS-014, DIS-026, DIS-028, DIS-056, DIS-117, LAT-012. R3: LIV-076, LIV-111.
+- **Serves:** R1: ACC-012, ACC-113, ACC-114, LIB-146. R1.1: CLI-030. R2: CLI-051, CLI-152, DIS-008, DIS-014, DIS-026, DIS-028, DIS-056, DIS-117, LAT-012. R3: LIV-076, LIV-111.
 
 #### SUR-074 Settings: playback, sound and subtitles
-- **Release:** R1. Video, audio-device and subtitle sections are R2.
+- **Release:** R1. R1.1 adds fades, lyrics staying open and fetching ahead
+  on patchy signal (MUS-072, MUS-158, CLI-099). Video, audio-device and
+  subtitle sections are R2.
 - **Purpose:** How things sound and play.
-- **Shows:** In R1: fades (MUS-072), loudness mode and target level
-  (MUS-087, MUS-088), shuffle mode (MUS-126), lyrics staying open
+- **Shows:** In R1: loudness mode and target level (MUS-087, MUS-088) and
+  shuffle mode (MUS-126). From R1.1: fades (MUS-072), lyrics staying open
   (MUS-158), and fetching ahead on patchy signal (CLI-099). From R2:
   crossfade and smart fades (MUS-091, MUS-092), the equaliser (MUS-094),
   sample-rate matching and bit-perfect output (MUS-100, MUS-101; exclusive
@@ -1734,12 +1835,13 @@ phone they share the app with music under the Music and Watch switch.
   chooses the output; exclusive output arrives with the desktop shell,
   Later (MUS-102). Settings the device cannot honour
   are hidden, with a note (**Proposal**).
-- **Serves:** R1: CLI-099, MUS-072, MUS-087, MUS-088, MUS-126, MUS-158. R2: CLI-046, CLI-048, MUS-091, MUS-092, MUS-094, MUS-100, MUS-101, MUS-171, MUS-200, VID-019, VID-023, VID-041, VID-043, VID-045, VID-046, VID-047, VID-051, VID-056, VID-057, VID-058, VID-059, VID-062, VID-066, VID-079, VID-080, VID-082, VID-091, VID-093, VID-094, VID-101, VID-114, VID-119, VID-128, VID-135, VID-142. R3: LIV-147. Later: MUS-102 (the desktop shell).
+- **Serves:** R1: MUS-087, MUS-088, MUS-126. R1.1: CLI-099, MUS-072, MUS-158. R2: CLI-046, CLI-048, MUS-091, MUS-092, MUS-094, MUS-100, MUS-101, MUS-171, MUS-200, VID-019, VID-023, VID-041, VID-043, VID-045, VID-046, VID-047, VID-051, VID-056, VID-057, VID-058, VID-059, VID-062, VID-066, VID-079, VID-080, VID-082, VID-091, VID-093, VID-094, VID-101, VID-114, VID-119, VID-128, VID-135, VID-142. R3: LIV-147. Later: MUS-102 (the desktop shell).
 
 #### SUR-075 Settings: data, downloads and storage
-- **Release:** R1 (storage and sync status). Downloads and data use are R2.
+- **Release:** R1.1 (storage and sync status, CLI-024, which moved from
+  R1). Downloads and data use are R2.
 - **Purpose:** What the device keeps and what it spends on the network.
-- **Shows:** In R1: what is synced, how much space each part uses, when it
+- **Shows:** From R1.1: what is synced, how much space each part uses, when it
   last synced, "Sync now" and "Clear cache" (CLI-024). On a shared browser
   it says that nothing is kept after the tab closes (SEC-CLI-010). From R2:
   partial sync for small devices (CLI-023), the storage cap and eviction
@@ -1755,14 +1857,16 @@ phone they share the app with music under the Music and Watch switch.
   in app-private internal storage (SEC-CLI-035), and choosing an SD card or
   other removable storage (CLI-059, MUS-216) waits until downloads there are
   encrypted (SEC-CLI-072, Later; owner to confirm).
-- **Serves:** R1: CLI-024. R2: CLI-023, CLI-082, CLI-083, CLI-091, CLI-092, MUS-106, MUS-107, MUS-213, VID-031.
+- **Serves:** R1.1: CLI-024. R2: CLI-023, CLI-082, CLI-083, CLI-091, CLI-092, MUS-106, MUS-107, MUS-213, VID-031.
 
 #### SUR-076 Settings: appearance, accessibility and language
-- **Release:** R1.
+- **Release:** R1 (themes). R1.1 adds mono audio and channel balance
+  (CLI-151); R1.2 adds the language list (CLI-146).
 - **Purpose:** Make the interface readable and usable for each person.
-- **Shows:** Themes including high contrast (CLI-141), mono audio and
-  channel balance (CLI-151), and the language list with a completeness bar
-  (CLI-146; R1 ships English only with the framework in place). From R2:
+- **Shows:** Themes including high contrast (CLI-141); from R1.1, mono
+  audio and channel balance (CLI-151); and from R1.2, the language list
+  with a completeness bar (CLI-146; R1 and R1.1 ship English only, with
+  the framework in place). From R2:
   text size on TV (CLI-043, DIS-166), subtitles that follow system caption
   settings and accessible track defaults (CLI-143, CLI-144), each person's
   own language (CLI-148), region and rating system (ACC-027), and metadata
@@ -1770,44 +1874,48 @@ phone they share the app with music under the Music and Watch switch.
 - **Actions:** Change a setting.
 - **Form factors:** The same sections on every form factor; TV adds text
   size.
-- **Serves:** R1: CLI-141, CLI-146, CLI-151. R2: ACC-027, CLI-043, CLI-143, CLI-144, CLI-148, DIS-166, LIB-184, LIB-185.
+- **Serves:** R1: CLI-141. R1.1: CLI-151. R1.2: CLI-146. R2: ACC-027, CLI-043, CLI-143, CLI-144, CLI-148, DIS-166, LIB-184, LIB-185.
 
 #### SUR-077 Settings: this device, connection and help
-- **Release:** R1.
+- **Release:** R1. Help > Diagnostics arrives in R1.2 (CLI-033).
 - **Purpose:** Facts about this device and this connection, help, and the
   preview switch for layout changes.
 - **Shows:** "About this connection", which says which address this is,
   that it is secure, whether this browser is marked as the person's own or
   shared and what that keeps, and when the session ends (CLI-150,
   SEC-CLI-010, SEC-IAM-041); Preview features, where
-  layout changes arrive as opt-in previews with a way back (CLI-031); and
-  Help > Diagnostics, redacted by default and shown in full before it is
+  layout changes arrive as opt-in previews with a way back (CLI-031); and,
+  from R1.2, Help > Diagnostics, redacted by default and shown in full before it is
   sent (CLI-033, SEC-PRV-046). From R2: the
   connection's real state and route (ACC-105), the device capability
   report (CLI-047), and whether the app may start itself on a play key or a
   headphone connection (CLI-068). Global hotkeys (CLI-064) arrive with the
   desktop shell, Later.
-- **Actions:** Turn a preview on or off, view or send diagnostics.
+- **Actions:** Turn a preview on or off, view or send diagnostics (R1.2).
 - **Form factors:** The same sections on every form factor; launch
   behaviour only in the native apps, and hotkeys only in the desktop shell
   once it exists.
-- **Serves:** R1: CLI-031, CLI-033, CLI-150. R2: ACC-105, CLI-047, CLI-068, LIB-109. Later: CLI-064 (the desktop shell).
+- **Serves:** R1: CLI-031, CLI-150. R1.2: CLI-033. R2: ACC-105, CLI-047, CLI-068, LIB-109. Later: CLI-064 (the desktop shell).
 
 #### SUR-078 Account
-- **Release:** R1.
+- **Release:** R1. R1.1 adds history import from export files (MUS-189,
+  INT-107); R1.2 adds a linked identity provider, the person's share links
+  and the documented full-export formats (ACC-057, ACC-089, MUS-151,
+  ADM-074).
 - **Purpose:** A person's identity and data: sign-in methods, sessions and
   devices, security, shares, exports and imports, and connected services.
   It is the hub for SUR-130 to SUR-133.
-- **Shows:** Sign-in methods: the person's passkeys, named, and any linked
-  identity provider (ACC-055, ACC-050, ACC-057), with a gentle prompt while
+- **Shows:** Sign-in methods: the person's passkeys, named, and, from R1.2,
+  any linked identity provider (ACC-055, ACC-050; ACC-057), with a gentle prompt while
   only one passkey exists; there is no password or authenticator-app code
   (SEC-IAM-025). Links to Sessions and devices (SUR-130), Security events
   (SUR-131), What admins can see and Privacy (SUR-132) and Recovery
-  (SUR-133). The person's share links with their use, and revoke (ACC-089,
-  MUS-151). Your data: a documented export of everything the person told
-  the server (ACC-010, ADM-074, DIS-058, MUS-188, INT-151, LAT-007), history
-  import from Last.fm and ListenBrainz files (MUS-189, INT-107), and
-  deleting the account. The owner's account details and, for an incoming
+  (SUR-133). From R1.2, the person's share links with their use, and
+  revoke (ACC-089, MUS-151). Your data: a documented export of everything the person told
+  the server (ACC-010, DIS-058, MUS-188, INT-151, LAT-007; the documented
+  full-export formats of ADM-074 from R1.2), history import from Last.fm
+  and ListenBrainz files from R1.1 (MUS-189, INT-107), and deleting the
+  account. The owner's account details and, for an incoming
   ownership transfer, Accept (ACC-002, ADM-052). From R2: offline copies per
   device (ACC-045), device keys (ACC-051), apps and API keys (ACC-049,
   INT-017, INT-021), the single-item guest links (ACC-135), connected
@@ -1819,9 +1927,9 @@ phone they share the app with music under the Music and Watch switch.
   security events sent to their own webhooks (INT-036), and API and Trakt
   history imports (INT-108, INT-152, INT-076). Companion-tool sign-ins
   (INT-028) are Later.
-- **Actions:** Add or remove a passkey, link or unlink a provider, revoke a
-  share or key, export, import, connect or disconnect a service, delete the
-  account.
+- **Actions:** Add or remove a passkey, link or unlink a provider (R1.2),
+  revoke a share (R1.2) or key (R2), export, import (R1.1), connect or
+  disconnect a service (R2), delete the account.
 - **Form factors:** *TV:* not offered. A TV is a limited device, so it
   never shows account-security screens (SEC-CLI-024); its own menu offers
   sign-out only. *Phone, tablet, web:* everything, on a personal device; a
@@ -1831,8 +1939,8 @@ phone they share the app with music under the Music and Watch switch.
   the previous 5 minutes, tells the account's other devices, and offers to
   end all other sessions; the last credential, and the owner's last
   passkey, cannot be removed (SEC-IAM-023, SEC-IAM-024, SEC-IAM-042,
-  SEC-IAM-107). Linking a provider happens only inside this account's
-  session after a passkey check (SEC-IAM-029). Starting an export or a
+  SEC-IAM-107). From R1.2, linking a provider happens only inside this
+  account's session after a passkey check (SEC-IAM-029). Starting an export or a
   deletion needs the same check and is rate-limited; the download works
   once, only in this session, and expires within an hour; the export holds
   no one else's data and no secrets (SEC-PRV-047, SEC-PRV-048). Deletion
@@ -1844,14 +1952,15 @@ phone they share the app with music under the Music and Watch switch.
   an admin (SEC-PRV-033). An API key's scopes can never exceed the person's
   own rights or include administration, and creating one needs a passkey
   check (SEC-EXT-010, SEC-EXT-012).
-- **Serves:** R1: ACC-002, ACC-010, ACC-017, ACC-050, ACC-055, ACC-065, ACC-089, ADM-074, DIS-058, INT-107, INT-151, LAT-007, MUS-151, MUS-188, MUS-189. R2: ACC-045, ACC-049, ACC-051, ACC-119, ACC-129, ACC-135, CLI-130, INT-017, INT-021, INT-024, INT-036, INT-050, INT-051, INT-058, INT-064, INT-075, INT-076, INT-087, INT-096, INT-102, INT-103, INT-104, INT-105, INT-106, INT-108, INT-110, INT-111, INT-152, MUS-192, MUS-193, MUS-194, MUS-195.
+- **Serves:** R1: ACC-002, ACC-010, ACC-017, ACC-050, ACC-055, ACC-065, DIS-058, INT-151, LAT-007, MUS-188. R1.1: INT-107, MUS-189. R1.2: ACC-089, ADM-074, MUS-151. R2: ACC-045, ACC-049, ACC-051, ACC-119, ACC-129, ACC-135, CLI-130, INT-017, INT-021, INT-024, INT-036, INT-050, INT-051, INT-058, INT-064, INT-075, INT-076, INT-087, INT-096, INT-102, INT-103, INT-104, INT-105, INT-106, INT-108, INT-110, INT-111, INT-152, MUS-192, MUS-193, MUS-194, MUS-195.
 
 #### SUR-079 Profiles and guardian controls
-- **Release:** R1 (profile name and picture, explicit-content display).
-  R2 (household profiles, children and guardians).
+- **Release:** R1.1 (profile name and picture, explicit-content display;
+  ACC-011 and MUS-047 moved from R1). R2 (household profiles, children and
+  guardians).
 - **Purpose:** Each profile's identity, and for children, the limits a
   guardian sets.
-- **Shows:** In R1: the profile editor with name and picture (ACC-011) and
+- **Shows:** From R1.1: the profile editor with name and picture (ACC-011) and
   how explicit tracks are shown (MUS-047). From R2: profile creation and
   PIN (DIS-143, ACC-020); child-profile settings with presets, maximum
   ratings, rating systems by country, allow and block rules, unrated items,
@@ -1876,7 +1985,7 @@ phone they share the app with music under the Music and Watch switch.
   in the one visibility predicate, so no path around them exists
   (SEC-IAM-064). A household blend includes a person only after their own
   consent (SEC-PRV-022, SEC-PRV-023).
-- **Serves:** R1: ACC-011, MUS-047. R2: ACC-020, ACC-023, ACC-024, ACC-025, ACC-026, ACC-027, ACC-028, ACC-029, ACC-032, ACC-034, DIS-143, DIS-145, DIS-146, DIS-147, DIS-148, DIS-149, DIS-150, DIS-151, DIS-156, DIS-183, LAT-014. R3: ACC-036, LIV-164. Later: DIS-184.
+- **Serves:** R1.1: ACC-011, MUS-047. R2: ACC-020, ACC-023, ACC-024, ACC-025, ACC-026, ACC-027, ACC-028, ACC-029, ACC-032, ACC-034, DIS-143, DIS-145, DIS-146, DIS-147, DIS-148, DIS-149, DIS-150, DIS-151, DIS-156, DIS-183, LAT-014. R3: ACC-036, LIV-164. Later: DIS-184.
 
 #### SUR-130 Sessions and devices
 - **Release:** R1. Device keys and API keys join the list in R2.
@@ -1926,33 +2035,41 @@ phone they share the app with music under the Music and Watch switch.
 - **Serves:** R1: ACC-078, ADM-110.
 
 #### SUR-132 What admins can see, and privacy choices
-- **Release:** R1.
+- **Release:** R1. The switch to show titles to admins arrives in R1.2,
+  with the admins' live view (ACC-116, MUS-235, ADM-099).
 - **Purpose:** The page that tells each person exactly what admins and
   guardians on this server can see about them, generated from the same
   policy the server enforces, so it can never drift from the truth
   (SEC-IAM-104, SEC-PRV-027).
-- **Shows:** In plain words, for example: "Your admin can see that you are
-  streaming, on which device and at what quality. Your admin sees the title
-  only if you turn on the switch below. Your admin cannot see your history,
-  ratings or private playlists in Gunmetal. Your admin controls the computer
-  Gunmetal runs on, so a determined admin could read its files directly."
-  Below it: the switch "Show what I'm playing to admins", off by default
-  (ACC-116); the private-session default end time; and, from R2, sharing
-  what one plays with the household, off by default.
-- **Actions:** Turn the title switch on or off; open Security events
-  (SUR-131).
+- **Shows:** In plain words, generated from what the running release lets
+  admins see. In R1 admins have no live view of anyone's playback, so the
+  page says that admins see the person's account, its device count and
+  last sign-in, but not what they play, their history, ratings or private
+  playlists, and that whoever controls the computer Gunmetal runs on could
+  read its files directly. From R1.2, when the live view arrives (ADM-099),
+  for example: "Your admin can see that you are streaming, on which device
+  and at what quality. Your admin sees the title only if you turn on the
+  switch below. Your admin cannot see your history, ratings or private
+  playlists in Gunmetal. Your admin controls the computer Gunmetal runs on,
+  so a determined admin could read its files directly." Below it: the
+  private-session default end time; from R1.2, the switch "Show what I'm
+  playing to admins", off by default (ACC-116, MUS-235); and, from R2,
+  sharing what one plays with the household, off by default.
+- **Actions:** Turn the title switch on or off (R1.2); open Security
+  events (SUR-131).
 - **Form factors:** The same page on every form factor; on TV, read-only.
 - **Security:** every privacy setting starts at its most private value, and
   no upgrade or admin can change it for the person (SEC-PRV-023,
   SEC-PRV-033). No server setting can widen what admins see beyond live
   sessions and totals (SEC-PRV-025). The same statements appear, shortened,
   in the invitation's privacy notice (SEC-PRV-053).
-- **Serves:** R1: ACC-115, ACC-116.
+- **Serves:** R1: ACC-115. R1.2: ACC-116, MUS-235.
 
 #### SUR-133 Recovery
 - **Release:** R1.
 - **Purpose:** The recovery ladder in one place: another passkey first,
-  then recovery codes, then the identity provider, then an administrator's
+  then recovery codes, then the identity provider (from R1.2), then an
+  administrator's
   link, and for the owner only, the host (SEC-IAM-089 to SEC-IAM-092).
 - **Shows:** How many passkeys the account holds, with a prompt to add a
   second; recovery codes (10, single-use, offered at enrolment to owners and
@@ -1975,10 +2092,7 @@ phone they share the app with music under the Music and Watch switch.
   or an admin link cannot remove others, elevate, export history or create
   invitations until the hold ends, and after an admin's link the history
   stays hidden from it (SEC-IAM-106).
-- **Serves:** no feature row yet. The feature map has no row for recovery
-  codes or the recovery kit ([flows G18](flows.md#gaps-and-questions-the-flows-expose));
-  this surface carries SEC-IAM-089, SEC-IAM-106 and SEC-PRV-040 until it
-  does.
+- **Serves:** R1: ACC-137, ACC-138, ADM-143.
 
 ### Setup and administration
 
@@ -2010,8 +2124,9 @@ TV lineup editor) are designed for wide screens first and remain usable at
 phone width.
 
 Four surfaces in this group are not part of the client at all: the startup
-page, the emergency page and the help pages (SUR-109) are rendered by the
-server itself, and the welcome flow runs before any account exists.
+page, the emergency page (from R1.2) and the help pages (SUR-109) are
+rendered by the server itself, and the welcome flow runs before any account
+exists.
 
 #### SUR-080 Startup page
 - **Release:** R1.
@@ -2019,8 +2134,9 @@ server itself, and the welcome flow runs before any account exists.
   connection while it starts, migrates, rebuilds or restores (ADM-032).
 - **Shows:** Each step with an estimate, in plain words: starting,
   migrating, checking (ADM-057, ADM-058), rebuilding the cache (ADM-059),
-  recovering the user log after a torn write (ADM-078), restoring, or in
-  maintenance after a failed migration (ADM-029, ADM-070), and when a
+  recovering the user log after a torn write (ADM-078), restoring (ADM-029;
+  a restore started from the admin screens from R1.2, ADM-070), or in
+  maintenance after a failed migration, and when a
   problem stops the start, that there is one and that the console and
   `gunmetal doctor` give the details. The details themselves, such as
   configuration errors with their line (ADM-007), the pre-upgrade
@@ -2037,10 +2153,12 @@ server itself, and the welcome flow runs before any account exists.
   SEC-NET-047). Over plain HTTP only loopback sees it; every other peer gets
   the help page (SEC-NET-001). This moves configuration errors, the
   snapshot path and the root refusal off the page.
-- **Serves:** R1: ADM-006, ADM-007, ADM-029, ADM-032, ADM-056, ADM-057, ADM-058, ADM-059, ADM-070, ADM-078, ADM-079. R2: ADM-062.
+- **Serves:** R1: ADM-006, ADM-007, ADM-029, ADM-032, ADM-056, ADM-057, ADM-058, ADM-059, ADM-078, ADM-079. R1.2: ADM-070. R2: ADM-062.
 
 #### SUR-081 Emergency page
-- **Release:** R1.
+- **Release:** R1.2, with the emergency page itself (ADM-113), which moved
+  from R1. Until then the owner uses the console and the command line
+  (SUR-110).
 - **Purpose:** Lets an administrator check status, read logs, take a backup
   or restart even when the main client will not load (ADM-113).
 - **Shows:** Before sign-in, only a passkey sign-in button. After an owner
@@ -2057,36 +2175,45 @@ server itself, and the welcome flow runs before any account exists.
   loopback (SEC-NET-001). Log lines follow SEC-PRV-043 and SEC-OPS-029.
   Downloading a backup is owner-only step-up, audited and alerted
   (SEC-OPS-045). Every action writes an audit record (SEC-OPS-020).
-- **Serves:** R1: ADM-113.
+- **Serves:** R1.2: ADM-113.
 
 #### SUR-082 Welcome (first-run setup)
-- **Release:** R1.
+- **Release:** R1. R1.1 adds "Coming from another server?", the provider
+  lookups in the privacy step and remapping libraries during a restore
+  (ADM-030, LIB-111, LIB-112, ADM-051); R1.2 adds language, region and
+  time zone (ADM-027). The project's per-server name joins the HTTPS
+  choices in R2 (ADM-023, D-07).
 - **Purpose:** Take a fresh install to a playing library, safely: nobody
   else on the network can claim the server first, and nothing leaves the
   house unless the owner chooses (ACC-001, LIB-108, ACC-113).
-- **Shows:** The steps, in order (**Proposal** for the order): language,
-  region and time zone (ADM-027), held by the page until the claim; the
-  one-time setup code, arriving in the claim link's fragment or typed from
-  the console, with a checksum that catches typos (ACC-001, ADM-018); "Where
-  will people reach this server?", which names the address the passkey will
-  belong to and says it is permanent for passkeys, sends a localhost visit
-  to the configured HTTPS name first, and explains the paths to HTTPS when
-  there is none (ADM-021, ADM-022, ADM-023); a prompt to trust a reverse
-  proxy that is in front of the server but not declared; create the owner
-  account with a passkey only (ACC-002, ADM-019, ACC-050); the recovery
-  kit, confirmed by typing its last four characters, and an offer of a
-  second passkey; privacy choices, with what each provider would send, and
-  the required security-fix question with no answer preselected (ADM-028,
-  LIB-108, ACC-113); music folders with live checks (ADM-025, LIB-001,
-  LIB-005); "coming from another server?" (ADM-030); and done, with the
+- **Shows:** The steps, in order (**Proposal** for the order): from R1.2,
+  language, region and time zone (ADM-027), held by the page until the
+  claim; the one-time setup code, arriving in the claim link's fragment or
+  typed from the console, with a checksum that catches typos (ACC-001,
+  ADM-018); "Where will people reach this server?", which names the
+  address the passkey will belong to and says it is permanent for
+  passkeys, sends a localhost visit to the configured HTTPS name first,
+  and explains the paths to HTTPS when there is none: the owner's own
+  domain with a certificate the server obtains and renews itself, a
+  tailnet name, or this machine, directly or through an SSH tunnel
+  (ADM-021, ADM-022; the project's per-server name, ADM-023, from R2); a
+  prompt to trust a reverse proxy that is in front of the server but not
+  declared; create the owner account with a passkey only (ACC-002,
+  ADM-019, ACC-050); the recovery kit, confirmed by typing its last four
+  characters, and an offer of a second passkey (ADM-143); privacy choices
+  and the required security-fix question with no answer preselected
+  (ADM-028, LIB-108, ACC-113), with, from R1.1, the MusicBrainz and Cover
+  Art Archive lookups, off, each with what it would send (LIB-111,
+  LIB-112); music folders with live checks (ADM-025, LIB-001, LIB-005);
+  from R1.1, "coming from another server?" (ADM-030); and done, with the
   library usable while the first scan runs (ADM-031, LIB-021). "Restore
   from a backup" is offered on the first screen, behind the same setup
-  code, and asks for the recovery key and where the libraries are now
-  (ADM-029, ADM-051, ADM-069). From R2: movie and TV folders (ADM-026,
-  LIB-002), a transcoding self-test (VID-009), an import summary of ratings
-  found in tags (MUS-045), and setup from the Android app with a device key
-  (ADM-035). The welcome flow closes for good once the owner exists
-  (ADM-020).
+  code, and asks for the recovery key and, from R1.1, where the libraries
+  are now (ADM-029, ADM-069; ADM-051). From R2: movie and TV folders
+  (ADM-026, LIB-002), a transcoding self-test (VID-009), an import summary
+  of ratings found in tags (MUS-045), and setup from the Android app with a
+  device key (ADM-035). The welcome flow closes for good once the owner
+  exists (ADM-020).
 - **Actions:** Each step's choices; skip optional steps; restore instead.
 - **Form factors:** *TV:* not offered. A TV never claims a server, because
   it is a limited device that can never hold owner or administrator
@@ -2097,10 +2224,10 @@ server itself, and the welcome flow runs before any account exists.
   onboarding in R2. *Web and desktop:* the main path.
 - **Security:** until the claim the server answers only this page, its
   assets, the claim and restore endpoints and a health check, and accepts
-  no sign-in (SEC-IAM-006, SEC-OPS-001, SEC-OPS-003). The page works only in
-  a secure context, the server's HTTPS name or localhost, with a recognised
-  Host (SEC-IAM-008, SEC-IAM-010). The code is 128 bits, lasts 24 hours,
-  survives restarts, never appears in a response or the log, and is moved
+  no sign-in (SEC-IAM-006, SEC-OPS-001, SEC-OPS-003). The page works only
+  in a secure context, the owner's domain or tailnet name over HTTPS, or
+  localhost, with a recognised Host (SEC-IAM-008, SEC-IAM-010). The code is
+  128 bits, lasts 24 hours, survives restarts, never appears in a response or the log, and is moved
   from the fragment into a request body and off the address bar
   (SEC-IAM-007, SEC-CLI-013); wrong codes are delayed per source, shown on
   the host console and never use it up (SEC-IAM-008, SEC-OPS-004). The
@@ -2109,50 +2236,60 @@ server itself, and the welcome flow runs before any account exists.
   SEC-OPS-005, SEC-OPS-006). There is no password path (SEC-IAM-025). A
   restore needs the same code (SEC-OPS-008) and checks the backup's
   signature before anything else (SEC-OPS-043). Before the claim the server
-  makes no outbound connection except the name service and its certificate
-  (SEC-OPS-007). Browsing folders and adding roots is step-up (SEC-IAM-041).
-- **Serves:** R1: ACC-001, ACC-002, ACC-050, ACC-113, ADM-018, ADM-019, ADM-021, ADM-022, ADM-023, ADM-025, ADM-027, ADM-028, ADM-029, ADM-030, ADM-031, ADM-051, ADM-069, LIB-001, LIB-005, LIB-021, LIB-108. R2: ADM-026, ADM-035, LIB-002, MUS-045, VID-009.
+  makes no outbound connection, except that an own-domain install obtains
+  its certificate from the configured CA, which the egress inventory allows
+  (SEC-OPS-007, SEC-TM-075; [flows G21](flows.md#gaps-and-questions-the-flows-expose));
+  the name service's registration arrives with the name service in R2.
+  Browsing folders and adding roots is step-up (SEC-IAM-041).
+- **Serves:** R1: ACC-001, ACC-002, ACC-050, ACC-113, ADM-018, ADM-019, ADM-021, ADM-022, ADM-025, ADM-028, ADM-029, ADM-031, ADM-069, ADM-143, LIB-001, LIB-005, LIB-021, LIB-108. R1.1: ADM-030, ADM-051. R1.2: ADM-027. R2: ADM-023, ADM-026, ADM-035, LIB-002, MUS-045, VID-009.
 
 #### SUR-083 Admin dashboard
-- **Release:** R1.
+- **Release:** R1, with the security card (ADM-142). R1.2 adds the health
+  summary, who is listening now, and restart and shut down (ADM-109,
+  ADM-099, MUS-190, ADM-112); R1.3 adds bytes read on the scan card
+  (ADM-088).
 - **Purpose:** The admin home: is the server healthy, who is using it, and
-  what needs attention (ADM-109).
-- **Shows:** A health summary (ADM-109) with backup and verification state
-  (ADM-065, ADM-072), library roots (ADM-108), free space (ADM-083) and a
-  scan card with bytes read (ADM-088, ADM-031); a security card: "Reachable
-  from the internet: no", or through which proxy, and which listeners hold
-  globally routable addresses (SEC-NET-028, SEC-OPS-038), the isolation
+  what needs attention (ADM-142; ADM-109 from R1.2).
+- **Shows:** Backup and verification state (ADM-065, ADM-072), library
+  roots (ADM-108), free space (ADM-083) and a scan card (ADM-031; bytes
+  read from R1.3, ADM-088), gathered from R1.2 into a health summary
+  (ADM-109); a security card (ADM-142): "Reachable from the internet: no",
+  or through which proxy, and which listeners hold globally routable
+  addresses (SEC-NET-028, SEC-OPS-038), the isolation
   tier (SEC-MED-024), root and capability state, audit verification, backup
   age and encryption, version support and clock skew (SEC-OPS-061), whether
   the security-fix check is off (SEC-OPS-047), a reminder until the
   recovery kit is confirmed (SEC-PRV-040), and the certificate's expiry
-  (SEC-NET-072); who is listening now, without titles unless each person
-  chose to show them (ADM-099, MUS-190); owner alerts (ADM-116), with
-  critical ones as a persistent banner; banners for known advisories (ACC-127,
-  ADM-054) and for recovery having been used (ADM-034); an update card
-  (ADM-053); and a menu to restart or shut down (ADM-112). For the owner:
-  "Rotate all server secrets" (SEC-OPS-018). From R2: a checklist that
+  (SEC-NET-072); from R1.2, who is listening now, without titles unless
+  each person chose to show them (ADM-099, MUS-190); owner alerts
+  (ADM-116), with critical ones as a persistent banner; banners for known
+  advisories (ACC-127, ADM-054) and for recovery having been used
+  (ADM-034); an update card (ADM-053); and, from R1.2, a menu to restart or
+  shut down (ADM-112). For the owner: "Rotate all server secrets"
+  (SEC-OPS-018). From R2: a checklist that
   ticks itself (ADM-033), direct play, remux and transcode breakdown
   (ADM-101), bandwidth and system charts (ADM-104, ADM-105), storage
   statistics (ADM-082, ADM-107), capability and withdrawn-release notices
   (ADM-014, ADM-133, ADM-061), API-key expiry banners (INT-019), and server
   events (INT-037). From R3: live TV sessions (LIV-161).
-- **Actions:** Open any card's detail, acknowledge, restart, and for the
-  owner rotate secrets (step-up).
+- **Actions:** Open any card's detail, acknowledge, restart (R1.2), and
+  for the owner rotate secrets (step-up).
 - **Form factors:** The general admin rule. Not on TV, which shows only the
   alert banner on an admin's profile (ADM-114, SEC-CLI-024).
-- **Security:** the "listening now" card shows person, device, quality and
-  playback method, and the title only for people who turned on "Show what
-  I'm playing to admins"; private sessions never show one; each admin read
+- **Security:** from R1.2, the "listening now" card shows person, device,
+  quality and playback method, and the title only for people who turned on
+  "Show what I'm playing to admins"; private sessions never show one; each admin read
   of live sessions is rate-limited and appears in that person's own
   security events (SEC-PRV-025, SEC-PRV-024, SEC-IAM-077). The version
   appears only here and in other signed-in admin views (SEC-NET-047).
   Rotating secrets invalidates every session and stream URL, keeps device
   keys enrolled, and alerts the owner and admins (SEC-OPS-018).
-- **Serves:** R1: ACC-127, ADM-031, ADM-034, ADM-054, ADM-065, ADM-072, ADM-083, ADM-088, ADM-099, ADM-108, ADM-109, ADM-112, ADM-116, MUS-042, MUS-190. R2: ADM-014, ADM-033, ADM-061, ADM-062, ADM-082, ADM-101, ADM-104, ADM-105, ADM-107, ADM-114, ADM-133, CLI-058, INT-019, INT-037.
+- **Serves:** R1: ACC-127, ADM-031, ADM-034, ADM-054, ADM-065, ADM-072, ADM-083, ADM-108, ADM-116, ADM-142, MUS-042. R1.2: ADM-099, ADM-109, ADM-112, MUS-190. R1.3: ADM-088. R2: ADM-033, ADM-061, ADM-062, ADM-082, ADM-101, ADM-104, ADM-105, ADM-107, ADM-114, ADM-133, CLI-058, INT-019, INT-037. Later: ADM-014.
 
 #### SUR-084 Sessions
-- **Release:** R1.
+- **Release:** R1.2, with the admins' live view (ADM-099, ADM-100,
+  ADM-102), which moved from R1. In R1 an administrator ends a person's
+  sessions from Users (SUR-090), without any live view (SEC-IAM-044).
 - **Purpose:** Live sessions, each with its playback decision and the reason
   for it, and the power to stop one with a message (ADM-099, ADM-100,
   ADM-102).
@@ -2176,20 +2313,24 @@ server itself, and the welcome flow runs before any account exists.
   any session except the owner's (SEC-IAM-044). The message is plain text,
   shown as text (SEC-API-046). There is no way to act as another person
   (SEC-PRV-026).
-- **Serves:** R1: ACC-072, ACC-073, ADM-099, ADM-100, ADM-102, INT-134. R2: ACC-074, ADM-103, ADM-104, ADM-126, INT-136, VID-002, VID-005, VID-007, VID-169, VID-171, VID-172.
+- **Serves:** R1.2: ACC-072, ACC-073, ADM-099, ADM-100, ADM-102, INT-134. R2: ACC-074, ADM-103, ADM-104, ADM-126, INT-136, VID-002, VID-005, VID-007, VID-169, VID-171, VID-172.
 
 #### SUR-085 Libraries and library settings
-- **Release:** R1.
+- **Release:** R1. R1.1 adds exclusions and changing a library's location
+  (LIB-006, LIB-031, ADM-051); R1.2 adds "keep off Home" (DIS-012); R1.3
+  adds scan bytes, background analysis, the spoken-word flag and "Rebuild
+  library" with fixes kept (ADM-088, LIB-024, LAT-010, LIB-179).
 - **Purpose:** Add, configure and scan libraries, while media stays
   read-only (LIB-007).
-- **Shows:** The library list with each root's health (ADM-108) and scan
-  bytes (ADM-088); per library: folders (LIB-003), exclusions (LIB-006),
-  schedule (LIB-013), "watch for changes" (LIB-014), storage type per folder
-  (LIB-015), background analysis (LIB-024), artist splitting rules
-  (LIB-038, MUS-035), artwork order (LIB-136), "Media is read-only"
-  (LIB-007), "keep off Home" (DIS-012), the spoken-word flag (LAT-010),
-  "change location" with a preview (LIB-031, ADM-051), and "Rebuild
-  library", which states that fixes are kept (LIB-179). From R2: library
+- **Shows:** The library list with each root's health (ADM-108) and, from
+  R1.3, scan bytes (ADM-088); per library: folders (LIB-003), exclusions
+  (LIB-006, R1.1), schedule (LIB-013), "watch for changes" (LIB-014),
+  storage type per folder (LIB-015), background analysis (LIB-024, R1.3),
+  artist splitting rules (LIB-038, MUS-035), artwork order (LIB-136),
+  "Media is read-only" (LIB-007), "keep off Home" (DIS-012, R1.2), the
+  spoken-word flag (LAT-010, R1.3), "change location" with a preview
+  (LIB-031, ADM-051, R1.1), and "Rebuild library", which states that fixes
+  are kept (LIB-179, R1.3). From R2: library
   kinds for video and home video (LIB-002, LIB-010), music tag choices
   (LIB-055, MUS-016), ratings from tags (LIB-061), precedence and embedded
   titles (LIB-128, LIB-129), metadata language (LIB-183), collections and
@@ -2197,7 +2338,8 @@ server itself, and the welcome flow runs before any account exists.
   recommendation plugins (DIS-076), locks (LIB-175), I/O profile per root
   (ADM-087), and refresh modes (LIB-119).
 - **Actions:** Add a library, scan now (LIB-012), rescan a folder or item,
-  edit settings, change location, rebuild, choose who may see a library.
+  edit settings, change location (R1.1), rebuild (R1.3), choose who may
+  see a library.
 - **Form factors:** The general admin rule. "Scan now" is also on the phone
   dashboard in R2 (CLI-058); not on TV (SEC-CLI-024).
 - **Security:** adding, removing or moving a root, and opening the folder
@@ -2209,23 +2351,24 @@ server itself, and the welcome flow runs before any account exists.
   service account could write to one (SEC-MED-038, SEC-OPS-054). A new
   library is visible only to the owner and admins until someone is granted
   it (SEC-IAM-070); a grant applies from the next request (SEC-IAM-076).
-  Turning on MusicBrainz or cover-art lookups for a library is an egress
-  grant, shown with the fields each provider receives (SEC-PRV-013,
-  SEC-PRV-014).
-- **Serves:** R1: ADM-025, ADM-051, ADM-085, ADM-088, ADM-108, DIS-012, LAT-010, LIB-001, LIB-003, LIB-004, LIB-006, LIB-007, LIB-012, LIB-013, LIB-014, LIB-015, LIB-024, LIB-031, LIB-038, LIB-136, LIB-179, MUS-035. R2: ADM-087, DIS-076, DIS-134, LAT-093, LIB-002, LIB-010, LIB-055, LIB-061, LIB-119, LIB-128, LIB-129, LIB-167, LIB-175, LIB-183, MUS-016.
+  From R1.1, turning on MusicBrainz or cover-art lookups for a library is
+  an egress grant, shown with the fields each provider receives
+  (SEC-PRV-013, SEC-PRV-014).
+- **Serves:** R1: ADM-025, ADM-085, ADM-108, LIB-001, LIB-003, LIB-004, LIB-007, LIB-012, LIB-013, LIB-014, LIB-015, LIB-038, LIB-136, MUS-035. R1.1: ADM-051, LIB-006, LIB-031. R1.2: DIS-012. R1.3: ADM-088, LAT-010, LIB-024, LIB-179. R2: ADM-087, DIS-076, DIS-134, LAT-093, LIB-002, LIB-010, LIB-055, LIB-061, LIB-119, LIB-128, LIB-129, LIB-167, LIB-175, LIB-183, MUS-016.
 
 #### SUR-086 Library health
-- **Release:** R1.
+- **Release:** R1. Tag problems and missing files arrive in R1.1 (LIB-194,
+  LIB-034).
 - **Purpose:** Every problem the scanner found, in one place, each with a
   fix where one exists (MUS-044).
 - **Shows:** Damaged and unreadable files (LIB-193, MUS-229, MUS-079),
   files quarantined after crashing or hanging the scan worker twice, with
   the reason and a retry (SEC-MED-019), the scan worker's isolation tier
   with a "reduced isolation" notice when the host cannot apply the full
-  sandbox (SEC-MED-024), tag problems with fix actions (LIB-194, LIB-038,
-  LIB-049), same-name artist collisions (MUS-006), sidecar problems such as
+  sandbox (SEC-MED-024), tag problems with fix actions (from R1.1, LIB-194;
+  LIB-038, LIB-049), same-name artist collisions (MUS-006), sidecar problems such as
   LRC files (LIB-068,
-  MUS-155), missing files (LIB-034), moved files (MUS-038), offline roots
+  MUS-155), missing files (LIB-034, R1.1), moved files (MUS-038), offline roots
   (LIB-032) and watch warnings (LIB-014). From R2: remap a missing file by
   hand (LIB-035), naming (LIB-084), files that need indexing (LIB-089),
   unmatched items (LIB-102), duplicates (LIB-196), incomplete metadata
@@ -2234,22 +2377,26 @@ server itself, and the welcome flow runs before any account exists.
   every report (LIB-203).
 - **Actions:** Filter, fix, ignore, open in the file inspector.
 - **Form factors:** The general admin rule.
-- **Serves:** R1: LIB-014, LIB-032, LIB-034, LIB-038, LIB-049, LIB-068, LIB-193, LIB-194, MUS-006, MUS-035, MUS-038, MUS-044, MUS-079, MUS-155, MUS-229. R2: ADM-075, LIB-035, LIB-084, LIB-089, LIB-091, LIB-102, LIB-196, LIB-197, LIB-198, LIB-199, LIB-200, LIB-203.
+- **Serves:** R1: LIB-014, LIB-032, LIB-038, LIB-049, LIB-068, LIB-193, MUS-006, MUS-035, MUS-038, MUS-044, MUS-079, MUS-155, MUS-229. R1.1: LIB-034, LIB-194. R2: ADM-075, LIB-035, LIB-084, LIB-089, LIB-091, LIB-102, LIB-196, LIB-197, LIB-198, LIB-199, LIB-200, LIB-203.
 
 #### SUR-087 Review queue
-- **Release:** R1.
+- **Release:** R1.3, with the review queue itself (LIB-099), which moved
+  from R1.
 - **Purpose:** Decisions the scanner was not sure about, waiting for a
   person (LIB-099).
 - **Shows:** Each item with the evidence and the proposed decision, for
-  example two same-titled albums that might be one (LIB-051); from R2,
-  MusicBrainz lookup results (LIB-111). Affected items carry a marker in
+  example two same-titled albums that might be one (LIB-051), and
+  MusicBrainz lookup results (LIB-111, whose built-in lookups exist from
+  R1.1). Affected items carry a marker in
   browse.
 - **Actions:** Accept, reject, choose another match.
 - **Form factors:** The general admin rule.
-- **Serves:** R1: LIB-051, LIB-099. R2: LIB-111.
+- **Serves:** R1.3: LIB-051, LIB-099, LIB-111.
 
 #### SUR-088 File inspector
-- **Release:** R1.
+- **Release:** R1.2, with the file inspector itself (ADM-125, LIB-195),
+  which moved from R1. "Why is this here?" reaches the track info sheet
+  in R1.1 (LIB-098, SUR-013).
 - **Purpose:** Shows exactly what the server read from one file and why it
   made each decision (ADM-125, LIB-195, LIB-098).
 - **Shows:** Every raw tag (LIB-059), how the item was identified without
@@ -2261,14 +2408,15 @@ server itself, and the welcome flow runs before any account exists.
 - **Form factors:** The general admin rule. Opened from an item's context
   menu as "File info", or from Diagnostics; the same report is a CLI
   command (SUR-110).
-- **Serves:** R1: ADM-125, LIB-006, LIB-046, LIB-059, LIB-097, LIB-098, LIB-195. R2: LIB-071, LIB-075, LIB-105, LIB-126.
+- **Serves:** R1.2: ADM-125, LIB-006, LIB-046, LIB-059, LIB-097, LIB-098, LIB-195. R2: LIB-071, LIB-075, LIB-105, LIB-126.
 
 #### SUR-089 Corrections and metadata editor
-- **Release:** R1 (merge, split and alias for artists and albums). R2 (the
-  edit sheet, artwork picker, fix match and edit history).
+- **Release:** R1.3 (merge, split and alias for artists and albums, which
+  moved from R1). R2 (the edit sheet, artwork picker, fix match and edit
+  history).
 - **Purpose:** Fix the library without touching the files; every fix is a
   logged event that survives rescans and rebuilds (MUS-007, LIB-179).
-- **Shows:** In R1: "Merge with" and "Split" on artists and albums (LIB-041,
+- **Shows:** From R1.3: "Merge with" and "Split" on artists and albums (LIB-041,
   LIB-058, MUS-007), the admin corrections list, and artwork taken from the
   folder (LIB-135). From R2: the edit sheet on every item with a lock per
   field, its source, and "Unlock all" (LIB-172, LIB-173, LIB-174, LIB-118,
@@ -2293,32 +2441,35 @@ server itself, and the welcome flow runs before any account exists.
   egress client, never from a URL a user typed into a request
   (SEC-API-080). Names and fields are stored as text and never written back
   into media folders (SEC-MED-038).
-- **Serves:** R1: LIB-041, LIB-048, LIB-058, LIB-135, MUS-007. R2: ACC-024, INT-141, LIB-100, LIB-101, LIB-111, LIB-112, LIB-113, LIB-118, LIB-119, LIB-121, LIB-126, LIB-138, LIB-139, LIB-140, LIB-141, LIB-144, LIB-156, LIB-172, LIB-173, LIB-174, LIB-176, LIB-178, LIB-180, LIB-186, MUS-018, MUS-025, MUS-046, MUS-138.
+- **Serves:** R1.3: LIB-041, LIB-048, LIB-058, LIB-135, MUS-007. R2: ACC-024, INT-141, LIB-100, LIB-101, LIB-111, LIB-112, LIB-113, LIB-118, LIB-119, LIB-121, LIB-126, LIB-138, LIB-139, LIB-140, LIB-141, LIB-144, LIB-156, LIB-172, LIB-173, LIB-174, LIB-176, LIB-178, LIB-180, LIB-186, MUS-018, MUS-025, MUS-046, MUS-138.
 
 #### SUR-090 Users and invitations
-- **Release:** R1.
+- **Release:** R1. R1.2 adds several administrators and everyone's share
+  links (ACC-040, ACC-089).
 - **Purpose:** Local accounts with no vendor account, invited by link or QR
   code (ACC-006, ACC-080).
 - **Shows:** Users with their libraries (ACC-037, MUS-027), their role,
-  their device count and last sign-in, and an enable switch (ACC-008);
-  several administrators (ACC-040); "help sign in" for a locked-out member
+  their device count and last sign-in, a device cap per person (ACC-076;
+  allow-lists from R2), and an enable switch (ACC-008); from R1.2, several
+  administrators (ACC-040); "help sign in" for a locked-out member
   or guest, which shows a one-time recovery QR code on this screen for the
   person to scan while present, or sends it to a device they already
   approved (ACC-064); handing the server to a new owner by a transfer the
   recipient accepts (ADM-052); invitations with their address, expiry, uses
   and status, including those waiting for the inviter to confirm a
-  matching code (ACC-080); and everyone's share links, with revoke
-  (ACC-089). From R2: per-person playback, download, quality, device and
-  remote-access rights (ACC-043, ACC-044, ACC-076, ACC-103, ACC-107,
-  ACC-108); memberships that end on a date (ACC-081); and invite options
+  matching code (ACC-080); and, from R1.2, everyone's share links, with
+  revoke (ACC-089). From R2: per-person playback, download, quality, device and
+  remote-access rights (ACC-043, ACC-044, ACC-103, ACC-107, ACC-108); memberships that end on a date (ACC-081); and invite options
   and QR codes that carry the server's address (ACC-083). Re-inviting people
   from an old server (ACC-084) is Later, with the rival importers.
 - **Actions:** Invite, confirm a pending invitee's matching code, disable,
   end someone's sessions, change access, help sign in, make an
-  administrator (owner only), transfer ownership (owner only), revoke a
-  share.
+  administrator (owner only, R1.2), transfer ownership (owner only),
+  revoke a share (R1.2).
 - **Form factors:** The general admin rule; managing users from the phone is
-  named in CLI-058. Not on TV (SEC-CLI-024).
+  named in CLI-058. In R1 the "End sessions" control on a person's page is
+  how an administrator stops someone's playback, because the live view
+  (SUR-084) arrives in R1.2 (SEC-IAM-044). Not on TV (SEC-CLI-024).
 - **Security:** an invitation's preset can never exceed the inviter's own
   rights; it carries a 128-bit secret in the fragment, lasts 7 days and one
   use by default, and the screen shows the address the link carries
@@ -2339,7 +2490,7 @@ server itself, and the welcome flow runs before any account exists.
   shown to them at their next sign-in (SEC-PRV-026). This page never shows
   anyone's history, and there is no "sign in as" (SEC-PRV-025,
   SEC-PRV-026). This replaces "add an admin and remove yourself".
-- **Serves:** R1: ACC-006, ACC-008, ACC-037, ACC-040, ACC-064, ACC-080, ACC-089, ADM-052, MUS-027. R2: ACC-043, ACC-044, ACC-076, ACC-081, ACC-083, ACC-103, ACC-107, ACC-108.
+- **Serves:** R1: ACC-006, ACC-008, ACC-037, ACC-064, ACC-076, ACC-080, ADM-052, MUS-027. R1.2: ACC-040, ACC-089. R2: ACC-043, ACC-044, ACC-081, ACC-083, ACC-103, ACC-107, ACC-108.
 
 #### SUR-091 Household, policies, devices and shares
 - **Release:** R2.
@@ -2368,19 +2519,20 @@ server itself, and the welcome flow runs before any account exists.
 - **Serves:** R2: ACC-016, ACC-018, ACC-021, ACC-038, ACC-039, ACC-045, ACC-075, ACC-089, ACC-111, CLI-096, VID-010, VID-029, VID-173.
 
 #### SUR-092 Sign-in and security settings
-- **Release:** R1.
+- **Release:** R1. Single sign-on through the owner's OIDC provider arrives
+  in R1.2 (ACC-057).
 - **Purpose:** The server's sign-in rules. Owner only (SEC-IAM-075).
-- **Shows:** Single sign-on through the owner's OIDC provider (ACC-057),
-  with automatic sign-up off and claims mapped to administrator off
-  (SEC-IAM-030, SEC-IAM-031); protection against guessing and its current
+- **Shows:** From R1.2, single sign-on through the owner's OIDC provider
+  (ACC-057), with automatic sign-up off and claims mapped to administrator
+  off (SEC-IAM-030, SEC-IAM-031); protection against guessing and its current
   state (ACC-063); session lifetimes, which the owner may shorten but never
   lengthen beyond 30 days for browsers and 15 minutes idle or 1 hour for
   admin sessions (ACC-079, SEC-IAM-041); the recovery-hold length, 24 to
   72 hours (SEC-IAM-106); and remote administration, off by default
   (SEC-NET-045). From R2: requiring a passkey rather than the provider alone
   (ACC-054) and provider claims mapped to policies (ACC-058).
-- **Actions:** Configure, test the provider, shorten lifetimes, turn remote
-  administration on or off.
+- **Actions:** Configure, test the provider (R1.2), shorten lifetimes,
+  turn remote administration on or off.
 - **Form factors:** The general admin rule.
 - **Security:** every change here is an owner step-up action, audited, and
   a loosening raises an owner alert (SEC-IAM-041, SEC-OPS-031). The
@@ -2389,12 +2541,15 @@ server itself, and the welcome flow runs before any account exists.
   sign-in alone never satisfies step-up (SEC-IAM-031, SEC-IAM-107). There
   is no switch for passwords, passwordless "home network" sign-in or
   disabling authentication (SEC-IAM-025, SEC-HIS-004).
-- **Serves:** R1: ACC-057, ACC-063, ACC-079. R2: ACC-054, ACC-058.
+- **Serves:** R1: ACC-063, ACC-079. R1.2: ACC-057. R2: ACC-054, ACC-058.
 
 #### SUR-093 Network and remote access
-- **Release:** R1 (posture, trusted proxies, path prefix, HTTPS and naming,
-  privacy and network activity). R2 (iroh remote access, relays, the
-  browser edge and upload budgets).
+- **Release:** R1 (posture, trusted proxies for the owner's reverse proxy
+  or tailnet, HTTPS for the owner's own domain, privacy and network
+  activity). R1.2 adds a path prefix (ACC-134). R2 adds the project's
+  per-server name with its Certificate Transparency monitoring, built-in
+  remote access over iroh, relays, the browser edge and upload budgets
+  (D-07).
 - **Purpose:** How the server is reached, who can reach it, and a truthful
   list of every outbound connection it makes.
 - **Shows:** The posture in plain words, "Reachable from the internet: no",
@@ -2403,18 +2558,19 @@ server itself, and the welcome flow runs before any account exists.
   SEC-OPS-038); trusted proxies, each declared as a private overlay or as
   public, with any undeclared proxy seen and a one-step "Trust it"
   (ACC-097, SEC-NET-017, SEC-NET-019); a detected container gateway or NAT
-  front-end with its fixes (SEC-NET-068); a path prefix (ACC-134); HTTPS
-  and naming: the per-server name, the owner's own domain with automatic
-  certificates, or a tailnet, with the certificate's expiry and Certificate
-  Transparency monitoring for the per-server name (ACC-098, ACC-099,
-  ADM-022, ADM-023, SEC-NET-069, SEC-NET-072); privacy choices (ADM-028);
-  and the network activity page, which lists every outbound destination
-  and the feature that caused it (ADM-129, SEC-NET-032). From R2: remote
-  access with no open ports (ACC-096), the browser edge, off until the
-  owner turns it on (ACC-102, SEC-NET-043), self-hosted and default relays
-  with what the relay operator can see (ACC-100, ACC-101, SEC-NET-039), the
-  upload budget (ACC-109) and remux and transcode bandwidth limits
-  (VID-028, VID-030).
+  front-end with its fixes (SEC-NET-068); from R1.2, a path prefix
+  (ACC-134); HTTPS: the owner's own domain with automatic certificates, a
+  certificate the owner supplies, or a tailnet name, with the
+  certificate's expiry (ACC-098, ACC-099, ADM-022, SEC-NET-072); the
+  reverse-proxy and tailnet recipes for use away from home (SEC-NET-022);
+  privacy choices (ADM-028); and the network activity page, which lists
+  every outbound destination and the feature that caused it (ADM-129,
+  SEC-NET-032). From R2: the project's per-server name, with Certificate
+  Transparency monitoring for it (ADM-023, SEC-NET-069); remote access with
+  no open ports (ACC-096); the browser edge, off until the owner turns it
+  on (ACC-102, SEC-NET-043); self-hosted and default relays with what the
+  relay operator can see (ACC-100, ACC-101, SEC-NET-039); the upload budget
+  (ACC-109); and remux and transcode bandwidth limits (VID-028, VID-030).
 - **Actions:** Configure, trust a proxy, renew a certificate now, test (the
   connectivity check is in SUR-102).
 - **Form factors:** The general admin rule.
@@ -2423,10 +2579,11 @@ server itself, and the welcome flow runs before any account exists.
   announced to every admin (SEC-IAM-041, SEC-TM-017). Leaving the home
   posture raises an alert at the first internet-posture request
   (SEC-OPS-038). There is no port-mapping switch for the web listeners, and
-  iroh's is off unless the owner turns it on (SEC-NET-030, SEC-OPS-040).
+  iroh's, from R2, is off unless the owner turns it on (SEC-NET-030,
+  SEC-OPS-040).
   The trusted-proxy list starts empty, and forwarding headers from anyone
   else are ignored (SEC-NET-016).
-- **Serves:** R1: ACC-097, ACC-098, ACC-099, ACC-134, ADM-022, ADM-023, ADM-028, ADM-129. R2: ACC-096, ACC-100, ACC-101, ACC-109, VID-028, VID-030.
+- **Serves:** R1: ACC-097, ACC-098, ACC-099, ADM-022, ADM-028, ADM-129. R1.2: ACC-134. R2: ACC-096, ACC-100, ACC-101, ACC-102, ACC-109, ADM-023, VID-028, VID-030.
 
 #### SUR-094 Integrations, tokens and webhooks
 - **Release:** R2. API keys move from R1 to R2 with the baseline (security
@@ -2466,7 +2623,7 @@ server itself, and the welcome flow runs before any account exists.
   to SEC-EXT-048). Metrics are off by default, and when on listen only on
   loopback or need a metrics-only key, with no per-user data
   (SEC-NET-046, SEC-OPS-059).
-- **Serves:** R2: ACC-049, INT-006, INT-011, INT-012, INT-017, INT-018, INT-019, INT-020, INT-021, INT-022, INT-002, INT-025, INT-029, INT-030, INT-031, INT-032, INT-033, INT-034, INT-035, INT-036, INT-037, INT-038, INT-039, INT-040, INT-041, INT-042, INT-043, INT-044, INT-045, INT-046, INT-047, INT-049, INT-097, INT-118, INT-119, INT-121, INT-124, INT-133, INT-135, LIB-026, LIB-027. R3: INT-053.
+- **Serves:** R2: ACC-049, INT-006, INT-011, INT-012, INT-017, INT-018, INT-019, INT-020, INT-021, INT-022, INT-002, INT-025, INT-029, INT-030, INT-031, INT-032, INT-033, INT-034, INT-035, INT-036, INT-037, INT-038, INT-039, INT-040, INT-041, INT-042, INT-043, INT-044, INT-045, INT-049, INT-097, INT-118, INT-119, INT-121, INT-124, INT-133, INT-135, LIB-027. R3: INT-053. Later: INT-046, INT-047, LIB-026.
 
 #### SUR-095 Plugins and providers
 - **Release:** R2.
@@ -2527,13 +2684,14 @@ server itself, and the welcome flow runs before any account exists.
 - **Serves:** R2: ACC-130, INT-086, INT-094, INT-095, INT-096, INT-098, MUS-207.
 
 #### SUR-097 Migration
-- **Release:** R1 (listening-service files and playlists). R2 (an iTunes
+- **Release:** R1.1 (listening-service files and playlists, which moved
+  from R1). R2 (an iTunes
   library file, dry runs, undo and mirror mode). Importers for rival
   servers' databases are Later, as the baseline's release table places them
   (SEC-TM-074).
 - **Purpose:** Bring a household's history and playlists over from where
   they were, with reasons for every match (ADM-030, ADM-044).
-- **Shows:** In R1: Last.fm and ListenBrainz export files, imported into the
+- **Shows:** From R1.1: Last.fm and ListenBrainz export files, imported into the
   importing person's own history only (ADM-042), bulk playlist import with a
   match report (ADM-043), and the review of unmatched items (ADM-044). From
   R2: an iTunes library file (ADM-041), a dry-run report (ADM-045), undo
@@ -2553,25 +2711,28 @@ server itself, and the welcome flow runs before any account exists.
   importer can see (SEC-MED-051). When the Later importers come, a rival's
   database is opened read-only in a jailed worker (SEC-STD-031), and
   reading a rival's API is an owner step-up egress grant (SEC-IAM-041).
-- **Serves:** R1: ADM-030, ADM-042, ADM-043, ADM-044. R2: ADM-041, ADM-045, ADM-046, DIS-125, INT-116, MUS-045, MUS-148.
+- **Serves:** R1.1: ADM-030, ADM-042, ADM-043, ADM-044. R2: ADM-041, ADM-045, ADM-046, DIS-125, INT-116, MUS-045, MUS-148.
 
 #### SUR-098 Backups and export
-- **Release:** R1.
+- **Release:** R1. R1.2 adds restoring from these screens with a restore
+  point and preview, and the documented export formats (ADM-070, ADM-074);
+  R1.3 adds derived data to backups (ADM-141). Until R1.2 a restore runs at
+  setup or with `gunmetal restore` on the host (ADM-029, ADM-071).
 - **Purpose:** Tiny daily backups on by default, encrypted, signed,
   verified, downloadable and restorable with a preview (ADM-065, ADM-068,
   ADM-070).
 - **Shows:** The backup list with status, verification and encryption
   (ADM-065, ADM-072, ADM-068), pre-upgrade snapshots (ADM-056), each
   backup's contents in plain words, including the audit log and its latest
-  signed checkpoint (ADM-066, SEC-OPS-024), the identity store and derived
-  data included (ACC-013, ADM-141), how long backups are kept, 14 days by
+  signed checkpoint (ADM-066, SEC-OPS-024), the identity store (ACC-013) and,
+  from R1.3, derived data (ADM-141) included, how long backups are kept, 14 days by
   default (SEC-PRV-041), the recovery kit's status and "Make a new kit"
-  (SEC-PRV-040), download and upload (ADM-069), restore with a restore
-  point and preview (ADM-070), and the server's own settings export
-  (ADM-074). From R2: cache snapshots (ADM-067) and off-site destinations,
+  (SEC-PRV-040), download and upload (ADM-069), and, from R1.2, restore
+  with a restore point and preview (ADM-070) and the server's own settings
+  export (ADM-074). From R2: cache snapshots (ADM-067) and off-site destinations,
   which receive only the encrypted file (ADM-073).
-- **Actions:** Back up now, download (owner), restore (owner), make a new
-  recovery kit, export settings, configure.
+- **Actions:** Back up now, download (owner), restore (owner, R1.2), make a
+  new recovery kit, export settings (R1.2), configure.
 - **Form factors:** The general admin rule.
 - **Security:** every backup is encrypted in age v1 to the server's backup
   key and the owner's recovery key, and signed; there is no unencrypted
@@ -2587,7 +2748,7 @@ server itself, and the welcome flow runs before any account exists.
   person exports their own data from Account > Your data, and no admin can
   export another adult's history (SEC-PRV-025, SEC-PRV-047). This replaces
   the earlier whole-server "full export".
-- **Serves:** R1: ACC-013, ADM-056, ADM-065, ADM-066, ADM-068, ADM-069, ADM-070, ADM-072, ADM-074, ADM-141. R2: ADM-067, ADM-073.
+- **Serves:** R1: ACC-013, ADM-056, ADM-065, ADM-066, ADM-068, ADM-069, ADM-072. R1.2: ADM-070, ADM-074. R1.3: ADM-141. R2: ADM-067, ADM-073.
 
 #### SUR-099 Updates
 - **Release:** R1.
@@ -2612,26 +2773,30 @@ server itself, and the welcome flow runs before any account exists.
 - **Serves:** R1: ADM-053, ADM-054, ADM-060. R2: ADM-055, ADM-063, INT-072.
 
 #### SUR-100 Tasks and activity
-- **Release:** R1.
+- **Release:** R1 (activity). R1.1 adds re-reads after a parser update
+  (LIB-025); R1.2 adds the one task list with run, cancel and history
+  (ADM-093); R1.3 adds loudness analysis progress (MUS-086, LIB-066,
+  LIB-024).
 - **Purpose:** What the server is doing and has done: one task list and one
   activity and audit log (ADM-093, ADM-110).
-- **Shows:** Tasks with run, cancel and history, throttled and resumable
-  (ADM-093, ADM-095); scan and job activity with an indicator in the admin
+- **Shows:** From R1.2, tasks with run, cancel and history (ADM-093);
+  throttled and resumable jobs (ADM-095); scan and job activity with an indicator in the admin
   header (LIB-022), including "0 changed", bytes read, moved files and
-  re-reads after a parser update (LIB-016, LIB-017, LIB-019, LIB-025,
-  LIB-029); loudness analysis progress (MUS-086, LIB-066, LIB-024);
+  re-reads after a parser update from R1.1 (LIB-016, LIB-017, LIB-019,
+  LIB-029; LIB-025); loudness analysis progress from R1.3 (MUS-086,
+  LIB-066, LIB-024);
   upgrades marked as upgrades (DIS-038); and sign-in, admin and recovery
   events (ACC-078, ADM-034), which open the security log (SUR-108). From
   R2: path-scoped refreshes (INT-011), reprioritise and cancel (LIB-023),
   schedules and a maintenance window (ADM-094), concurrency and pause
   (ADM-096), optimisation (ADM-081), plugin tasks (INT-071) and intro
   detection jobs (VID-112).
-- **Actions:** Run, cancel, filter, open the item.
+- **Actions:** Filter, open the item; run and cancel from R1.2.
 - **Form factors:** The general admin rule. Not on TV (SEC-CLI-024).
 - **Security:** activity entries name files and libraries but never what a
   person played (SEC-PRV-025). Security events live in the audit log, read
   in SUR-108.
-- **Serves:** R1: ACC-078, ADM-034, ADM-093, ADM-095, ADM-110, DIS-038, LIB-016, LIB-017, LIB-019, LIB-022, LIB-024, LIB-025, LIB-029, LIB-066, MUS-086. R2: ADM-081, ADM-094, ADM-096, INT-011, INT-071, LIB-023, VID-112.
+- **Serves:** R1: ACC-078, ADM-034, ADM-095, ADM-110, DIS-038, LIB-016, LIB-017, LIB-019, LIB-022, LIB-029. R1.1: LIB-025. R1.2: ADM-093. R1.3: LIB-024, LIB-066, MUS-086. R2: ADM-081, ADM-094, ADM-096, INT-011, INT-071, LIB-023, VID-112.
 
 #### SUR-101 Alerts and logs
 - **Release:** R1.
@@ -2649,10 +2814,12 @@ server itself, and the welcome flow runs before any account exists.
   internet exposure or an undeclared proxy; owner recovery; a backup
   downloaded or restored, and the "review devices and access" list after a
   restore; keys rotated; a security setting loosened outside the app; the
-  certificate expiring in 30 or 7 days; a certificate the server did not
-  ask for; an audit verification failure; and a running version affected by
-  an advisory or out of support (SEC-OPS-031, SEC-OPS-032, SEC-OPS-044,
-  SEC-NET-027, SEC-NET-069, SEC-NET-072). From R2: an alert inbox with
+  certificate expiring in 30 or 7 days; an audit verification failure; and
+  a running version affected by an advisory or out of support
+  (SEC-OPS-031, SEC-OPS-032, SEC-OPS-044, SEC-NET-027, SEC-NET-072). From
+  R2, with the project's per-server name and its Certificate Transparency
+  monitoring, also a certificate for that name that the server did not ask
+  for (SEC-NET-069). From R2: an alert inbox with
   acknowledge and snooze (ADM-117), opt-in email and webhook destinations
   that carry only the event type, time and a link (SEC-OPS-035), a log
   viewer (ADM-118), log levels per module with automatic revert (ADM-120),
@@ -2676,17 +2843,21 @@ server itself, and the welcome flow runs before any account exists.
 - **Serves:** R1: ADM-083, ADM-116, ADM-119, ADM-122. R2: ADM-117, ADM-118, ADM-120, INT-062. R3: LIV-044, LIV-060, LIV-061, LIV-132, LIV-155, LIV-156.
 
 #### SUR-102 Diagnostics
-- **Release:** R1.
+- **Release:** R1 (the doctor, the write queue and "rebuild the cache").
+  R1.2 adds the diagnostic bundle, "inspect a file" and local crash records
+  (ADM-124, ADM-125, ADM-130); R1.3 adds the derived-data store
+  (ADM-141).
 - **Purpose:** Find out what is wrong without a forum thread: the doctor,
   the diagnostic bundle, crash records and the rebuild button.
-- **Shows:** Doctor results (ADM-123), a diagnostic bundle with a preview
-  and masking (ADM-124), "inspect a file" (ADM-125, opening SUR-088), local
-  crash records (ADM-130), the write queue (ADM-080), the database and
-  derived-data store (ADM-141), and "rebuild the cache" (ADM-077). From R2:
+- **Shows:** Doctor results (ADM-123), the write queue (ADM-080), the
+  database, and "rebuild the cache" (ADM-077); from R1.2, a diagnostic
+  bundle with a preview and masking (ADM-124), "inspect a file" (ADM-125,
+  opening SUR-088) and local crash records (ADM-130); and from R1.3, the
+  derived-data store (ADM-141). From R2:
   the metrics endpoint's token (ADM-127), a remote connectivity check
   (ADM-134), the transcoding and sandbox self-tests (ADM-132, VID-009), and
   playback diagnostic bundles sent from players (VID-174).
-- **Actions:** Run the doctor, build a bundle, rebuild.
+- **Actions:** Run the doctor, build a bundle (R1.2), rebuild.
 - **Form factors:** The general admin rule.
 - **Security:** the doctor includes the security checks: root and
   capability state, file permissions, writable media or binary, internet
@@ -2698,13 +2869,14 @@ server itself, and the welcome flow runs before any account exists.
   metrics-only key, never an admin key, and metrics carry no per-user data
   (SEC-OPS-059). The remote connectivity check runs only when the owner
   asks and sends only the address and port (SEC-OPS-074).
-- **Serves:** R1: ADM-077, ADM-080, ADM-123, ADM-124, ADM-130, ADM-141. R2: ADM-127, ADM-132, ADM-134, VID-009, VID-174.
+- **Serves:** R1: ADM-077, ADM-080, ADM-123. R1.2: ADM-124, ADM-130. R1.3: ADM-141. R2: ADM-127, ADM-132, ADM-134, VID-009, VID-174.
 
 #### SUR-103 Server settings and about
-- **Release:** R1.
+- **Release:** R1. R1.2 adds the server's name and welcome message and the
+  live footprint in About (ADM-140, ADM-010).
 - **Purpose:** The server's own settings and identity.
-- **Shows:** Server name and welcome message (ADM-140), with the note that
-  neither is shown before sign-in; storage locations for settings, log,
+- **Shows:** From R1.2, the server name and welcome message (ADM-140),
+  with the note that neither is shown before sign-in; storage locations for settings, log,
   cache and scratch space (ADM-090); retention, with the private defaults:
   security events 365 days with addresses shortened after 30 and removed at
   90, diagnostic logs 14 days, backups 14 days, history until each person
@@ -2712,7 +2884,8 @@ server itself, and the welcome flow runs before any account exists.
   (ADM-111, SEC-PRV-005); stream limits, server-wide and per guest, with
   the recommended defaults (ACC-075, SEC-IAM-102, SEC-TM-068; named
   policies carry their own limits from R2, SUR-091); and About with the
-  version, build, target and live footprint (ADM-001, ADM-010). From R2:
+  version, build and target (ADM-001), and from R1.2 the live footprint
+  (ADM-010). From R2:
   each setting's
   source and whether it needs a restart (ADM-008, ADM-024), export and
   import with a diff (ADM-009), and switching whole modules off (ADM-097).
@@ -2725,7 +2898,7 @@ server itself, and the welcome flow runs before any account exists.
   views (SEC-NET-047). A settings import passes the live validators and
   never makes the server less strict without the owner's confirmation
   (SEC-OPS-049).
-- **Serves:** R1: ACC-075, ADM-001, ADM-010, ADM-090, ADM-111, ADM-140. R2: ADM-008, ADM-009, ADM-024, ADM-097.
+- **Serves:** R1: ACC-075, ADM-001, ADM-090, ADM-111. R1.2: ADM-010, ADM-140. R2: ADM-008, ADM-009, ADM-024, ADM-097.
 
 #### SUR-104 Totals and statistics for administrators
 - **Release:** R2.
@@ -2825,13 +2998,14 @@ server itself, and the welcome flow runs before any account exists.
   doors, and it never dead-ends.
 - **Shows:** A static page that sets no cookie and holds no form. Over plain
   HTTP from the home network, an immediate redirect to the server's HTTPS
-  address when one exists; if that address has not loaded within a few
-  seconds, plain steps: allow the per-server name in the router's DNS
-  rebinding settings, use the server's own name or tailnet name, or open
-  Gunmetal on the server itself (SEC-NET-001, SEC-NET-071). With no HTTPS
-  address yet, how to get one: the per-server name, a domain the owner
-  holds, a tailnet name, or an SSH tunnel to localhost for setup (ADM-021,
-  ACC-098). When the certificate is missing or expired, that the server
+  address when one exists (the owner's domain or tailnet name), and if
+  that address has not loaded within a few seconds, plain steps: use the
+  tailnet name, or open Gunmetal on the server itself (SEC-NET-001). With
+  no HTTPS address yet, how to get one: a domain the owner holds, a
+  tailnet name, or an SSH tunnel to localhost for setup (ADM-021,
+  ACC-098). From R2, with the project's per-server name, the steps also
+  say how to allow that name in the router's DNS rebinding settings
+  (SEC-NET-071). When the certificate is missing or expired, that the server
   cannot be reached securely right now and that the owner has been told
   (SEC-NET-005). From outside the home in the home posture, only that this
   server cannot be reached from here (SEC-NET-024). Through an undeclared
@@ -2855,7 +3029,8 @@ server itself, and the welcome flow runs before any account exists.
 ### Outside the client
 
 #### SUR-110 Command line
-- **Release:** R1.
+- **Release:** R1. The diagnostic bundle and file inspector commands
+  arrive in R1.2 (ADM-124, ADM-125).
 - **Purpose:** Everything an operator needs when the interface is not
   available, or when scripting: install as a service, check configuration,
   recover the owner, back up and restore, rebuild, and diagnose.
@@ -2870,8 +3045,8 @@ server itself, and the welcome flow runs before any account exists.
   a 15-minute enrolment link and alerting every admin (ACC-004, ADM-034,
   SEC-IAM-092); service installation
   (ADM-005); configuration and migration checks (ADM-007, ADM-057); restore
-  (ADM-071); `gunmetal rebuild` (ADM-077); the diagnostic bundle (ADM-124);
-  and the file inspector (ADM-125, LIB-195). From R2: settings export and
+  (ADM-071); `gunmetal rebuild` (ADM-077); and, from R1.2, the diagnostic
+  bundle (ADM-124) and the file inspector (ADM-125, LIB-195). From R2: settings export and
   import (ADM-009), filesystem guidance (ADM-091) and the transcoding and
   sandbox self-tests (ADM-132, ADM-133).
 - **Actions:** Run commands.
@@ -2881,18 +3056,23 @@ server itself, and the welcome flow runs before any account exists.
   the claim code are reachable only on the host, never over the network
   (SEC-IAM-092, SEC-IAM-007). The server refuses to start as root
   (SEC-OPS-053).
-- **Serves:** R1: ACC-001, ACC-004, ADM-005, ADM-006, ADM-007, ADM-018, ADM-034, ADM-057, ADM-071, ADM-077, ADM-078, ADM-079, ADM-089, ADM-123, ADM-124, ADM-125, LIB-195. R2: ADM-009, ADM-091, ADM-132, ADM-133.
+- **Serves:** R1: ACC-001, ACC-004, ADM-005, ADM-006, ADM-007, ADM-018, ADM-034, ADM-057, ADM-071, ADM-077, ADM-078, ADM-079, ADM-089, ADM-123. R1.2: ADM-124, ADM-125, LIB-195. R2: ADM-009, ADM-091, ADM-132, ADM-133.
 
 #### SUR-111 Project site and documentation
-- **Release:** R1.
+- **Release:** R1. R1.1 adds published speed numbers (DIS-019); R1.2 adds
+  footprint numbers, the hardware guide and Home layout notes (ADM-010,
+  ADM-011, DIS-015); R1.3 adds 32-bit ARM builds (ADM-004).
 - **Purpose:** The pages on gunmetal.tv and in the docs that features
   depend on: downloads, install guides, the hardware guide, benchmarks,
   advisories and release notes.
-- **Shows:** The download page and builds (ADM-001, ADM-004; installers and
+- **Shows:** The download page and builds (ADM-001; 32-bit ARM from R1.3,
+  ADM-004; installers and
   outside-store installs in R2, ADM-013, CLI-017, ADM-014), install docs
   with a compose example (ADM-002, ADM-003, ADM-005, ADM-089, ADM-090), the
-  hardware guide sized for direct play (ADM-011), published footprint and
-  speed numbers (ADM-010, DIS-019; time to first frame in R2, VID-012), the
+  hardware guide sized for direct play (ADM-011, R1.2), published footprint
+  and speed numbers (ADM-010, R1.2; DIS-019, R1.1; time to first frame in
+  R2, VID-012), the reverse-proxy and Tailscale Serve recipes for use away
+  from home in R1 (SEC-NET-022), the
   browser support list (CLI-002), an advisory for every fix (ACC-126),
   release notes with before-and-after screenshots for any layout change
   (DIS-015, CLI-031, MUS-113), health endpoints and fail2ban guidance
@@ -2903,7 +3083,7 @@ server itself, and the welcome flow runs before any account exists.
   (ADM-024).
 - **Actions:** Read, download.
 - **Form factors:** A website for any browser.
-- **Serves:** R1: ACC-126, ADM-001, ADM-002, ADM-003, ADM-004, ADM-005, ADM-010, ADM-011, ADM-058, ADM-089, ADM-090, ADM-122, ADM-128, CLI-002, CLI-031, DIS-015, DIS-019, INT-001, MUS-113. R2: ADM-012, ADM-013, ADM-014, ADM-015, ADM-024, ADM-091, CLI-017, INT-003, INT-004, INT-015, INT-069, INT-095, VID-012.
+- **Serves:** R1: ACC-126, ADM-001, ADM-002, ADM-003, ADM-005, ADM-058, ADM-089, ADM-090, ADM-122, ADM-128, CLI-002, CLI-031, INT-001, MUS-113. R1.1: DIS-019. R1.2: ADM-010, ADM-011, DIS-015. R1.3: ADM-004. R2: ADM-012, ADM-013, ADM-015, ADM-024, ADM-091, CLI-017, INT-003, INT-004, INT-015, INT-069, INT-095, VID-012. Later: ADM-014.
 
 #### SUR-112 API reference page
 - **Release:** R1.
@@ -3068,9 +3248,9 @@ designed here and have no IDs yet.
 
 ### Method and result
 
-Every row in the ten area files was parsed, and each R1, R2 and R3 row's
-"UI surfaces" cell was split into the surfaces it names. Each named surface
-was assigned to an entry above, by rule and then by hand where a name was
+Every row in the ten area files was parsed, and each R1, R1.1, R1.2, R1.3,
+R2 and R3 row's "UI surfaces" cell was split into the surfaces it names.
+Each named surface was assigned to an entry above, by rule and then by hand where a name was
 ambiguous (for example "detail pages" means the album and artist pages in
 R1 and also the title page in R2). A row counts as having a home when at
 least one of its named surfaces is an entry above that exists in the row's
@@ -3079,29 +3259,50 @@ a qualifier that names a surface ("None beyond the lyrics view", "None
 directly; feeds the pre-play sheet") were given that surface, and the rest
 are listed in the behaviour-only table below.
 
-| Release | Rows in the map | Rows with a home here | Rows with no UI entry (behaviour only) |
-|---|---:|---:|---:|
-| R1 | 422 | 393 | 29 |
-| R2 | 696 | 669 | 27 |
-| R3 | 154 | 148 | 6 |
+| Release | Rows | Rows with a home in their release | Rows with no UI entry (behaviour only) | Rows with no home yet |
+|---|---:|---:|---:|---:|
+| R1 | 296 | 233 | 26 | 37 |
+| R1.1 | 79 | 78 | 0 | 1 |
+| R1.2 | 43 | 43 | 0 | 0 |
+| R1.3 | 32 | 30 | 2 | 0 |
+| R2 | 685 | 644 | 27 | 14 |
+| R3 | 157 | 147 | 0 | 10 |
 
-The result: **every R1 and every R2 feature that has a UI entry is reachable
-from at least one surface listed above, and every R1 feature has a home that
-exists in R1.** Every R3 row with a UI entry has a home too. The remaining tables record the
-rows that have no UI by design, the R1 rows whose named surface only partly
-exists in R1, and the features that have no home of Gunmetal's own.
+The counts were recomputed on 2026-10-03 from the Serves lines above, with
+each row in the release the owner's answers give it: the register's
+[R1 scope](../decisions.md#r1-scope) for the rows of the earlier R1 (with
+the per-server name, ADM-023, in R2 under D-07), and the feature map for
+every other row. The first draft's counts (422, 696 and 154) predate both
+the security alignment and the point releases.
 
-The counts in the table above are from the first draft, before the feature
-map was changed on 2026-10-02 to follow the security baseline. That change
-moved rows between releases (for example browser approval, the page of
-what admins can see and music share links into R1; API keys into R2; rival
-importers and the SD-card choice into Later) and turned password sign-in
-and authenticator-app codes (ACC-052, ACC-053) into No, so those two need
-no home. The Serves lines and the surface index above already follow the
-new releases; the counts in this table need recomputing against the
-updated map.
+The rows with no home yet are of three kinds, and none is hidden:
 
-The same change moved the desktop shell and its rows to Later (CLI-014,
+1. **Fourteen R1 rows whose only named surface moved to a point release**
+   with that surface's own row: the track info sheet (SUR-013, R1.1), the
+   file inspector (SUR-088, R1.2) and the review queue (SUR-087, R1.3).
+   Each still works in R1; [the table below](#r1-rows-whose-detail-surface-moved-to-a-point-release)
+   says where its result shows.
+2. **One R1.1 row, LIB-112**, whose named surface is the R2 artwork picker;
+   its R1.1 reach is in the table of rows whose named surface arrives
+   later.
+3. **Rows that no Serves line names yet, most of them added to the
+   feature map or moved by the security alignment of 2026-10-02.** In R1: ACC-005, ACC-009, ACC-136,
+   ACC-139, ADM-144 to ADM-148, CLI-155 to CLI-157, CLI-159,
+   DIS-186 to DIS-189, LIB-204 to LIB-207, MUS-233 and MUS-234. In R2:
+   ACC-131, ACC-132, CLI-158, DIS-190, INT-088, INT-160 to INT-164,
+   MUS-216 and VID-186 to VID-188. In R3: LIV-004, LIV-036, LIV-133,
+   LIV-158, LIV-159, LIV-165 and LIV-177 to LIV-180. Most already appear in
+   an entry's text ("Rotate all server secrets" in SUR-083 is ADM-144, "Is
+   this your own device?" in SUR-070 is CLI-155, deleting a period of
+   history in SUR-029 is MUS-233); giving them Serves lines is the next
+   coverage pass, not a release question.
+
+Every R1.2 and R1.3 row with a UI entry has a home in its own release. The
+remaining tables record the rows that have no UI by design, the rows whose
+named surface only partly exists in their release, and the features that
+have no home of Gunmetal's own.
+
+The security alignment also moved the desktop shell and its rows to Later (CLI-014,
 CLI-063, CLI-064, CLI-065, CLI-066, MUS-081, MUS-082, MUS-102), because the
 baseline's release scope puts the shell there (SEC-TM-074) and its controls
 are SEC-CLI-069, also Later (owner to confirm). The Serves lines above list
@@ -3111,7 +3312,7 @@ Android.
 
 ### Behaviour-only rows
 
-These R1 and R2 rows have no UI entry, because they are rules of a component
+These rows have no UI entry, because they are rules of a component
 or invisible by design. They need no surface, but most need a test, and some
 are promises that belong in documentation.
 
@@ -3136,13 +3337,13 @@ are promises that belong in documentation.
 | INT-007 | Consistent list endpoints | R1 | None (API only) |
 | INT-013 | Health check for uptime monitors | R1 | None |
 | INT-023 | Credentials in headers only | R1 | None (docs) |
-| INT-026 | "Who am I" check for tools | R1 | None (API only) |
+| INT-026 | "Who am I" check for tools | R2 | None (API only) |
 | INT-048 | Server-sent event stream | R2 | None (API only) |
 | INT-089 | Honest extension discovery | R2 | None |
 | INT-090 | OpenSubsonic lyrics, playback report, index-based queue and transcoding | R2 | None |
 | LAT-001 | Item kinds in the data model | R1 | None in R1 |
-| LAT-002 | People with typed roles | R1 | None in R1; person pages from R2 |
-| LAT-008 | Typed links between items | R1 | None in R1 |
+| LAT-002 | People with typed roles | R1.3 | None in R1.3; person pages from R2 |
+| LAT-008 | Typed links between items | R1.3 | None in R1.3 |
 | LAT-009 | Listening contexts in the queue protocol | R1 | None in R1 |
 | LAT-103 | Free remote viewing of music videos | R2 | None |
 | LIB-011 | Room for other media kinds | R1 | None in R1 |
@@ -3174,23 +3375,40 @@ are promises that belong in documentation.
 | VID-136 | Interruptions handled | R2 | None |
 | VID-150 | Casting that works when the server is far away | R2 | None |
 
-### R1 rows whose named surface arrives later
+### R1 rows whose detail surface moved to a point release
 
-These R1 rows have an R1 home, but their "UI surfaces" cell also names a
-surface, or a part of one, that does not exist until R2. Each line says what
-the R1 home is. The feature map is not wrong here: a feature is placed in the
-first release in which it ships on at least one client
-([README](../features/README.md#releases)). This table makes the R1 reach
-explicit for the people building R1.
+These fourteen R1 rows still ship in R1, but the surface that shows their
+detail moved to a point release with its own row. Each line says where
+their result shows in R1.
 
-| ID | Named surface that arrives later | R1 home |
+| ID | Surface that moved | What R1 shows |
+|---|---|---|
+| INT-009, MUS-036 | Track info sheet (SUR-013, R1.1) | MusicBrainz IDs on music items in the API (SUR-112), and the identity they give albums and artists on the artist and album pages (SUR-024, SUR-025) |
+| MUS-032, MUS-034, MUS-037 | Track info sheet (SUR-013, R1.1) | Their results: core formats that play, with the format badge on rows and tiles (SUR-023), and multi-value credits as tagged on artist and album pages (SUR-024, SUR-025) |
+| MUS-067, MUS-069, MUS-084, MUS-089, LIB-065 | Track info sheet (SUR-013, R1.1) | Gapless playback and gain in the player, with the gain mode in the full-screen player's info (SUR-010, MUS-087) |
+| LIB-046, LIB-059, LIB-097 | File inspector (SUR-088, R1.2) | Their results in browse: albums grouped by MusicBrainz IDs and identified without the internet (SUR-022, SUR-024, SUR-025); every raw tag is kept for the inspector |
+| LIB-051 | Review queue (SUR-087, R1.3) | Same-titled albums kept apart on the album grid and the artist page (SUR-022, SUR-024); doubtful cases wait for the review queue |
+
+### Rows whose named surface arrives later
+
+These rows have a home in their own release, but their "UI surfaces" cell
+also names a surface, or a part of one, that does not exist until a later
+release. Each line says what the home in the row's own release is. The
+feature map is not wrong here: a feature is placed in the first release in
+which it ships on at least one client
+([README](../features/README.md#releases)). This table makes that reach
+explicit for the people building R1 and its point releases.
+
+| ID | Named surface that arrives later | Home in the row's own release |
 |---|---|---|
 | ACC-011, ACC-017 | Profile picker (ACC-019, R2) | Account menu (SUR-006) and the profile editor (SUR-079) |
 | ACC-079 | Admin > Policies > Sessions (policies are ACC-038, R2) | Sign-in and security settings (SUR-092) and "Is this your own device?" on sign-in (SUR-070) |
 | ADM-011 | The setup checklist (ADM-033, R2) | Documentation (SUR-111); **Proposal:** a link from the welcome flow (SUR-082) |
 | CLI-026 | The "Downloaded" filter (downloads are R2) | The rule that lists keep working offline (SUR-000, SUR-023); the filter has nothing to show until R2 |
-| CLI-034, INT-147 | The native share sheets and film and episode links (R2) | "Copy link" in the context menu (SUR-004) and the R1 share sheet for music (SUR-058) |
-| INT-006 | Token detail (API keys arrive in R2) | None needed in R1: the change feed serves Gunmetal's own clients, and its per-key view arrives with keys in SUR-094 |
+| CLI-034, INT-147 (R1.2) | The native share sheets and film and episode links (R2) | "Copy link" in the context menu (SUR-004) and the R1.2 share sheet for music (SUR-058) |
+| LIB-098 (R1.1) | The file inspector (SUR-088, R1.2) | "Why is this here?" in the track info sheet, without file paths (SUR-013) |
+| LIB-111 (R1.1) | Admin > Review queue (SUR-087, R1.3) | "Look up on MusicBrainz" in an album's context menu, for administrators (SUR-004), switched on in Welcome > Privacy and Network (SUR-082, SUR-093) |
+| LIB-112 (R1.1) | The artwork picker (SUR-089, R2) | Covers fetched for albums with no local art, shown on the album page and every tile (SUR-025, SUR-023), switched on in Welcome > Privacy and Network (SUR-082, SUR-093) |
 | CLI-040, DIS-163 | TV letter column and car lists (R2) | The web letter column and the phone-width fast scroller (SUR-023) |
 | DIS-045, DIS-047, DIS-050, DIS-051, DIS-060, LIB-146 | "Detail pages", which for films are R2 | Artist and album pages (SUR-024, SUR-025) |
 | DIS-087 | Person pages (R2) | The artist page's role tabs (SUR-024) |
@@ -3337,7 +3555,7 @@ Recovery, all R1. Every entry that the baseline shapes now has a
 | SUR-082, SUR-099 | The update check offered as a choice | A required question with two answers and none preselected | SEC-OPS-047 | Yes, decision 4 |
 | SUR-090 | Hand over the server by adding an admin and removing yourself | A transfer the current owner and the recipient each confirm with a passkey | SEC-IAM-003 | No |
 | SUR-090, SUR-071 | One-step invitation redemption; "help sign in" by link | Matching-code confirmation for members and multi-library invitations; a privacy notice first; recovery links redeemed in person, with the 72-hour hold | SEC-IAM-079, SEC-PRV-053, SEC-IAM-091, SEC-IAM-106 | Yes, decision 6 (recovery) |
-| SUR-093 | Proxies, HTTPS and privacy settings | Posture and exposure status, proxies declared private or public, naming and certificates in R1, all owner step-up | SEC-NET-019, SEC-NET-028, SEC-IAM-041, SEC-TM-017 | Yes, decision 2 (the name service) |
+| SUR-093 | Proxies, HTTPS and privacy settings | Posture and exposure status, proxies declared private or public, naming and certificates in R1, all owner step-up (the naming part is superseded by D-07: own-domain certificates in R1, the project name in R2; see the next section) | SEC-NET-019, SEC-NET-028, SEC-IAM-041, SEC-TM-017 | Yes, decision 2 (the name service) |
 | SUR-094, SUR-078 | Scoped tokens in R1 | API keys in R2, never administrative | SEC-IAM-083, SEC-EXT-010 | Yes, decision 8 |
 | SUR-095 | Third-party plugins installed by URL; developer mode as a screen | Plugins only through a signed index the owner added; developer mode only in the configuration file, with a banner | SEC-EXT-035, SEC-EXT-037, SEC-EXT-038 | Yes, decision 13 |
 | SUR-097 | Rival-server imports in R2; the admin imports history for the household | Rival-database importers Later; each person imports their own history | SEC-TM-074, SEC-STD-031, SEC-PRV-025 | Yes, decision 5 |
@@ -3354,3 +3572,28 @@ The interface documents were then made consistent with each other. The
 decisions, which touch SUR-002, SUR-010, SUR-011, SUR-014, SUR-020,
 SUR-032, SUR-042, SUR-046 and the navigation model, are recorded in the
 [interface README](README.md#decisions-that-made-the-four-documents-consistent).
+
+## Changes made to follow the owner's answers
+
+On 2026-10-03 this inventory was changed to follow the owner's answers of
+2026-10-02 in the [decision register](../decisions.md#owner-answers-2026-10-02).
+Every requirement a moved surface carries moves with it and keeps every
+protection; nothing here weakens a security line. The surface IDs are
+unchanged.
+
+| Where | Was | Now | Decision |
+|---|---|---|---|
+| Releases, surface entries, the surface index and every Serves line | Release values R1, R2, R3, Later and No | R1.1, R1.2 and R1.3 added. Each Serves line lists a feature under the release in which it reaches the surface, so the R1 groups of 55 surfaces were split, and each Release line names what each point release adds | D-10 |
+| SUR-101 | The owner's R1 alerts included a certificate the server did not ask for | That alert comes from the name service's Certificate Transparency monitoring, so it is R2 (SEC-NET-069); the expiry alerts stay R1 (SEC-NET-072) | D-07 |
+| Releases, SUR-082, SUR-093, SUR-109 | The per-server HTTPS name as the R1 install-time default once its zone is on the Public Suffix List, with Certificate Transparency monitoring | R1 HTTPS through the owner's own domain with automatic certificates, a tailnet name or localhost; the name service, its naming client and its Certificate Transparency monitoring are R2, and ADM-023 is listed under R2 | D-07 |
+| Releases, SUR-093, SUR-111 | Remote use in R1 through a declared proxy or tailnet, owner to confirm | Confirmed: the owner's reverse proxy or a tailnet in R1, with the shipped recipes (SEC-NET-022); built-in remote access, relays and the browser edge in R2 (ACC-102 added to SUR-093's R2 line) | Remote access answer |
+| SUR-005, SUR-013, SUR-030, SUR-057, SUR-075, SUR-079, SUR-097 | R1 | R1.1, with the row that owns each surface | D-10 |
+| SUR-021, SUR-058, SUR-059, SUR-081, SUR-084, SUR-088 | R1 | R1.2, with the row that owns each surface; in R1 an administrator ends a person's sessions from Users (SUR-090), which keeps SEC-IAM-044 in R1 | D-10 |
+| SUR-027, SUR-087, SUR-089 | R1 | R1.3, with the rule language, the review queue and manual curation | D-10 |
+| SUR-132 | The R1 page described the admins' live view and the title switch | In R1 admins have no live view, and the page says so; the live view and the title switch (ACC-116, MUS-235) arrive in R1.2 | D-10 |
+| SUR-133 | No feature row yet | Serves ACC-137, ACC-138 and ADM-143, which the feature map now has; SUR-082 also serves ADM-143 | Consistency (flows G18) |
+| SUR-004, SUR-013, SUR-132 | LIB-111, LIB-098 and MUS-235 had no home in their release | "Look up on MusicBrainz" in the album menu (R1.1), "Why is this here?" in the track info sheet (R1.1) and the title switch (R1.2) | D-10 |
+| SUR-090 | ACC-076 listed under R2 | R1 for the device cap, allow-lists from R2, as the feature map places it | Consistency (A-557) |
+| SUR-022, SUR-025, SUR-026 | INT-138 and LIB-056 under R1 | R2, where the R1 scope moves them | D-10 |
+| Surface index | SUR-003 and SUR-103 counted 26 and 9 rows | 27 and 10, counting ACC-075, which was added to both | Consistency |
+| Coverage | Counts from the first draft; INT-006 among the R1 rows | Counts recomputed per release; INT-006 dropped from the table because it moved to R2; a table for the R1 rows whose detail surface moved to a point release; the rows added by the security alignment without a Serves line listed | D-10 |

@@ -26,10 +26,14 @@ open security decisions are marked "owner to confirm" and listed in
 section 14.
 
 Releases are used as defined in the feature map README: **R1** (music: the
-server and the web client, including the installable web app), **R2**
-(video, and the native Android and Android TV clients), **R3** (live TV),
-**Later** (wanted, not scheduled, including the desktop shell, which the
-security baseline's release scope places there, SEC-TM-074) and **No**
+server and the web client), the point releases that complete it, as the
+owner adopted them on 2026-10-02 (D-10 in the
+[decision register](../decisions.md#r1-scope)): **R1.1** (bring your music
+in, including the installable web app), **R1.2** (the household and the
+admin) and **R1.3** (discovery and analysis), then **R2** (video, and the
+native Android and Android TV clients), **R3** (live TV), **Later**
+(wanted, not scheduled, including the desktop shell, which the security
+baseline's release scope places there, SEC-TM-074) and **No**
 (deliberately not doing).
 
 Contrast ratios in this file were computed with the WCAG 2.2 relative
@@ -86,12 +90,14 @@ screen, are:
 
 - **Stability:** a persistent now-playing bar (MUS-108) and a layout
   contract that keeps the bar, queue, lyrics, device picker and scrubber in
-  place across releases (MUS-113, CLI-031, DIS-015), all R1.
-- **Honesty:** a quality badge that tells the truth (MUS-099), an honest
-  unplayable state (MUS-229), the gain applied (MUS-090), a reason on every
-  suggestion (DIS-062), all R1.
+  place across releases (MUS-113, CLI-031), all R1, and a home that does
+  not move once people arrange it (DIS-015, R1.2).
+- **Honesty:** a quality badge that tells the truth (MUS-099) and an honest
+  unplayable state (MUS-229), both R1; the gain applied (MUS-090, R1.1); a
+  reason on every suggestion (DIS-062, R1.3).
 - **Speed:** instant browsing from the synced library with no spinner
-  (CLI-022, MUS-208, DIS-002, DIS-100) and published budgets (DIS-019).
+  (CLI-022, MUS-208, DIS-002, DIS-100) and published budgets (DIS-019,
+  R1.1).
 - **Accessibility:** screen readers reach every control (CLI-135), a build
   gate (CLI-136), full keyboard use with visible focus (CLI-138), text that
   follows the system size (CLI-139), reduced motion (CLI-140), dark, light,
@@ -141,8 +147,8 @@ The other rules:
   R1, so wide-gamut covers will look slightly duller (media and parser
   safety, question 13). The earlier draft said "in memory-safe code or the
   sandbox", which would have allowed decoding inside the server process.
-- Uploaded profile pictures are re-encoded to a raster format with their
-  metadata removed, and SVG is refused (ACC-011, SEC-API-086,
+- Uploaded profile pictures, from R1.1, are re-encoded to a raster format
+  with their metadata removed, and SVG is refused (ACC-011, SEC-API-086,
   SEC-PRV-006).
 - No string from a file, a provider or another person ever reaches a style
   value, a class name, an element ID or a URL the client builds. Colour
@@ -165,9 +171,9 @@ counts are as those files recorded them.
 | The same context menu everywhere, by right-click or three dots | Long-press preview was removed; restoring it has 4,701 votes | One action registry for every surface (DIS-111); preview returns in R2 (MUS-064) |
 | The three-pane desktop layout that others copy | In March 2024 the queue was squeezed into a fixed side panel and lost durations and album names | The queue pane can grow to full height and keeps durations and albums (CLI-060, MUS-119) |
 | "Next in queue" shown above "Next from" the source | "Queue to Next or Last" had 1,635 votes; queue control is a paid feature | Three labelled lanes and documented verbs, free (MUS-116 to MUS-118) |
-| Few tabs, each with one clear job | Home cannot be customised: 15,697 votes, marked Not Right Now; podcasts fill it (8,815 votes to hide them) | Home is built by the user from saved rules (DIS-003, MUS-049); music and spoken word stay apart (LAT-010, DIS-017) |
+| Few tabs, each with one clear job | Home cannot be customised: 15,697 votes, marked Not Right Now; podcasts fill it (8,815 votes to hide them) | Home is built by the user from saved rules (DIS-003, MUS-049, R1.2); music and spoken word stay apart (LAT-010, R1.3), and music and video too (DIS-017, R2) |
 | The player takes its colour from the artwork | No light theme: 7,031 votes | Light, OLED-black and high-contrast themes in R1 (CLI-141) |
-| A 2023 TV redesign with recent items first and a dim mode | No alphabet scroll bar (884 votes); albums cannot be sorted by release year (1,738) | Alphabet jump (DIS-101) and real sorts (DIS-104) in R1 |
+| A 2023 TV redesign with recent items first and a dim mode | No alphabet scroll bar (884 votes); albums cannot be sorted by release year (1,738) | Real sorts in R1 (DIS-104) and alphabet jump in R1.1 (DIS-101) |
 | A distinctive app icon | A May 2026 icon change was reverted within days after backlash | The default icon never changes without notice (CLI-154) |
 
 ### Apple Music
@@ -175,7 +181,7 @@ counts are as those files recorded them.
 | What it does well | What users dislike | What Gunmetal does |
 |---|---|---|
 | Separate Play Next and Play Last verbs | Several "Play Next" picks play in reverse order | Play next keeps the order you chose (MUS-117) |
-| Word-by-word lyrics, translation and pronunciation | Unrelated tracks start after an album ends | Word-timed lyrics in R1 (MUS-156); suggestions are a visible lane, off by default (MUS-129) |
+| Word-by-word lyrics, translation and pronunciation | Unrelated tracks start after an album ends | Word-timed lyrics in R1.1 (MUS-156); suggestions are a visible lane, off by default, in R1.3 (MUS-129) |
 | A landscape player with lyrics beside the art (iOS 27) | The iOS 26 Liquid Glass look was criticised by NN/g for readability and motion; a request to turn it off has 118 "me too" votes | Opaque surfaces with computed contrast; no translucency under text (section 4) |
 | Lossless and hi-res badges | NN/g described the mini player's title as ticking along "like a stock-market ticker", and the bar jumps when scrolling | No marquee text anywhere; the bar never moves (section 9) |
 | It follows the system's light or dark setting | The Mac app launches on the play key or when headphones connect (a tool to stop it reached 669 points on Hacker News) | Themes follow the system by default (CLI-141); the desktop app, when it exists, never launches itself (CLI-068; the desktop shell is Later, see section 13) |
@@ -326,7 +332,7 @@ and on artwork-tinted surfaces.
 | Pressed | `text.primary` at 10% over the surface | As hover, for the instant it is shown |
 | Selected | `accent.fill` at 14% over the surface, plus a 3 px `accent.indicator` bar on the leading edge | `text.primary` 13.01:1 and `text.muted` 5.36:1 (dark); 14.40:1 and 4.94:1 (light) |
 | Disabled | `text.disabled`, no hover | Exempt under WCAG 1.4.3, but still 3.14:1 in dark |
-| Unavailable item (CLI-026) | Artwork dimmed to 40%, an icon and a reason; text keeps its normal colour | Text contrast unchanged, because only the art dims |
+| Unavailable item (MUS-229; CLI-026 from R1.1) | Artwork dimmed to 40%, an icon and a reason; text keeps its normal colour | Text contrast unchanged, because only the art dims |
 
 ### Measured contrast
 
@@ -368,9 +374,9 @@ dark, so text on brass is always `accent.on`.
   and dark when the system states no preference. Dark is the theme designed
   and reviewed first.
 - Settings > Appearance offers System, Dark, Light, OLED black and High
-  contrast (CLI-141). The choice is a synced user setting with an optional
-  "this device only" override (CLI-030), because a phone and a living-room
-  TV often want different themes.
+  contrast (CLI-141). The choice is a synced user setting (ACC-012) with,
+  from R1.1, an optional "this device only" override (CLI-030), because a
+  phone and a living-room TV often want different themes.
 - When the operating system asks for more contrast (`prefers-contrast: more`
   on the web, and the native equivalents in R2), the high-contrast theme is
   used. When Windows forced colours are active, the web client uses the
@@ -409,8 +415,8 @@ on a TV stick where a live blur would cost frame time.
    server treats the worker's numbers as untrusted, checks each against its
    range, and only then stores them in the album's metadata (SEC-MED-023).
    Artists and playlists take the colour of their most representative
-   album (for a playlist, the first album shown in its automatic cover,
-   MUS-137).
+   album (for a playlist, the album of its first track in R1, and from
+   R1.1 the first album shown in its automatic cover, MUS-137).
 3. The candidates travel in the synced library (MUS-110), so the client
    draws the tinted page or player on the first frame with no network call.
    The client decodes them with the same bounded, schema-validating decoder
@@ -564,8 +570,9 @@ tested.
 - **Text spacing.** Every layout must survive the WCAG 1.4.12 overrides
   (line height 1.5 times the font size, paragraph spacing 2 times, letter
   spacing 0.12 times, word spacing 0.16 times) without clipping or overlap.
-- **Language and direction.** All strings are external (CLI-146). R1 uses
-  logical properties (start and end, not left and right) so mirroring for
+- **Language and direction.** All strings are external from R1, so the
+  translations of R1.2 (CLI-146) need no rewrite. R1 uses logical
+  properties (start and end, not left and right) so mirroring for
   right-to-left languages in R2 (CLI-147) needs no layout rewrite. Icons
   that imply direction (back, next, the queue's drag handle) mirror; media
   transport icons (play, skip) do not.
@@ -634,11 +641,11 @@ pills. Two shapes carry the identity:
 
 - **The nut.** A flat-topped hexagon with rounded corners, taken from the
   mark. It is used for the primary play and pause button (brass fill,
-  `accent.on` triangle) and for people: artist photos and profile pictures
-  (ACC-011). Records are squares and people are nuts, which separates them
-  at a glance. Whether the hexagonal crop works for portraits needs a
-  usability test (open question 2). The hit area of a nut button is always
-  the full square around it.
+  `accent.on` triangle) and for people: artist photos and profile pictures,
+  both from R1.1 (MUS-024, ACC-011). Records are squares and people are
+  nuts, which separates them at a glance. Whether the hexagonal crop works
+  for portraits needs a usability test (open question 2). The hit area of
+  a nut button is always the full square around it.
 - **The square.** Albums, tracks and playlists use square artwork with
   `radius.s`. Video uses 2:3 posters and 16:9 stills in R2.
 
@@ -668,7 +675,7 @@ reflow at 320 CSS px, so every compact screen is also tested at 320.
 | Measure | Phone | Wide web and desktop | Tablet (R2) | TV (R2) |
 |---|---|---|---|---|
 | Side margin | 16 | 24 in content | 24 | 96 horizontal, 54 vertical (the common 5% overscan-safe margin; platform guidance unverified) |
-| Track row height | 56 | 48 comfortable, 36 compact (DIS-107) | 52 | 72 |
+| Track row height | 56 | 48 comfortable, and 36 compact from R1.1 (DIS-107) | 52 | 72 |
 | Minimum target | 44 by 44 | 32 by 32 | 44 by 44 | Every focusable item at least 64 tall |
 | Grid tile | 2 columns, 12 gap | 160 to 200 wide, 24 gap | 3 to 5 columns | About 220 square tiles, 24 gap, 7 to a row |
 | Gap between tappable targets | 8 | 4 | 8 | 24 between cards |
@@ -866,9 +873,9 @@ is text, so it survives colour blindness and screen readers.
 | Original | `accent.text` on a 1 px `accent.text` outline | "Original" in compact form; the full sentence on hover, focus or tap: "Original FLAC, 24-bit, 96 kHz, played directly" | MUS-099 |
 | Converted (R2) | `text.secondary` outline | "Converted" in compact form; the full sentence on hover, focus or tap: "Opus 160 kbps, converted for mobile data" | MUS-099, MUS-106 |
 | Format and lossless or hi-res | `text.secondary` outline | "FLAC 24/96", "Lossless", "Hi-res" | MUS-021, LIB-146 |
-| Explicit | `text.secondary` filled square, `bg.canvas` letter | "E", with the accessible name "Explicit" | MUS-047 |
-| Suggested | `text.muted` label beside the reason | "Suggested: same composer" | MUS-129, DIS-062 |
-| Unavailable | Icon plus `text.secondary` reason | "Can't play in this browser: ALAC" | MUS-229, CLI-026 |
+| Explicit (R1.1) | `text.secondary` filled square, `bg.canvas` letter | "E", with the accessible name "Explicit" | MUS-047 |
+| Suggested (R1.3) | `text.muted` label beside the reason | "Suggested: same composer" | MUS-129, DIS-062 |
+| Unavailable | Icon plus `text.secondary` reason | "Can't play in this browser: ALAC" | MUS-229; CLI-026 from R1.1 |
 | Drive offline | `status.info` icon plus label | "Drive offline" | LIB-032 |
 | Private session | Icon plus "Private" in `text.primary` on `bg.overlay` | Shown in the bar and the full player for as long as it is on; it is never hidden by a layout or theme | ACC-117, SEC-PRV-024 |
 
@@ -900,21 +907,23 @@ rows, tiles and the track info sheet.
    to everyone.
 4. **No spinner for local data.** Lists, pages and search read the synced
    library (CLI-022). Skeletons appear only during the very first sync on a
-   device, with the sync progress from CLI-024.
+   device, with the sync progress, which Settings > Storage also shows from
+   R1.1 (CLI-024).
 5. **Waiting on the network is announced, late.** A spinner appears only
    after 400 ms, so fast operations do not flash. After 10 s the text says
    what is being waited for. Progress is determinate whenever the server
    reports it.
-6. **Undo beats confirm.** Reversible actions (dismiss, hide, and from R2
-   remove from queue) act at once and offer Undo (DIS-023, MUS-121). An
-   undo notice stays for at least 10 s, stays while it is hovered or
-   focused, can be reached by keyboard, and is announced politely to screen
-   readers. The Hidden page is the permanent undo. Irreversible actions
-   confirm first and name exactly what will happen. Queue undo arrives in
-   R2 (MUS-121), so in R1 removing one queue row acts at once with no
-   prompt, while clearing Up next, clearing the queue and removing a
-   multi-selection confirm first and say how many items will go; from R2
-   they act at once and offer Undo instead.
+6. **Undo beats confirm.** Reversible actions (dismiss and hide from R1.1,
+   and remove from queue from R2) act at once and offer Undo (DIS-023,
+   MUS-121). An undo notice stays for at least 10 s, stays while it is
+   hovered or focused, can be reached by keyboard, and is announced
+   politely to screen readers. The Hidden page (R1.1) is the permanent
+   undo. Irreversible actions confirm first and name exactly what will
+   happen. Queue undo arrives in R2 (MUS-121), so until then removing one
+   queue row acts at once with no prompt, while clearing Up next, clearing
+   the queue and, from R1.1, removing a multi-selection confirm first and
+   say how many items will go; from R2 they act at once and offer Undo
+   instead.
 7. **Status messages are announced** without moving focus (WCAG 4.1.3).
 8. **A security stop has no way past it.** When going on would be unsafe,
    the screen explains and offers the safe next step; it never offers
@@ -928,34 +937,35 @@ rows, tiles and the track info sheet.
 | First scan running | Home, library | Scan progress with counts ("1,240 of about 8,000 files"); albums appear as they are found. Never an empty grid | DIS-004, LIB-021, R1 |
 | No music folder yet | Setup | The add-folder step with live checks for readability and filesystem type | ADM-025, R1 |
 | No libraries shared with this person | Home | "Your account has no libraries yet. Ask the server's owner to share one." | ACC-037, R1 |
-| A new person's home | Home | The default rows (DIS-004); rows with nothing in them yet stay hidden, with one first-run card that explains how to add rows | DIS-004, DIS-003, R1 |
-| Search with no results | Search | "No matches for 'beyonse' in Music", the nearest forgiving matches, and a button to search everything (DIS-085, DIS-088) | R1 |
-| Search with nothing typed | Search | Recent searches, kept only on this device (only in memory on a computer marked as shared), with "Clear" (DIS-089, SEC-PRV-004, SEC-CLI-010) | R1 |
+| A new person's home | Home | The default rows (DIS-004); rows with nothing in them yet stay hidden, and from R1.2 one first-run card explains how to add rows | DIS-004, R1; DIS-003, R1.2 |
+| Search with no results | Search | "No matches for 'beyonse' in Music" and the nearest forgiving matches (DIS-085); from R1.1, when the search was scoped, a button to search everything (DIS-088) | R1 (the button R1.1) |
+| Search with nothing typed | Search | Recent searches, kept only on this device (only in memory on a computer marked as shared), with "Clear" (DIS-089, SEC-PRV-004, SEC-CLI-010) | R1.1 |
 | Empty queue | Queue | "Nothing queued." with recently played items to start from | MUS-116, R1 |
 | No lyrics | Lyrics view | "This file has no lyrics." From R2, "Find lyrics" appears only if the lyrics plugin has been granted (MUS-162); it names the provider and runs only when pressed (SEC-PRV-015) | MUS-154, R1 |
-| Nothing hidden | Hidden page | "Nothing hidden. Items you dismiss or hide appear here so you can bring them back." | DIS-023, R1 |
+| Nothing hidden | Hidden page | "Nothing hidden. Items you dismiss or hide appear here so you can bring them back." | DIS-023, R1.1 |
 | Private session on | History, bar | The private indicator; history explains that this session is not recorded and that admins do not see its titles | ACC-117, SEC-PRV-024, R1 |
 | Artwork loading | Every tile | The placeholder gradient, then a fade-in | LIB-142, R1 |
 | Buffering | Bar, player | The buffered range shows in the progress track; "Buffering" appears in the bar after 1 s | MUS-070, R1 |
 | Track cannot play in this browser | Rows, queue | Dimmed artwork, an icon and the reason; the queue skips it with a notice and a link to the health report | MUS-229, R1 |
 | Damaged file | Player | "Skipped a damaged file" with a link to the health report; nothing is played | MUS-079, R1 |
-| Server unreachable | Every screen | A quiet `status.info` banner: "Can't reach the server. Browsing and search still work; playing needs the server." Items that cannot play are dimmed (CLI-025, CLI-026) | R1 |
+| Server unreachable | Every screen | A quiet `status.info` banner: "Can't reach the server. Browsing and search still work; playing needs the server." From R1.1, items that cannot play are dimmed and the app also opens while the server is down (CLI-025, CLI-026) | R1 (dimming and opening without the server R1.1) |
 | Drive offline | Library | Items greyed with "Drive offline"; nothing is removed | LIB-032, R1 |
 | Not a secure address | Help page rendered by the server | Over plain HTTP from anywhere but the server's own machine, the server sends only a redirect to its HTTPS address when one exists, or otherwise a static help page: how to reach the secure address, in plain words, with no sign-in, no server name and no version (SUR-109). The web client never runs there, so there is no reduced app to explain (owner to confirm, open question 11) | CLI-150, SEC-NET-001, SEC-NET-005, SEC-NET-024, R1 |
-| Client too old for the server | Every screen | "Update needed", with what still works | CLI-032, R1 |
+| Client too old for the server | Every screen of a native app | "Update needed", with what still works. The web client never shows it, because a tab always reloads to the server's own build | CLI-032, R2 |
 | Sign-in failed | Sign-in | One message, "That didn't work. Try again, or sign in another way.", whatever the cause, with the same response and timing whether or not the account exists; there is no password, so there is no "wrong password" (owner to confirm, open question 12) | ACC-007, SEC-IAM-025, SEC-IAM-022, SEC-API-058, R1 |
 | Known security advisory | Admin screens | A `status.warning` banner naming the fixed version | ADM-054, R1 |
 | Server starting or migrating | Startup page | To anyone not signed in: "This server is starting. It will be ready in about *n* minutes." and nothing else. The steps, the snapshot location and configuration errors appear on the host console and to the owner after sign-in | ADM-032, SEC-OPS-050, R1 |
-| Client will not load | Emergency page | A minimal page rendered by the server, after sign-in with an admin session: status, restart, and the logs the person's role may read. Downloading a backup is the owner's alone and asks for a fresh fingerprint or face check. Anyone else gets the same answer as for any route they may not use | ADM-113, SEC-IAM-041, SEC-OPS-027, SEC-OPS-045, SEC-OPS-050, R1 |
-| Library problems | Library health | Each file, what is wrong and where, and the fix where one exists | LIB-193, LIB-194, R1 |
+| Client will not load | Emergency page | A minimal page rendered by the server, after sign-in with an admin session: status, restart, and the logs the person's role may read. Downloading a backup is the owner's alone and asks for a fresh fingerprint or face check. Anyone else gets the same answer as for any route they may not use | ADM-113, SEC-IAM-041, SEC-OPS-027, SEC-OPS-045, SEC-OPS-050, R1.2 |
+| Library problems | Library health | Each file, what is wrong and where, and the fix where one exists; tag problems from R1.1 | LIB-193, R1; LIB-194, R1.1 |
 
-The help, startup and emergency pages are rendered by the server without
-the client bundle. They use the same tokens through one small stylesheet
-served from the server's own origin (inline styles are not allowed by
-SEC-API-044) and the system font stack, so they stay readable and tiny even
-when the client is broken. They carry no inline script (SEC-HIS-028): the
-help and startup pages need no script at all, and the emergency page's
-sign-in uses script files from the server's own origin. Pages shown to
+The help and startup pages (R1) and the emergency page (R1.2) are
+rendered by the server without the client bundle. They use the same tokens
+through one small stylesheet served from the server's own origin (inline
+styles are not allowed by SEC-API-044) and the system font stack, so they
+stay readable and tiny even when the client is broken. They carry no
+inline script (SEC-HIS-028): the help and startup pages need no script at
+all, and the emergency page's sign-in uses script files from the server's
+own origin. Pages shown to
 anyone not signed in never reveal the version, build, file paths, stack
 traces or database errors (SEC-OPS-050).
 
@@ -1101,9 +1111,14 @@ learns to dismiss them.
   (SEC-CLI-042), and a key change signed by the old key is followed with
   no prompt at all (SEC-NET-062).
 - *For the owner.* Alerts 30 and 7 days before the certificate expires,
-  with "Renew now" (SEC-NET-072), and a critical alert when a certificate
+  with "Renew now" (SEC-NET-072, R1). From R2, when the server uses the
+  project's per-server name service, a critical alert when a certificate
   for the server's name appears that the server did not request
-  (SEC-NET-069).
+  (SEC-NET-069). The owner placed the name service and its
+  certificate-transparency monitoring in R2 (D-07 in the
+  [decision register](../decisions.md)); in R1, HTTPS comes from the
+  owner's own domain with automatic certificates, a tailnet, or the
+  server's own machine.
 
 **7. Leaving Gunmetal.** A link to another origin opens only after the
 sheet in section 6 that names the destination host, with Cancel focused;
@@ -1148,12 +1163,12 @@ written VoiceOver and TalkBack script before each release.
 | A12 | Motion follows the system setting and the in-app override; moving content longer than 5 s can be paused; nothing flashes more than three times a second | WCAG 2.2.2, 2.3.1, 2.3.3 (AAA) | CLI-140, VID-141 | Tests with reduced motion forced on |
 | A13 | Status messages (track changes when the user asks for them, undo notices, sync state) are announced without moving focus | WCAG 4.1.3 | CLI-135 | Screen-reader script |
 | A14 | Tooltips and hover cards can be dismissed, hovered and stay until dismissed | WCAG 1.4.13 | CLI-138 | End-to-end tests |
-| A15 | Sign-in needs no memory or puzzle test: it is a passkey, an identity provider's own page, or approval from the person's phone, on every address the client runs on, with no password to remember (SEC-IAM-025, SEC-IAM-108). Code and share-link password fields allow paste and password managers (SEC-CLI-028). Owner to confirm (open question 12) | WCAG 3.3.8 | ACC-050 | End-to-end tests |
-| A16 | Time limits can be extended; undo notices stay at least 10 s and while focused | WCAG 2.2.1 | DIS-023 | End-to-end tests |
-| A17 | Mono audio and left-right balance are available | Not a WCAG item | CLI-151 | Unit tests of the audio graph |
+| A15 | Sign-in needs no memory or puzzle test: it is a passkey, an identity provider's own page (from R1.2), or approval from the person's phone, on every address the client runs on, with no password to remember (SEC-IAM-025, SEC-IAM-108). Code fields, and share-link password fields from R1.2, allow paste and password managers (SEC-CLI-028). Owner to confirm (open question 12) | WCAG 3.3.8 | ACC-050 | End-to-end tests |
+| A16 | Time limits can be extended; undo notices (from R1.1) stay at least 10 s and while focused | WCAG 2.2.1 | DIS-023 | End-to-end tests |
+| A17 | Mono audio and left-right balance are available (R1.1) | Not a WCAG item | CLI-151 | Unit tests of the audio graph |
 | A18 | A high-contrast theme, and Windows forced colours keep borders and focus visible | Not a WCAG item | CLI-141 | Screenshot tests in forced colours |
 | A19 | Subtitles start from the system caption settings, with no size cap (R2) | Platform | CLI-143, VID-091 | Native tests at the extremes |
-| A20 | Strings are translatable and pseudo-locale builds catch clipping; R1 uses logical layout properties so right-to-left works in R2 | Not a WCAG item | CLI-146, CLI-147 | Pseudo-locale CI build |
+| A20 | Strings are external and translatable from R1, and pseudo-locale builds catch hard-coded and clipped strings; translations ship in R1.2 (CLI-146); R1 uses logical layout properties so right-to-left works in R2 | Not a WCAG item | CLI-146, CLI-147 | Pseudo-locale CI build |
 | A21 | Security prompts, stops and notices (section 11) are announced when they appear, hold focus until answered, start with focus on the safe choice, and are covered by the screen-reader script; untrusted names inside them are read in their own isolate | WCAG 4.1.2, 4.1.3, 2.4.3 | CLI-135, SEC-IAM-058, SEC-MED-057 | Screen-reader script; end-to-end tests of each pattern |
 
 ## 13. What each release needs from this document
@@ -1166,8 +1181,23 @@ written VoiceOver and TalkBack script before each release.
   keyboard focus; motion tokens and reduced motion; the icon set and
   badges; every R1 state in section 11, including the security patterns
   (step-up, stops, approvals, notices, revocation, the help page); the
-  server-rendered help, startup and emergency pages; accessibility
-  requirements A1 to A6, A8 to A18, A20 and A21.
+  server-rendered help and startup pages; accessibility requirements A1 to
+  A6, A8 to A16, A18, A20 and A21.
+- **R1.1 (bring your music in).** The nut shape for artist photos and
+  profile pictures (MUS-024, ACC-011); the explicit badge (MUS-047); the
+  compact list density and the grid, list and compact views (DIS-107);
+  alphabet jump on the web (DIS-101, CLI-040); word-by-word lyric
+  highlighting (MUS-156); the "this device only" theme override (CLI-030);
+  the states it adds (recent searches, the search-everything button, the
+  Hidden page and undo notices, dimmed unavailable items and the app that
+  opens without the server, tag problems in library health); requirement
+  A17.
+- **R1.2 (the household and the admin).** The server-rendered emergency
+  page (ADM-113); the arrangeable home and its first-run card (DIS-003,
+  MUS-049, DIS-015); translations under requirement A20 (CLI-146); the
+  identity provider's sign-in under requirement A15 (ACC-057).
+- **R1.3 (discovery and analysis).** The suggested badge and reason labels
+  (MUS-129, DIS-062); spoken word kept apart from music (LAT-010).
 - **R2 (video and native clients).** The TV type scale, TV focus system,
   rail and text-size setting (CLI-035 to CLI-043); native phone and tablet
   layouts; car artwork and icons for Android Auto; scrims over video and
@@ -1199,8 +1229,9 @@ written VoiceOver and TalkBack script before each release.
    wordmark's typeface and is OFL-1.1. Its script coverage and the size of
    the bundled file are unverified and must be measured.
 2. **The nut shape for artists and profiles.** Recommendation: prototype it
-   and run a short usability test against circles before R1 screens are
-   built; keep it for the play button either way.
+   and run a short usability test against circles before the R1.1 screens
+   with artist photos and profile pictures are built; keep it for the play
+   button either way.
 3. **TV row scrolling.** Recommendation: test a fixed focus column against
    focus that moves until the edge, on the cheapest supported stick, and
    pick by measured frame time and a small user test.
@@ -1239,10 +1270,10 @@ written VoiceOver and TalkBack script before each release.
     "This address limits the web app" state of CLI-150 becomes the help
     page.
 12. **No passwords (owner to confirm, owner decision 1).** Recommendation:
-    the baseline's. Sign-in is by passkey, identity provider or approval
-    from a phone (SEC-IAM-025, SEC-IAM-108), so the sign-in failure copy
-    and accessibility requirement A15 no longer mention passwords, and the
-    password fallback (ACC-052) has no screen here.
+    the baseline's. Sign-in is by passkey, identity provider (from R1.2)
+    or approval from a phone (SEC-IAM-025, SEC-IAM-108), so the sign-in
+    failure copy and accessibility requirement A15 no longer mention
+    passwords, and the password fallback (ACC-052) has no screen here.
 
 ## 15. Sources
 

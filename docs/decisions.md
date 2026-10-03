@@ -21,8 +21,11 @@ How to read it:
 - **Decide first** lists the ten decisions that block the build, in the
   order they block it. Nothing in wave 0 of the plan merges, and no server
   code stores a user, until the first six are answered.
-- **R1 scope** proposes a much smaller first release, with the rest moved
-  to point releases. It is a proposal; the feature map is unchanged.
+- **R1 scope** is the much smaller first release the owner adopted on
+  2026-10-02 (D-10), with the rest in point releases R1.1 to R1.3 and the
+  name service in R2 (D-07). The feature map, the security baseline, the
+  UI documents, the API needs and the work packages were realigned to it
+  on 2026-10-03.
 - **Applied by default** lists every change the alignment made, with what
   the document said before, what it says now and the requirements behind
   it. Changes marked "Confirm: yes" touch one of the baseline's open owner
@@ -52,7 +55,8 @@ item n in docs/ui/README.md.
 
 The owner answered these in conversation on 2026-10-02. Where an answer
 differs from a recommendation further down this register, the answer
-wins, and the documents are being realigned to it.
+wins. On 2026-10-03 the planning documents were realigned to the answers
+on D-07, D-10 and remote access in R1, as those rows record.
 
 | Decision | Answer |
 |---|---|
@@ -62,11 +66,11 @@ wins, and the documents are being realigned to it.
 | D-04 Public IDs | Delegated; recommendation accepted (random 128-bit IDs). |
 | D-05 ADR 3, durable user state | Delegated; recommendation accepted. |
 | D-06 Identity and sessions | No passwords, TOTP or emailed codes. Passkeys, OIDC and approval from a signed-in phone, with the recovery ladder. Recommendation accepted. |
-| D-07 HTTPS and naming | **Differs from the recommendation.** R1 gets HTTPS through the owner's own domain (automatic certificates), a tailnet, or the same machine. The project-run per-server name service is not in R1; it moves to a later release. |
+| D-07 HTTPS and naming | **Differs from the recommendation.** R1 gets HTTPS through the owner's own domain (automatic certificates), a tailnet, or the same machine. The project-run per-server name service is not in R1; it moves to a later release. **Documents realigned 2026-10-03:** the name service (ADM-023), its naming client and its certificate-transparency monitoring are R2, beside built-in remote access. SEC-NET-010 to SEC-NET-012 and SEC-NET-069 to SEC-NET-071 moved to R2 with them. SEC-NET-013, SEC-NET-072 and SEC-OPS-007 stay R1 because they also protect the own-domain, tailnet and localhost paths. The feature map, the baseline, the UI documents, api-needs.md and work-packages.md (WP-129 and WP-135 to R2) follow this. |
 | D-08 Cryptography and backup archives | Delegated; recommendation accepted. |
 | D-09 Media processing outside the server process | Parsing, remuxing and decoding run in a separate jailed worker. This supersedes "remux in-process" in ADR 1. R1 servers are Linux only: x86-64, ARM64 and a Docker image. No transcoding in R1. |
-| D-10 R1 scope | The smaller R1 proposed in [R1 scope](#r1-scope) is adopted, with the rest in point releases R1.1, R1.2 and R1.3. Built-in metadata lookups (MusicBrainz, cover art) ship in R1.1, behind the setup question that lists what each provider receives. |
-| Remote access in R1 | Through the owner's own reverse proxy or a tailnet. Built-in remote access (iroh) arrives in R2. |
+| D-10 R1 scope | The smaller R1 proposed in [R1 scope](#r1-scope) is adopted, with the rest in point releases R1.1, R1.2 and R1.3. Built-in metadata lookups (MusicBrainz, cover art) ship in R1.1, behind the setup question that lists what each provider receives. **Documents realigned 2026-10-03:** the allowed Release values are now R1, R1.1, R1.2, R1.3, R2, R3, Later and No (Withdrawn for retired requirements). Every feature row's Release matches [R1 scope](#r1-scope): 296 rows in R1, 79 in R1.1, 43 in R1.2 and 32 in R1.3. The five rows leaving the R1 line are now R2, ADM-023 among them under D-07. 25 requirements moved with their surfaces to R1.1 (7) and R1.2 (18). With D-07's six, 576 of the earlier 607 remain due in R1. The feature map README, the security README, the UI documents, api-needs.md and work-packages.md (wave 0 unchanged) follow this. |
+| Remote access in R1 | Through the owner's own reverse proxy or a tailnet. Built-in remote access (iroh) arrives in R2. **Documents realigned 2026-10-03** to this answer. |
 | What admins see | Who is playing and totals, not what, unless each person opts in. No history. |
 | Update and advisory check | A required setup question with no answer preselected. |
 | Remaining security recommendations | Accepted as written, including every change under [Applied by default](#applied-by-default) except where an answer in this table says otherwise. |
@@ -267,7 +271,10 @@ build for R1.
   members' passkeys, so restore warns and re-enrolment follows the
   recovery-link rules (SEC-IAM-091, SEC-IAM-106). Remote use in R1 is the
   owner's reverse proxy or tailnet (D-21).
-- **Blocks.** WP-125 (record 8), WP-129 (wave 1), WP-073, WP-080's claim
+- **Answer (2026-10-02).** Option (b) for R1, with the name service later;
+  see [Owner answers](#owner-answers-2026-10-02). The documents now put
+  the name service, its naming client and its CT monitoring in R2.
+- **Blocks.** WP-125 (record 8), WP-129 (R2), WP-073, WP-080's claim
   flow, WP-101, WP-135, and the first-run flow (F01).
 - **Sources.** Security README 2, 3, 21; features README 7; network OD-1;
   identity OD-1; client OD-1; web OD-1; threat-model OD-2; rival OD-1;
@@ -380,6 +387,14 @@ build for R1.
   built in at R1.1 behind the egress client; share links and OIDC at
   R1.2; add R1.x values to the release-scope table and the lint; move the
   five rows to R2; desktop shell and rival importers Later.
+- **Answer (2026-10-02).** The proposed R1 is adopted with point releases
+  R1.1 to R1.3, and providers are built in at R1.1; see
+  [Owner answers](#owner-answers-2026-10-02) and [R1 scope](#r1-scope).
+  The release values R1.1 to R1.3 are now in use in the feature map and
+  the baseline. Two parts of the recommendation were not in the answer
+  and are unchanged: the five rows stay R1, proved by absence, until the
+  owner moves them; the desktop shell and rival importers stay Later, as
+  the alignment applied.
 - **Blocks.** Which wave 3 to 5 packages are R1 (among them WP-096,
   WP-112, WP-134, WP-137), WP-127's docs lint, WP-131's absence suites, and
   the traceability check (SEC-STD-004).
@@ -390,22 +405,31 @@ build for R1.
 
 ## R1 scope
 
-### The proposal
+**Adopted by the owner on 2026-10-02 (D-10).** There is one change from
+the proposal: under D-07 the project name service (ADM-023) leaves R1 for
+R2. This section was proposed and is now the definition of R1 and its
+point releases. The feature map's Release cells match it row for row,
+and the documents were realigned to it on 2026-10-03.
 
-The feature map now puts 455 rows in R1 and the baseline 607 requirements.
-A household needs much less on day one: a server that installs safely,
-claims with a passkey over real HTTPS, scans a music folder with
-memory-safe parsers in a separate worker, plays the original files
-gaplessly with loudness levelling in a browser, keeps a queue and simple
-playlists, shows lyrics from the files, lets each person sign in, invite
-others, see and erase their own history, and survives a restore. Everything
-that makes that safe stays in R1: the security rows are most of what
-remains, because the baseline makes them conditions of shipping anything
-at all.
+### What was adopted
 
-This proposal keeps 267 owning rows in R1 (and 30 reference rows
-that ship with them), against 455 rows today. The rest moves to three point
-releases in the order users will miss them:
+When this was proposed, the feature map put 455 rows in R1 and the
+baseline 607 requirements. A household needs much less on day one: a
+server that installs safely, claims with a passkey over real HTTPS, scans
+a music folder with memory-safe parsers in a separate worker, plays the
+original files gaplessly with loudness levelling in a browser, keeps a
+queue and simple playlists, shows lyrics from the files, lets each person
+sign in, invite others, see and erase their own history, and survives a
+restore. Everything that makes that safe stays in R1: the security rows
+are most of what remains, because the baseline makes them conditions of
+shipping anything at all.
+
+The adopted R1 keeps 266 owning rows (and 30 reference rows that ship
+with them), against 455 rows before. The proposal had 267, and D-07 moved
+ADM-023 to R2. The feature map counts the same 296 rows as 264 owning
+rows and 32 references, because two rows this list names as features,
+ADM-121 and CLI-157, are references there (to ACC-123 and ACC-117). The rest moved to three point releases in the order users
+will miss them:
 
 - **R1.1, bring your music in** (68 rows): playlist files and history
   imports, built-in MusicBrainz and cover-art lookups, ratings, richer
@@ -424,12 +448,15 @@ Four rows leave the R1 line for R2 because their only users arrive there:
 CLI-032 (old clients keep working; the web client always reloads the
 server's own build, so it matters only for native apps), INT-006 and
 INT-138 (change feed and playlist writes for tools, which need API keys),
-and LIB-056 (a reference row whose owner, MUS-014, is R2).
+and LIB-056 (a reference row whose owner, MUS-014, is R2). A fifth,
+ADM-023 (the per-server HTTPS name from the project name service), went
+to R2 under D-07, with the naming client and certificate-transparency
+monitoring, beside built-in remote access.
 
 The native Android music app (D-14) is not part of R1.x; it would bring R2
 requirements for device keys and native storage with it.
 
-### Proposed R1, by feature
+### Adopted R1, by feature
 
 **Install, run and upgrade** (25)
 
@@ -459,14 +486,14 @@ requirements for device keys and native storage with it.
 - ADM-077: Rebuild the cache instead of repairing it
 - ADM-078: Checksummed user log that recovers from a torn write
 
-**Claim, setup and HTTPS** (16)
+**Claim, setup and HTTPS** (15; ADM-023, the name service, moved to R2
+under D-07)
 
 - ACC-001: Claim a new server with a one-time setup code
 - ACC-002: Owner account with no vendor account
 - ADM-020: Setup closes for good once an admin exists
 - ADM-021: A secure context for passkeys at setup
 - ADM-022: Built-in HTTPS for a domain you own
-- ADM-023: Per-server HTTPS name from the project name service
 - ACC-097: Works behind your own reverse proxy or VPN
 - ACC-098: HTTPS served by the server
 - ACC-099: Automatic certificates for your own domain
@@ -891,19 +918,24 @@ requirements for device keys and native storage with it.
 - LAT-010: Spoken word kept out of music
 - References that follow their owners: LIB-041 (see MUS-007), LIB-066 (see MUS-086), MUS-028 (see LIB-008)
 
-**Out of the R1 line, to R2** (4)
+**Out of the R1 line, to R2** (5)
 
 - LIB-056: Works and movements
 - CLI-032: Old clients keep working
 - INT-006: Change feed (delta sync)
 - INT-138: Playlist write API
+- ADM-023: Per-server HTTPS name from the project name service (D-07)
 
-### Security requirements for the proposed R1
+<a id="security-requirements-for-the-proposed-r1"></a>
 
-Every R1 requirement in the baseline stays mandatory for the proposed R1,
-except the ones whose only surface moves to a point release. Those become
-mandatory in the point release that ships the surface, and that release
-cannot ship without them (SEC-STD-004). None is weakened or dropped.
+### Security requirements for the adopted R1
+
+Every R1 requirement in the baseline stays mandatory for the adopted R1,
+except the ones whose only surface moves to a point release or, under
+D-07, to R2. Those become mandatory in the release that ships the
+surface, and that release cannot ship without them (SEC-STD-004). None is
+weakened or dropped. The baseline's Release cells now match this table
+(security README, "The R1 security cut" and "Due after R1").
 
 | Moves to | Surface | Requirements |
 |---|---|---|
@@ -911,25 +943,28 @@ cannot ship without them (SEC-STD-004). None is weakened or dropped.
 | R1.1 | Metadata providers (LIB-111, LIB-112) | SEC-PRV-014, SEC-PRV-015, SEC-PRV-017 |
 | R1.1 | Avatar and other image uploads (ACC-011) | SEC-MED-061, SEC-PRV-006 |
 | R1.2 | OIDC sign-in (ACC-057) | SEC-TM-022, SEC-IAM-026, SEC-IAM-027, SEC-IAM-028, SEC-IAM-029, SEC-IAM-030, SEC-IAM-031, SEC-IAM-032, SEC-IAM-033, SEC-IAM-034, SEC-IAM-035, SEC-IAM-036, SEC-STD-025, SEC-CLI-026 |
-| R1.2 | Music share links (ACC-086 to ACC-089, MUS-151) | SEC-API-097, SEC-STD-008 (the share-link password is the only secret a person chooses in R1; there are no account passwords and backups need no passphrase, ADM-068) |
+| R1.2 | Music share links (ACC-086 to ACC-089, MUS-151) | SEC-API-097, SEC-STD-008 (the share-link password is the only secret a person chooses; there are no account passwords and backups need no passphrase, ADM-068) |
 | R1.2 | Diagnostic bundles (ADM-124, CLI-033) | SEC-PRV-046, SEC-OPS-030 |
+| R2 (D-07) | The project name service, its naming client and its certificate-transparency monitoring (ADM-023) | SEC-NET-010, SEC-NET-011, SEC-NET-012, SEC-NET-069, SEC-NET-070, SEC-NET-071 |
 
-That is 25 of the 607. The other 582 remain mandatory for R1, including
-every requirement on: the claim and setup path; passkeys, browser pairing,
-recovery codes, recovery links, the recovery hold and host-only owner
-recovery; sessions, devices, revocation and new-device alerts; the
-cleartext rule, HTTPS, the name service (if it launches) and postures;
-the route table, the authorisation layer and the cross-user suites;
-capability URLs, stream limits and device limits; the scan worker, its
-isolation self-test, quarantine and every parser budget; read-only media
-and file access through root handles; artwork re-encoding; the egress
+That is 25 of the 607 for D-10 and six more for D-07, 31 in all. The
+other 576 remain mandatory for R1, including every requirement on: the
+claim and setup path; passkeys, browser pairing, recovery codes, recovery
+links, the recovery hold and host-only owner recovery; sessions, devices,
+revocation and new-device alerts; the cleartext rule, HTTPS through the
+owner's own domain, a tailnet or the same machine (SEC-NET-013,
+SEC-NET-072), and postures; the route table, the authorisation layer and
+the cross-user suites; capability URLs, stream limits and device limits;
+the scan worker, its isolation self-test, quarantine and every parser
+budget; read-only media and file access through root handles; artwork
+re-encoding; the egress
 client and the required update-check question; history erasure,
 retention, export, account deletion and the "what your admin can see"
 page; private listening; encrypted, signed backups and restore at setup;
 the audit log, its checkpoints and the security summary; key rotation,
 the compromise runbook; and the whole supply-chain and release set.
 
-Four notes on scope:
+Five notes on scope:
 
 - SEC-IAM-044 (administrators end any or all sessions of a non-owner
   account) stays in R1 and is not moved, although ADM-102 (stop a session
@@ -937,8 +972,8 @@ Four notes on scope:
   ACC-006: an administrator ends a person's sessions from Admin > Users >
   person, without the live view, and cannot end the owner's. WP-094
   builds and tests it (applied change A-588).
-- 27 other R1 requirements are cited only by rows this proposal moves to
-  a point release. Each still has an R1 carrier, so none moves:
+- 27 other R1 requirements are cited only by rows this R1 moves to a
+  point release. Each still has an R1 carrier, so none moves:
   SEC-API-010 (WP-046, WP-064, WP-065, WP-068, WP-069: the authorisation
   layer every R1 handler uses); SEC-API-045, SEC-CLI-013 and SEC-CLI-027
   (the whole web client, CLI-001; the client plan must carry them, and
@@ -965,13 +1000,26 @@ Four notes on scope:
   activity page (ADM-129) stays in R1 although providers move to R1.1.
 - The five rows of D-10 (SEC-NET-054, SEC-OPS-040, SEC-PRV-034 to
   SEC-PRV-036) stay proved by absence in R1 until the owner moves them.
+- D-07 moves only the requirements that protect nothing but the name
+  service. Those that also protect an R1 surface stay R1: SEC-NET-013
+  (HTTPS without the name service) and SEC-NET-072 (certificate expiry
+  alerts); SEC-OPS-007, SEC-TM-048, SEC-NET-032 and SEC-PRV-007 (no
+  outbound connection before the claim, and none by default). Their only
+  exception is the naming purpose of an install that chose the name
+  service, so in R1 the server makes no outbound connection before the
+  claim and none in its default configuration. SEC-STD-016 and
+  SEC-HIS-061 also cover gunmetal.tv. SEC-NET-009 and SEC-NET-057 also
+  cover ACME and the update feed. Where their text still names the name
+  service, that clause applies from R2.
 
-Taking this proposal means: the R1.x values of D-10; the feature map's R1
-cut and summary counts rewritten to match; and the work packages for
-moved rows (for example WP-022's playlist-file use, WP-057, WP-096,
-WP-112, WP-134, WP-137) given point-release waves. Wave 0 to wave 2 hardly
-change, because most of their packages are the parsers, stores and doors
-that the smaller R1 still needs.
+Taking this proposal meant three things, all done on 2026-10-03. First,
+the R1.x release values of D-10 came into use. Second, the feature map's
+R1 cut and summary counts were rewritten to match. Third, the work
+packages for moved rows (for example WP-022's playlist-file use, WP-057,
+WP-096, WP-112, WP-134, WP-137, and WP-129 and WP-135 for the name service)
+left the R1 waves for their point release or R2. Wave 0 is unchanged.
+Waves 1 and 2 hardly change, because most of their packages are the
+parsers, stores and doors that the smaller R1 still needs.
 
 ## Applied by default
 
@@ -1035,6 +1083,8 @@ a "missing" Before means the row or rule was added.
 ### T02 HTTPS, cleartext and the name service
 
 23 changes, 15 to confirm. Decision: D-07, D-21, D-22. No web client over plain HTTP except to loopback; HTTPS from the name service, the owner's domain, a tailnet or localhost; proxies and remote paths treated as internet.
+
+The owner's D-07 answer overrides the changes below that put the name service in R1. In R1, HTTPS comes from the owner's domain, a tailnet or localhost, and the name service is R2. The documents were realigned on 2026-10-03.
 
 | ID | Where | Before | After | Requirements | Confirm |
 |---|---|---|---|---|---|
@@ -1216,6 +1266,8 @@ a "missing" Before means the row or rule was added.
 
 14 changes, 12 to confirm. Decision: D-10, D-75. Music share links under SEC-API-097; invitations with a fragment secret, a capped preset and a privacy notice.
 
+Under the D-10 answer, music share links ship in R1.2 with SEC-API-097 and SEC-STD-008, not in R1. Invitations stay R1.
+
 | ID | Where | Before | After | Requirements | Confirm |
 |---|---|---|---|---|---|
 | A-185 | features/music.md: MUS-151 Share links for music (reference to ACC-086) | Release R2; pointer row with no music specifics | Release R1. Music specifics added: one track, album or playlist; listen-only by default; expires after 30 days; at most 2 streams at once; optional password; the link suspends itself and tells the sharer when it spreads | SEC-API-097, SEC-PRV-031, SEC-TM-074 | yes |
@@ -1260,6 +1312,8 @@ a "missing" Before means the row or rule was added.
 ### T08 Outbound traffic, metadata providers and plugins
 
 80 changes, 24 to confirm. Decision: D-10, D-44, D-56, D-57. Every outbound request goes through the egress client to exact hosts the owner approved; providers off until turned on; plugins out of process from R2.
+
+Under the D-10 answer, the built-in MusicBrainz and Cover Art Archive lookups ship in R1.1, not R1, with SEC-PRV-014, SEC-PRV-015 and SEC-PRV-017. R1 has no metadata provider.
 
 | ID | Where | Before | After | Requirements | Confirm |
 |---|---|---|---|---|---|
@@ -1791,9 +1845,11 @@ project only if funded, with a published log policy (connection metadata
 only, at most 30 days); self-hosted relays first-class; iroh port mapping
 off by default with a one-click offer. *Recommendation:* proxy or tailnet
 in R1; edge, relays and the browser path in R2 (ACC-102, applied), and
-self-hosted relays first-class. *Sources:* security README 3; features
-README 10; network OD-2, OD-3, OD-4, OD-5; threat-model OD-12; privacy
-OD-11; api-needs flag 10.
+self-hosted relays first-class. *Answer (2026-10-02):* the owner's reverse
+proxy or a tailnet in R1; built-in remote access (iroh), relays and the
+edge in R2 (see [Owner answers](#owner-answers-2026-10-02)). *Sources:*
+security README 3; features README 10; network OD-2, OD-3, OD-4, OD-5;
+threat-model OD-12; privacy OD-11; api-needs flag 10.
 
 **D-22 Network defaults.** One confirmation covers: the home posture as a
 hard default in every package (operations OD-2); untrusted forwarding
@@ -2409,15 +2465,18 @@ These need no new choice, only a go-ahead for whoever owns each file:
 - ADR 1 decision 3 and the root README diagram still say the remuxer runs
   in-process (D-09); they are outside the planning documents.
 - api-needs.md API-SES-03 still offers two mechanisms (D-70).
-- INT-006 is R1 but its only surface (token detail) is R2.
+- INT-006 is R1 but its only surface (token detail) is R2. Resolved
+  2026-10-03: INT-006 is now R2 (D-10).
 - ADM-030 shows a dry-run report in R1 that depends on ADM-045 (R2).
+  ADM-030 is now R1.1 (D-10); the dependency on ADM-045 (R2) remains.
 - ACC-084 duplicates ADM-048; ADM-123 and ADM-133 should point at LIB-206
   for the scan worker's isolation status.
 - ADM-102's stop message must be plain text in its own field (SEC-HIS-014).
 - MUS-045 should import ratings per person only; MUS-140's tag and
   MusicBrainz matching applies only to imported playlists, never to
   playlists found in a library (SEC-MED-050).
-- LIB-056 is R1 but its owner MUS-014 is R2.
+- LIB-056 is R1 but its owner MUS-014 is R2. Resolved 2026-10-03: LIB-056
+  is now R2 (D-10).
 - No package wires the free-space guard (WP-097) into the writers that
   merge earlier; ADM-011, CLI-002 and the release notes have no owner in a
   backend plan.
@@ -2427,3 +2486,58 @@ These need no new choice, only a go-ahead for whoever owns each file:
 
 *Sources:* the agents' notes; work-packages.md "What this review could not
 resolve"; surfaces open question 4.
+
+## Release-ordering questions, 2026-10-03
+
+Applying the smaller R1 left some R1 rows depending on features that now
+ship in a point release. Each question below has a recommendation. Unless
+it says otherwise, the recommendation is not yet applied to the documents.
+
+### D-83 Track details in R1
+
+- **Question.** MUS-114, the track info sheet, is R1.1, but ten R1 rows
+  show their details there: MUS-021, MUS-032, MUS-034, MUS-036, MUS-037,
+  MUS-067, MUS-069, MUS-084, MUS-089 and MUS-099.
+- **Recommendation.** R1 ships a minimal, read-only details view: title,
+  credits, album, file format, and the playback decision with its reason.
+  The full sheet stays in R1.1.
+
+### D-84 Uncertain matches before the review queue
+
+- **Question.** The review queue (LIB-099) is R1.3, but LIB-028, LIB-030
+  and LIB-051 (R1) and LIB-111 (R1.1) send uncertain matches to it.
+- **Recommendation.** Until R1.3, nothing merges silently: an unconfirmed
+  match arrives as a separate item, uncertain albums stay apart, and
+  low-confidence lookups are kept as suggestions and not applied. This is
+  already written into library.md.
+
+### D-85 When the rule format ships
+
+- **Question.** The rule language (DIS-119, MUS-143) is R1.3, but saved
+  filters (DIS-105, R1.1) and the home you arrange (DIS-003, MUS-049, R1.2)
+  are stored in it.
+- **Recommendation.** The core rule format and its parser budgets
+  (SEC-TM-032, SEC-STD-011, SEC-API-066, SEC-IAM-070) ship in R1.1 work;
+  the rule editor and smart playlists stay R1.3. discovery.md already reads
+  this way; the plan's point-release groups need the same split.
+
+### D-86 Loading the web client without the server
+
+- **Question.** Offline loading (CLI-003, CLI-024 to CLI-026, CLI-099) is
+  R1.1, so the R1 web client needs the server reachable to load.
+- **Recommendation.** Accept for R1; notes to this effect are already in
+  discovery.md.
+
+### D-87 Speed budgets in R1
+
+- **Question.** DIS-019 (published speed numbers) is R1.1, but DIS-084,
+  DIS-100 and CLI-022 in R1 rely on its budgets.
+- **Recommendation.** The budget tests stay in the R1 gate; only the
+  published numbers wait for R1.1.
+
+### D-88 Browsing by mood and label
+
+- **Question.** MUS-060 (genre, mood and label browse) is R1, but the mood
+  and label fields come from MUS-019, which is R1.1.
+- **Recommendation.** R1 browses by genre; mood and label browsing arrive
+  with their fields in R1.1.
