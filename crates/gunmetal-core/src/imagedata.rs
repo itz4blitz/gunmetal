@@ -1,93 +1,94 @@
-//! Artwork placeholder and palette from a small decoded RGBA buffer.
+//! Artwork placeholder and palette, from a small RGBA buffer the scan
+//! worker has already decoded and shrunk (decoding images is WP-079).
 //!
-//! The compact placeholder scheme is **`ThumbHash`** (Evan Wallace, 2023), as
-//! published at <https://evanw.github.io/thumbhash/> and in the reference
-//! JavaScript of <https://github.com/evanw/thumbhash>. It stores a DCT of a
-//! ≤100×100 un-premultiplied RGBA image, the aspect ratio, and optional
-//! alpha, in at most [`Placeholder::MAX_LEN`] bytes. Decoding images is
-//! WP-079; this module only hashes a buffer the worker has already decoded
-//! and shrunk.
+//! The placeholder scheme is **`ThumbHash`** (Evan Wallace, 2023),
+//! described at <https://evanw.github.io/thumbhash/>. [`placeholder`]
+//! follows the published JavaScript encoder `rgbaToThumbHash` in
+//! `js/thumbhash.js` of <https://github.com/evanw/thumbhash> step for step,
+//! so its output matches that encoder's byte for byte: a DCT of the image in
+//! a luma and two chroma channels, plus alpha when any pixel is not opaque,
+//! packed with the aspect ratio into at most [`Placeholder::MAX_LEN`] octets.
+//! `ThumbHash` was chosen over `BlurHash` because it keeps alpha and the
+//! aspect ratio and needs no parameters.
 //!
-//! [`palette`] returns up to three OKLCH candidates with contrast against
-//! black and white, for the artwork tint rules in
-//! `docs/ui/design-language.md`.
+//! [`palette`] returns up to three candidates for the artwork tint in
+//! `docs/ui/design-language.md`, each in OKLCH with its WCAG contrast
+//! against black and white. The server checks every number again before it
+//! stores one (SEC-MED-023), and the client again before it draws one.
+//!
+//! The input is at most [`MAX_SIDE`] pixels a side, so the work each call
+//! does has a fixed ceiling whatever the pixels hold. Nothing here parses
+//! an encoded format: every octet is a pixel channel, read once in order,
+//! so the step budget parsers charge (SEC-MED-007) has nothing to bound.
 
+use std::cmp::Reverse;
 use std::f64::consts::PI;
 
-/// Longest side the `ThumbHash` encoder accepts, as the published JavaScript
-/// documents: encoding a larger image is slow with no benefit.
+/// Longest side either function accepts. The published encoder refuses
+/// larger images: encoding them is slow and gains nothing.
 pub const MAX_SIDE: u16 = 100;
 
-/// Byte length of a `ThumbHash`, which the published layout never exceeds
-/// (5 header bytes, an optional alpha byte, and packed AC nibbles).
-pub const PLACEHOLDER_MAX_LEN: usize = 25;
-
-/// At most three palette candidates: a base, a vivid and a deep colour.
+/// At most this many palette candidates.
 pub const MAX_SWATCHES: usize = 3;
 
-/// The placeholder scheme this module encodes, recorded for callers and
-/// for the independent test decoder.
+/// The placeholder scheme [`placeholder`] encodes.
 pub const PLACEHOLDER_SCHEME: &str = "ThumbHash";
 
-/// OKLCH chroma below which a mixed image treats a cluster as near-grey
-/// and drops it when a chromatic candidate exists (`design-language.md`).
-const GREY_CHROMA_MILLI: u16 = 40;
-
-/// RGB pixels in one median-cut box.
-type RgbBox = Vec<[u8; 3]>;
+/// OKLCH chroma, in thousandths, below which a palette cluster counts as
+/// near-grey. Near-grey clusters are candidates only when nothing else is.
+const NEAR_GREY_CHROMA: u16 = 40;
 
 /// A `ThumbHash` of an artwork image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placeholder {
-    bytes: [u8; PLACEHOLDER_MAX_LEN],
-    len: u8,
+    bytes: [u8; Self::MAX_LEN],
+    len: usize,
 }
 
 impl Placeholder {
-    /// Largest encoded `ThumbHash`, in bytes.
-    pub const MAX_LEN: usize = PLACEHOLDER_MAX_LEN;
+    /// The longest `ThumbHash` the published layout can produce: 5 header
+    /// octets, an alpha octet, and 38 coefficient nibbles.
+    pub const MAX_LEN: usize = 25;
 
-    /// The encoded bytes, 5 to [`Self::MAX_LEN`] long.
+    /// The hash, 5 to [`Self::MAX_LEN`] octets.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
-        let len = usize::from(self.len).min(Self::MAX_LEN);
-        self.bytes.get(..len).unwrap_or(&[])
+        self.bytes.get(..self.len).unwrap_or(&self.bytes)
     }
 
-    /// How many bytes [`Self::as_bytes`] holds.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.as_bytes().len()
-    }
-
-    /// Whether [`Self::as_bytes`] holds no bytes. A hash this module
-    /// returns is never empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.as_bytes().is_empty()
+    /// Copies up to [`Self::MAX_LEN`] octets of `hash`.
+    fn new(hash: &[u8]) -> Self {
+        let mut bytes = [0; Self::MAX_LEN];
+        for (slot, octet) in bytes.iter_mut().zip(hash) {
+            *slot = *octet;
+        }
+        Self {
+            bytes,
+            len: hash.len().min(Self::MAX_LEN),
+        }
     }
 }
 
-/// One palette candidate in OKLCH, with WCAG contrast against black and
-/// white so a client can apply the tint rules.
+/// One palette candidate: an OKLCH colour, with the WCAG 2 contrast of
+/// that colour against black and against white.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Swatch {
-    /// OKLCH lightness × 1000 (0 to 1000).
+    /// OKLCH lightness in thousandths, 0 to 1000.
     pub lightness: u16,
-    /// OKLCH chroma × 1000 (0 to about 400).
+    /// OKLCH chroma in thousandths, 0 to 500 (sRGB colours stay below 330).
     pub chroma: u16,
-    /// OKLCH hue in degrees, 0 to 359. Zero when chroma rounds to 0.
+    /// OKLCH hue in whole degrees, 0 to 359; 0 when `chroma` is 0.
     pub hue: u16,
-    /// WCAG 2 contrast against sRGB black, in hundredths (2100 is 21.00:1).
+    /// WCAG 2 contrast ratio against black, in hundredths (2100 is 21:1).
     pub contrast_black: u16,
-    /// WCAG 2 contrast against sRGB white, in hundredths.
+    /// WCAG 2 contrast ratio against white, in hundredths.
     pub contrast_white: u16,
 }
 
 /// Why [`placeholder`] or [`palette`] refused a buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageDataError {
-    /// Width or height is zero, so there is no image.
+    /// The width or the height is 0.
     Empty {
         /// The width given.
         width: u16,
@@ -100,49 +101,85 @@ pub enum ImageDataError {
         width: u16,
         /// The height given.
         height: u16,
-        /// The `ThumbHash` input cap.
+        /// [`MAX_SIDE`].
         max: u16,
     },
-    /// `rgba.len()` is not `width × height × 4`.
+    /// The buffer is not `width × height × 4` octets long.
     LengthMismatch {
         /// The width given.
         width: u16,
         /// The height given.
         height: u16,
-        /// Octets the buffer actually held.
+        /// Octets the buffer holds.
         len: usize,
-        /// Octets `width × height × 4` needs.
+        /// Octets `width × height` pixels need.
         expected: usize,
     },
 }
 
-/// Encodes `rgba` as a `ThumbHash`. `rgba` is un-premultiplied, row-major,
-/// four octets per pixel.
+/// Encodes `rgba` as a `ThumbHash`. The buffer holds `width × height`
+/// pixels row by row, four octets each (red, green, blue, alpha), with
+/// colour not premultiplied by alpha.
 ///
 /// # Errors
 ///
 /// [`ImageDataError::Empty`] when a side is 0, [`ImageDataError::TooLarge`]
-/// when a side exceeds [`MAX_SIDE`], [`ImageDataError::LengthMismatch`]
-/// when the buffer is not `width × height × 4` octets.
+/// when a side is longer than [`MAX_SIDE`], and
+/// [`ImageDataError::LengthMismatch`] when the buffer is the wrong length.
 pub fn placeholder(rgba: &[u8], width: u16, height: u16) -> Result<Placeholder, ImageDataError> {
-    let (width, height) = raster_size(rgba, width, height)?;
-    Ok(encode_thumbhash(rgba, width, height))
+    let pixels = checked_pixels(rgba, width, height)?;
+    Ok(Placeholder::new(&thumbhash(&pixels, width, height)))
 }
 
-/// Up to three OKLCH palette candidates for the tint rules, largest
-/// cluster first. Fully transparent pixels contribute nothing; a buffer
-/// of only those returns an empty list.
+/// Up to [`MAX_SWATCHES`] palette candidates, the most common colour first.
+///
+/// Fully transparent pixels are left out, and an image of nothing else has
+/// no candidates. The rest are split into three clusters by median cut
+/// (repeatedly halving the cluster with the widest red, green or blue range
+/// at its median along that channel; ties go to the later cluster and the
+/// later channel). Each cluster's mean colour is a candidate, largest
+/// cluster first. Near-grey candidates are dropped when any other remains,
+/// and a candidate whose rounded OKLCH value repeats an earlier one is
+/// dropped.
 ///
 /// # Errors
 ///
-/// The same dimension and length errors as [`placeholder`].
+/// The same refusals as [`placeholder`].
 pub fn palette(rgba: &[u8], width: u16, height: u16) -> Result<Vec<Swatch>, ImageDataError> {
-    let (width, height) = raster_size(rgba, width, height)?;
-    Ok(extract_palette(rgba, width, height))
+    let visible: Vec<[u8; 3]> = checked_pixels(rgba, width, height)?
+        .into_iter()
+        .filter(|&[_, _, _, alpha]| alpha != 0)
+        .map(|[red, green, blue, _]| [red, green, blue])
+        .collect();
+    let mut clusters = median_cut(visible);
+    clusters.retain(|cluster| !cluster.is_empty());
+    clusters.sort_by_key(|cluster| Reverse(cluster.len()));
+    let candidates: Vec<Swatch> = clusters
+        .iter()
+        .map(|cluster| swatch(mean(cluster)))
+        .collect();
+    let coloured: Vec<Swatch> = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.chroma >= NEAR_GREY_CHROMA)
+        .collect();
+    let chosen = if coloured.is_empty() {
+        candidates
+    } else {
+        coloured
+    };
+    let mut distinct: Vec<Swatch> = Vec::new();
+    for candidate in chosen {
+        if !distinct.iter().any(|kept| same_colour(*kept, candidate)) {
+            distinct.push(candidate);
+        }
+    }
+    Ok(distinct)
 }
 
-/// Checks `width`, `height` and `rgba.len()` before any pixel work.
-fn raster_size(rgba: &[u8], width: u16, height: u16) -> Result<(usize, usize), ImageDataError> {
+/// Checks the dimensions and the buffer length, then splits the buffer
+/// into pixels.
+fn checked_pixels(rgba: &[u8], width: u16, height: u16) -> Result<Vec<[u8; 4]>, ImageDataError> {
     if width == 0 || height == 0 {
         return Err(ImageDataError::Empty { width, height });
     }
@@ -153,9 +190,9 @@ fn raster_size(rgba: &[u8], width: u16, height: u16) -> Result<(usize, usize), I
             max: MAX_SIDE,
         });
     }
-    let wide = usize::from(width);
-    let high = usize::from(height);
-    let expected = wide.saturating_mul(high).saturating_mul(4);
+    let expected = usize::from(width)
+        .saturating_mul(usize::from(height))
+        .saturating_mul(4);
     if rgba.len() != expected {
         return Err(ImageDataError::LengthMismatch {
             width,
@@ -164,10 +201,93 @@ fn raster_size(rgba: &[u8], width: u16, height: u16) -> Result<(usize, usize), I
             expected,
         });
     }
-    Ok((wide, high))
+    Ok(rgba
+        .chunks_exact(4)
+        .map(|pixel| <[u8; 4]>::try_from(pixel).unwrap_or_default())
+        .collect())
 }
 
-/// Un-premultiplied luma / yellow-blue / red-green / alpha planes.
+/// One channel's DCT: the DC term, the AC terms scaled into 0 to 1, and
+/// the scale that undoes that.
+struct Channel {
+    dc: f64,
+    ac: Vec<f64>,
+    scale: f64,
+}
+
+/// `rgbaToThumbHash`, statement for statement where the arithmetic is
+/// concerned, so that rounding matches the published encoder.
+fn thumbhash(pixels: &[[u8; 4]], width: u16, height: u16) -> Vec<u8> {
+    let (sum_red, sum_green, sum_blue, sum_alpha) = pixels.iter().fold(
+        (0.0, 0.0, 0.0, 0.0),
+        |(red, green, blue, alpha), &[r, g, b, a]| {
+            let weight = f64::from(a) / 255.0;
+            (
+                red + weight / 255.0 * f64::from(r),
+                green + weight / 255.0 * f64::from(g),
+                blue + weight / 255.0 * f64::from(b),
+                alpha + weight,
+            )
+        },
+    );
+    // The published encoder divides only when the alpha sum is not 0; the
+    // colour sums are 0 whenever it is, so dividing by the smallest
+    // positive number instead gives the same averages.
+    let total_alpha = sum_alpha.max(f64::MIN_POSITIVE);
+    let average = [
+        sum_red / total_alpha,
+        sum_green / total_alpha,
+        sum_blue / total_alpha,
+    ];
+    let has_alpha = sum_alpha < f64::from(width) * f64::from(height);
+    let limit = if has_alpha { 5.0 } else { 7.0 };
+    let longest = f64::from(width.max(height));
+    let lx = quantize(limit * f64::from(width) / longest, 7).max(1);
+    let ly = quantize(limit * f64::from(height) / longest, 7).max(1);
+    let planes = lpqa(pixels, average);
+    let image = (width, height);
+    let luma = dct(&planes.luma, image, lx.max(3), ly.max(3));
+    let yellow_blue = dct(&planes.yellow_blue, image, 3, 3);
+    let red_green = dct(&planes.red_green, image, 3, 3);
+    let landscape = width > height;
+    let header24 = pack([
+        (quantize(63.0 * luma.dc, 63), 0),
+        (quantize(31.5 + 31.5 * yellow_blue.dc, 63), 6),
+        (quantize(31.5 + 31.5 * red_green.dc, 63), 12),
+        (quantize(31.0 * luma.scale, 31), 18),
+        (u32::from(has_alpha), 23),
+    ]);
+    let header16 = pack([
+        (if landscape { ly } else { lx }, 0),
+        (quantize(63.0 * yellow_blue.scale, 63), 3),
+        (quantize(63.0 * red_green.scale, 63), 9),
+        (u32::from(landscape), 15),
+    ]);
+    let [b0, b1, b2, _] = header24.to_le_bytes();
+    let [b3, b4, _, _] = header16.to_le_bytes();
+    let mut hash = vec![b0, b1, b2, b3, b4];
+    let mut terms: Vec<f64> = luma.ac;
+    terms.extend(yellow_blue.ac);
+    terms.extend(red_green.ac);
+    if has_alpha {
+        let alpha = dct(&planes.alpha, image, 5, 5);
+        hash.push(low_octet(pack([
+            (quantize(15.0 * alpha.dc, 15), 0),
+            (quantize(15.0 * alpha.scale, 15), 4),
+        ])));
+        terms.extend(alpha.ac);
+    }
+    for pair in terms.chunks(2) {
+        let nibbles = pair
+            .iter()
+            .zip([0, 4])
+            .map(|(term, shift)| (quantize(15.0 * term, 15), shift));
+        hash.push(low_octet(pack(nibbles)));
+    }
+    hash
+}
+
+/// Luma, yellow–blue, red–green and alpha planes.
 struct Planes {
     luma: Vec<f64>,
     yellow_blue: Vec<f64>,
@@ -175,625 +295,208 @@ struct Planes {
     alpha: Vec<f64>,
 }
 
-/// `ThumbHash` encoder following the published JavaScript `rgbaToThumbHash`.
-fn encode_thumbhash(rgba: &[u8], width: usize, height: usize) -> Placeholder {
-    let pixel_count = width.saturating_mul(height);
-    let (average_red, average_green, average_blue, average_alpha) = premul_average(rgba);
-    let count = f64::from(u32::try_from(pixel_count).unwrap_or(u32::MAX));
-    let has_alpha = average_alpha < count;
-    let planes = unpremultiply(rgba, average_red, average_green, average_blue);
-    let luma_limit = if has_alpha { 5.0 } else { 7.0 };
-    let longest = width.max(height);
-    let x_extent = channel_extent(luma_limit, width, longest);
-    let y_extent = channel_extent(luma_limit, height, longest);
-    let (luma_mean, luma_terms, luma_scale) = dct_channel(
-        &planes.luma,
-        width,
-        height,
-        x_extent.max(3),
-        y_extent.max(3),
-    );
-    let (yellow_blue_mean, yellow_blue_terms, yellow_blue_scale) =
-        dct_channel(&planes.yellow_blue, width, height, 3, 3);
-    let (red_green_mean, red_green_terms, red_green_scale) =
-        dct_channel(&planes.red_green, width, height, 3, 3);
-    let (alpha_mean, alpha_terms, alpha_scale) = if has_alpha {
-        dct_channel(&planes.alpha, width, height, 5, 5)
-    } else {
-        (1.0, Vec::new(), 0.0)
+/// Composites each pixel over the average colour and splits it into planes.
+fn lpqa(pixels: &[[u8; 4]], [average_red, average_green, average_blue]: [f64; 3]) -> Planes {
+    let mut planes = Planes {
+        luma: Vec::new(),
+        yellow_blue: Vec::new(),
+        red_green: Vec::new(),
+        alpha: Vec::new(),
     };
-    pack_hash(&PackArgs {
-        landscape: width > height,
-        has_alpha,
-        x_extent,
-        y_extent,
-        luma_mean,
-        yellow_blue_mean,
-        red_green_mean,
-        alpha_mean,
-        luma_scale,
-        yellow_blue_scale,
-        red_green_scale,
-        alpha_scale,
-        luma_terms: &luma_terms,
-        yellow_blue_terms: &yellow_blue_terms,
-        red_green_terms: &red_green_terms,
-        alpha_terms: &alpha_terms,
+    for &[r, g, b, a] in pixels {
+        let alpha = f64::from(a) / 255.0;
+        let red = average_red * (1.0 - alpha) + alpha / 255.0 * f64::from(r);
+        let green = average_green * (1.0 - alpha) + alpha / 255.0 * f64::from(g);
+        let blue = average_blue * (1.0 - alpha) + alpha / 255.0 * f64::from(b);
+        planes.luma.push((red + green + blue) / 3.0);
+        planes.yellow_blue.push(f64::midpoint(red, green) - blue);
+        planes.red_green.push(red - green);
+        planes.alpha.push(alpha);
+    }
+    planes
+}
+
+/// The DCT coefficients `(cx, cy)` with `cx·ny < nx·(ny − cy)`, row by
+/// row, as the published layout stores them.
+fn dct(samples: &[f64], (width, height): (u16, u16), nx: u32, ny: u32) -> Channel {
+    let (w, h) = (f64::from(width), f64::from(height));
+    let mut channel = Channel {
+        dc: 0.0,
+        ac: Vec::new(),
+        scale: 0.0,
+    };
+    for cy in 0..ny {
+        for cx in (0..nx).take_while(|&cx| in_triangle(cx, cy, nx, ny)) {
+            let fx: Vec<f64> = (0..width)
+                .map(|x| (PI / w * f64::from(cx) * (f64::from(x) + 0.5)).cos())
+                .collect();
+            let mut f = 0.0;
+            for (y, row) in (0..height).zip(samples.chunks_exact(usize::from(width.max(1)))) {
+                let fy = (PI / h * f64::from(cy) * (f64::from(y) + 0.5)).cos();
+                for (sample, basis) in row.iter().zip(&fx) {
+                    f += sample * basis * fy;
+                }
+            }
+            f /= w * h;
+            if (cx, cy) == (0, 0) {
+                channel.dc = f;
+            } else {
+                channel.ac.push(f);
+                channel.scale = channel.scale.max(f.abs());
+            }
+        }
+    }
+    // A flat channel has a scale of 0, which makes every term NaN here. The
+    // published encoder skips this step then and packs each term as 0;
+    // `quantize` packs NaN as 0, so the result is the same.
+    for term in &mut channel.ac {
+        *term = 0.5 + 0.5 / channel.scale * *term;
+    }
+    channel
+}
+
+/// Whether coefficient `(cx, cy)` is one an `nx` × `ny` channel stores.
+fn in_triangle(cx: u32, cy: u32, nx: u32, ny: u32) -> bool {
+    f64::from(cx) * f64::from(ny) < f64::from(nx) * (f64::from(ny) - f64::from(cy))
+}
+
+/// Adds each value shifted left by its offset. The fields never overlap, so
+/// this is the bitwise OR the published encoder writes.
+fn pack(fields: impl IntoIterator<Item = (u32, u32)>) -> u32 {
+    fields.into_iter().fold(0, |packed, (value, shift)| {
+        packed.wrapping_add(value.wrapping_shl(shift))
     })
 }
 
-/// Premultiplied average colour of `rgba`, matching the published encoder.
-fn premul_average(rgba: &[u8]) -> (f64, f64, f64, f64) {
-    let mut average_red = 0.0;
-    let mut average_green = 0.0;
-    let mut average_blue = 0.0;
-    let mut average_alpha = 0.0;
-    for pixel in rgba.chunks_exact(4) {
-        let red = f64::from(*pixel.first().unwrap_or(&0));
-        let green = f64::from(*pixel.get(1).unwrap_or(&0));
-        let blue = f64::from(*pixel.get(2).unwrap_or(&0));
-        let alpha_unit = f64::from(*pixel.get(3).unwrap_or(&0)) / 255.0;
-        average_red += alpha_unit / 255.0 * red;
-        average_green += alpha_unit / 255.0 * green;
-        average_blue += alpha_unit / 255.0 * blue;
-        average_alpha += alpha_unit;
-    }
-    if average_alpha > 0.0 {
-        average_red /= average_alpha;
-        average_green /= average_alpha;
-        average_blue /= average_alpha;
-    }
-    (average_red, average_green, average_blue, average_alpha)
+/// The low eight bits of `value`.
+fn low_octet(value: u32) -> u8 {
+    let [low, ..] = value.to_le_bytes();
+    low
 }
 
-/// Un-premultiply each pixel, filling transparent pixels with the average.
-fn unpremultiply(rgba: &[u8], average_red: f64, average_green: f64, average_blue: f64) -> Planes {
-    let mut luma = Vec::new();
-    let mut yellow_blue = Vec::new();
-    let mut red_green = Vec::new();
-    let mut alpha = Vec::new();
-    for pixel in rgba.chunks_exact(4) {
-        let red8 = f64::from(*pixel.first().unwrap_or(&0));
-        let green8 = f64::from(*pixel.get(1).unwrap_or(&0));
-        let blue8 = f64::from(*pixel.get(2).unwrap_or(&0));
-        let alpha_unit = f64::from(*pixel.get(3).unwrap_or(&0)) / 255.0;
-        let red = average_red.mul_add(1.0 - alpha_unit, alpha_unit / 255.0 * red8);
-        let green = average_green.mul_add(1.0 - alpha_unit, alpha_unit / 255.0 * green8);
-        let blue = average_blue.mul_add(1.0 - alpha_unit, alpha_unit / 255.0 * blue8);
-        luma.push((red + green + blue) / 3.0);
-        yellow_blue.push(f64::midpoint(red, green) - blue);
-        red_green.push(red - green);
-        alpha.push(alpha_unit);
-    }
-    Planes {
-        luma,
-        yellow_blue,
-        red_green,
-        alpha,
-    }
-}
-
-/// `max(1, round(limit * along / longest))` from the published encoder.
-fn channel_extent(limit: f64, along: usize, longest: usize) -> usize {
-    let along = f64::from(u32::try_from(along).unwrap_or(0));
-    let longest = f64::from(u32::try_from(longest.max(1)).unwrap_or(1));
-    usize::try_from(js_round(limit * along / longest).max(1)).unwrap_or(1)
-}
-
-/// DCT-II of `samples` over the `ThumbHash` coefficient triangle.
-fn dct_channel(
-    samples: &[f64],
-    width: usize,
-    height: usize,
-    freq_x: usize,
-    freq_y: usize,
-) -> (f64, Vec<f64>, f64) {
-    let area = f64::from(u32::try_from(width.saturating_mul(height).max(1)).unwrap_or(1));
-    let mut mean_term = 0.0_f64;
-    let mut ac_terms = Vec::new();
-    let mut scale = 0.0_f64;
-    for coeff_y in 0..freq_y {
-        for coeff_x in 0..freq_x {
-            if !in_triangle(coeff_x, coeff_y, freq_x, freq_y) {
-                break;
-            }
-            let mut sum = 0.0;
-            for row in 0..height {
-                let basis_y = dct_basis(height, coeff_y, row);
-                for column in 0..width {
-                    let basis_x = dct_basis(width, coeff_x, column);
-                    let index = row.saturating_mul(width).saturating_add(column);
-                    let sample = samples.get(index).copied().unwrap_or(0.0);
-                    sum += sample * basis_x * basis_y;
-                }
-            }
-            let term = sum / area;
-            if coeff_x == 0 && coeff_y == 0 {
-                mean_term = term;
-            } else {
-                ac_terms.push(term);
-                scale = scale.max(term.abs());
-            }
-        }
-    }
-    if scale > 0.0 {
-        for term in &mut ac_terms {
-            *term = 0.5 + 0.5 / scale * *term;
-        }
-    }
-    (mean_term, ac_terms, scale)
-}
-
-/// `cos(π / len * freq * (index + 0.5))`.
-fn dct_basis(len: usize, freq: usize, index: usize) -> f64 {
-    let len = f64::from(u32::try_from(len.max(1)).unwrap_or(1));
-    let freq = f64::from(u32::try_from(freq).unwrap_or(0));
-    let index = f64::from(u32::try_from(index).unwrap_or(0));
-    (PI / len * freq * (index + 0.5)).cos()
-}
-
-/// Whether `(coeff_x, coeff_y)` is inside the published `ThumbHash` triangle
-/// `coeff_x * freq_y < freq_x * (freq_y - coeff_y)`.
-fn in_triangle(coeff_x: usize, coeff_y: usize, freq_x: usize, freq_y: usize) -> bool {
-    let coeff_x = u32::try_from(coeff_x).unwrap_or(u32::MAX);
-    let coeff_y = u32::try_from(coeff_y).unwrap_or(u32::MAX);
-    let freq_x = u32::try_from(freq_x).unwrap_or(0);
-    let freq_y = u32::try_from(freq_y).unwrap_or(0);
-    match (
-        coeff_x.checked_mul(freq_y),
-        freq_y
-            .checked_sub(coeff_y)
-            .and_then(|rest| freq_x.checked_mul(rest)),
-    ) {
-        (Some(left), Some(right)) => left < right,
-        _ => false,
-    }
-}
-
-/// Arguments the published `ThumbHash` header carries.
-struct PackArgs<'a> {
-    landscape: bool,
-    has_alpha: bool,
-    x_extent: usize,
-    y_extent: usize,
-    luma_mean: f64,
-    yellow_blue_mean: f64,
-    red_green_mean: f64,
-    alpha_mean: f64,
-    luma_scale: f64,
-    yellow_blue_scale: f64,
-    red_green_scale: f64,
-    alpha_scale: f64,
-    luma_terms: &'a [f64],
-    yellow_blue_terms: &'a [f64],
-    red_green_terms: &'a [f64],
-    alpha_terms: &'a [f64],
-}
-
-/// Packs DC, scales and AC nibbles into the published 5–25 byte layout.
-fn pack_hash(args: &PackArgs<'_>) -> Placeholder {
-    let header24 = quantize(63.0 * args.luma_mean, 63)
-        | quantize(31.5 + 31.5 * args.yellow_blue_mean, 63).wrapping_shl(6)
-        | quantize(31.5 + 31.5 * args.red_green_mean, 63).wrapping_shl(12)
-        | quantize(31.0 * args.luma_scale, 31).wrapping_shl(18)
-        | u32::from(args.has_alpha).wrapping_shl(23);
-    let x_header = u32::try_from(args.x_extent).unwrap_or(0) & 7;
-    let y_header = u32::try_from(args.y_extent).unwrap_or(0) & 7;
-    let stored_extent = if args.landscape { y_header } else { x_header };
-    let header16 = stored_extent
-        | quantize(63.0 * args.yellow_blue_scale, 63).wrapping_shl(3)
-        | quantize(63.0 * args.red_green_scale, 63).wrapping_shl(9)
-        | u32::from(args.landscape).wrapping_shl(15);
-    let mut bytes = [0_u8; PLACEHOLDER_MAX_LEN];
-    write_u8(&mut bytes, 0, header24 & 0xFF);
-    write_u8(&mut bytes, 1, header24.wrapping_shr(8) & 0xFF);
-    write_u8(&mut bytes, 2, header24.wrapping_shr(16) & 0xFF);
-    write_u8(&mut bytes, 3, header16 & 0xFF);
-    write_u8(&mut bytes, 4, header16.wrapping_shr(8) & 0xFF);
-    let mut len = 5_usize;
-    if args.has_alpha {
-        write_u8(
-            &mut bytes,
-            5,
-            quantize(15.0 * args.alpha_mean, 15)
-                | quantize(15.0 * args.alpha_scale, 15).wrapping_shl(4),
-        );
-        len = 6;
-    }
-    let ac_start: usize = if args.has_alpha { 6 } else { 5 };
-    let mut ac_index = 0_usize;
-    let channels: [&[f64]; 4] = if args.has_alpha {
-        [
-            args.luma_terms,
-            args.yellow_blue_terms,
-            args.red_green_terms,
-            args.alpha_terms,
-        ]
-    } else {
-        [
-            args.luma_terms,
-            args.yellow_blue_terms,
-            args.red_green_terms,
-            &[],
-        ]
-    };
-    for channel in channels {
-        for term in channel {
-            let nibble = u8::try_from(quantize(15.0 * *term, 15)).unwrap_or(0);
-            let byte_index = ac_start.saturating_add(ac_index.wrapping_div(2));
-            let shift = u32::try_from(ac_index.wrapping_rem(2).saturating_mul(4)).unwrap_or(0);
-            len = len.max(or_nibble(&mut bytes, byte_index, nibble, shift));
-            ac_index = ac_index.saturating_add(1);
-        }
-    }
-    Placeholder {
-        bytes,
-        len: u8::try_from(len)
-            .unwrap_or(0)
-            .min(u8::try_from(PLACEHOLDER_MAX_LEN).unwrap_or(25)),
-    }
-}
-
-/// Writes `value` into `bytes[index]` when that slot exists.
-fn write_u8(bytes: &mut [u8], index: usize, value: u32) {
-    if let Some(slot) = bytes.get_mut(index) {
-        *slot = u8::try_from(value).unwrap_or(0);
-    }
-}
-
-/// JavaScript `Math.round` (half toward +∞), then clamped to `0..=max`.
+/// JavaScript's `Math.round` (half rounds up), clamped to `0..=max`. NaN
+/// becomes 0, as the published encoder's bitwise operators make it.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is a whole number in 0..=max or NaN, and `as` turns NaN into 0"
+)]
 fn quantize(value: f64, max: u32) -> u32 {
-    clamp_to_u32(js_round(value), max)
+    (value + 0.5).floor().clamp(0.0, f64::from(max)) as u32
 }
 
-/// Clamp a rounded integer into `0..=cap`.
-fn clamp_to_u32(rounded: i32, cap: u32) -> u32 {
-    if rounded < 0 {
-        0
-    } else {
-        u32::try_from(rounded).unwrap_or(cap).min(cap)
+/// Median cut into at most [`MAX_SWATCHES`] clusters.
+fn median_cut(pixels: Vec<[u8; 3]>) -> Vec<Vec<[u8; 3]>> {
+    let mut clusters = vec![pixels];
+    for _ in 1..MAX_SWATCHES {
+        clusters.sort_by_key(|cluster| widest(cluster).0);
+        let widest_cluster = clusters.pop();
+        clusters.extend(widest_cluster.into_iter().flat_map(split));
     }
+    clusters
 }
 
-/// Clamp a rounded integer into `0..=cap`.
-fn clamp_to_u16(rounded: i32, cap: u16) -> u16 {
-    if rounded < 0 {
-        0
-    } else {
-        u16::try_from(rounded).unwrap_or(cap).min(cap)
-    }
-}
-
-/// JavaScript `Math.round`: `floor(x + 0.5)`.
-fn js_round(value: f64) -> i32 {
-    let rounded = (value + 0.5).floor();
-    if rounded >= f64::from(i32::MAX) {
-        i32::MAX
-    } else if rounded <= f64::from(i32::MIN) {
-        i32::MIN
-    } else {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "rounded is finite and inside i32 after the clamps above"
-        )]
-        {
-            rounded as i32
-        }
-    }
-}
-
-/// Median-cut OKLCH palette of opaque pixels.
-fn extract_palette(rgba: &[u8], _width: usize, _height: usize) -> Vec<Swatch> {
-    let mut opaque = Vec::new();
-    for pixel in rgba.chunks_exact(4) {
-        let alpha = *pixel.get(3).unwrap_or(&0);
-        if alpha == 0 {
-            continue;
-        }
-        let red = *pixel.first().unwrap_or(&0);
-        let green = *pixel.get(1).unwrap_or(&0);
-        let blue = *pixel.get(2).unwrap_or(&0);
-        opaque.push([red, green, blue]);
-    }
-    if opaque.is_empty() {
-        return Vec::new();
-    }
-    let clusters = median_cut(&opaque, MAX_SWATCHES);
-    let mut swatches: Vec<Swatch> = clusters.iter().map(|rgb| swatch_from_srgb(*rgb)).collect();
-    let chromatic: Vec<Swatch> = swatches
-        .iter()
-        .copied()
-        .filter(|swatch| swatch.chroma >= GREY_CHROMA_MILLI)
-        .collect();
-    if !chromatic.is_empty() {
-        swatches = chromatic;
-    }
-    distinct_lch(swatches)
-}
-
-/// Keep swatches with distinct OKLCH triples, at most [`MAX_SWATCHES`].
-fn distinct_lch(swatches: Vec<Swatch>) -> Vec<Swatch> {
-    let mut unique = Vec::new();
-    for swatch in swatches {
-        let key = (swatch.lightness, swatch.chroma, swatch.hue);
-        if unique
-            .iter()
-            .all(|kept: &Swatch| (kept.lightness, kept.chroma, kept.hue) != key)
-        {
-            unique.push(swatch);
-        }
-        if unique.len() >= MAX_SWATCHES {
-            break;
-        }
-    }
-    unique
-}
-
-/// Split `pixels` into at most `max_boxes` boxes by median cut on RGB.
-fn median_cut(pixels: &[[u8; 3]], max_boxes: usize) -> Vec<[u8; 3]> {
-    let mut boxes = Vec::new();
-    boxes.push(pixels.to_vec());
-    while boxes.len() < max_boxes {
-        let Some(index) = boxes
-            .iter()
-            .enumerate()
-            .filter(|(_, cluster)| longest_range(cluster).0 > 0)
-            .max_by_key(|(_, cluster)| longest_range(cluster))
-            .map(|(index, _)| index)
-        else {
-            break;
-        };
-        let _ = replace_with_split(&mut boxes, index);
-    }
-    boxes.iter().map(|cluster| mean_rgb(cluster)).collect()
-}
-
-/// Take the box at `index`, or an empty box if that slot is gone.
-fn take_cluster(boxes: &mut [RgbBox], index: usize) -> RgbBox {
-    boxes.get_mut(index).map(std::mem::take).unwrap_or_default()
-}
-
-/// Split the box at `index` into two and put both back. `false` when it
-/// cannot split.
-fn replace_with_split(boxes: &mut Vec<RgbBox>, index: usize) -> bool {
-    let cluster = take_cluster(boxes, index);
-    let Some((left, right)) = split_cluster(cluster) else {
-        return false;
-    };
-    store_box(boxes, index, left);
-    boxes.push(right);
-    true
-}
-
-/// Put `cluster` at `index`, or append it when that slot is gone.
-fn store_box(boxes: &mut Vec<RgbBox>, index: usize, cluster: RgbBox) {
-    if let Some(slot) = boxes.get_mut(index) {
-        *slot = cluster;
-    } else {
-        boxes.push(cluster);
-    }
-}
-
-/// `(range, channel)` of the RGB axis with the largest span.
-fn longest_range(pixels: &[[u8; 3]]) -> (u8, u8) {
-    let mut lowest = [u8::MAX; 3];
-    let mut highest = [0_u8; 3];
-    for pixel in pixels {
-        for channel in 0..3_usize {
-            let value = rgb_channel(*pixel, channel);
-            set_u8(&mut lowest, channel, value, false);
-            set_u8(&mut highest, channel, value, true);
-        }
-    }
-    let mut best = (0_u8, 0_u8);
-    for channel in 0..3_u8 {
-        let index = usize::from(channel);
-        let span = rgb_channel(highest, index).saturating_sub(rgb_channel(lowest, index));
-        if span >= best.0 {
-            best = (span, channel);
-        }
-    }
-    best
-}
-
-/// Split `pixels` at the median of the longest RGB axis.
-fn split_cluster(mut pixels: RgbBox) -> Option<(RgbBox, RgbBox)> {
-    if pixels.len() < 2 {
-        return None;
-    }
-    let (range, channel) = longest_range(&pixels);
+/// Halves `cluster` at its median along its widest channel, or returns it
+/// whole when every pixel is the same colour.
+fn split(mut cluster: Vec<[u8; 3]>) -> Vec<Vec<[u8; 3]>> {
+    let (range, channel) = widest(&cluster);
     if range == 0 {
-        return None;
+        return vec![cluster];
     }
-    let axis = usize::from(channel);
-    pixels.sort_by_key(|pixel| rgb_channel(*pixel, axis));
-    let last = pixels.len().saturating_sub(1);
-    let mid = pixels.len().wrapping_div(2).clamp(1, last);
-    let right = pixels.split_off(mid);
-    Some((pixels, right))
+    cluster.sort_by_key(|pixel| component(*pixel, channel));
+    let upper = cluster.split_off(cluster.len().wrapping_div(2));
+    vec![cluster, upper]
 }
 
-/// Channel `index` of an sRGB triple, or 0 if that slot is missing.
-fn rgb_channel(pixel: [u8; 3], index: usize) -> u8 {
-    pixel.get(index).copied().unwrap_or(0)
+/// The range of `cluster` along its widest channel, and that channel.
+fn widest(cluster: &[[u8; 3]]) -> (u8, usize) {
+    (0..3)
+        .map(|channel| {
+            let values = cluster.iter().map(|pixel| component(*pixel, channel));
+            let low = values.clone().min().unwrap_or(0);
+            let high = values.max().unwrap_or(0);
+            (high.saturating_sub(low), channel)
+        })
+        .max_by_key(|&(range, _)| range)
+        .unwrap_or((0, 0))
 }
 
-/// Write `value` into `values[index]` as a min or max, when the slot exists.
-fn set_u8(values: &mut [u8; 3], index: usize, value: u8, prefer_max: bool) {
-    if let Some(slot) = values.get_mut(index) {
-        *slot = if prefer_max {
-            (*slot).max(value)
-        } else {
-            (*slot).min(value)
-        };
-    }
+/// Channel `channel` (0 red, 1 green, 2 blue) of `pixel`.
+fn component(pixel: [u8; 3], channel: usize) -> u8 {
+    pixel.get(channel).copied().unwrap_or(0)
 }
 
-/// Overwrite `values[index]` when that slot exists.
-fn write_channel(values: &mut [u8; 3], index: usize, value: u8) {
-    if let Some(slot) = values.get_mut(index) {
-        *slot = value;
-    }
+/// The mean red, green and blue of `cluster` in linear light, from 0 to 1.
+fn mean(cluster: &[[u8; 3]]) -> [f64; 3] {
+    let (red, green, blue, count) = cluster.iter().fold(
+        (0.0, 0.0, 0.0, 0.0),
+        |(red, green, blue, count), &[r, g, b]| {
+            (
+                red + linear(r),
+                green + linear(g),
+                blue + linear(b),
+                count + 1.0,
+            )
+        },
+    );
+    [red / count, green / count, blue / count]
 }
 
-/// Saturating-add `value` into `values[index]` when that slot exists.
-fn add_u32(values: &mut [u32; 3], index: usize, value: u32) {
-    if let Some(slot) = values.get_mut(index) {
-        *slot = slot.saturating_add(value);
-    }
+/// Whether two swatches round to the same OKLCH colour.
+fn same_colour(left: Swatch, right: Swatch) -> bool {
+    (left.lightness, left.chroma, left.hue) == (right.lightness, right.chroma, right.hue)
 }
 
-/// Channel `index` of a sum triple, or 0 if that slot is missing.
-fn u32_at(values: &[u32; 3], index: usize) -> u32 {
-    values.get(index).copied().unwrap_or(0)
-}
-
-/// Read a packed AC nibble into `bytes[index]`. Returns the exclusive end
-/// of the written byte, or 0 when `index` is out of range.
-fn or_nibble(bytes: &mut [u8], index: usize, nibble: u8, shift: u32) -> usize {
-    match bytes.get_mut(index) {
-        Some(slot) => {
-            *slot |= nibble.wrapping_shl(shift);
-            index.saturating_add(1)
-        }
-        None => 0,
-    }
-}
-
-/// Mean sRGB of a cluster, rounding each channel toward nearest.
-fn mean_rgb(pixels: &[[u8; 3]]) -> [u8; 3] {
-    let count = u32::try_from(pixels.len().max(1)).unwrap_or(1);
-    let mut sums = [0_u32; 3];
-    for pixel in pixels {
-        for channel in 0..3_usize {
-            add_u32(&mut sums, channel, u32::from(rgb_channel(*pixel, channel)));
-        }
-    }
-    let mut mean = [0_u8; 3];
-    for channel in 0..3_usize {
-        let sum = u32_at(&sums, channel);
-        write_channel(
-            &mut mean,
-            channel,
-            u8::try_from(sum.checked_div(count).unwrap_or(0)).unwrap_or(u8::MAX),
-        );
-    }
-    mean
-}
-
-/// OKLCH swatch and WCAG contrast of an sRGB triple, from Ottosson's `OKLab`.
-fn swatch_from_srgb(rgb: [u8; 3]) -> Swatch {
-    let red = rgb.first().copied().unwrap_or(0);
-    let green = rgb.get(1).copied().unwrap_or(0);
-    let blue = rgb.get(2).copied().unwrap_or(0);
-    let (lightness, chroma, hue) = srgb_to_oklch(red, green, blue);
+/// The OKLCH swatch of a colour in linear-light sRGB, using Björn
+/// Ottosson's `OKLab` matrices (2020, as CSS Color 4 uses them) and WCAG 2's
+/// relative luminance.
+fn swatch([red, green, blue]: [f64; 3]) -> Swatch {
+    let long = (0.412_221_470_8 * red + 0.536_332_536_3 * green + 0.051_445_992_9 * blue).cbrt();
+    let medium = (0.211_903_498_2 * red + 0.680_699_545_1 * green + 0.107_396_956_6 * blue).cbrt();
+    let short = (0.088_302_461_9 * red + 0.281_718_837_6 * green + 0.629_978_700_5 * blue).cbrt();
+    let lightness = 0.210_454_255_3 * long + 0.793_617_785_0 * medium - 0.004_072_046_8 * short;
+    let a = 1.977_998_495_1 * long - 2.428_592_205_0 * medium + 0.450_593_709_9 * short;
+    let b = 0.025_904_037_1 * long + 0.782_771_766_2 * medium - 0.808_675_766_0 * short;
+    let chroma = thousandths(a.hypot(b), 500);
+    let hue = if chroma == 0 {
+        0
+    } else {
+        whole(b.atan2(a).to_degrees().rem_euclid(360.0), 360).rem_euclid(360)
+    };
+    let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
     Swatch {
-        lightness,
+        lightness: thousandths(lightness, 1000),
         chroma,
         hue,
-        contrast_black: contrast_hundredths(red, green, blue, 0, 0, 0),
-        contrast_white: contrast_hundredths(red, green, blue, 255, 255, 255),
+        contrast_black: whole(100.0 * (luminance + 0.05) / 0.05, 2100),
+        contrast_white: whole(100.0 * 1.05 / (luminance + 0.05), 2100),
     }
 }
 
-/// sRGB 8-bit to OKLCH milles and degrees (Ottosson 2020).
-fn srgb_to_oklch(red: u8, green: u8, blue: u8) -> (u16, u16, u16) {
-    let linear_red = srgb_to_linear(red);
-    let linear_green = srgb_to_linear(green);
-    let linear_blue = srgb_to_linear(blue);
-    let cone_l = 0.412_221_470_8_f64.mul_add(
-        linear_red,
-        0.536_332_536_3_f64.mul_add(linear_green, 0.051_445_992_9_f64 * linear_blue),
-    );
-    let cone_m = 0.211_903_498_2_f64.mul_add(
-        linear_red,
-        0.680_699_545_1_f64.mul_add(linear_green, 0.107_396_956_6_f64 * linear_blue),
-    );
-    let cone_s = 0.088_302_461_9_f64.mul_add(
-        linear_red,
-        0.281_718_837_6_f64.mul_add(linear_green, 0.629_978_700_5_f64 * linear_blue),
-    );
-    let cube_l = cone_l.cbrt();
-    let cube_m = cone_m.cbrt();
-    let cube_s = cone_s.cbrt();
-    let ok_l = 0.210_454_255_3_f64.mul_add(
-        cube_l,
-        0.793_617_785_0_f64.mul_add(cube_m, -0.004_072_046_8_f64 * cube_s),
-    );
-    let ok_a = 1.977_998_495_1_f64.mul_add(
-        cube_l,
-        (-2.428_592_205_0_f64).mul_add(cube_m, 0.450_593_709_9_f64 * cube_s),
-    );
-    let ok_b = 0.025_904_037_1_f64.mul_add(
-        cube_l,
-        0.738_491_886_6_f64.mul_add(cube_m, -0.764_395_924_1_f64 * cube_s),
-    );
-    let chroma = ok_a.hypot(ok_b);
-    let hue = if chroma < 0.000_5 {
-        0.0
-    } else {
-        let degrees = ok_b.atan2(ok_a).to_degrees();
-        if degrees < 0.0 {
-            degrees + 360.0
-        } else {
-            degrees
-        }
-    };
-    (unit_milli(ok_l, 1000), unit_milli(chroma, 500), degree(hue))
-}
-
-/// Round `value × 1000` to `0..=cap`.
-fn unit_milli(value: f64, cap: u16) -> u16 {
-    clamp_to_u16(js_round(value * 1000.0), cap)
-}
-
-/// Round a hue in degrees to `0..=359`.
-fn degree(hue: f64) -> u16 {
-    clamp_to_u16(js_round(hue), 359)
-}
-
-/// IEC 61966-2-1 sRGB channel to linear light, 0 to 1.
-fn srgb_to_linear(channel: u8) -> f64 {
+/// An sRGB channel in linear light, from 0 to 1 (IEC 61966-2-1). The
+/// curve's straight segment ends at 0.04045, between 10/255 and 11/255.
+fn linear(channel: u8) -> f64 {
     let unit = f64::from(channel) / 255.0;
-    if unit <= 0.040_45 {
+    if channel <= 10 {
         unit / 12.92
     } else {
         ((unit + 0.055) / 1.055).powf(2.4)
     }
 }
 
-/// WCAG 2 contrast ratio of two sRGB colours, in hundredths.
-fn contrast_hundredths(
-    left_r: u8,
-    left_g: u8,
-    left_b: u8,
-    right_r: u8,
-    right_g: u8,
-    right_b: u8,
-) -> u16 {
-    let left = relative_luminance(left_r, left_g, left_b);
-    let right = relative_luminance(right_r, right_g, right_b);
-    let (lighter, darker) = if left >= right {
-        (left, right)
-    } else {
-        (right, left)
-    };
-    let ratio = (lighter + 0.05) / (darker + 0.05);
-    clamp_to_u16(js_round(ratio * 100.0), 2100)
+/// `value` in thousandths, rounded and clamped to `0..=max`.
+fn thousandths(value: f64, max: u16) -> u16 {
+    whole(value * 1000.0, max)
 }
 
-/// WCAG 2 relative luminance of an sRGB triple.
-fn relative_luminance(red: u8, green: u8, blue: u8) -> f64 {
-    0.212_6_f64.mul_add(
-        srgb_to_linear(red),
-        0.715_2_f64.mul_add(srgb_to_linear(green), 0.072_2_f64 * srgb_to_linear(blue)),
-    )
+/// `value` rounded and clamped to `0..=max`.
+fn whole(value: f64, max: u16) -> u16 {
+    u16::try_from(quantize(value, u32::from(max))).unwrap_or(max)
 }
 
 #[cfg(test)]
 #[expect(
     clippy::arithmetic_side_effects,
-    clippy::bool_to_int_with_if,
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
@@ -801,20 +504,20 @@ fn relative_luminance(red: u8, green: u8, blue: u8) -> f64 {
     clippy::manual_midpoint,
     clippy::many_single_char_names,
     clippy::similar_names,
-    clippy::unnecessary_cast,
-    reason = "test oracles follow the published decoder and independent colour formulas"
+    clippy::type_complexity,
+    reason = "the oracles work on images of at most 100 × 100 pixels and hashes of at most 25 octets, compare values the published formulas give exactly, and keep the published decoder's names"
 )]
 mod tests {
     use super::*;
-    use proptest::collection::vec as arb_bytes;
+    use proptest::collection::vec;
     use proptest::prelude::*;
 
-    /// Independent `ThumbHash` decoder, written from the published JavaScript
-    /// `thumbHashToRGBA` / `thumbHashToApproximateAspectRatio` /
-    /// `thumbHashToAverageRGBA` at <https://github.com/evanw/thumbhash>.
-    /// It shares no functions with the encoder under test.
+    /// An independent `ThumbHash` decoder, ported from `thumbHashToRGBA`,
+    /// `thumbHashToAverageRGBA` and `thumbHashToApproximateAspectRatio` in
+    /// `js/thumbhash.js` of <https://github.com/evanw/thumbhash> (commit
+    /// a652ce6). It shares no code with the encoder under test.
     mod published {
-        use super::PI;
+        use std::f64::consts::PI;
 
         pub struct Raster {
             pub width: usize,
@@ -822,384 +525,238 @@ mod tests {
             pub rgba: Vec<u8>,
         }
 
-        /// `thumbHashToApproximateAspectRatio`.
-        pub fn aspect_ratio(hash: &[u8]) -> f64 {
-            let header = *hash.get(3).unwrap_or(&0);
-            let has_alpha = hash.get(2).copied().unwrap_or(0) & 0x80 != 0;
-            let is_landscape = hash.get(4).copied().unwrap_or(0) & 0x80 != 0;
-            let lx = if is_landscape {
-                if has_alpha { 5.0 } else { 7.0 }
-            } else {
-                f64::from(header & 7)
-            };
-            let ly = if is_landscape {
-                f64::from(header & 7)
-            } else if has_alpha {
-                5.0
-            } else {
-                7.0
-            };
-            if ly == 0.0 { 1.0 } else { lx / ly }
+        fn header24(hash: &[u8]) -> u32 {
+            u32::from(hash[0]) | u32::from(hash[1]) << 8 | u32::from(hash[2]) << 16
         }
 
-        /// `thumbHashToAverageRGBA`, each channel 0 to 1.
-        pub fn average_rgba(hash: &[u8]) -> (f64, f64, f64, f64) {
-            let header = u32::from(*hash.first().unwrap_or(&0))
-                | u32::from(*hash.get(1).unwrap_or(&0)) << 8
-                | u32::from(*hash.get(2).unwrap_or(&0)) << 16;
-            let l = f64::from(header & 63) / 63.0;
-            let p = f64::from((header >> 6) & 63) / 31.5 - 1.0;
-            let q = f64::from((header >> 12) & 63) / 31.5 - 1.0;
-            let has_alpha = header >> 23 != 0;
-            let a = if has_alpha {
-                f64::from(hash.get(5).copied().unwrap_or(0) & 15) / 15.0
+        fn header16(hash: &[u8]) -> u32 {
+            u32::from(hash[3]) | u32::from(hash[4]) << 8
+        }
+
+        /// `lx` and `ly` as `thumbHashToApproximateAspectRatio` reads them.
+        fn extents(hash: &[u8]) -> (u32, u32) {
+            let stored = u32::from(hash[3] & 7);
+            let fixed = if hash[2] & 0x80 != 0 { 5 } else { 7 };
+            if hash[4] & 0x80 != 0 {
+                (fixed, stored)
+            } else {
+                (stored, fixed)
+            }
+        }
+
+        pub fn aspect_ratio(hash: &[u8]) -> f64 {
+            let (lx, ly) = extents(hash);
+            f64::from(lx) / f64::from(ly)
+        }
+
+        fn has_alpha(hash: &[u8]) -> bool {
+            header24(hash) >> 23 != 0
+        }
+
+        /// The DC terms `[l, p, q, a]`.
+        fn dc(hash: &[u8]) -> [f64; 4] {
+            let header = header24(hash);
+            let a = if has_alpha(hash) {
+                f64::from(hash[5] & 15) / 15.0
             } else {
                 1.0
             };
+            [
+                f64::from(header & 63) / 63.0,
+                f64::from((header >> 6) & 63) / 31.5 - 1.0,
+                f64::from((header >> 12) & 63) / 31.5 - 1.0,
+                a,
+            ]
+        }
+
+        fn to_rgb(l: f64, p: f64, q: f64) -> [f64; 3] {
             let b = l - 2.0 / 3.0 * p;
             let r = (3.0 * l - b + q) / 2.0;
             let g = r - q;
-            (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), a)
+            [r, g, b]
         }
 
-        /// `thumbHashToRGBA`.
-        #[expect(
-            clippy::too_many_lines,
-            reason = "the published JavaScript decoder is one function; splitting it would share structure with the encoder"
-        )]
+        /// `thumbHashToAverageRGBA`.
+        pub fn average_rgba(hash: &[u8]) -> [f64; 4] {
+            let [l, p, q, a] = dc(hash);
+            let [r, g, b] = to_rgb(l, p, q);
+            [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), a]
+        }
+
+        /// `thumbHashToRGBA`, rounding each channel to the nearest octet.
         pub fn decode(hash: &[u8]) -> Raster {
-            let header24 = u32::from(*hash.first().unwrap_or(&0))
-                | u32::from(*hash.get(1).unwrap_or(&0)) << 8
-                | u32::from(*hash.get(2).unwrap_or(&0)) << 16;
-            let header16 =
-                u32::from(*hash.get(3).unwrap_or(&0)) | u32::from(*hash.get(4).unwrap_or(&0)) << 8;
-            let l_dc = f64::from(header24 & 63) / 63.0;
-            let p_dc = f64::from((header24 >> 6) & 63) / 31.5 - 1.0;
-            let q_dc = f64::from((header24 >> 12) & 63) / 31.5 - 1.0;
-            let l_scale = f64::from((header24 >> 18) & 31) / 31.0;
-            let has_alpha = header24 >> 23 != 0;
-            let p_scale = f64::from((header16 >> 3) & 63) / 63.0;
-            let q_scale = f64::from((header16 >> 9) & 63) / 63.0;
-            let is_landscape = header16 >> 15 != 0;
-            let lx = 3.max(if is_landscape {
-                if has_alpha { 5 } else { 7 }
-            } else {
-                (header16 & 7) as usize
-            });
-            let ly = 3.max(if is_landscape {
-                (header16 & 7) as usize
-            } else if has_alpha {
-                5
-            } else {
-                7
-            });
-            let a_dc = if has_alpha {
-                f64::from(hash.get(5).copied().unwrap_or(0) & 15) / 15.0
-            } else {
-                1.0
-            };
-            let a_scale = f64::from(hash.get(5).copied().unwrap_or(0) >> 4) / 15.0;
-            let ac_start = if has_alpha { 6 } else { 5 };
-            let mut ac_index = 0_usize;
-            let mut read = |nx: usize, ny: usize, scale: f64| {
-                let mut ac = Vec::new();
+            let h24 = header24(hash);
+            let h16 = header16(hash);
+            let alpha = has_alpha(hash);
+            let (lx, ly) = extents(hash);
+            let l_scale = f64::from((h24 >> 18) & 31) / 31.0;
+            let p_scale = f64::from((h16 >> 3) & 63) / 63.0;
+            let q_scale = f64::from((h16 >> 9) & 63) / 63.0;
+            let ac_start = if alpha { 6 } else { 5 };
+            let a_scale = f64::from(hash[5] >> 4) / 15.0;
+            let mut nibbles = hash[ac_start..]
+                .iter()
+                .flat_map(|octet| [octet & 15, octet >> 4]);
+            let mut channel = |nx: usize, ny: usize, scale: f64| {
+                let mut terms = Vec::new();
                 for cy in 0..ny {
-                    let mut cx = if cy == 0 { 1 } else { 0 };
-                    while cx * ny < nx * (ny - cy) {
-                        let packed = hash.get(ac_start + ac_index / 2).copied().unwrap_or(0);
-                        let nibble = (packed >> ((ac_index & 1) << 2)) & 15;
-                        ac_index += 1;
-                        ac.push((f64::from(nibble) / 7.5 - 1.0) * scale);
-                        cx += 1;
+                    for cx in 0..nx {
+                        if (cx, cy) != (0, 0) && cx * ny < nx * (ny - cy) {
+                            let nibble = nibbles.next().unwrap();
+                            terms.push((cx, cy, (f64::from(nibble) / 7.5 - 1.0) * scale));
+                        }
                     }
                 }
-                ac
+                terms
             };
-            let l_ac = read(lx, ly, l_scale);
-            let p_ac = read(3, 3, p_scale * 1.25);
-            let q_ac = read(3, 3, q_scale * 1.25);
-            let a_ac = if has_alpha {
-                read(5, 5, a_scale)
+            let l_ac = channel(lx.max(3) as usize, ly.max(3) as usize, l_scale);
+            let p_ac = channel(3, 3, p_scale * 1.25);
+            let q_ac = channel(3, 3, q_scale * 1.25);
+            let a_ac = if alpha {
+                channel(5, 5, a_scale)
             } else {
                 Vec::new()
             };
             let ratio = aspect_ratio(hash);
-            let w = if ratio > 1.0 {
-                32
+            let (w, h) = if ratio > 1.0 {
+                (32.0, (32.0 / ratio).round())
             } else {
-                (32.0 * ratio).round().max(1.0) as usize
+                ((32.0 * ratio).round(), 32.0)
             };
-            let h = if ratio > 1.0 {
-                (32.0 / ratio).round().max(1.0) as usize
-            } else {
-                32
-            };
+            let [l_dc, p_dc, q_dc, a_dc] = dc(hash);
             let mut rgba = Vec::new();
-            for y in 0..h {
-                for x in 0..w {
-                    let mut l = l_dc;
-                    let mut p = p_dc;
-                    let mut q = q_dc;
-                    let mut a = a_dc;
-                    let n_fx = lx.max(if has_alpha { 5 } else { 3 });
-                    let n_fy = ly.max(if has_alpha { 5 } else { 3 });
-                    let mut fx = Vec::new();
-                    let mut fy = Vec::new();
-                    for cx in 0..n_fx {
-                        fx.push((PI / w as f64 * (x as f64 + 0.5) * cx as f64).cos());
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let basis = |cx: usize, cy: usize| {
+                        (PI / w * (x as f64 + 0.5) * cx as f64).cos()
+                            * (PI / h * (y as f64 + 0.5) * cy as f64).cos()
+                            * 2.0
+                    };
+                    let sum = |start: f64, terms: &[(usize, usize, f64)]| {
+                        terms
+                            .iter()
+                            .fold(start, |acc, &(cx, cy, f)| acc + f * basis(cx, cy))
+                    };
+                    let [r, g, b] = to_rgb(sum(l_dc, &l_ac), sum(p_dc, &p_ac), sum(q_dc, &q_ac));
+                    for value in [r, g, b, sum(a_dc, &a_ac)] {
+                        rgba.push((255.0 * value.clamp(0.0, 1.0)).round() as u8);
                     }
-                    for cy in 0..n_fy {
-                        fy.push((PI / h as f64 * (y as f64 + 0.5) * cy as f64).cos());
-                    }
-                    let mut j = 0;
-                    for cy in 0..ly {
-                        let fy2 = fy.get(cy).copied().unwrap_or(0.0) * 2.0;
-                        let mut cx = if cy == 0 { 1 } else { 0 };
-                        while cx * ly < lx * (ly - cy) {
-                            l += l_ac.get(j).copied().unwrap_or(0.0)
-                                * fx.get(cx).copied().unwrap_or(0.0)
-                                * fy2;
-                            j += 1;
-                            cx += 1;
-                        }
-                    }
-                    j = 0;
-                    for cy in 0..3 {
-                        let fy2 = fy.get(cy).copied().unwrap_or(0.0) * 2.0;
-                        for cx in (if cy == 0 { 1 } else { 0 })..(3 - cy) {
-                            let f = fx.get(cx).copied().unwrap_or(0.0) * fy2;
-                            p += p_ac.get(j).copied().unwrap_or(0.0) * f;
-                            q += q_ac.get(j).copied().unwrap_or(0.0) * f;
-                            j += 1;
-                        }
-                    }
-                    if has_alpha {
-                        j = 0;
-                        for cy in 0..5 {
-                            let fy2 = fy.get(cy).copied().unwrap_or(0.0) * 2.0;
-                            for cx in (if cy == 0 { 1 } else { 0 })..(5 - cy) {
-                                a += a_ac.get(j).copied().unwrap_or(0.0)
-                                    * fx.get(cx).copied().unwrap_or(0.0)
-                                    * fy2;
-                                j += 1;
-                            }
-                        }
-                    }
-                    let b = l - 2.0 / 3.0 * p;
-                    let r = (3.0 * l - b + q) / 2.0;
-                    let g = r - q;
-                    rgba.push((255.0 * r.clamp(0.0, 1.0)).round() as u8);
-                    rgba.push((255.0 * g.clamp(0.0, 1.0)).round() as u8);
-                    rgba.push((255.0 * b.clamp(0.0, 1.0)).round() as u8);
-                    rgba.push((255.0 * a.clamp(0.0, 1.0)).round() as u8);
                 }
             }
             Raster {
-                width: w,
-                height: h,
+                width: w as usize,
+                height: h as usize,
                 rgba,
             }
         }
     }
 
-    /// Independent sRGB → OKLCH milles from Ottosson's `OKLab` matrices.
-    fn independent_oklch(r: u8, g: u8, b: u8) -> (u16, u16, u16) {
-        fn lin(c: u8) -> f64 {
-            let u = f64::from(c) / 255.0;
-            if u <= 0.040_45 {
-                u / 12.92
-            } else {
-                ((u + 0.055) / 1.055).powf(2.4)
-            }
-        }
-        let r = lin(r);
-        let g = lin(g);
-        let b = lin(b);
-        let l = 0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b;
-        let m = 0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b;
-        let s = 0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b;
-        let l_ = l.cbrt();
-        let m_ = m.cbrt();
-        let s_ = s.cbrt();
-        let l_ok = 0.210_454_255_3 * l_ + 0.793_617_785_0 * m_ - 0.004_072_046_8 * s_;
-        let a_ok = 1.977_998_495_1 * l_ - 2.428_592_205_0 * m_ + 0.450_593_709_9 * s_;
-        let b_ok = 0.025_904_037_1 * l_ + 0.738_491_886_6 * m_ - 0.764_395_924_1 * s_;
-        let c = a_ok.hypot(b_ok);
-        let h = if c < 0.000_5 {
-            0.0
-        } else {
-            let deg = b_ok.atan2(a_ok).to_degrees();
-            if deg < 0.0 { deg + 360.0 } else { deg }
-        };
-        (
-            (l_ok * 1000.0).round().clamp(0.0, 1000.0) as u16,
-            (c * 1000.0).round().clamp(0.0, 500.0) as u16,
-            if c < 0.000_5 {
-                0
-            } else {
-                h.round().clamp(0.0, 359.0) as u16
-            },
-        )
-    }
+    /// How far, in octets, each decoded channel of a flat image may stray
+    /// from the original. The header keeps the luma and both chroma DC terms
+    /// in 6 bits each, so a flat colour comes back within a few octets.
+    const FLAT_TOLERANCE: u8 = 6;
 
-    /// Independent WCAG 2 contrast in hundredths.
-    fn independent_contrast(r: u8, g: u8, b: u8, other: (u8, u8, u8)) -> u16 {
-        fn lin(c: u8) -> f64 {
-            let u = f64::from(c) / 255.0;
-            if u <= 0.040_45 {
-                u / 12.92
-            } else {
-                ((u + 0.055) / 1.055).powf(2.4)
+    fn image(width: u16, height: u16, pixel: impl Fn(usize, usize) -> [u8; 4]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for y in 0..usize::from(height) {
+            for x in 0..usize::from(width) {
+                out.extend_from_slice(&pixel(x, y));
             }
         }
-        fn lum(r: u8, g: u8, b: u8) -> f64 {
-            0.212_6 * lin(r) + 0.715_2 * lin(g) + 0.072_2 * lin(b)
-        }
-        let left = lum(r, g, b);
-        let right = lum(other.0, other.1, other.2);
-        let (hi, lo) = if left >= right {
-            (left, right)
-        } else {
-            (right, left)
-        };
-        ((hi + 0.05) / (lo + 0.05) * 100.0)
-            .round()
-            .clamp(0.0, 2100.0) as u16
+        out
     }
 
     fn fill(width: u16, height: u16, pixel: [u8; 4]) -> Vec<u8> {
-        let n = usize::from(width) * usize::from(height);
-        let mut out = Vec::new();
-        for _ in 0..n {
-            out.extend_from_slice(&pixel);
-        }
-        out
+        image(width, height, |_, _| pixel)
     }
 
-    fn split_vertical(width: u16, height: u16, left: [u8; 4], right: [u8; 4]) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mid = width / 2;
-        for _y in 0..height {
-            for x in 0..width {
-                out.extend_from_slice(if x < mid { &left } else { &right });
-            }
-        }
-        out
+    /// The same pattern the published encoder was run on (`noise` in the
+    /// generator): channel values from the pixel's row-major index.
+    fn noise(width: u16, height: u16, opaque: bool) -> Vec<u8> {
+        image(width, height, |x, y| {
+            let i = y * usize::from(width) + x;
+            let alpha = if opaque { 255 } else { (i * 53 + 29) % 256 };
+            [
+                (i * 37 % 256) as u8,
+                ((i * 91 + 11) % 256) as u8,
+                ((i * 13 + 7) % 256) as u8,
+                alpha as u8,
+            ]
+        })
     }
 
-    fn gradient_horizontal(width: u16, height: u16) -> Vec<u8> {
-        let mut out = Vec::new();
-        let denom = f64::from(width.saturating_sub(1).max(1));
-        for _y in 0..height {
-            for x in 0..width {
-                let t = f64::from(x) / denom;
-                let r = (255.0 * (1.0 - t)).round() as u8;
-                let b = (255.0 * t).round() as u8;
-                out.extend_from_slice(&[r, 0, b, 255]);
-            }
-        }
-        out
+    fn halves(width: u16, height: u16, left: [u8; 4], right: [u8; 4]) -> Vec<u8> {
+        let mid = usize::from(width / 2);
+        image(width, height, |x, _| if x < mid { left } else { right })
     }
 
-    fn header_alpha_flag(bytes: &[u8]) -> u8 {
-        bytes.get(2).copied().unwrap_or(0) & 0x80
+    /// Red falling and blue rising across the columns: `255 - 17x`, `17x`.
+    fn gradient() -> Vec<u8> {
+        image(16, 8, |x, _| [(255 - 17 * x) as u8, 0, (17 * x) as u8, 255])
     }
 
-    fn mean_channel(raster: &published::Raster, xs: std::ops::Range<usize>, channel: usize) -> f64 {
+    fn hash(rgba: &[u8], width: u16, height: u16) -> Vec<u8> {
+        placeholder(rgba, width, height)
+            .unwrap()
+            .as_bytes()
+            .to_vec()
+    }
+
+    /// Mean of `channel` over the decoded columns `columns`.
+    fn region_mean(
+        raster: &published::Raster,
+        columns: std::ops::Range<usize>,
+        channel: usize,
+    ) -> f64 {
         let mut sum = 0.0;
-        let mut n = 0.0;
+        let mut count = 0.0;
         for y in 0..raster.height {
-            for x in xs.clone() {
-                if x >= raster.width {
-                    continue;
-                }
-                let i = y
-                    .saturating_mul(raster.width)
-                    .saturating_add(x)
-                    .saturating_mul(4)
-                    .saturating_add(channel);
-                sum += f64::from(*raster.rgba.get(i).unwrap_or(&0));
-                n += 1.0;
+            for x in columns.clone() {
+                sum += f64::from(raster.rgba[(y * raster.width + x) * 4 + channel]);
+                count += 1.0;
             }
         }
-        if n == 0.0 { 0.0 } else { sum / n }
+        sum / count
     }
 
-    fn assert_solid_decode(rgba: &[u8], width: u16, height: u16, rgb: [u8; 3], tolerance: u8) {
-        let hash = placeholder(rgba, width, height).unwrap();
-        assert!(
-            hash.len() <= Placeholder::MAX_LEN && hash.len() == hash.as_bytes().len(),
-            "{hash:?}"
-        );
-        assert!(hash.len() >= 5, "{hash:?}");
-        assert!(!hash.is_empty());
-        let raster = published::decode(hash.as_bytes());
-        assert!(raster.width >= 1 && raster.height >= 1);
-        for pixel in raster.rgba.chunks_exact(4) {
-            for (got, want) in pixel.iter().take(3).zip(rgb) {
-                let delta = got.abs_diff(want);
-                let hash_bytes = hash.as_bytes();
-                assert!(
-                    delta <= tolerance,
-                    "decoded {pixel:?} off {rgb:?} by {delta} (tol {tolerance}) hash {hash_bytes:02x?}"
-                );
-            }
-            assert!(pixel[3] >= 255 - tolerance, "alpha {pixel:?}");
-        }
-        let (ar, ag, ab, aa) = published::average_rgba(hash.as_bytes());
-        let to_u8 = |c: f64| (c * 255.0).round().clamp(0.0, 255.0) as u8;
-        for (got, want) in [to_u8(ar), to_u8(ag), to_u8(ab)].iter().zip(rgb) {
-            assert!(
-                got.abs_diff(want) <= tolerance,
-                "average ({ar},{ag},{ab},{aa}) off {rgb:?}"
-            );
-        }
-        assert!(aa >= 0.9, "{aa}");
+    fn octet(unit: f64) -> u8 {
+        (unit * 255.0).round() as u8
     }
 
-    fn assert_swatch_near(swatch: Swatch, rgb: [u8; 3], l_tol: u16, c_tol: u16, h_tol: u16) {
-        let (l, c, h) = independent_oklch(rgb[0], rgb[1], rgb[2]);
-        let dl = swatch.lightness.abs_diff(l);
-        let dc = swatch.chroma.abs_diff(c);
-        let dh = {
-            let raw = i32::from(swatch.hue) - i32::from(h);
-            let wrapped = raw.abs().min((360 - raw.abs()) as i32);
-            u16::try_from(wrapped).unwrap()
-        };
-        assert!(
-            dl <= l_tol && dc <= c_tol && (c < GREY_CHROMA_MILLI || dh <= h_tol),
-            "{swatch:?} vs independent ({l}, {c}, {h}) from {rgb:?}"
-        );
-        assert_eq!(
-            swatch.contrast_black,
-            independent_contrast(rgb[0], rgb[1], rgb[2], (0, 0, 0))
-        );
-        assert_eq!(
-            swatch.contrast_white,
-            independent_contrast(rgb[0], rgb[1], rgb[2], (255, 255, 255))
-        );
+    const fn swatch(
+        lightness: u16,
+        chroma: u16,
+        hue: u16,
+        contrast_black: u16,
+        contrast_white: u16,
+    ) -> Swatch {
+        Swatch {
+            lightness,
+            chroma,
+            hue,
+            contrast_black,
+            contrast_white,
+        }
     }
+
+    // OKLCH values match CSS Color 4's conversion of the sRGB primaries
+    // (red is oklch(62.8% 0.2577 29.23), blue oklch(45.2% 0.3132 264.05),
+    // lime oklch(86.6% 0.2948 142.5)); contrast is WCAG 2's ratio against
+    // black and white, in hundredths.
+    const RED: Swatch = swatch(628, 258, 29, 525, 400);
+    const LIME: Swatch = swatch(866, 295, 142, 1530, 137);
+    const BLUE: Swatch = swatch(452, 313, 264, 244, 859);
+    const WHITE: Swatch = swatch(1000, 0, 0, 2100, 100);
+    const BLACK: Swatch = swatch(0, 0, 0, 100, 2100);
+    const YELLOW: Swatch = swatch(968, 211, 110, 1956, 107);
+    const GREY: Swatch = swatch(600, 0, 0, 532, 395);
 
     #[test]
-    fn records_thumbhash_as_the_placeholder_scheme() {
+    fn records_thumbhash_and_its_limits() {
         assert_eq!(PLACEHOLDER_SCHEME, "ThumbHash");
         assert_eq!(Placeholder::MAX_LEN, 25);
         assert_eq!(MAX_SIDE, 100);
         assert_eq!(MAX_SWATCHES, 3);
-        let vacant = Placeholder {
-            bytes: [0; PLACEHOLDER_MAX_LEN],
-            len: 0,
-        };
-        assert!(vacant.is_empty());
-        assert_eq!(vacant.len(), 0);
-        assert_eq!(vacant.as_bytes(), b"");
-        let overlong = Placeholder {
-            bytes: [7; PLACEHOLDER_MAX_LEN],
-            len: 26,
-        };
-        assert_eq!(overlong.len(), Placeholder::MAX_LEN);
-        assert_eq!(overlong.as_bytes().len(), 25);
-        assert!(!overlong.is_empty());
     }
 
     #[test]
@@ -1230,7 +787,7 @@ mod tests {
     #[test]
     fn refuses_a_side_past_the_thumbhash_cap() {
         assert_eq!(
-            placeholder(&[0, 0, 0, 255], 101, 1),
+            placeholder(&fill(101, 1, [0, 0, 0, 255]), 101, 1),
             Err(ImageDataError::TooLarge {
                 width: 101,
                 height: 1,
@@ -1238,16 +795,21 @@ mod tests {
             })
         );
         assert_eq!(
-            palette(&[0, 0, 0, 255], 1, 101),
+            palette(&fill(1, 101, [0, 0, 0, 255]), 1, 101),
             Err(ImageDataError::TooLarge {
                 width: 1,
                 height: 101,
                 max: 100
             })
         );
-        let ok = fill(100, 1, [10, 20, 30, 255]);
-        assert!(placeholder(&ok, 100, 1).is_ok());
-        assert!(palette(&ok, 100, 1).is_ok());
+        assert_eq!(
+            palette(&fill(100, 1, [255, 0, 0, 255]), 100, 1),
+            Ok(vec![RED])
+        );
+        assert_eq!(
+            palette(&fill(1, 100, [255, 0, 0, 255]), 1, 100),
+            Ok(vec![RED])
+        );
     }
 
     #[test]
@@ -1271,354 +833,480 @@ mod tests {
             })
         );
         assert_eq!(
-            placeholder(&[], 2, 2),
+            placeholder(&[0; 12], 2, 2),
             Err(ImageDataError::LengthMismatch {
                 width: 2,
                 height: 2,
-                len: 0,
+                len: 12,
                 expected: 16
             })
         );
     }
 
+    /// Hashes of `noise` images, produced by the published JavaScript
+    /// encoder `rgbaToThumbHash` (evanw/thumbhash commit a652ce6, run under
+    /// Node). Every coefficient of these images is far from zero, so the
+    /// bytes do not depend on the last bit of `cos`.
     #[test]
-    fn a_one_by_one_red_pixel_decodes_to_red() {
-        let rgba = fill(1, 1, [255, 0, 0, 255]);
-        let hash = placeholder(&rgba, 1, 1).unwrap();
-        assert!(hash.len() <= Placeholder::MAX_LEN && hash.len() >= 5);
-        // A 1×1 input aliases the published DCT onto one sample, so the
-        // 32×32 reconstruction is not uniform. The DC stored in the hash,
-        // which `thumbHashToAverageRGBA` reads, is the solid colour.
-        let (ar, ag, ab, aa) = published::average_rgba(hash.as_bytes());
-        let to_u8 = |c: f64| (c * 255.0).round().clamp(0.0, 255.0) as u8;
-        for (got, want) in [to_u8(ar), to_u8(ag), to_u8(ab)]
-            .into_iter()
-            .zip([255_u8, 0, 0])
-        {
-            assert!(got.abs_diff(want) <= 8, "average ({ar},{ag},{ab},{aa})");
+    fn matches_the_published_encoder_byte_for_byte() {
+        let cases: [(u16, u16, bool, &[u8]); 5] = [
+            (
+                10,
+                10,
+                true,
+                &[
+                    0x1f, 0xf8, 0x05, 0x1f, 0x04, 0x00, 0x29, 0x68, 0x53, 0x6b, 0x68, 0x64, 0x65,
+                    0x78, 0x97, 0x27, 0x48, 0x75, 0xf2, 0x8c, 0x6b, 0x27, 0xb3, 0x00,
+                ],
+            ),
+            (
+                7,
+                5,
+                false,
+                &[
+                    0x1e, 0xe8, 0x85, 0x14, 0x8e, 0x17, 0x90, 0x5a, 0x85, 0x68, 0x76, 0x39, 0x58,
+                    0xaf, 0xf6, 0x50, 0x99, 0x67, 0x72, 0x76, 0x37, 0xa3, 0x77, 0x73, 0x00,
+                ],
+            ),
+            (
+                100,
+                100,
+                false,
+                &[
+                    0xe0, 0xf7, 0x81, 0x05, 0x00, 0x07, 0x48, 0x08, 0x75, 0x53, 0xb5, 0x54, 0x63,
+                    0x90, 0xc9, 0xf9, 0x57, 0x6c, 0x5a, 0x3c, 0xfa, 0xe5, 0xb6, 0x95, 0x6b,
+                ],
+            ),
+            (
+                100,
+                1,
+                true,
+                &[
+                    0x1f, 0xf8, 0x3d, 0x09, 0x82, 0x77, 0x77, 0x77, 0x88, 0x88, 0x08, 0x88, 0x1f,
+                    0x88, 0x17, 0x80, 0xd8,
+                ],
+            ),
+            (
+                1,
+                100,
+                true,
+                &[
+                    0x1f, 0xf8, 0x3d, 0x09, 0x02, 0x08, 0x87, 0x78, 0x88, 0x87, 0x87, 0x77, 0x78,
+                    0x8f, 0x81, 0x1d, 0x08,
+                ],
+            ),
+        ];
+        for (width, height, opaque, expected) in cases {
+            assert_eq!(hash(&noise(width, height, opaque), width, height), expected);
         }
-        assert!(aa >= 0.9, "{aa}");
-        let raster = published::decode(hash.as_bytes());
-        assert_eq!(raster.rgba.len(), raster.width * raster.height * 4);
-        let swatches = palette(&rgba, 1, 1).unwrap();
-        assert_eq!(swatches.len(), 1);
-        assert_swatch_near(swatches[0], [255, 0, 0], 2, 2, 2);
+    }
+
+    /// The header and length the published encoder writes for flat and
+    /// two-tone images. Their AC nibbles come from rounding noise in `cos`
+    /// (a flat channel's scale is 0), so only the header is compared.
+    #[test]
+    fn writes_the_published_header_for_flat_and_structured_images() {
+        let cases: [(Vec<u8>, u16, u16, &[u8], usize); 9] = [
+            (
+                fill(8, 8, [255, 0, 0, 255]),
+                8,
+                8,
+                &[0xd5, 0xfb, 0x03, 0x07, 0x00],
+                24,
+            ),
+            (
+                halves(8, 4, [255, 0, 0, 255], [0, 0, 255, 255]),
+                8,
+                4,
+                &[0x15, 0xf6, 0x02, 0xf4, 0xa8],
+                19,
+            ),
+            (gradient(), 16, 8, &[0x15, 0xf6, 0x02, 0xa4, 0x9c], 19),
+            (
+                fill(1, 1, [255, 0, 0, 255]),
+                1,
+                1,
+                &[0xd5, 0xfb, 0x2b, 0x07, 0x7f],
+                24,
+            ),
+            (
+                fill(8, 2, [20, 40, 80, 255]),
+                8,
+                2,
+                &[0x4c, 0xd6, 0x01, 0x02, 0x80],
+                17,
+            ),
+            (
+                fill(2, 8, [20, 40, 80, 255]),
+                2,
+                8,
+                &[0x4c, 0xd6, 0x01, 0x02, 0x00],
+                17,
+            ),
+            (
+                fill(4, 4, [255, 0, 0, 0]),
+                4,
+                4,
+                &[0x00, 0x08, 0x82, 0x05, 0x00, 0x00],
+                25,
+            ),
+            (
+                fill(8, 2, [10, 20, 30, 0]),
+                8,
+                2,
+                &[0x00, 0x08, 0x82, 0x01, 0x80, 0x00],
+                23,
+            ),
+            (
+                fill(2, 8, [10, 20, 30, 0]),
+                2,
+                8,
+                &[0x00, 0x08, 0x82, 0x01, 0x00, 0x00],
+                23,
+            ),
+        ];
+        for (rgba, width, height, header, len) in cases {
+            let bytes = hash(&rgba, width, height);
+            assert_eq!((&bytes[..header.len()], bytes.len()), (header, len));
+        }
     }
 
     #[test]
-    fn solid_colours_decode_to_themselves() {
-        for (rgb, tol) in [
-            ([0_u8, 255, 0], 32_u8),
-            ([0, 0, 255], 32),
-            ([255, 255, 255], 8),
-            ([0, 0, 0], 8),
-            ([255, 255, 0], 32),
+    fn a_landscape_or_portrait_hash_keeps_its_aspect_ratio() {
+        let ratios = [
+            (fill(8, 2, [20, 40, 80, 255]), 8, 2, 3.5),
+            (fill(2, 8, [20, 40, 80, 255]), 2, 8, 2.0 / 7.0),
+            (fill(8, 2, [20, 40, 80, 0]), 8, 2, 5.0),
+            (fill(2, 8, [20, 40, 80, 0]), 2, 8, 0.2),
+            (fill(5, 5, [20, 40, 80, 255]), 5, 5, 1.0),
+        ];
+        for (rgba, width, height, ratio) in ratios {
+            assert_eq!(published::aspect_ratio(&hash(&rgba, width, height)), ratio);
+        }
+        let wide = published::decode(&hash(&fill(8, 2, [20, 40, 80, 0]), 8, 2));
+        assert_eq!((wide.width, wide.height), (32, 6));
+        let tall = published::decode(&hash(&fill(2, 8, [20, 40, 80, 255]), 2, 8));
+        assert_eq!((tall.width, tall.height), (9, 32));
+    }
+
+    #[test]
+    fn a_solid_colour_decodes_to_that_colour() {
+        for rgb in [
+            [255_u8, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [255, 255, 255],
+            [0, 0, 0],
+            [255, 255, 0],
+            [128, 128, 128],
+            [20, 40, 80],
         ] {
-            let rgba = fill(8, 8, [rgb[0], rgb[1], rgb[2], 255]);
-            assert_solid_decode(&rgba, 8, 8, rgb, tol);
-            let swatches = palette(&rgba, 8, 8).unwrap();
-            assert_eq!(swatches.len(), 1, "{rgb:?}");
-            assert_swatch_near(swatches[0], rgb, 2, 2, 2);
+            let [r, g, b] = rgb;
+            let bytes = hash(&fill(8, 8, [r, g, b, 255]), 8, 8);
+            let raster = published::decode(&bytes);
+            assert_eq!(raster.rgba.len(), 32 * 32 * 4);
+            for pixel in raster.rgba.chunks_exact(4) {
+                for (got, want) in pixel.iter().zip([r, g, b, 255]) {
+                    assert!(got.abs_diff(want) <= FLAT_TOLERANCE);
+                }
+            }
         }
     }
 
+    /// A 1×1 image aliases the DCT onto one sample: the published decoder
+    /// draws a pattern around it, and the average it reports is the colour.
     #[test]
-    fn an_opaque_image_clears_the_alpha_header_flag() {
-        let rgba = fill(2, 2, [10, 20, 30, 255]);
-        let hash = placeholder(&rgba, 2, 2).unwrap();
-        let bytes = hash.as_bytes();
-        let flag = header_alpha_flag(bytes);
-        assert_eq!(flag, 0, "{bytes:02x?}");
-        assert_eq!(header_alpha_flag(&[]), 0);
-        assert_eq!(header_alpha_flag(&[0, 0, 0x80]), 0x80);
-        assert!(hash.len() >= 5);
-    }
-
-    #[test]
-    fn a_two_colour_split_decodes_to_two_regions_and_both_palette_colours() {
-        let rgba = split_vertical(8, 4, [255, 0, 0, 255], [0, 0, 255, 255]);
-        let hash = placeholder(&rgba, 8, 4).unwrap();
-        assert!(hash.len() <= Placeholder::MAX_LEN);
-        let raster = published::decode(hash.as_bytes());
-        let mid = raster.width / 2;
-        let left_r = mean_channel(&raster, 0..mid / 2 + 1, 0);
-        let right_b = mean_channel(&raster, mid + mid / 4..raster.width, 2);
-        let left_b = mean_channel(&raster, 0..mid / 2 + 1, 2);
-        let right_r = mean_channel(&raster, mid + mid / 4..raster.width, 0);
-        assert!(
-            left_r > right_r + 40.0 && right_b > left_b + 40.0,
-            "left R {left_r} B {left_b}, right R {right_r} B {right_b}, {}x{}",
-            raster.width,
-            raster.height
-        );
-        let swatches = palette(&rgba, 8, 4).unwrap();
-        assert_eq!(swatches.len(), 2);
-        let hues: Vec<u16> = swatches.iter().map(|s| s.hue).collect();
-        // Red ~28°, blue ~264°.
-        assert!(
-            hues.iter().any(|h| (15..45).contains(h))
-                && hues.iter().any(|h| (240..290).contains(h)),
-            "{swatches:?}"
-        );
-        assert_ne!(swatches[0], swatches[1]);
-    }
-
-    #[test]
-    fn a_gradient_placeholder_shifts_from_red_to_blue() {
-        let rgba = gradient_horizontal(16, 8);
-        let hash = placeholder(&rgba, 16, 8).unwrap();
-        let raster = published::decode(hash.as_bytes());
-        let left_r = mean_channel(&raster, 0..raster.width / 4, 0);
-        let right_b = mean_channel(&raster, raster.width * 3 / 4..raster.width, 2);
-        assert!(
-            left_r > 80.0 && right_b > 80.0,
-            "left R {left_r} right B {right_b}"
-        );
-        let swatches = palette(&rgba, 16, 8).unwrap();
-        assert!(swatches.len() >= 2 && swatches.len() <= MAX_SWATCHES);
-        for pair in swatches.windows(2) {
-            assert_ne!(pair[0], pair[1]);
+    fn a_one_pixel_image_averages_to_its_colour() {
+        let bytes = hash(&[255, 0, 0, 255], 1, 1);
+        let [r, g, b, a] = published::average_rgba(&bytes);
+        for (got, want) in [octet(r), octet(g), octet(b), octet(a)]
+            .into_iter()
+            .zip([255, 0, 0, 255])
+        {
+            assert!(got.abs_diff(want) <= FLAT_TOLERANCE);
         }
+        assert_eq!(palette(&[255, 0, 0, 255], 1, 1), Ok(vec![RED]));
     }
 
     #[test]
-    fn fully_transparent_pixels_encode_alpha_and_yield_no_swatch() {
-        let rgba = fill(4, 4, [255, 0, 0, 0]);
-        let hash = placeholder(&rgba, 4, 4).unwrap();
-        let hash_bytes = hash.as_bytes();
-        assert!(hash.len() >= 6, "alpha header byte {hash_bytes:02x?}");
-        let (ar, ag, ab, aa) = published::average_rgba(hash_bytes);
-        assert!(aa < 0.2, "average alpha {aa} from ({ar},{ag},{ab},{aa})");
-        let raster = published::decode(hash_bytes);
-        let mean_a = mean_channel(&raster, 0..raster.width, 3);
-        assert!(mean_a < 40.0, "alpha {mean_a}");
-        assert_eq!(palette(&rgba, 4, 4).unwrap(), Vec::<Swatch>::new());
-    }
-
-    #[test]
-    fn mixed_transparent_and_red_keeps_the_red_swatch() {
-        let mut rgba = fill(4, 2, [0, 0, 0, 0]);
-        for pixel in rgba.chunks_exact_mut(4).take(4) {
-            pixel.copy_from_slice(&[255, 0, 0, 255]);
-        }
-        let swatches = palette(&rgba, 4, 2).unwrap();
-        assert_eq!(swatches.len(), 1);
-        assert_swatch_near(swatches[0], [255, 0, 0], 2, 2, 2);
-    }
-
-    #[test]
-    fn mixed_grey_and_red_drops_the_grey() {
-        let rgba = split_vertical(8, 4, [128, 128, 128, 255], [255, 0, 0, 255]);
-        let swatches = palette(&rgba, 8, 4).unwrap();
-        assert_eq!(swatches.len(), 1, "{swatches:?}");
-        assert_swatch_near(swatches[0], [255, 0, 0], 20, 20, 15);
-        assert!(swatches[0].chroma >= GREY_CHROMA_MILLI);
-    }
-
-    #[test]
-    fn a_landscape_hash_is_wider_than_it_is_tall() {
-        let wide = fill(8, 2, [20, 40, 80, 255]);
-        let tall = fill(2, 8, [20, 40, 80, 255]);
-        let wide_hash = placeholder(&wide, 8, 2).unwrap();
-        let tall_hash = placeholder(&tall, 2, 8).unwrap();
-        assert!(published::aspect_ratio(wide_hash.as_bytes()) > 1.0);
-        assert!(published::aspect_ratio(tall_hash.as_bytes()) < 1.0);
-    }
-
-    #[test]
-    fn a_grey_cover_is_still_that_colour() {
-        let rgba = fill(6, 6, [128, 128, 128, 255]);
-        let swatches = palette(&rgba, 6, 6).unwrap();
-        assert_eq!(swatches.len(), 1);
-        assert_swatch_near(swatches[0], [128, 128, 128], 3, 3, 360);
-        assert!(swatches[0].chroma < GREY_CHROMA_MILLI);
-    }
-
-    #[test]
-    fn helpers_clamp_published_rounding_and_the_coefficient_triangle() {
-        assert_eq!(js_round(2.3), 2);
-        assert_eq!(js_round(2.5), 3);
-        assert_eq!(js_round(-1.5), -1);
-        assert_eq!(js_round(f64::from(i32::MAX) + 10.0), i32::MAX);
-        assert_eq!(js_round(f64::from(i32::MIN) - 10.0), i32::MIN);
-        assert_eq!(clamp_to_u16(-1, 10), 0);
-        assert_eq!(clamp_to_u16(5, 10), 5);
-        assert_eq!(clamp_to_u16(100, 10), 10);
-        assert_eq!(clamp_to_u16(i32::MAX, 10), 10);
-        assert_eq!(clamp_to_u32(-1, 15), 0);
-        assert_eq!(clamp_to_u32(7, 15), 7);
-        assert_eq!(clamp_to_u32(100, 15), 15);
-        assert_eq!(clamp_to_u32(i32::MAX, 15), 15);
-        assert_eq!(quantize(-1.0, 15), 0);
-        assert_eq!(quantize(100.0, 15), 15);
-        assert_eq!(unit_milli(-0.1, 1000), 0);
-        assert_eq!(unit_milli(2.0, 1000), 1000);
-        assert_eq!(degree(-10.0), 0);
-        assert_eq!(degree(400.0), 359);
-        assert!(in_triangle(0, 0, 3, 3));
-        assert!(!in_triangle(2, 2, 3, 3));
-        assert!(!in_triangle(usize::MAX, usize::MAX, usize::MAX, usize::MAX));
-        assert_eq!(channel_extent(7.0, 0, 0), 1);
-        assert_eq!(srgb_to_linear(0), 0.0);
-        assert!(srgb_to_linear(255) > 0.9);
-        assert_eq!(contrast_hundredths(0, 0, 0, 255, 255, 255), 2100);
-        assert_eq!(contrast_hundredths(255, 255, 255, 0, 0, 0), 2100);
-        assert_eq!(published::aspect_ratio(&[0, 0, 0, 0, 0x80]), 1.0);
-    }
-
-    #[test]
-    fn palette_helpers_cover_out_of_range_slots() {
-        assert_eq!(mean_rgb(&[]), [0, 0, 0]);
-        assert_eq!(split_cluster(vec![[1, 2, 3]]), None);
-        assert_eq!(split_cluster(Vec::new()), None);
-        assert_eq!(split_cluster(vec![[4, 4, 4], [4, 4, 4]]), None);
-        assert!(split_cluster(vec![[0, 0, 0], [255, 0, 0]]).is_some());
-        let mut one = vec![vec![[9, 9, 9]]];
-        store_box(&mut one, 0, vec![[1, 2, 3]]);
-        assert_eq!(one, vec![vec![[1, 2, 3]]]);
-        let mut none: Vec<RgbBox> = Vec::new();
-        store_box(&mut none, 3, vec![[1, 2, 3]]);
-        assert_eq!(none, vec![vec![[1, 2, 3]]]);
-        assert_eq!(longest_range(&[]), (0, 2));
-        assert_eq!(rgb_channel([1, 2, 3], 0), 1);
-        assert_eq!(rgb_channel([1, 2, 3], 9), 0);
-        assert_eq!(u32_at(&[1, 2, 3], 1), 2);
-        assert_eq!(u32_at(&[1, 2, 3], 9), 0);
-        let mut rgb = [5, 5, 5];
-        set_u8(&mut rgb, 9, 1, true);
-        set_u8(&mut rgb, 0, 9, true);
-        set_u8(&mut rgb, 1, 1, false);
-        write_channel(&mut rgb, 9, 7);
-        write_channel(&mut rgb, 2, 4);
-        assert_eq!(rgb, [9, 1, 4]);
-        let mut sums = [0_u32, 0, 0];
-        add_u32(&mut sums, 9, 4);
-        add_u32(&mut sums, 0, 4);
-        assert_eq!(sums, [4, 0, 0]);
-        let mut packed = [0_u8; 1];
-        assert_eq!(or_nibble(&mut packed, 0, 3, 0), 1);
-        assert_eq!(or_nibble(&mut packed, 9, 3, 0), 0);
-        write_u8(&mut packed, 9, 1);
-        write_u8(&mut packed, 0, 7);
-        assert_eq!(packed, [7]);
-        assert!(take_cluster(&mut Vec::new(), 0).is_empty());
-        assert!(!replace_with_split(&mut Vec::new(), 0));
-        assert!(!replace_with_split(&mut vec![vec![[8, 8, 8]]], 0));
-        assert!(replace_with_split(
-            &mut vec![vec![[0, 0, 0], [255, 0, 0]]],
-            0
+    fn a_two_colour_split_decodes_to_two_regions() {
+        let raster = published::decode(&hash(
+            &halves(8, 4, [255, 0, 0, 255], [0, 0, 255, 255]),
+            8,
+            4,
         ));
-        let dummy = |lightness, chroma, hue| Swatch {
-            lightness,
-            chroma,
-            hue,
-            contrast_black: 0,
-            contrast_white: 0,
-        };
-        let kept = distinct_lch(vec![
-            dummy(100, 10, 20),
-            dummy(100, 10, 20),
-            dummy(100, 11, 20),
-            dummy(100, 11, 21),
-            dummy(200, 30, 40),
-        ]);
-        assert_eq!(
-            kept.iter()
-                .map(|s| (s.lightness, s.chroma, s.hue))
-                .collect::<Vec<_>>(),
-            vec![(100, 10, 20), (100, 11, 20), (100, 11, 21)]
-        );
-        let empty_raster = published::Raster {
-            width: 0,
-            height: 0,
-            rgba: Vec::new(),
-        };
-        assert_eq!(mean_channel(&empty_raster, 0..4, 0), 0.0);
-        let unit = published::Raster {
-            width: 1,
-            height: 1,
-            rgba: vec![10, 0, 0, 255],
-        };
-        assert!(mean_channel(&unit, 0..4, 0) >= 0.0);
+        let quarter = raster.width / 4;
+        let left = 0..quarter;
+        let right = raster.width - quarter..raster.width;
+        assert!(region_mean(&raster, left.clone(), 0) > 200.0);
+        assert!(region_mean(&raster, left, 2) < 55.0);
+        assert!(region_mean(&raster, right.clone(), 0) < 55.0);
+        assert!(region_mean(&raster, right, 2) > 200.0);
     }
 
     #[test]
-    fn transparent_landscape_and_portrait_hashes_carry_alpha() {
-        let wide_clear = fill(8, 2, [10, 20, 30, 0]);
-        let tall_clear = fill(2, 8, [10, 20, 30, 0]);
-        let wide_hash = placeholder(&wide_clear, 8, 2).unwrap();
-        let tall_hash = placeholder(&tall_clear, 2, 8).unwrap();
-        assert!(published::aspect_ratio(wide_hash.as_bytes()) > 1.0);
-        assert!(published::aspect_ratio(tall_hash.as_bytes()) < 1.0);
-        let _ = published::decode(wide_hash.as_bytes());
-        let _ = published::decode(tall_hash.as_bytes());
-        let _ = published::average_rgba(wide_hash.as_bytes());
+    fn a_gradient_decodes_to_a_gradient() {
+        let raster = published::decode(&hash(&gradient(), 16, 8));
+        let quarter = raster.width / 4;
+        let columns: Vec<_> = (0..4).map(|n| n * quarter..(n + 1) * quarter).collect();
+        let reds: Vec<f64> = columns
+            .iter()
+            .map(|c| region_mean(&raster, c.clone(), 0))
+            .collect();
+        let blues: Vec<f64> = columns
+            .iter()
+            .map(|c| region_mean(&raster, c.clone(), 2))
+            .collect();
+        for pair in reds.windows(2) {
+            assert!(pair[0] > pair[1] + 20.0);
+        }
+        for pair in blues.windows(2) {
+            assert!(pair[0] + 20.0 < pair[1]);
+        }
+    }
+
+    #[test]
+    fn fully_transparent_pixels_decode_transparent_and_give_no_swatch() {
+        let rgba = fill(4, 4, [255, 0, 0, 0]);
+        let bytes = hash(&rgba, 4, 4);
+        assert_eq!(published::average_rgba(&bytes)[3], 0.0);
+        let raster = published::decode(&bytes);
+        assert!(raster.rgba.chunks_exact(4).all(|pixel| pixel[3] == 0));
+        assert_eq!(palette(&rgba, 4, 4), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn the_palette_of_a_solid_image_is_that_colour() {
+        for (rgb, expected) in [
+            ([255_u8, 0, 0], RED),
+            ([0, 255, 0], LIME),
+            ([0, 0, 255], BLUE),
+            ([255, 255, 255], WHITE),
+            ([0, 0, 0], BLACK),
+            ([255, 255, 0], YELLOW),
+            ([128, 128, 128], GREY),
+        ] {
+            let [r, g, b] = rgb;
+            assert_eq!(
+                palette(&fill(6, 6, [r, g, b, 255]), 6, 6),
+                Ok(vec![expected])
+            );
+        }
+    }
+
+    #[test]
+    fn the_palette_of_a_two_colour_split_is_both_colours() {
+        let rgba = halves(8, 4, [255, 0, 0, 255], [0, 0, 255, 255]);
+        assert_eq!(palette(&rgba, 8, 4), Ok(vec![RED, BLUE]));
+    }
+
+    /// Median cut on the gradient, worked by hand: the first cut falls
+    /// between columns 7 and 8 (red and blue span the same range, and a tie
+    /// goes to the later channel, blue), the second splits the later of the
+    /// two equally wide halves between columns 11 and 12. Each candidate is
+    /// its columns' mean in linear light, the largest cluster first.
+    #[test]
+    fn the_palette_of_a_gradient_is_three_median_cut_means() {
+        assert_eq!(
+            palette(&gradient(), 16, 8),
+            Ok(vec![
+                swatch(532, 212, 13, 356, 589),
+                swatch(400, 211, 302, 202, 1038),
+                swatch(426, 285, 268, 221, 952),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_largest_cluster_comes_first() {
+        let red = [255, 0, 0, 255];
+        let lime = [0, 255, 0, 255];
+        let blue = [0, 0, 255, 255];
+        let rgba = image(5, 2, |x, y| match (y, x) {
+            (0, _) => red,
+            (_, 0 | 1) => lime,
+            _ => blue,
+        });
+        assert_eq!(palette(&rgba, 5, 2), Ok(vec![RED, BLUE, LIME]));
+    }
+
+    #[test]
+    fn a_near_grey_cluster_gives_way_to_a_coloured_one() {
+        let rgba = halves(8, 4, [128, 128, 128, 255], [255, 0, 0, 255]);
+        assert_eq!(palette(&rgba, 8, 4), Ok(vec![RED]));
+    }
+
+    /// (88, 60, 60) has OKLCH chroma 0.0397 and (91, 63, 63) 0.0394: they
+    /// round to 40 and 39 thousandths, either side of the near-grey line.
+    #[test]
+    fn the_near_grey_line_is_a_chroma_of_forty_thousandths() {
+        let rgba = halves(4, 2, [91, 63, 63, 255], [88, 60, 60, 255]);
+        assert_eq!(
+            palette(&rgba, 4, 2),
+            Ok(vec![swatch(388, 40, 19, 213, 988)])
+        );
+    }
+
+    /// (0, 30, 215) and (1, 30, 215) are two clusters with the same OKLCH
+    /// value once rounded, so only the first is a candidate.
+    #[test]
+    fn clusters_with_the_same_colour_collapse_into_one_candidate() {
+        let rgba = halves(4, 2, [0, 30, 215, 255], [1, 30, 215, 255]);
+        assert_eq!(
+            palette(&rgba, 4, 2),
+            Ok(vec![swatch(415, 264, 264, 217, 969)])
+        );
+    }
+
+    #[test]
+    fn only_fully_transparent_pixels_are_left_out_of_the_palette() {
+        let hidden = halves(4, 2, [255, 0, 0, 255], [0, 0, 255, 0]);
+        assert_eq!(palette(&hidden, 4, 2), Ok(vec![RED]));
+        let faint = halves(4, 2, [255, 0, 0, 255], [0, 0, 255, 1]);
+        assert_eq!(palette(&faint, 4, 2), Ok(vec![RED, BLUE]));
+    }
+
+    /// sRGB's transfer curve is a straight line up to 0.04045, so a channel
+    /// of 10 (0.0392) is on the line and 11 (0.0431) on the power curve. On
+    /// the power curve, (10, 0, 30) would have a hue of 295 degrees.
+    #[test]
+    fn a_channel_of_ten_is_on_the_straight_part_of_the_srgb_curve() {
+        assert_eq!(
+            palette(&[10, 0, 30, 255], 1, 1),
+            Ok(vec![swatch(126, 69, 296, 103, 2036)])
+        );
+    }
+
+    #[test]
+    fn quantize_rounds_half_up_and_clamps_like_the_published_encoder() {
+        assert_eq!(quantize(2.4, 15), 2);
+        assert_eq!(quantize(2.5, 15), 3);
+        assert_eq!(quantize(-0.5, 15), 0);
+        assert_eq!(quantize(-7.0, 15), 0);
+        assert_eq!(quantize(15.4, 15), 15);
+        assert_eq!(quantize(99.0, 15), 15);
+        assert_eq!(quantize(f64::NAN, 15), 0);
+    }
+
+    /// Coefficients the published layout stores for an `nx` × `ny` channel,
+    /// not counting the DC term.
+    fn ac_count(nx: usize, ny: usize) -> usize {
+        let mut count = 0;
+        for cy in 0..ny {
+            for cx in 0..nx {
+                if cx * ny < nx * (ny - cy) {
+                    count += 1;
+                }
+            }
+        }
+        count - 1
+    }
+
+    /// The hash length the published layout gives a `width` × `height`
+    /// image, with or without alpha.
+    fn published_len(width: u16, height: u16, alpha: bool) -> usize {
+        let limit = if alpha { 5.0 } else { 7.0 };
+        let longest = f64::from(width.max(height));
+        let lx = ((limit * f64::from(width) / longest).round() as usize).max(1);
+        let ly = ((limit * f64::from(height) / longest).round() as usize).max(1);
+        let alpha_terms = if alpha { ac_count(5, 5) } else { 0 };
+        let nibbles = ac_count(lx.max(3), ly.max(3)) + 2 * ac_count(3, 3) + alpha_terms;
+        5 + usize::from(alpha) + nibbles.div_ceil(2)
+    }
+
+    fn sized_image(max_side: u16) -> impl Strategy<Value = (u16, u16, Vec<u8>)> {
+        (1..=max_side, 1..=max_side).prop_flat_map(|(width, height)| {
+            let len = usize::from(width) * usize::from(height) * 4;
+            (Just(width), Just(height), vec(any::<u8>(), len))
+        })
+    }
+
+    /// What `placeholder` and `palette` must refuse, worked out from the
+    /// documented rules alone.
+    fn expected_refusal(rgba: &[u8], width: u16, height: u16) -> Option<ImageDataError> {
+        let expected = usize::from(width) * usize::from(height) * 4;
+        if width == 0 || height == 0 {
+            Some(ImageDataError::Empty { width, height })
+        } else if width > 100 || height > 100 {
+            Some(ImageDataError::TooLarge {
+                width,
+                height,
+                max: 100,
+            })
+        } else if rgba.len() == expected {
+            None
+        } else {
+            Some(ImageDataError::LengthMismatch {
+                width,
+                height,
+                len: rgba.len(),
+                expected,
+            })
+        }
     }
 
     proptest! {
         #[test]
-        fn the_placeholder_always_fits_its_fixed_size(
-            width in 1_u16..=12,
-            height in 1_u16..=12,
-            octets in arb_bytes(any::<u8>(), 0..4),
+        fn the_placeholder_always_fits_the_published_layout(
+            (width, height, mut rgba) in sized_image(24),
+            opaque in any::<bool>(),
         ) {
-            let mut rgba = Vec::new();
-            let pixels = usize::from(width) * usize::from(height);
-            for _ in 0..pixels {
-                let mut pixel = [0_u8, 0, 0, 255];
-                for (slot, octet) in pixel.iter_mut().zip(&octets) {
-                    *slot = *octet;
+            if opaque {
+                for pixel in rgba.chunks_exact_mut(4) {
+                    pixel[3] = 255;
                 }
-                rgba.extend_from_slice(&pixel);
             }
-            let hash = placeholder(&rgba, width, height).unwrap();
-            prop_assert!(hash.len() <= Placeholder::MAX_LEN);
-            prop_assert_eq!(hash.len(), hash.as_bytes().len());
-            prop_assert!(hash.len() >= 5);
-            prop_assert!(!hash.is_empty());
-            let raster = published::decode(hash.as_bytes());
-            prop_assert_eq!(raster.rgba.len(), raster.width * raster.height * 4);
-            prop_assert!(raster.width >= 1 && raster.height >= 1);
+            let alpha = rgba.chunks_exact(4).any(|pixel| pixel[3] != 255);
+            let bytes = hash(&rgba, width, height);
+            prop_assert_eq!(bytes.len(), published_len(width, height, alpha));
+            prop_assert!(bytes.len() <= Placeholder::MAX_LEN);
+            prop_assert_eq!(bytes[2] & 0x80 != 0, alpha);
+            prop_assert_eq!(bytes[4] & 0x80 != 0, width > height);
         }
 
         #[test]
-        fn palette_candidates_are_distinct_and_capped(
-            width in 1_u16..=10,
-            height in 1_u16..=10,
-            seed in any::<u8>(),
+        fn palette_candidates_are_distinct_and_at_most_three(
+            (width, height, rgba) in sized_image(16),
         ) {
-            let mut rgba = Vec::new();
-            let pixels = usize::from(width) * usize::from(height);
-            for i in 0..pixels {
-                let t = (i as u8).wrapping_add(seed);
-                rgba.extend_from_slice(&[t, t.wrapping_mul(3), t.wrapping_mul(7), 255]);
-            }
             let swatches = palette(&rgba, width, height).unwrap();
             prop_assert!(swatches.len() <= MAX_SWATCHES);
-            for i in 0..swatches.len() {
-                for j in (i + 1)..swatches.len() {
-                    prop_assert_ne!(swatches[i], swatches[j]);
+            for (i, left) in swatches.iter().enumerate() {
+                for right in &swatches[i + 1..] {
+                    prop_assert_ne!(
+                        (left.lightness, left.chroma, left.hue),
+                        (right.lightness, right.chroma, right.hue)
+                    );
                 }
             }
         }
 
         #[test]
-        fn every_buffer_returns_a_typed_result(
-            width in 0_u16..=120,
-            height in 0_u16..=120,
-            rgba in arb_bytes(any::<u8>(), 0..64),
+        fn transparent_pixels_do_not_change_the_palette(
+            (width, height, rgba) in sized_image(16),
+            clear in vec(any::<[u8; 3]>(), 1..=16),
         ) {
-            let hashed = placeholder(&rgba, width, height);
-            let colours = palette(&rgba, width, height);
-            prop_assert!(hashed.is_ok() || hashed.is_err());
-            prop_assert!(colours.is_ok() || colours.is_err());
-            match hashed {
-                Ok(hash) => {
-                    prop_assert!(colours.is_ok());
-                    prop_assert!(hash.len() <= Placeholder::MAX_LEN);
-                }
-                Err(error) => prop_assert_eq!(colours, Err(error)),
+            // The same image with a fully transparent row appended below.
+            let mut taller = rgba.clone();
+            for column in 0..usize::from(width) {
+                let [r, g, b] = clear[column % clear.len()];
+                taller.extend_from_slice(&[r, g, b, 0]);
             }
+            prop_assert_eq!(
+                palette(&taller, width, height + 1),
+                palette(&rgba, width, height)
+            );
+        }
+
+        #[test]
+        fn every_buffer_gets_a_result_or_the_documented_refusal(
+            (width, height, rgba) in prop_oneof![
+                (0_u16..=120, 0_u16..=120, vec(any::<u8>(), 0..64)),
+                sized_image(4),
+            ],
+        ) {
+            let refusal = expected_refusal(&rgba, width, height);
+            prop_assert_eq!(placeholder(&rgba, width, height).err(), refusal);
+            prop_assert_eq!(palette(&rgba, width, height).err(), refusal);
         }
     }
 }
