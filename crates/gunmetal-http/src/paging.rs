@@ -7,9 +7,7 @@
 //! anything from it, and nothing in it is trusted for an authorisation
 //! decision.
 
-use core::fmt;
-
-use serde::de::{self, Deserializer, Visitor};
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
 /// The page size most routes allow.
@@ -54,9 +52,15 @@ impl<'de, const MAX: u32> Deserialize<'de> for PageLimit<MAX> {
 
 /// An opaque continuation handle: 1 to [`CURSOR_MAX`] characters from the
 /// URL-safe base64 alphabet.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct Cursor(String);
+
+impl From<Cursor> for String {
+    fn from(cursor: Cursor) -> Self {
+        cursor.0
+    }
+}
 
 impl Cursor {
     /// A cursor, if the text has its shape.
@@ -77,24 +81,11 @@ impl Cursor {
     }
 }
 
-impl<'de> Deserialize<'de> for Cursor {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_str(CursorVisitor)
-    }
-}
+impl TryFrom<String> for Cursor {
+    type Error = &'static str;
 
-/// Reads a [`Cursor`] from a string.
-struct CursorVisitor;
-
-impl Visitor<'_> for CursorVisitor {
-    type Value = Cursor;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a cursor")
-    }
-
-    fn visit_str<E: de::Error>(self, text: &str) -> Result<Cursor, E> {
-        Cursor::new(text).ok_or_else(|| E::custom("malformed cursor"))
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        Self::new(&text).ok_or("malformed cursor")
     }
 }
 
