@@ -24,4 +24,5 @@ pub mod net;
 pub mod registry;
 pub mod text;
 pub mod time;
+pub mod userdata_codec;
 pub mod values;

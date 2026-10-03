@@ -56,5 +56,6 @@ harnesses! {
     net,
     text,
     time,
+    userdata_codec,
     values,
 }
