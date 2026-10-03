@@ -30,8 +30,50 @@ gunmetal-fuzz = { path = "../crates/gunmetal-fuzz", version = "0.0.0" }
 libfuzzer-sys = "0.4.13"
 
 [[bin]]
+name = "base64"
+path = "fuzz_targets/base64.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "ebml"
 path = "fuzz_targets/ebml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link"
+path = "fuzz_targets/link.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net"
+path = "fuzz_targets/net.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text"
+path = "fuzz_targets/text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "time"
+path = "fuzz_targets/time.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "values"
+path = "fuzz_targets/values.rs"
 test = false
 doc = false
 bench = false
