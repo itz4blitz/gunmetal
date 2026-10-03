@@ -8,6 +8,7 @@ pub mod ape;
 pub mod detect;
 pub mod flac;
 pub mod id3v1;
+pub mod id3v2;
 pub mod mp4;
 pub mod mpa;
 pub mod ogg;

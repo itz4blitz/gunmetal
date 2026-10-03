@@ -62,6 +62,7 @@ harnesses! {
     http_range,
     id3_structure,
     id3v1,
+    id3v2_tag,
     link,
     logframe,
     lyrics,

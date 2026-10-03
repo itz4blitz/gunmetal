@@ -29,6 +29,7 @@ pub mod http_forwarded;
 pub mod http_range;
 pub mod id3_structure;
 pub mod id3v1;
+pub mod id3v2_tag;
 pub mod link;
 pub mod logframe;
 pub mod lyrics;
