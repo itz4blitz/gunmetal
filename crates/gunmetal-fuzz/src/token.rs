@@ -40,14 +40,12 @@ pub struct Outcome {
 /// # Panics
 ///
 /// Panics when an accepted capability token names an expiry outside
-/// [`Timestamp::MIN`] to [`Timestamp::MAX`], when a session hash is
-/// returned for an input that is not 32 octets, or when a fake provider's
-/// current key is not 1.
+/// [`Timestamp::MIN`] to [`Timestamp::MAX`], or when a session hash is
+/// returned for an input that is not 32 octets.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(data);
     let mac = FuzzMac;
-    assert_eq!(mac.current_kid(), 1);
     let now = Timestamp::from_millis(0).unwrap_or(Timestamp::MIN);
     let verified = verify(Untrusted::new(text.as_ref()), &mac, now);
     if let Ok(fields) = &verified {
@@ -71,7 +69,6 @@ pub fn run(data: &[u8]) -> Outcome {
         assert_ne!(data.len(), SESSION_LEN);
     }
     if data.len() == SESSION_LEN {
-        assert_eq!(EmptyMac.current_kid(), 1);
         assert_eq!(
             hash_session(Untrusted::new(data), &EmptyMac),
             Err(SessionHashError::Invalid)
@@ -83,7 +80,8 @@ pub fn run(data: &[u8]) -> Outcome {
     }
 }
 
-/// A provider that answers no key, so a 32-octet token cannot be hashed.
+/// A provider that answers key 0 only, while its current key is 1, so a
+/// 32-octet token cannot be hashed under the current key.
 struct EmptyMac;
 
 impl MacProvider for EmptyMac {
@@ -91,7 +89,7 @@ impl MacProvider for EmptyMac {
         1
     }
 
-    fn mac(&self, _kid: u8, _msg: &[u8]) -> Option<[u8; 32]> {
-        None
+    fn mac(&self, kid: u8, _msg: &[u8]) -> Option<[u8; 32]> {
+        (kid == 0).then_some(RFC4231_CASE1)
     }
 }

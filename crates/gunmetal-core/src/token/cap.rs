@@ -581,6 +581,57 @@ mod tests {
         CapError::Malformed { reason }
     }
 
+    /// Independent of [`verify`]: a one-bit edit of a 53-octet body is either
+    /// an unknown version, operation, representation or expiry, or a MAC
+    /// failure on a still-well-formed token.
+    fn flipped_token_error(bytes: &[u8]) -> CapError {
+        let version = bytes[0];
+        if version != 1 {
+            return malformed(MalformedReason::Version { version });
+        }
+        let mut expiry = [0_u8; 8];
+        expiry.copy_from_slice(&bytes[2..10]);
+        let seconds = i64::from_be_bytes(expiry);
+        if seconds
+            .checked_mul(1_000)
+            .and_then(|millis| Timestamp::from_millis(millis).ok())
+            .is_none()
+        {
+            return malformed(MalformedReason::Expiry { seconds });
+        }
+        let operation = bytes[10];
+        if !matches!(operation, 1..=5) {
+            return malformed(MalformedReason::Operation { value: operation });
+        }
+        let mut representation = [0_u8; 2];
+        representation.copy_from_slice(&bytes[11..13]);
+        let representation = u16::from_be_bytes(representation);
+        if !matches!(
+            representation,
+            0x0001 | 0x0040 | 0x0080 | 0x0100 | 0x0200 | 0x0400
+        ) {
+            return malformed(MalformedReason::Representation {
+                value: representation,
+            });
+        }
+        CapError::Invalid
+    }
+
+    /// Independent of [`verify`]: a proper prefix is either not canonical
+    /// URL-safe base64, or it decodes to fewer than 53 octets.
+    fn truncated_token_error(prefix: &str) -> CapError {
+        match base64::decode(
+            Untrusted::new(prefix.as_bytes()),
+            Alphabet::UrlSafe,
+            TOKEN_LEN,
+        ) {
+            Ok(decoded) if base64::encode(&decoded, Alphabet::UrlSafe) == prefix => {
+                malformed(MalformedReason::Length { len: decoded.len() })
+            }
+            _ => malformed(MalformedReason::Encoding),
+        }
+    }
+
     /// Verifies: SEC-API-026
     #[test]
     fn signs_by_passing_the_label_and_fields_and_placing_the_rfc_4231_tag() {
@@ -687,15 +738,17 @@ mod tests {
         let fields = sample_fields(expiry_secs(1_700_000_780));
         let mac = MixMac::new(1, &[1]);
         let token = sign(&fields, &mac).unwrap();
+        let accepted = verify(Untrusted::new(&token), &mac, now()).unwrap();
+        assert_eq!(accepted, CapFields { kid: 1, ..fields });
         let bytes = decode_token(&token);
         for (index, octet) in bytes.iter().enumerate() {
             for bit in 0..8_u8 {
                 let mut flipped = bytes.clone();
                 flipped[index] = octet ^ (1 << bit);
                 let text = encode_token(&flipped);
-                assert_ne!(
+                assert_eq!(
                     verify(Untrusted::new(&text), &mac, now()),
-                    Ok(fields),
+                    Err(flipped_token_error(&flipped)),
                     "index {index} bit {bit}"
                 );
             }
@@ -832,10 +885,13 @@ mod tests {
     fn truncation_at_every_length_is_refused() {
         let mac = MixMac::new(1, &[1]);
         let token = sign(&sample_fields(expiry_secs(1_700_000_780)), &mac).unwrap();
+        let accepted = verify(Untrusted::new(&token), &mac, now()).unwrap();
+        assert_eq!(accepted.kid, 1);
         for len in 0..token.len() {
             let prefix = &token[..len];
-            assert!(
-                verify(Untrusted::new(prefix), &mac, now()).is_err(),
+            assert_eq!(
+                verify(Untrusted::new(prefix), &mac, now()),
+                Err(truncated_token_error(prefix)),
                 "prefix length {len}"
             );
         }
@@ -1128,12 +1184,14 @@ mod tests {
         fn any_single_bit_change_fails(fields in any_fields(), index in 0usize..TOKEN_LEN, bit in 0u8..8) {
             let mac = MixMac::new(3, &[3]);
             let token = sign(&fields, &mac).unwrap();
+            let now = ts(fields.expiry.timestamp().millis() - 1);
+            let accepted = verify(Untrusted::new(&token), &mac, now).unwrap();
+            prop_assert_eq!(accepted, CapFields { kid: 3, ..fields });
             let mut bytes = decode_token(&token);
             bytes[index] ^= 1 << bit;
-            let now = ts(fields.expiry.timestamp().millis() - 1);
-            prop_assert_ne!(
+            prop_assert_eq!(
                 verify(Untrusted::new(&encode_token(&bytes)), &mac, now),
-                Ok(CapFields { kid: 3, ..fields })
+                Err(flipped_token_error(&bytes))
             );
         }
 
