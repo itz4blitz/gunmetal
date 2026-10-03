@@ -535,13 +535,28 @@ mod tests {
     /// Verifies: SEC-API-023
     #[test]
     fn accepts_any_text_only_in_its_canonical_spelling() {
+        // Random text never spells an identifier, so half of the cases are
+        // the kind's prefix followed by canonical symbols, which parse.
         TestRunner::new(Config::default())
-            .run(&(any_kind(), "(?s).{0,40}"), |((kind, _), text)| {
-                if let Ok(parsed) = PublicId::parse(&text, kind) {
-                    prop_assert_eq!(parsed.to_string(), text);
-                }
-                Ok(())
-            })
+            .run(
+                &(
+                    any_kind(),
+                    any::<bool>(),
+                    "(?s).{0,40}",
+                    "[0-7][0-9a-hjkmnp-tv-z]{25}",
+                ),
+                |((kind, prefix), spelled, noise, symbols)| {
+                    let text = if spelled {
+                        format!("{prefix}{symbols}")
+                    } else {
+                        noise
+                    };
+                    if let Ok(parsed) = PublicId::parse(&text, kind) {
+                        prop_assert_eq!(parsed.to_string(), text);
+                    }
+                    Ok(())
+                },
+            )
             .unwrap();
     }
 
