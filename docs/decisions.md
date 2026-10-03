@@ -34,7 +34,7 @@ How to read it:
   requirement first.
 - **All other decisions** holds the rest, grouped by theme.
 
-Every decision has an ID (D-01 to D-82) and every applied change an ID
+Every decision has an ID (D-01 to D-88) and every applied change an ID
 (A-001 to A-590), so answers can be recorded by ID. Where a
 recommendation below differs from the one in a source document, the
 source's recommendation was written before the security baseline and this
@@ -77,6 +77,7 @@ on D-07, D-10 and remote access in R1, as those rows record.
 | Second maintainer | The build proceeds now; a second trusted maintainer is required before R1 is tagged. |
 | Security contact | GitHub only for now; no security@ mailbox yet. |
 | GPUI | Not used for the main apps; revisit for a native desktop app later ([record 11](adr/0011-gpui-not-adopted.md)). |
+| D-83 to D-88 (answered 2026-10-03) | Every recommendation accepted: a minimal read-only details view in R1 with the full sheet in R1.1; nothing merges silently before the review queue; the rule format and its limits ship in R1.1 work, with the editor and smart playlists in R1.3; R1's web app needs the server reachable to load; speed budgets are enforced by tests in the R1 gate, with published numbers in R1.1; R1 browses by genre, with mood and label in R1.1. |
 
 ## Decide first
 
@@ -428,8 +429,11 @@ The adopted R1 keeps 266 owning rows (and 30 reference rows that ship
 with them), against 455 rows before. The proposal had 267, and D-07 moved
 ADM-023 to R2. The feature map counts the same 296 rows as 264 owning
 rows and 32 references, because two rows this list names as features,
-ADM-121 and CLI-157, are references there (to ACC-123 and ACC-117). The rest moved to three point releases in the order users
-will miss them:
+ADM-121 and CLI-157, are references there (to ACC-123 and ACC-117).
+On 2026-10-03 D-83 added one owning row, MUS-236 (a minimal, read-only
+track details view), so R1 now holds 267 owning rows here and 297 rows
+in the feature map (265 owning, 32 references). The rest moved to three
+point releases in the order users will miss them:
 
 - **R1.1, bring your music in** (68 rows): playlist files and history
   imports, built-in MusicBrainz and cover-art lookups, ratings, richer
@@ -694,7 +698,7 @@ under D-07)
 - DIS-112: Back keeps your place
 - DIS-140: Discovery per person
 
-**The player** (21)
+**The player** (22)
 
 - MUS-066: Play the original file
 - MUS-067: Gapless in the web client
@@ -717,6 +721,7 @@ under D-07)
 - MUS-227: Accessible player
 - MUS-229: Honest unplayable state
 - MUS-230: Audio packaging for the web player
+- MUS-236: Track details (minimal and read-only; added 2026-10-03 under D-83)
 
 **Queue, playlists and lyrics** (13)
 
@@ -2490,8 +2495,9 @@ resolve"; surfaces open question 4.
 ## Release-ordering questions, 2026-10-03
 
 Applying the smaller R1 left some R1 rows depending on features that now
-ship in a point release. Each question below has a recommendation. Unless
-it says otherwise, the recommendation is not yet applied to the documents.
+ship in a point release. Each question below has a recommendation. The
+owner accepted all six on 2026-10-03, and the documents now follow them,
+as the line under each says.
 
 ### D-83 Track details in R1
 
@@ -2502,6 +2508,8 @@ it says otherwise, the recommendation is not yet applied to the documents.
   credits, album, file format, and the playback decision with its reason.
   The full sheet stays in R1.1.
 
+Answered 2026-10-03: recommendation accepted and applied.
+
 ### D-84 Uncertain matches before the review queue
 
 - **Question.** The review queue (LIB-099) is R1.3, but LIB-028, LIB-030
@@ -2510,6 +2518,8 @@ it says otherwise, the recommendation is not yet applied to the documents.
   match arrives as a separate item, uncertain albums stay apart, and
   low-confidence lookups are kept as suggestions and not applied. This is
   already written into library.md.
+
+Answered 2026-10-03: recommendation accepted and applied.
 
 ### D-85 When the rule format ships
 
@@ -2521,12 +2531,16 @@ it says otherwise, the recommendation is not yet applied to the documents.
   the rule editor and smart playlists stay R1.3. discovery.md already reads
   this way; the plan's point-release groups need the same split.
 
+Answered 2026-10-03: recommendation accepted and applied.
+
 ### D-86 Loading the web client without the server
 
 - **Question.** Offline loading (CLI-003, CLI-024 to CLI-026, CLI-099) is
   R1.1, so the R1 web client needs the server reachable to load.
 - **Recommendation.** Accept for R1; notes to this effect are already in
   discovery.md.
+
+Answered 2026-10-03: recommendation accepted and applied.
 
 ### D-87 Speed budgets in R1
 
@@ -2535,9 +2549,13 @@ it says otherwise, the recommendation is not yet applied to the documents.
 - **Recommendation.** The budget tests stay in the R1 gate; only the
   published numbers wait for R1.1.
 
+Answered 2026-10-03: recommendation accepted and applied.
+
 ### D-88 Browsing by mood and label
 
 - **Question.** MUS-060 (genre, mood and label browse) is R1, but the mood
   and label fields come from MUS-019, which is R1.1.
 - **Recommendation.** R1 browses by genre; mood and label browsing arrive
   with their fields in R1.1.
+
+Answered 2026-10-03: recommendation accepted and applied.

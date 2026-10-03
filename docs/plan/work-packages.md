@@ -605,7 +605,7 @@ proposes how the gate itself scales once the workspace grows.
 | 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130 | 23 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
 | 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132 | 30 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
 | 4 | WP-101 to WP-106, WP-108, WP-121, WP-133 | 9 | ACME for the owner's own domain, the scan pipeline and what needs it (artwork serving, the playback registry and stream limits, the packaging route and its worker job, account recovery), each person's data export, release builds and service install, history deletion and retention |
-| 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark, release provenance and signing |
+| 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark and the speed budget tests, release provenance and signing |
 | 6 | WP-116, WP-117 | 2 | Doctor and the security summary, and the R1 flow acceptance tests |
 
 121 packages build R1. The 40 packages that serve only R1.1, R1.2, R1.3
@@ -2180,7 +2180,8 @@ returns the whole expected value.
 - **Serves** API-CAT-01 to API-CAT-10 (the types); LAT-001; the synced
   fields behind MUS-051, MUS-054, MUS-060 and LIB-146 (artist and album
   aggregates, sort fields, the genre index and technical fields, which the
-  client reads from the synced copy). The R1.1 views and filters over the
+  client reads from the synced copy; MUS-060 browses by genre in R1, and
+  by mood and label from R1.1 with MUS-019, register D-88). The R1.1 views and filters over the
   same fields (MUS-056, DIS-102) need no further types. People with typed
   roles and typed links between items (LAT-002, LAT-008) are R1.3,
   WP-161.
@@ -2193,8 +2194,9 @@ returns the whole expected value.
   (codec, container, sample rate, bit depth, channels, bitrate, duration),
   `Trim`, `GainTags`, `ArtworkRef`, `LyricsSource`, `FileFacts` (what a
   probe returns), and the synced-library record types (track, album,
-  artist) with their field IDs for search and, from R1.3, the rule
-  language (the release-group record is added by WP-146 in R1.1), and
+  artist) with their field IDs for search and, from R1.1, the rule
+  format (WP-027, register D-85; the release-group record is added by
+  WP-146 in R1.1), and
   `CatalogChange` (what changed: kind, ID, upsert or removal),
   which WP-067 returns and WP-066 records, so those two wave 2 packages do
   not depend on each other. Item kinds leave room for video and later media (LAT-001).
@@ -2948,7 +2950,8 @@ verifier, WP-064) and WP-072, WP-073 and WP-074 (they register routes, so
 they need WP-118). They stay here so their numbers keep their place; their
 own entries give the wave. WP-059 (Home rows) is back in this wave: it
 had moved to wave 3 only because it needed the neighbour table (WP-058),
-and WP-058 and the rule language (WP-027) left R1 for R1.3. WP-057 (import
+and WP-058 and the rule language (WP-027) left R1 (WP-058 for R1.3, and
+WP-027 for R1.1 under register D-85). WP-057 (import
 parsers) and WP-071 (the derived-data store) left R1 for R1.1, and WP-058
 for R1.3; their specifications are in
 [After R1](#after-r1-point-releases-and-later). WP-118 and WP-119, added
@@ -3118,31 +3121,52 @@ also runs in this wave.
   unique in the index is the first hit for a query of that exact title
   with a limit of 1 (a bare "is found" would pass for an index that
   returned everything); adding documents never removes an existing exact
-  hit; the serialised form round-trips. Build time and memory at 100,000
-  synthetic tracks for the DIS-019 budget are recorded by the benchmark
-  runner (WP-115), not by a test, and stay reported rather than asserted
-  until the owner names the reference device (owner decision 15).
+  hit; the serialised form round-trips. Build time, memory and query time
+  at 100,000 synthetic tracks are held to the DIS-019 budget by WP-115's
+  budget tests in the R1 gate (register D-87), not by this package's own
+  tests; until the owner names the reference device (owner decision 15),
+  those tests run on the reference low-end profile.
 
 ### WP-055 Playback decision engine
 
-- **Wave** 2 · **Size** S · **Depends on** WP-040.
+- **Wave** 2 · **Size** S · **Depends on** WP-028, WP-040.
 - **Owns** `crates/gunmetal-core/src/decision.rs`.
-- **Serves** MUS-099, MUS-229; API-CAT-09, API-SES-01. (The same reasons
-  shown to admins per session, ADM-100 and INT-134, are R1.2, WP-153.)
+- **Serves** MUS-099, MUS-229, MUS-236 (the R1 track details view,
+  register D-83); API-CAT-09, API-SES-01. (The same reasons shown to
+  admins per session, ADM-100 and INT-134, are R1.2, WP-153. The full
+  track info sheet, MUS-114, is R1.1 and adds its fields to the same
+  summary.)
 - **Security.** Boundaries TB4; threats TM-T15. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
-  proved by the packages that own them.
+  proved by the packages that own them. The details summary is built only
+  from the synced track record, which carries no file path and nothing
+  the profile may not see (SEC-API-068, proved by WP-044 and WP-131;
+  SEC-CLI-020, proved by WP-084).
 - **Scope.** For music in R1: given a track's technical facts and a device
   capability report, return play directly, play through the packager, or
   cannot play here, with a structured reason list the badge and the admin
-  session view both render.
-- **Not in scope.** Video, remux and transcode decisions (R2).
+  session view both render. For the minimal, read-only track details view
+  (MUS-236): a `TrackDetails` summary holding the title, the credit as
+  tagged with each credited artist, the album, the format with its
+  technical facts, this decision with its reasons in the badge's words,
+  whether the track joins the next one without a gap (its trim is known
+  and the chosen path keeps it), and the gain source from WP-028's
+  decision (track tags, album tags, or "estimated").
+- **Not in scope.** Video, remux and transcode decisions (R2). The track
+  info sheet's own fields: tags as read, provenance, MusicBrainz IDs and
+  the gain applied (MUS-114, MUS-090, R1.1).
 - **Interface sketch.** `pub fn decide_audio(t: &TechInfo, d: &DeviceCaps) -> Decision`;
-  `pub enum Decision { Direct, Packaged(PackageFormat), CannotPlay(Vec<Reason>) }`.
+  `pub enum Decision { Direct, Packaged(PackageFormat), CannotPlay(Vec<Reason>) }`;
+  `pub fn track_details(t: &SyncedTrack, d: &Decision, g: &GainDecision) -> TrackDetails`.
 - **Tests.** Each core format against a capability report that supports it,
   lacks it, supports the codec but not the container, and supports it only
   in Media Source Extensions; ALAC in a browser that cannot decode it
-  ("Cannot play here: this browser cannot decode ALAC").
+  ("Cannot play here: this browser cannot decode ALAC"). The details
+  summary for a FLAC played directly, an MP3 with LAME delay and padding
+  through the packager, an Opus file with pre-skip, a track with no gain
+  tags ("estimated") and that ALAC file, each against a literal expected
+  summary; the summary's field list, checked against a literal list, has
+  no path.
 
 ### WP-056 Audio packager (conditional on ADR 4)
 
@@ -3191,8 +3215,8 @@ also runs in this wave.
 
 - **Wave** 2 (moved back from 3: it had moved only because "because you
   played" read the neighbour table, WP-058, and both that row and
-  rule-backed custom rows, which needed the rule language, WP-027, left R1
-  for R1.3) · **Size** S (was M) · **Depends on** WP-034, WP-040.
+  rule-backed custom rows, which needed the rule language, WP-027, left R1)
+  · **Size** S (was M) · **Depends on** WP-034, WP-040.
 - **Owns** `crates/gunmetal-core/src/home/`.
 - **Serves** DIS-001, DIS-004, DIS-020, DIS-021, DIS-035, DIS-036, DIS-038,
   DIS-046, MUS-050, MUS-059, MUS-149 (loved tracks, read from the person's
@@ -3200,8 +3224,8 @@ also runs in this wave.
   rows, DIS-022 and DIS-023, and your top tracks by an artist, DIS-071, are
   R1.1, WP-141 and WP-147; an arrangeable Home, DIS-003, DIS-009, DIS-012,
   DIS-015 and MUS-049, is R1.2, WP-154; "because you played", DIS-061, is
-  R1.3, WP-058; rule-backed custom rows are R1.3 with the rule language,
-  WP-027 and WP-092.)
+  R1.3, WP-058; rule-backed custom rows built in the rule editor are R1.3,
+  WP-092, on the rule format WP-027 delivers in R1.1.)
 - **Security.** Boundaries TB4; threats TM-T15, TM-T18. Verifies no
   requirement of its own: it holds no security control, and the rules it
   relies on are proved by the packages that own them.
@@ -4573,9 +4597,10 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   queue or settings (SEC-CLI-020); every image URL in a snapshot and a
   delta is server-relative (SEC-PRV-016). Property: for a generated
   library and subject, the snapshot and every delta are subsets of what
-  the policy allows that subject (SEC-TM-026). Bytes and time at
-  100,000 synthetic tracks are measured by the benchmark runner (WP-115),
-  not by a test.
+  the policy allows that subject (SEC-TM-026). Snapshot bytes and time at
+  100,000 synthetic tracks are held to the DIS-019 budget by WP-115's
+  budget tests in the R1 gate (register D-87), not by this package's own
+  tests.
 
 ### WP-085 Queue service
 
@@ -4649,11 +4674,11 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   API-USR-02, API-DEV-01. (A chosen name and picture for each profile,
   ACC-011, is R1.1; WP-144 adds the pictures. The settings records also carry the R1.1
   client settings, CLI-030, DIS-103 and MUS-158, and the R1.1 saved
-  filters, DIS-105, with no further server work: a saved filter is a named
-  view stored as a versioned filter document in the subset of the rule
-  format that filters use (comparisons joined by "all" over synced
-  fields), read by the core under the parser budgets, which WP-027 reads
-  as a rule without translation in R1.3. Home layouts and pins, DIS-003, DIS-007, DIS-013, API-HOME-01 and
+  filters, DIS-105: a saved filter is a named view stored as a versioned
+  rule document in the core rule format, which WP-027 delivers in R1.1
+  (register D-85) and which validates every document under its parser
+  budgets before it is stored; the smart playlists and rule editor that
+  read the same documents are R1.3. Home layouts and pins, DIS-003, DIS-007, DIS-013, API-HOME-01 and
   API-HOME-02, are R1.2, WP-154. The tools' "who am I" check, INT-026, is
   R2.)
 - **Security.** Boundaries TB4, TB5, TB11; threats TM-T18, TM-T38. Verifies
@@ -4697,18 +4722,19 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 - **Owns** `crates/gunmetal-wasm/` (creates the crate),
   `.github/workflows/wasm.yml` (the `wasm32` build job; `ci.yml` belongs
   to the integrator).
-- **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208.
+- **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208,
+  MUS-236 (the details summary, WP-055).
 - **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
   SEC-CLI-021.
 - **Scope.** A thin `wasm-bindgen` layer so the web client can apply sync
   frames to an in-memory library, query search, evaluate Home rows,
   apply queue operations optimistically, read
-  the decision engine and gain decision, follow the player state and look
-  up lyrics positions. Every exported function is a direct call into the
+  the decision engine (with its track details summary) and gain decision,
+  follow the player state and look up lyrics positions. Every exported function is a direct call into the
   core with conversion only.
 - **Not in scope.** Persistent storage in the browser (client). Rule
-  evaluation and radio picks, which the R1.3 packages that build them
-  (WP-027, WP-058) add to this facade, one function each.
+  evaluation and radio picks, which the later packages that build them
+  (WP-027 in R1.1, WP-058 in R1.3) add to this facade, one function each.
 - **Tests.** Native unit tests of each conversion (the facade must compile
   and be covered on the host target); a `wasm32` build in CI; a size check
   of the `.wasm` file reported.
@@ -5976,28 +6002,40 @@ monitoring (WP-135) for R2. Their specifications are in
   is offline; an item restored from the trash keeps its history; a purged
   track becomes a "missing" entry in a playlist.
 
-### WP-115 Scan benchmark
+### WP-115 Scan benchmark and speed budget tests (was: scan benchmark)
 
 - **Wave** 5 · **Size** M · **Depends on** WP-054, WP-067, WP-084, WP-102,
   WP-119.
 - **Owns** `crates/xtask/src/bench.rs`. (The generator moved to WP-119 in
   wave 2, because wave 3 and 4 tests needed it.)
 - **Serves** README roadmap item "Benchmark: scan time against Jellyfin";
-  ADR 1 consequences; LIB-019. Its measurements also feed two later rows
-  that need no further code: the published footprint numbers (ADM-010,
-  R1.2) and the speed you can check (DIS-019, R1.1).
+  ADR 1 consequences; LIB-019; the R1 budget tests behind DIS-084 and
+  CLI-022, and the data side of DIS-100's (register D-87). Its
+  measurements also feed two later rows that need no further code: the
+  published footprint numbers (ADM-010, R1.2) and the published speed
+  numbers (DIS-019, R1.1).
 - **Security.** Boundaries TB9; threats TM-T20. Verifies no requirement of
   its own: it holds no security control, and the rules it relies on are
   proved by the packages that own them.
 - **Scope.** Generate a library of a chosen size with WP-119; run
   Gunmetal's scan on it and record time, bytes read, peak memory and
-  database size; record the measurements other packages deliberately left
-  out of their tests (search index build time and memory at 100,000
-  tracks for WP-054, sync snapshot bytes and time for WP-084, batch commit
-  time for WP-067); document how to run the same library through Jellyfin
-  for the comparison, which is a manual run outside CI.
+  database size; record batch commit time for WP-067; document how to run
+  the same library through Jellyfin for the comparison, which is a manual
+  run outside CI. The speed budget tests (register D-87): the budgets are
+  enforced in the R1 gate, and only publishing the numbers waits for
+  DIS-019 in R1.1. On the reference low-end profile (2 cores and 1 GiB
+  enforced with cgroups, the profile WP-117's load test uses, until the
+  owner names the reference devices under owner decision 15), the gate
+  fails when, at 100,000 synthetic tracks, the search index build time
+  or memory or a search or browse query (WP-054), or the sync snapshot's
+  bytes or time (WP-084), exceed DIS-019's design goals. The render budget
+  for long lists (DIS-100) is the client plan's test in the same gate,
+  against the same goals and on a library from WP-119.
 - **Tests.** The benchmark's report format, written literally; the runner
-  on a ten-file library produces a report with every field present.
+  on a ten-file library produces a report with every field present. Each
+  budget test is checked to fail: run against a deliberately slowed
+  stand-in for the index build and for the snapshot, it reports the
+  budget it exceeded.
 - **Risks.** A synthetic library made of tiny files is not a real library:
   real files are larger and real tags messier, so the published comparison
   needs the owner's choice of library (owner decision 22). Jellyfin may be
@@ -6260,7 +6298,7 @@ outline below.
 | API-PL-02 pins | R1.1: WP-143 |
 | API-PL-07 tool writes | R2: WP-091 |
 | API-PL-03, PL-04 M3U and folder playlists | R1.1: WP-022, WP-112 |
-| API-PL-05, PL-06 rule store and server evaluation | R1.1: WP-087 (saved filters as filter documents in the settings records); R1.2: WP-154 (saved filters as Home rows); R1.3: WP-027, WP-092, WP-113 (the rule language, the rule store, and server-side evaluation and re-evaluation jobs); tools reading results R2: WP-091 |
+| API-PL-05, PL-06 rule store and server evaluation | R1.1: WP-027 (the core rule format and its parser budgets, register D-85) and WP-087 (saved filters as rule documents in the settings records); R1.2: WP-154 (saved filters as Home rows); R1.3: WP-092, WP-113 (the rule store for smart playlists, and server-side evaluation and re-evaluation jobs); tools reading results R2: WP-091 |
 | API-LOG-01 to LOG-04 events, offline merge, removal, counts | WP-034, WP-068, WP-086 |
 | API-LOG-05 hides | R1.1: WP-141 |
 | API-HOME-01, HOME-02 layout and pins | R1.2: WP-154 (the default layout in R1 is WP-059's) |
@@ -6318,7 +6356,9 @@ certificate renewal to WP-101; CT monitoring to WP-135 (R2).
 
 Review compared every R1 ID in the register's adopted R1 (D-10, 266
 owning rows and 30 reference rows) with the IDs the R1 packages serve.
-The rows that no package names fall into these groups.
+The row D-83 added later, MUS-236 (the minimal track details view), is
+served by WP-055 and WP-088. The rows that no package names fall into
+these groups.
 
 - **Served, but not named in a Serves field.** The security alignment
   added rows to the feature map after most packages were written, and the
@@ -6362,7 +6402,9 @@ The rows that no package names fall into these groups.
 - **Partly served, now later.** MUS-114 (the track info sheet) names the
   admin-only inspect API as its source; both are R1.2 or later now (the
   sheet is R1.1, the inspector R1.2, WP-156), so the question in Review
-  notes is for the point releases.
+  notes is for the point releases. In R1 the minimal track details view
+  (MUS-236, register D-83) shows the R1 rows' details from the synced
+  record and the device's own decisions (WP-055), with no inspect API.
 - **Changed by the security baseline and the owner's answers.** ACC-052
   (password sign-in) and ACC-053 (two-factor codes) are withdrawn from R1
   (SEC-IAM-025); their plan rows were removed from WP-038, WP-063 and
@@ -6415,9 +6457,9 @@ How to read it:
 
 | Release | Packages moved whole | Packages split from an R1 package |
 |---|---|---|
-| R1.1 | WP-022, WP-057, WP-071, WP-112, WP-123, WP-137 | WP-140 to WP-150 |
+| R1.1 | WP-022, WP-027 (moved from R1.3 by register D-85), WP-057, WP-071, WP-112, WP-123, WP-137 | WP-140 to WP-150 |
 | R1.2 | WP-096, WP-134 | WP-151 to WP-159 |
-| R1.3 | WP-027, WP-029, WP-058, WP-092, WP-107, WP-113, WP-114 | WP-160, WP-161 |
+| R1.3 | WP-029, WP-058, WP-092, WP-107, WP-113, WP-114 | WP-160, WP-161 |
 | R2 | WP-091 (moved earlier), WP-129, WP-135 | none (WP-139, the project site's security files, split from WP-129 and stays in R1, wave 1) |
 
 ### R1.1, bring your music in
@@ -6430,11 +6472,20 @@ surfaces: SEC-MED-050 and SEC-HIS-018 (playlist files, WP-022, WP-112);
 SEC-PRV-014, SEC-PRV-015 and SEC-PRV-017 (providers, WP-137); SEC-MED-061
 and SEC-PRV-006 (image uploads, WP-144).
 
-When R1.1's waves are set, two pairs of its packages edit the same
+The core rule format and its parser budgets are R1.1 work too (register
+D-85): saved filters (DIS-105) are stored in that format from R1.1, so
+WP-027 moved here from R1.3 and re-proves SEC-TM-032, SEC-STD-011,
+SEC-API-066 and SEC-IAM-070 for rule documents. The rule editor and smart
+playlists stay R1.3, with the rule store and server-side evaluation
+(WP-092, WP-113).
+
+When R1.1's waves are set, three pairs of its packages edit the same
 R1-owned directory under the interface-change rule and must not share a
 wave: WP-150 follows WP-140 (both edit
-`crates/gunmetal-server/src/libraries/`, WP-099's), and WP-147 follows
-WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's).
+`crates/gunmetal-server/src/libraries/`, WP-099's), WP-147 follows
+WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's), and
+WP-147 follows WP-027 (both add functions to `crates/gunmetal-wasm/`,
+WP-088's).
 
 #### WP-022 M3U and M3U8 parser and writer
 
@@ -6461,6 +6512,71 @@ WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's).
   `#EXTALBUMARTURL` and `#EXTIMG` dropped; `file://` URLs; `../../etc`;
   100,001 entries; an 8 KiB line. Property: writing then parsing returns
   the same relative paths and titles.
+
+#### WP-027 Rule language (moved from R1.3 by register D-85)
+
+- **Release** R1.1 (was R1.3; moved by register D-85) · **Wave** not yet
+  scheduled (was 1) · **Size** L · **Depends on** WP-005.
+- **Owns** `crates/gunmetal-core/src/rules/`.
+- **Serves** DIS-105 (saved filters are rule documents from R1.1) and the
+  core of DIS-119 (the rule format and its parser budgets); API-PL-05 (the
+  format of saved rules). It also binds the rule fields to the synced
+  records (WP-040's field IDs), adds rule evaluation to the WASM facade
+  (WP-088) so the web client applies saved filters, and adds validation of
+  saved-filter documents to the settings records (WP-087), one function
+  each, under the merge protocol's interface-change rule. The rule editor,
+  smart playlists and rule-backed custom rows (DIS-119 to DIS-122,
+  MUS-143 to MUS-146, API-HOME-01) stay R1.3 on this format, with WP-092
+  and WP-113; saved filters as Home rows are R1.2, WP-154. (Loved tracks
+  as a playlist, MUS-149, is R1 and needs no rule: WP-059 and WP-086
+  serve it from the person's loves.)
+- **Security.** Boundaries TB4; threats TM-T09. Verifies, for rule
+  documents, SEC-TM-032 (a rule is parsed under budgets for document
+  size, depth and node count, with a typed error and no recursion past
+  the limit), SEC-STD-011 (text conditions match through a linear-time
+  matcher under a length cap and never compile a backtracking pattern),
+  SEC-API-066 (fields, operators and sorts are closed enumerations, so a
+  rule carries no query text and the server-side compile in R1.3, WP-092,
+  can bind only parameters to static statements) and SEC-IAM-070
+  (evaluation sees only the items the caller's visibility predicate
+  passed, and a rule that names a playlist or item its viewer may not see
+  matches nothing). These remain R1 requirements with their R1 packages;
+  this package re-proves them for rule documents.
+- **Scope.** A versioned rule tree (all, any, not; comparisons on typed
+  fields; "in the last N days"; membership in playlists and loved items;
+  limits by count, duration or percentage; sorts; seeded random order),
+  its validation (depth, node count, known fields for this version),
+  forward-compatible serialisation that keeps unknown nodes so a rule
+  written by a newer client survives an older one, and evaluation over any
+  record type that implements a field-access trait.
+- **Not in scope.** The binding to the catalogue tables for server-side
+  evaluation (WP-092, R1.3). The visual rule editor (client, R1.3).
+- **Field IDs.** This package defines `FieldId` as a plain `u16` newtype
+  and the value types it compares, and imports nothing from `catalog/`.
+  WP-040's field table lists numeric codes without importing `rules/`; the
+  bindings join the two. (This was first written when WP-040 shared its
+  wave, and the separation stays.)
+- **Interface sketch.** `pub enum Rule { All(Vec<Rule>), Any(Vec<Rule>), Not(Box<Rule>), Cmp { field: FieldId, op: CmpOp, value: Value }, Unknown(RawNode) }`;
+  `pub trait Fields { fn get(&self, f: FieldId) -> FieldValue<'_>; }`;
+  `pub fn evaluate<'a, R: Fields>(q: &Query, items: impl Iterator<Item = &'a R>, ctx: &EvalCtx) -> Vec<usize>`.
+- **Tests.** Each operator on each value type, including missing fields and
+  multi-valued fields ("genre is Jazz" on a track with three genres);
+  percentage limits rounding; "last 30 days" at the boundary using an
+  injected `now`; seeded random limit. A document past each budget (size,
+  depth, node count) is refused with the exact typed error; a text
+  condition full of regular-expression metacharacters matches them
+  literally; a rule naming a playlist outside the viewer's visibility
+  matches nothing. Properties: `All([r])` equals `r`; `Not(Not(r))` equals
+  `r`; evaluation is deterministic; a rule with an unknown node
+  round-trips byte for byte; validation rejects trees deeper than the
+  limit without recursing past it.
+- **Risks and decisions.** Saving a filter (DIS-105) is R1.1. When this
+  package was R1.3, R1.1 had to save filters in a subset of the rule
+  format and this package had to read them later. Since register D-85 the
+  rule format ships with saved filters, so a saved filter is a rule
+  document from the start and nothing is translated; the rule editor and
+  smart playlists in R1.3 read the same documents, which the round-trip
+  property above covers.
 
 #### WP-057 Import parsers and matcher
 
@@ -7206,8 +7322,9 @@ Translations (CLI-146) are client work and need no package here.
   long as the person likes; a home that does not move while it is shown;
   keeping a library off Home (moved from WP-099). A saved filter (DIS-105,
   R1.1) can become a row, evaluated on the device like the filter view it
-  came from (DIS-003). Rows built in the rule editor wait for the rule
-  language in R1.3 (WP-027, WP-092).
+  came from (DIS-003), in the rule format WP-027 delivers in R1.1. Rows
+  built in the rule editor wait for the editor and the rule store in R1.3
+  (WP-092).
 - **Tests.** A layout saved on one device is the layout on another; a
   library marked "keep off Home" never appears in any row (moved from
   WP-059's tests); a pinned item stays first; reordering rows never drops
@@ -7347,59 +7464,17 @@ Translations (CLI-146) are client work and need no package here.
 
 ### R1.3, discovery and analysis
 
-The rule language and smart playlists, library radio and the neighbour
+The rule editor and smart playlists, library radio and the neighbour
 table, measured loudness (if ADR 5 is accepted), folder view for admins,
 manual curation and 32-bit ARM (register D-10, "R1.3, discovery and
-analysis"). No security requirement moves to R1.3. Three R1.3 rows need no
+analysis"). The core rule format they build on, with its parser budgets,
+is R1.1 work (WP-027, register D-85). No security requirement moves to
+R1.3. Three R1.3 rows need no
 package of their own: folder view (LIB-008, DIS-106) reads the folder
 paths WP-102 already stores (API-CAT-10) through a route not yet planned;
 showing the bytes each scan read (ADM-088) reads the counts WP-102 writes
 into its activity entry (WP-100); and the derived-data store kept across
 rebuilds (ADM-141) is WP-071's, which arrives in R1.1.
-
-#### WP-027 Rule language
-
-- **Release** R1.3 · **Wave** not yet scheduled (was 1) · **Size** L ·
-  **Depends on** WP-005.
-- **Owns** `crates/gunmetal-core/src/rules/`.
-- **Serves** DIS-119 to DIS-122, MUS-143 to MUS-146, DIS-105 (from R1.3,
-  saved filters become rules; see the risk below); API-PL-05, API-HOME-01
-  (rule-backed rows). (Loved tracks
-  as a playlist, MUS-149, is R1 and needs no rule: WP-059 and WP-086
-  serve it from the person's loves.) It also adds rule evaluation to the
-  WASM facade (WP-088) and rule-backed custom rows to Home (WP-059), one
-  function each.
-- **Security.** Boundaries TB4; threats TM-T09. Verifies SEC-STD-011.
-- **Scope.** A versioned rule tree (all, any, not; comparisons on typed
-  fields; "in the last N days"; membership in playlists and loved items;
-  limits by count, duration or percentage; sorts; seeded random order),
-  its validation (depth, node count, known fields for this version),
-  forward-compatible serialisation that keeps unknown nodes so a rule
-  written by a newer client survives an older one, and evaluation over any
-  record type that implements a field-access trait.
-- **Not in scope.** The music field catalogue binding, which WP-059 and
-  WP-092 provide. The visual editor (client).
-- **Same-wave note.** WP-040 is in the same wave, so this package defines
-  `FieldId` as a plain `u16` newtype and the value types it compares, and
-  imports nothing from `catalog/`. WP-040's field table lists numeric codes
-  without importing `rules/`; the binding packages join the two.
-- **Interface sketch.** `pub enum Rule { All(Vec<Rule>), Any(Vec<Rule>), Not(Box<Rule>), Cmp { field: FieldId, op: CmpOp, value: Value }, Unknown(RawNode) }`;
-  `pub trait Fields { fn get(&self, f: FieldId) -> FieldValue<'_>; }`;
-  `pub fn evaluate<'a, R: Fields>(q: &Query, items: impl Iterator<Item = &'a R>, ctx: &EvalCtx) -> Vec<usize>`.
-- **Tests.** Each operator on each value type, including missing fields and
-  multi-valued fields ("genre is Jazz" on a track with three genres);
-  percentage limits rounding; "last 30 days" at the boundary using an
-  injected `now`; seeded random limit. Properties: `All([r])` equals `r`;
-  `Not(Not(r))` equals `r`; evaluation is deterministic; a rule with an
-  unknown node round-trips byte for byte; validation rejects trees deeper
-  than the limit without recursing past it.
-- **Risks and decisions.** Saving a filter (DIS-105) is R1.1 in the
-  adopted R1 (the owner adopted the point-release lists exactly), while
-  this rule language is R1.3. R1.1 therefore saves a filter as a versioned
-  filter document in the settings records (WP-087), in the subset of the
-  rule format that filters use, and this package's serialisation must read
-  every such document as a rule, which a round-trip test over R1.1 filter
-  documents proves.
 
 #### WP-029 Loudness meter (conditional on ADR 5)
 
@@ -7459,8 +7534,9 @@ rebuilds (ADM-141) is WP-071's, which arrives in R1.1.
 - **Release** R1.3 · **Wave** not yet scheduled (was 3) · **Size** M ·
   **Depends on** WP-027, WP-065, WP-066, WP-067, WP-068, WP-118, WP-119.
 - **Owns** `crates/gunmetal-server/src/rules/`.
-- **Serves** DIS-105 (from R1.3, saved filters become rules; see WP-027's
-  risk), DIS-119 to DIS-122, MUS-143 to MUS-146; API-PL-05, API-PL-06
+- **Serves** DIS-105 (saved filters are rule documents from R1.1, WP-027;
+  from R1.3 this store also holds them beside smart playlists),
+  DIS-119 to DIS-122, MUS-143 to MUS-146; API-PL-05, API-PL-06
   (the R1.3 evaluation; tools reading the results are R2). (MUS-149 is R1 without rules, WP-059
   and WP-086; tools reading smart playlists through the API, INT-138, are
   R2 with WP-091.) It registers its projection rebuilder with WP-095 and
@@ -7954,7 +8030,9 @@ unless each person opts in, and no history. Items 3, 5, 10, 17, 21, 24,
     (api-needs.md, "The sync model"). *Recommendation:* fetch seek indexes
     when a track enters the queue; measure lyrics before deciding; sync
     aggregates and a recent window of history; and name the reference
-    low-end devices so WP-054 and WP-084 can assert their budgets.
+    low-end devices for WP-115's budget tests. The budgets are enforced
+    in the R1 gate either way (register D-87); until the devices are
+    named, the tests run on the reference low-end profile.
 16. **What R1 does with writes while offline.** *Recommendation:* as
     api-needs.md proposes: only plays and positions are queued; loves,
     ratings and playlist edits are disabled with "Needs the server", and
@@ -8120,7 +8198,41 @@ CONTRIBUTING.md and AGENTS.md, the feature map's R1 cut and the R1 rows of
 api-needs.md. It changed the plan in place. What changed, and what it
 could not settle, is below. A second pass the same day aligned the plan
 with the security baseline, and a third, on 2026-10-03, cut the plan down
-to the R1 the owner adopted; their changes come first, newest first.
+to the R1 the owner adopted; a fourth, the same day, applied the owner's
+answers to the release-ordering questions. Their changes come first,
+newest first.
+
+### Release-ordering answers (register D-83 to D-88, 2026-10-03)
+
+The owner accepted every recommendation in D-83 to D-88. The plan now
+follows them; wave 0 is unchanged, and no requirement was weakened.
+
+- **D-83, track details in R1.** R1 ships a minimal, read-only details
+  view, MUS-236 (title, credits, album, file format, and the playback
+  decision with its reason). WP-055 builds its summary beside the
+  decision, now also reading WP-028's gain decision (wave 1), and WP-088
+  hands it to the web client. The full track info sheet (MUS-114) stays
+  R1.1 and extends the same view.
+- **D-84, uncertain matches.** No change: WP-076 and WP-077 already keep
+  unsure albums apart and never merge an ambiguous file before the review
+  queue (WP-107, R1.3).
+- **D-85, the rule format.** WP-027 moved whole from R1.3 to R1.1, so
+  saved filters are rule documents from R1.1 and the format's budgets
+  (SEC-TM-032, SEC-STD-011, SEC-API-066, SEC-IAM-070) are proved with it.
+  The rule store, server-side evaluation and smart playlists (WP-092,
+  WP-113) stay R1.3. WP-087, WP-059, WP-088, WP-040, WP-154 and the
+  coverage table were updated to match. R1.1 now has a third pair that
+  must not share a wave: WP-147 follows WP-027.
+- **D-86, loading without the server.** No change: WP-148 (R1.1) already
+  carries offline loading, and R1's web client registers no service
+  worker (WP-072).
+- **D-87, speed budgets.** WP-115 now owns the budget tests in the R1
+  gate for the search index (WP-054) and the sync snapshot (WP-084); the
+  list render budget (DIS-100) is the client plan's test in the same
+  gate. Only the published numbers wait for DIS-019 in R1.1.
+- **D-88, browsing by mood and label.** R1 browses by genre (WP-040's
+  genre index); mood and label browsing arrive with MUS-019 in R1.1.
+  WP-049 already maps both fields in R1, so no package changes.
 
 ### The adopted R1 and the point releases (owner answers of 2026-10-02)
 

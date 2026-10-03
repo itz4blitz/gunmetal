@@ -81,7 +81,7 @@ release values are R1, R1.1, R1.2, R1.3, R2, R3, Later and No.
 | **R1** (music) | Server, web client, music library and player, as the R1 scope lists them. No remuxer or transcoder. HTTPS through the owner's own domain with automatic certificates, a tailnet name or localhost, and remote use through the owner's reverse proxy or a tailnet (D-07). | The web client, in browsers on desktops, laptops, tablets and phones, reached only over HTTPS or on localhost (SEC-NET-001). |
 | **R1.1** (bring your music in) | Playlist files and history imports, built-in MusicBrainz and cover-art lookups, ratings, richer credits and browsing, offline loading and installing the web app, profile pictures, continue on this device. | As R1, plus the installable web app (CLI-003). |
 | **R1.2** (the household and the admin) | Single sign-on through the household's identity provider, music share links, a second administrator, the admins' live view with each person's choice to show titles, stopping a stream, an arrangeable Home, diagnostics, restore from the admin screens, translations. | As R1.1. |
-| **R1.3** (discovery and analysis) | The rule language and smart playlists, library radio and suggestions, measured loudness (if ADR 5 is accepted), folder view, manual curation, 32-bit ARM builds. | As R1.1. |
+| **R1.3** (discovery and analysis) | The rule editor and smart playlists (the rule format they use ships in R1.1 work with saved filters, D-85), library radio and suggestions, measured loudness (if ADR 5 is accepted), folder view, manual curation, 32-bit ARM builds. | As R1.1. |
 | **R2** (video) | Movies and TV, the remuxer, sandboxed transcoding, native TV and mobile clients, and everything that needs a native app or a sandbox (downloads, handoff, casting, plugins, video share links, household profiles, API keys and adapters). Also the project's per-server HTTPS name service with its naming client and Certificate Transparency monitoring, and built-in remote access over iroh with relays and the browser edge (D-07). | Android phones and tablets, Android TV, Google TV and Fire OS, and the web client. |
 | **R3** (live) | M3U playlists and live TV. | As R2. |
 | **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, the desktop shell (the security baseline's release scope, SEC-TM-074; owner to confirm), audiobooks, podcasts, photos and watch together. | |
@@ -249,8 +249,8 @@ side sheet (**Proposal**, following the width classes). The sidebar holds Home, 
 and Library at the top, then pinned items (from R1.2), then playlists
 (MUS-132, MUS-139; folders from R2, MUS-136), and the account menu and status
 indicator at the bottom (**Proposal** for the order). The right pane holds
-the queue at full height (MUS-119), or lyrics, or the track info sheet; it
-can be resized or closed. Spotify set this pattern and Feishin copies it,
+the queue at full height (MUS-119), or lyrics, or track details (the track
+info sheet from R1.1); it can be resized or closed. Spotify set this pattern and Feishin copies it,
 according to the music UX research; the research also records users
 objecting when Spotify squeezed its queue into a narrow sidebar in March
 2024, which is why the queue pane here can grow to full height.
@@ -402,6 +402,7 @@ and focus tests.
 | SUR-013 | Track info sheet | Listening | R1.1 | 28 |
 | SUR-014 | Device picker and remote mode | Listening | R2 | 11 |
 | SUR-015 | Add-to-playlist sheet | Listening | R1 | 3 |
+| SUR-016 | Track details | Listening | R1 | 11 |
 | SUR-020 | Home | Home, library, browse and search | R1 | 51 |
 | SUR-021 | Home editor | Home, library, browse and search | R1.2 | 7 |
 | SUR-022 | Library | Home, library, browse and search | R1 | 30 |
@@ -625,8 +626,9 @@ and focus tests.
 - **Serves:** R1: ACC-003, ACC-071, ACC-075, ADM-085, CLI-002, DIS-002, LIB-032, MUS-042, MUS-043, MUS-079, MUS-229. R1.1: CLI-025, DIS-023. R1.2: ACC-073, ADM-102. R2: ACC-074, ACC-096, ACC-105, ADM-008, ADM-103, CLI-029, CLI-032, CLI-094, INT-050, MUS-209, MUS-214, VID-009.
 
 #### SUR-004 Context menu
-- **Release:** R1. R1.1 adds Rate, Info, Dismiss and, for administrators,
-  "Look up on MusicBrainz" on albums (DIS-047, MUS-181, DIS-022, LIB-111);
+- **Release:** R1. R1.1 adds Rate, Dismiss and, for administrators,
+  "Look up on MusicBrainz" on albums (DIS-047, MUS-181, DIS-022, LIB-111),
+  and Info opens the full track info sheet instead of track details;
   R1.2 adds Pin, the Home row menu, Copy link, Share for music and, for
   administrators, File info (DIS-013, DIS-003, CLI-034, INT-147, ACC-086,
   LIB-195); R1.3 adds Start radio and, for administrators, Merge and Split
@@ -635,10 +637,12 @@ and focus tests.
   MUS-062), so a large app feels small.
 - **Shows:** For music items: Play next (MUS-117), Add to queue and Play last
   (MUS-118), Add to playlist (opens SUR-015), Love (DIS-045), Go to artist
-  or album, and "Copy ID" in developer mode (INT-008). On history rows:
+  or album, Info on tracks (opens track details, SUR-016, MUS-236; from
+  R1.1 the full track info sheet, SUR-013), and "Copy ID" in developer
+  mode (INT-008). On history rows:
   Remove this play (MUS-184, DIS-052). For administrators, in an admin
   session on a personal device: Rescan (LIB-012). From R1.1: Rate (DIS-047,
-  MUS-181), Info (opens SUR-013), Dismiss on Continue rows (DIS-022), and
+  MUS-181), Dismiss on Continue rows (DIS-022), and
   for administrators "Look up on MusicBrainz" on albums (LIB-111). From
   R1.2: Pin (DIS-013), the Home row menu (DIS-003), Copy link (CLI-034,
   INT-147), Share for music tracks, albums and playlists (opens SUR-058;
@@ -775,9 +779,10 @@ and focus tests.
 ### Listening
 
 #### SUR-010 Full-screen player
-- **Release:** R1. R1.1 adds shuffle by album, the sleep timer and the
-  info button (MUS-127, MUS-076, MUS-114); R1.3 adds radio as a source
-  (DIS-067).
+- **Release:** R1. R1.1 adds shuffle by album and the sleep timer
+  (MUS-127, MUS-076), and the info button opens the full track info sheet
+  (MUS-114) instead of track details (SUR-016); R1.3 adds radio as a
+  source (DIS-067).
 - **Purpose:** The music player at its fullest: artwork-led, honest about
   what it is playing, and quick to control (MUS-110).
 - **Shows:** Large artwork with colours computed at scan time (MUS-110,
@@ -788,15 +793,17 @@ and focus tests.
   album from R1.1, MUS-127), love (MUS-109), the quality badge (MUS-099),
   the buffer state (MUS-070), and the gain mode in the player info
   (MUS-087). The player menu holds Private session (ACC-117, MUS-185) and,
-  from R1.1, the sleep timer (MUS-076). Buttons open the queue, lyrics and,
-  from R1.1, info. From R2: info cards under the player
+  from R1.1, the sleep timer (MUS-076). Buttons open the queue, lyrics and
+  info: track details in R1 (SUR-016, also opened from the quality badge),
+  the full track info sheet from R1.1. From R2: info cards under the player
   (MUS-111), landscape (MUS-112, CLI-054), a large-text layout for car
   mounts (MUS-228), the equaliser quick toggle (MUS-094), remote mode when
   controlling another device (CLI-102, MUS-198), and "watch the video" for
   songs that have one (LAT-091, LAT-098).
 - **Actions:** All transport actions, swipe the artwork to skip, love,
   rate (R1.1), start a private session, set a sleep timer (R1.1), open
-  queue, lyrics, info (R1.1) and (R2) the device picker.
+  queue, lyrics, info (track details in R1, the full sheet from R1.1) and
+  (R2) the device picker.
 - **Form factors:** *TV:* TV Now Playing (R2), the rail's fixed first
   entry: artwork-led, with a rail of the next queue items below it and a
   dim ambient mode (CLI-041, MUS-223, DIS-167); remote keys drive it, and
@@ -870,7 +877,10 @@ and focus tests.
 #### SUR-013 Track info sheet
 - **Release:** R1.1, with the sheet itself (MUS-114), which moved from R1;
   the R1 rows it shows reach it then, and "Why is this here?" joins it
-  (LIB-098). Measured loudness joins in R1.3 (MUS-086, LIB-066).
+  (LIB-098). Measured loudness joins in R1.3 (MUS-086, LIB-066). It
+  extends the R1 track details view (SUR-016, MUS-236) in place: the same
+  entry points open the full sheet, with the details view's fields first.
+  In R1 those rows show their details in SUR-016 (register D-83).
 - **Purpose:** Says everything about a track's file, its tags and how it is
   being played, so a person never has to guess (MUS-114).
 - **Shows:** Format and technical details (MUS-021, MUS-032, LIB-063), how
@@ -929,6 +939,37 @@ and focus tests.
   sheet. *Web and desktop:* a popover, plus, from R1.1, dragging onto a
   sidebar playlist.
 - **Serves:** R1: MUS-133. R1.1: MUS-134. R2: DIS-128.
+
+#### SUR-016 Track details
+- **Release:** R1 (register D-83). In R1.1 the track info sheet (SUR-013,
+  MUS-114) extends it in place: the same entry points open the full
+  sheet, which keeps these fields first.
+- **Purpose:** A minimal, read-only answer to "what is this, and how is it
+  playing?", so the R1 rows that show track details have a place before
+  the full sheet arrives (MUS-236). It opens from Info in the context menu
+  (SUR-004) and from the full-screen player's info button and quality
+  badge (SUR-010).
+- **Shows:** The title and the credit as tagged, with each credited artist
+  linked (MUS-002, MUS-034, MUS-036); the album; the file format with its
+  codec, sample rate, bit depth, bitrate and channels (MUS-021, MUS-032);
+  and the playback decision with its reason, in the quality badge's words
+  (MUS-099): played directly or through the packager, or why this browser
+  cannot play it (MUS-229); whether it joins the next track without a gap
+  (MUS-067, MUS-069); and where its level came from, track or album tags
+  or "estimated" (MUS-084, MUS-089). Fields appear as tagged (MUS-037);
+  the tags as read, where each field came from, the MusicBrainz IDs, the
+  gain applied and the rating wait for the full sheet in R1.1.
+- **Actions:** Go to an artist or the album; close. Nothing can be edited.
+- **Form factors:** *TV:* none; no TV client exists in R1, and from R2 the
+  TV opens the full sheet (SUR-013). *Phone:* a bottom sheet. *Tablet:* a
+  sheet. *Web and desktop:* the right pane or a dialog.
+- **Security:** built on the device from the synced library, which holds
+  only what the profile may see (SEC-CLI-020) and no file path
+  (SEC-API-068); every string from the file is rendered as text in a
+  bidirectional isolate (SEC-MED-057, SEC-CLI-001); the playback decision
+  stays with the live session and never enters a history event
+  (SEC-PRV-002).
+- **Serves:** R1: MUS-021, MUS-032, MUS-034, MUS-036, MUS-037, MUS-067, MUS-069, MUS-084, MUS-089, MUS-099, MUS-236.
 
 ### Home, library, browse and search
 
@@ -1138,7 +1179,8 @@ and focus tests.
 
 #### SUR-027 Rule editor
 - **Release:** R1.3, with the rule language and smart playlists (DIS-119,
-  MUS-143), which moved from R1.
+  MUS-143), which moved from R1. The rule format the editor writes ships
+  earlier, in R1.1 work, because saved filters are stored in it (D-85).
 - **Purpose:** One visual editor for the one rule language (DIS-119) behind
   smart playlists, Home rows and saved filters, with a live preview
   (DIS-120, MUS-144).
@@ -3261,7 +3303,7 @@ are listed in the behaviour-only table below.
 
 | Release | Rows | Rows with a home in their release | Rows with no UI entry (behaviour only) | Rows with no home yet |
 |---|---:|---:|---:|---:|
-| R1 | 296 | 233 | 26 | 37 |
+| R1 | 297 | 242 | 26 | 29 |
 | R1.1 | 79 | 78 | 0 | 1 |
 | R1.2 | 43 | 43 | 0 | 0 |
 | R1.3 | 32 | 30 | 2 | 0 |
@@ -3273,11 +3315,14 @@ each row in the release the owner's answers give it: the register's
 [R1 scope](../decisions.md#r1-scope) for the rows of the earlier R1 (with
 the per-server name, ADM-023, in R2 under D-07), and the feature map for
 every other row. The first draft's counts (422, 696 and 154) predate both
-the security alignment and the point releases.
+the security alignment and the point releases. The R1 line was updated
+the same day for D-83: the new row MUS-236 and eight R1 rows that had
+waited for the track info sheet now have a home in track details
+(SUR-016).
 
 The rows with no home yet are of three kinds, and none is hidden:
 
-1. **Fourteen R1 rows whose only named surface moved to a point release**
+1. **Six R1 rows whose only named surface moved to a point release**
    with that surface's own row: the track info sheet (SUR-013, R1.1), the
    file inspector (SUR-088, R1.2) and the review queue (SUR-087, R1.3).
    Each still works in R1; [the table below](#r1-rows-whose-detail-surface-moved-to-a-point-release)
@@ -3377,15 +3422,17 @@ are promises that belong in documentation.
 
 ### R1 rows whose detail surface moved to a point release
 
-These fourteen R1 rows still ship in R1, but the surface that shows their
+These six R1 rows still ship in R1, but the surface that shows their
 detail moved to a point release with its own row. Each line says where
-their result shows in R1.
+their result shows in R1. Eight more rows were here until D-83 gave R1
+the track details view (SUR-016, MUS-236): MUS-032, MUS-034, MUS-036,
+MUS-037, MUS-067, MUS-069, MUS-084 and MUS-089 now show their details
+there in R1, and in the full track info sheet from R1.1.
 
 | ID | Surface that moved | What R1 shows |
 |---|---|---|
-| INT-009, MUS-036 | Track info sheet (SUR-013, R1.1) | MusicBrainz IDs on music items in the API (SUR-112), and the identity they give albums and artists on the artist and album pages (SUR-024, SUR-025) |
-| MUS-032, MUS-034, MUS-037 | Track info sheet (SUR-013, R1.1) | Their results: core formats that play, with the format badge on rows and tiles (SUR-023), and multi-value credits as tagged on artist and album pages (SUR-024, SUR-025) |
-| MUS-067, MUS-069, MUS-084, MUS-089, LIB-065 | Track info sheet (SUR-013, R1.1) | Gapless playback and gain in the player, with the gain mode in the full-screen player's info (SUR-010, MUS-087) |
+| INT-009 | Track info sheet (SUR-013, R1.1) | MusicBrainz IDs on music items in the API (SUR-112), and the identity they give albums and artists on the artist and album pages (SUR-024, SUR-025) |
+| LIB-065 | Track info sheet (SUR-013, R1.1) | Where the gain came from, in track details (SUR-016), through its owning row MUS-084 |
 | LIB-046, LIB-059, LIB-097 | File inspector (SUR-088, R1.2) | Their results in browse: albums grouped by MusicBrainz IDs and identified without the internet (SUR-022, SUR-024, SUR-025); every raw tag is kept for the inspector |
 | LIB-051 | Review queue (SUR-087, R1.3) | Same-titled albums kept apart on the album grid and the artist page (SUR-022, SUR-024); doubtful cases wait for the review queue |
 
@@ -3576,7 +3623,8 @@ SUR-032, SUR-042, SUR-046 and the navigation model, are recorded in the
 ## Changes made to follow the owner's answers
 
 On 2026-10-03 this inventory was changed to follow the owner's answers of
-2026-10-02 in the [decision register](../decisions.md#owner-answers-2026-10-02).
+2026-10-02 in the [decision register](../decisions.md#owner-answers-2026-10-02),
+and the same day the answers to D-83 to D-88.
 Every requirement a moved surface carries moves with it and keeps every
 protection; nothing here weakens a security line. The surface IDs are
 unchanged.
@@ -3597,3 +3645,7 @@ unchanged.
 | SUR-022, SUR-025, SUR-026 | INT-138 and LIB-056 under R1 | R2, where the R1 scope moves them | D-10 |
 | Surface index | SUR-003 and SUR-103 counted 26 and 9 rows | 27 and 10, counting ACC-075, which was added to both | Consistency |
 | Coverage | Counts from the first draft; INT-006 among the R1 rows | Counts recomputed per release; INT-006 dropped from the table because it moved to R2; a table for the R1 rows whose detail surface moved to a point release; the rows added by the security alignment without a Serves line listed | D-10 |
+| SUR-016 (new), surface index | No R1 surface for track details: ten R1 rows waited for the track info sheet in R1.1 | Track details, a minimal read-only view in R1 (MUS-236), serving those ten rows; the track info sheet extends it in R1.1 | D-83 |
+| SUR-004, SUR-010, SUR-013, Web and desktop | Info joined the context menu and the player in R1.1 | Info is there in R1 and opens track details; from R1.1 it opens the full sheet | D-83 |
+| Coverage | R1: 296 rows, 233 with a home, 37 without | R1: 297 rows, 242 with a home, 29 without; eight rows left the table of R1 rows whose detail surface moved | D-83 |
+| Releases, SUR-027 | R1.3 named the rule language | R1.3 names the rule editor and smart playlists; the rule format they use ships in R1.1 work with saved filters | D-85 |

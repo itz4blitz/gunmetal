@@ -79,7 +79,7 @@ also moved the project-run name service to R2
 | **R1** (music) | The first usable release. A server that installs safely and is claimed with a passkey over real HTTPS. It scans a music folder and plays the original files gaplessly in a browser, levelled from their loudness tags. It keeps a queue, manual playlists and lyrics from the files. People sign in by passkey or by approval from a signed-in device (no passwords) and invite others. Each person sees, erases and exports their own history. Backups, restore at setup, and the security baseline. | The web client only, in browsers on desktop and phone. The installable web app arrives in R1.1. | No remuxer and no transcoder (ADR 2, decision 2). One light audio-only packager for browser gapless (MUS-230), which runs in a worker process and streams over a pipe, never in the server process (SEC-MED-018, SEC-MED-081). Linux servers only: x86-64, ARM64 and the container image. No plugin host and no metadata provider. HTTPS comes from the owner's own domain with automatic certificates (ADM-022, ACC-099), a tailnet name, or the machine itself (CLI-150). There is no project name service (ADM-023 is R2). No iroh: remote use goes through the owner's reverse proxy or a tailnet (ACC-097). |
 | **R1.1** (bring your music in) | Playlist files and history imports. Built-in MusicBrainz and Cover Art Archive lookups (LIB-111, LIB-112), off until the owner turns them on in the setup step that lists what each provider receives. Ratings, richer credits, editions and browsing, filters and saved filters. Offline loading and the installable web app. Profile pictures. Continue on this device. | As R1, plus the installable web app (CLI-003). | The egress client gains the metadata-provider purposes (SEC-PRV-014, SEC-PRV-015, SEC-PRV-017). Playlist files are parsed in the worker (SEC-MED-050, SEC-HIS-018). Uploaded images are re-encoded (SEC-MED-061, SEC-PRV-006). |
 | **R1.2** (the household and the admin) | Single sign-on with OIDC (ACC-057). Music share links (ACC-086 to ACC-089). Several administrators. The admin's live view, with each person's opt-in for titles (ADM-099, MUS-235), and stopping a stream. An arrangeable home. The task list, diagnostic bundles and restore from the UI. Serving under a path prefix behind a reverse proxy (ACC-134). Deep links and translations. | As R1.1. | The OIDC client (SEC-TM-022, SEC-IAM-026 to SEC-IAM-036, SEC-STD-025, SEC-CLI-026). Share-link pages (SEC-API-097, SEC-STD-008). Diagnostic bundles (SEC-PRV-046, SEC-OPS-030). |
-| **R1.3** (discovery and analysis) | The rule language and smart playlists. Library radio and suggestions. Loudness measured for untagged files (MUS-086), if ADR 5 is accepted. Folder view. Manual curation, the review queue, and fixes that survive every rebuild. Builds for 32-bit ARM boards (ADM-004). | As R1.1. | One reviewed pure-Rust audio decoder in the scan worker, for loudness (ADR 5, SEC-MED-026). The derived-data store (ADM-141) and the neighbour table. |
+| **R1.3** (discovery and analysis) | The rule editor and smart playlists; the rule format they use ships earlier, in R1.1 work, because saved filters are stored in it (register D-85). Library radio and suggestions. Loudness measured for untagged files (MUS-086), if ADR 5 is accepted. Folder view. Manual curation, the review queue, and fixes that survive every rebuild. Builds for 32-bit ARM boards (ADM-004). | As R1.1. | One reviewed pure-Rust audio decoder in the scan worker, for loudness (ADR 5, SEC-MED-026). The derived-data store (ADM-141) and the neighbour table. |
 | **R2** (video) | Movies and TV, plus everything that needs a native app or a sandbox: downloads, handoff and remote control, casting, the plugin host and the scrobblers, the OpenSubsonic adapter and the Jellyfin adapter's music subset, API keys, household profiles and parental controls, video share links (off by default), webhooks, Opus streams. Built-in remote access. The project-run per-server name service, with its naming client and its certificate-transparency monitoring (ADM-023, register D-07). | Android phones and tablets, Android TV and Google TV (and Fire OS), and the web client. | The pure-Rust remuxer, in a worker process (SEC-MED-081); the sandboxed transcoder (software encoders); iroh remote access for native clients; the name service (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071); the plugin host, with each plugin in its own sandboxed process. |
 | **R3** (live) | M3U playlists and live TV: sources, guide, lineup, live playback, recording. | As R2. | The live TV ingest and recorder. |
 | **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, the desktop shell (SEC-TM-074), Roku through the Jellyfin adapter's video subset, hardware transcoding, audiobooks and the other adjacent media types, household activity features, and watch together. | | |
@@ -159,7 +159,7 @@ updated to match (open decision 2).
 
 Counts are the real rows in each file's feature tables, counted
 mechanically on 2026-10-03, after the maps were realigned to the owner's
-answers to D-07 and D-10. Reference rows are counted in their own area and
+answers to D-07 and D-10, and again after D-83 added MUS-236. Reference rows are counted in their own area and
 release, and the last column says how many of each area's rows are
 references (rows whose "How Gunmetal does it better" cell begins with the
 word See followed by a feature ID or a quoted section name, such as
@@ -168,7 +168,7 @@ word See followed by a feature ID or a quoted section name, such as
 
 | Area | File | R1 | R1.1 | R1.2 | R1.3 | R2 | R3 | Later | No | Total | Of which references |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Music | [music.md](music.md) | 72 | 30 | 4 | 9 | 74 | 1 | 38 | 7 | 235 | 48 |
+| Music | [music.md](music.md) | 73 | 30 | 4 | 9 | 74 | 1 | 38 | 7 | 236 | 48 |
 | Library and metadata | [library.md](library.md) | 54 | 15 | 1 | 7 | 93 | 1 | 29 | 7 | 207 | 42 |
 | Discovery, home and search | [discovery.md](discovery.md) | 28 | 17 | 7 | 10 | 89 | 3 | 29 | 7 | 190 | 32 |
 | Clients, devices and offline | [clients.md](clients.md) | 20 | 10 | 3 | 0 | 80 | 2 | 38 | 6 | 159 | 2 |
@@ -178,7 +178,7 @@ word See followed by a feature ID or a quoted section name, such as
 | Adjacent media types | [later-media.md](later-media.md) | 4 | 0 | 0 | 3 | 13 | 0 | 149 | 12 | 181 | 5 |
 | Video playback | [video.md](video.md) | 0 | 0 | 0 | 0 | 139 | 1 | 43 | 5 | 188 | 10 |
 | Live TV and recording | [live-tv.md](live-tv.md) | 0 | 0 | 0 | 0 | 0 | 144 | 24 | 12 | 180 | 2 |
-| **All areas** | | **296** | **79** | **43** | **32** | **685** | **157** | **423** | **76** | **1,791** | **161** |
+| **All areas** | | **297** | **79** | **43** | **32** | **685** | **157** | **423** | **76** | **1,792** | **161** |
 
 ## The R1 cut
 
@@ -189,9 +189,12 @@ This list is the definition of the first release. The owner adopted it on
 name service (ADM-023), which
 [D-07](../decisions.md#d-07-https-and-naming-record-8) moved to R2. The
 list is generated from the maps' R1 rows, so it cannot drift from them.
-R1 holds 296 rows: 264 owning rows and 32 references to them. The
+R1 holds 297 rows: 265 owning rows and 32 references to them. The
 register's list counts two of these references, ADM-121 and CLI-157, as
-features. Video and live TV have no R1 rows.
+features. One owning row, MUS-236 (a minimal track details view), joined
+R1 on 2026-10-03 under
+[D-83](../decisions.md#d-83-track-details-in-r1). Video and live TV have
+no R1 rows.
 
 How R1 got here. Before the first review the maps put about 600 rows in
 R1. That review moved these to R2: the household and parental system,
@@ -223,7 +226,7 @@ queue and playlists, lyrics, search and home, then sign-in, backups and the
 security baseline. The security doors themselves come first in the plan's
 waves, because every feature uses them.
 
-### Music (67 features, plus 5 references)
+### Music (68 features, plus 5 references)
 
 - MUS-001: Every credited artist linked
 - MUS-002: Display credit kept as tagged
@@ -292,6 +295,7 @@ waves, because every feature uses them.
 - MUS-230: Audio packaging for the web player
 - MUS-233: Clear history for a period, or all of it
 - MUS-234: Choose how long history is kept
+- MUS-236: Track details
 
 References that ship with their owning rows: MUS-038 (see LIB-028), MUS-042 (see LIB-016), MUS-043 (see LIB-021), MUS-062 (see DIS-111), MUS-185 (see ACC-117).
 
@@ -882,7 +886,9 @@ owner decisions, applied as the baseline recommends.
     tracks in under 2 minutes, and time to interactive under 3 seconds on
     the cheapest supported stick. *Recommendation:* name the reference
     devices, accept these as goals, and publish the measured numbers either
-    way, as the README promises.
+    way, as the README promises. *Owner answer (register D-87):* the budget
+    tests are enforced in the R1 gate, and only the published numbers wait
+    for DIS-019 in R1.1; naming the devices is still open (D-20).
 17. **Media read-only, with no exception** (music 9, library 2, later
     media 3, ADM-139). *Recommendation (register D-43):* the server never
     writes to a media root in R1 or R2 (SEC-TM-042). "Remove" (ADM-139,

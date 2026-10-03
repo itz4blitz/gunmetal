@@ -439,10 +439,10 @@ rendered as text.
 
 | ID | Capability | What it does | Surfaces | Features | Rel. | Offline | Live |
 |---|---|---|---|---|---|---|---|
-| API-CAT-01 | Credits and roles | Every credited artist linked, the display credit as tagged, album artist apart from track artist, roles (composer, conductor, lyricist, producer, remixer, performer), "Appears on", disambiguation for same-name artists. | SUR-023 to SUR-025, SUR-013 | MUS-001 to MUS-006, LIB-187 | R1; R1.1 (roles, one artist page across libraries) | Local | Feed |
+| API-CAT-01 | Credits and roles | Every credited artist linked, the display credit as tagged, album artist apart from track artist, roles (composer, conductor, lyricist, producer, remixer, performer), "Appears on", disambiguation for same-name artists. | SUR-023 to SUR-025, SUR-016, SUR-013 | MUS-001 to MUS-006, LIB-187 | R1; R1.1 (roles, one artist page across libraries) | Local | Feed |
 | API-CAT-02 | Release model | Release groups and editions, release types, compilations, discs with titles, work groupings, original and release dates, sort names. | SUR-024, SUR-025 | MUS-008, MUS-010 to MUS-013, MUS-020, LIB-045, LIB-051, LIB-056 | R1; R1.1 (release groups, editions, release types, original dates); R2 (work groupings) | Local | Feed |
 | API-CAT-03 | Tags for browse | Multi-valued genres, moods, styles, labels and grouping, the explicit flag, MusicBrainz IDs. | SUR-023, SUR-028 | MUS-017, MUS-019, MUS-047, MUS-036, INT-009 | R1; R1.1 (moods, styles, labels, grouping, explicit flag) | Local | Feed |
-| API-CAT-04 | Technical and quality data | Codec, container, sample rate, bit depth, channels and bitrate, as data the client turns into badges. | SUR-013, SUR-023, SUR-002 | MUS-021, LIB-146, MUS-099 | R1 | Local | Feed |
+| API-CAT-04 | Technical and quality data | Codec, container, sample rate, bit depth, channels and bitrate, as data the client turns into badges. | SUR-016, SUR-013, SUR-023, SUR-002 | MUS-021, LIB-146, MUS-099, MUS-236 | R1 | Local | Feed |
 | API-CAT-05 | Playback data per file | Encoder delay and padding, ReplayGain or R128 values (track and album), true peak, measured loudness where available, and the seek index. The player clamps gain taken from tags. See the size note in the sync model. | Player | MUS-069, MUS-071, MUS-084, MUS-085, MUS-086, MUS-088, LIB-064 | R1; R1.3 (measured loudness) | Local | Feed |
 | API-CAT-06 | Lyrics | Embedded lyrics and `.lrc` sidecars, plain, line-timed and word-timed, parsed at scan into a capped timed-line model, with where they came from. | SUR-012 | MUS-154, MUS-155, MUS-156, LIB-067, LIB-068 | R1; R1.1 (word-timed lyrics) | Local | Feed |
 | API-CAT-07 | Artwork palette | Up to three colour candidates per album computed from the same decode that makes the fixed sizes, for the artwork tint. | SUR-010, SUR-024, SUR-025 | MUS-110 | R1 | Local | Feed |
@@ -537,8 +537,8 @@ rendered as text.
 | API-PL-02 | Pin and love playlists | Pin and love events for the sidebar and Home shortcuts. | SUR-001, SUR-020 | MUS-139, DIS-013 | R1.1; R1.2 (Home shortcuts) | Server until R2; Queue in R2 | Feed |
 | API-PL-03 | M3U import and export | Imports M3U and M3U8 through the upload path and the shared matcher, resolving entries only to items in libraries the playlist owner can read and dropping URLs, outside paths and artwork directives; exports M3U8 with paths relative to a library root, as a download. | SUR-026, SUR-009, SUR-097 | MUS-140, ADM-043, ADM-044 | R1.1 | Server | Push (import progress) |
 | API-PL-04 | Playlists from music folders | `.m3u` files found in media folders appear as playlists to people granted that library, with entries resolved only to items already indexed in the same library. Media is read-only, so they need a read-only rule (flows G5). | SUR-022 | LIB-192, LIB-007 | R1.1 | Local | Feed |
-| API-PL-05 | Rule store | Saved rule trees in the one rule language, for smart playlists, Home rows and saved filters, synced to devices; the core evaluates them on the device with seeded randomness. Loved tracks are a fixed query over love events until the rule engine arrives (MUS-149). | SUR-027, SUR-026, SUR-023 | DIS-119 to DIS-122, MUS-143 to MUS-146, DIS-105, MUS-149 | R1.1 (saved filters, as filter documents in the settings records); R1.2 (saved filters as Home rows, DIS-003); R1.3 (smart playlists, rule-backed rows and the rule language) | Local (evaluate); Server (save until R2) | Feed |
-| API-PL-06 | Server-side rule evaluation | Evaluates rules on the server when the library changes, for tools reading a smart playlist through the API, for adapters and for download rules. The evaluation and its re-evaluation jobs arrive with the rule language in R1.3 (WP-092, WP-113); tools, adapters and download rules read the results only from R2, with API keys (owner decision 8), and until then devices evaluate every rule they show. | SUR-026 | DIS-121, INT-138 | R1.3 (evaluation and re-evaluation jobs); R2 (tools, adapters and download rules) | Host | Feed |
+| API-PL-05 | Rule store | Saved rule trees in the one rule language, for smart playlists, Home rows and saved filters, synced to devices; the core evaluates them on the device with seeded randomness. Loved tracks are a fixed query over love events until the rule engine arrives (MUS-149). | SUR-027, SUR-026, SUR-023 | DIS-119 to DIS-122, MUS-143 to MUS-146, DIS-105, MUS-149 | R1.1 (the core rule format and its parser budgets, with saved filters stored in it in the settings records; register D-85); R1.2 (saved filters as Home rows, DIS-003); R1.3 (the rule editor, smart playlists and rule-backed rows) | Local (evaluate); Server (save until R2) | Feed |
+| API-PL-06 | Server-side rule evaluation | Evaluates rules on the server when the library changes, for tools reading a smart playlist through the API, for adapters and for download rules. The evaluation and its re-evaluation jobs arrive with smart playlists in R1.3 (WP-092, WP-113), on the rule format that ships in R1.1 (WP-027); tools, adapters and download rules read the results only from R2, with API keys (owner decision 8), and until then devices evaluate every rule they show. | SUR-026 | DIS-121, INT-138 | R1.3 (evaluation and re-evaluation jobs); R2 (tools, adapters and download rules) | Host | Feed |
 | API-PL-07 | Playlist write API for tools | Tools create and edit playlists with a scoped API key that never holds an administrator scope; they appear like any other playlist. Moves to R2 with API keys (owner decision 8). | SUR-026, SUR-094 | INT-138, ACC-049 | R2 | Server | Feed |
 | API-PL-08 | Missing entries | What a playlist shows when a track is purged from the trash. **Proposal** (flows G6): keep the entry as "missing" with its last known title so a later copy rematches. | SUR-026 | MUS-132, LIB-033 | R1 | Local | Feed |
 | API-PL-09 | Folders, images, sharing and collaboration | Playlist folders, a custom image, sharing with people on the server and collaborators, offline edits. Each viewer sees only the entries they may see. | SUR-026, SUR-058 | MUS-136, MUS-138, ACC-091, MUS-150, MUS-152 | R2 | Queue | Feed |
@@ -1067,7 +1067,8 @@ that gets in its way, and what the documents propose.
    only after a recorded review and only in the worker (SEC-MED-026,
    SEC-MED-018). The adopted scope puts measured loudness in R1.3, and only
    if that review passes (D-10); until then the player shows only "tagged"
-   or "estimated", and the track info sheet that shows it arrives in R1.1.
+   or "estimated", in the R1 track details view (MUS-236, D-83) and, from
+   R1.1, in the track info sheet.
 4. **A track the browser cannot play.** The UI dims it with the reason
    (MUS-229). ADR 2 (decision 2) means R1 has no transcoder, and the
    baseline confirms no native transcoding in R1 (security owner decision
@@ -1165,7 +1166,9 @@ that gets in its way, and what the documents propose.
     decision 2). The proposed budgets (Home under 200 ms, search under
     50 ms at 100,000 tracks on the reference low-end device; open decision
     16) are unmeasured, and the reference devices are not yet named. The
-    prebuilt index (API-SYNC-07) is the only stated fallback. In a shared
+    budget tests are enforced in the R1 gate all the same, and only the
+    published numbers wait for R1.1 (register D-87). The prebuilt index
+    (API-SYNC-07) is the only stated fallback. In a shared
     browser the copy lives in memory only (SEC-CLI-010), so every visit
     starts with a sync.
 14. **Third-party apps and credentials in URLs.** The OpenSubsonic adapter

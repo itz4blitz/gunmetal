@@ -63,7 +63,7 @@ it.
 
 | Release | What the player gains | Where it runs |
 |---|---|---|
-| **R1** (music) | The music player: the bar, the full-screen player, the queue with its Up next and From lanes, lyrics from the files, gapless playback and loudness levelling from tags in the browser, the honest quality badge and unplayable state, browser media controls, private listening, and stream-limit notices. Two of a profile's sessions share one queue, and the last Play wins. | The web client only (CLI-001), in a wide three-pane layout (CLI-060) and a phone-width layout (CLI-149), over HTTPS through the owner's own domain, a tailnet, or on the server's own machine; away from home through the owner's reverse proxy or a tailnet, because built-in remote access is R2. |
+| **R1** (music) | The music player: the bar, the full-screen player, the queue with its Up next and From lanes, lyrics from the files, gapless playback and loudness levelling from tags in the browser, the honest quality badge and unplayable state, a minimal track details view (MUS-236), browser media controls, private listening, and stream-limit notices. Two of a profile's sessions share one queue, and the last Play wins. | The web client only (CLI-001), in a wide three-pane layout (CLI-060) and a phone-width layout (CLI-149), over HTTPS through the owner's own domain, a tailnet, or on the server's own machine; away from home through the owner's reverse proxy or a tailnet, because built-in remote access is R2. |
 | **R1.1** (bring your music in) | "Continue on this device"; the sleep timer and fades; the track info sheet with the gain applied; lyrics that stay open and word-by-word lyrics; ratings; save the queue as a playlist, reorder while shuffled, shuffle by album and reshuffle the rest; multi-select and drag to the queue; mono and channel balance; fetch-ahead on a patchy link; the app that opens without the server. | As R1, plus the installable web app (CLI-003). |
 | **R1.2** (the household and the admin) | Music share links and the public share page; the admin's live view of sessions and their playback decisions, with each person's choice to show titles; stopping a session with a message; the readable diagnostic report. | As R1.1. |
 | **R1.3** (discovery and analysis) | Library radio, the Continue with lane and its reason labels; loudness measured for untagged files. | As R1.1. |
@@ -375,7 +375,8 @@ stop someone with root access from reading files already on the device.
 | Full-screen music player | Artwork, scrubber, transport, lyrics and queue access | Web | Native phone and tablet; landscape (desktop shell Later) | MUS-110, MUS-112 |
 | Queue panel | See and edit what plays next | Web (full height on wide layouts) | All clients | MUS-116 to MUS-129, CLI-060 |
 | Lyrics view | Read along | Web, inside the player | Full-screen lyrics with tap to seek | MUS-154 to MUS-159 |
-| Track info sheet | How the file was read and played | Web, from R1.1 | Signal path added | MUS-114, MUS-090, MUS-103 |
+| Track details | Title, credits, album, file format, and how the track is played and why | Web | Replaced by the track info sheet | MUS-236, MUS-099 |
+| Track info sheet | How the file was read and played | Web, from R1.1, extending track details | Signal path added | MUS-114, MUS-090, MUS-103 |
 | Device sheet | Move or control playback elsewhere | None; from R1.1 the bar's "Continue on this device" prompt only | Full picker, remote mode, cast | CLI-103, CLI-101, CLI-102, CLI-106 |
 | Mini player | Small always-on-top window | None | None; desktop shell, Later (see [Releases](#releases-and-platforms)) | CLI-065 |
 | System media controls | Lock screen, notification, media keys | Browser Media Session | Native modules, car, watch; desktop panels Later | CLI-070, CLI-069, CLI-063, CLI-116 |
@@ -466,8 +467,8 @@ Regions, top to bottom, on a phone:
    pages.
 4. **The scrubber, always visible** (MUS-110, MUS-071), with elapsed time on
    the left and remaining time on the right, and the quality badge under it
-   (MUS-099). From R1.1, selecting the badge opens the track info sheet
-   (MUS-114).
+   (MUS-099). Selecting the badge opens track details (MUS-236), and from
+   R1.1 the full track info sheet (MUS-114).
 5. **Transport**: shuffle, previous, play or pause, next, repeat (MUS-126,
    MUS-077).
 6. **Bottom row**, in fixed places: the device control on the left (empty
@@ -485,7 +486,7 @@ The options menu holds, in this order:
 | Go to album, Go to artist | Navigation | MUS-123 | R1 |
 | Start radio | Library radio seeded by this track, labelled as radio | MUS-165, DIS-067 | R1.3 |
 | Rate | Star rating, shown only when ratings are switched on (feature map README open decision 12) | MUS-181 | R1.1 |
-| Track info | The track info sheet | MUS-114 | R1.1 |
+| Track info | Track details: title, credits, album, file format, and the playback decision with its reason; from R1.1 the full track info sheet | MUS-236, MUS-114 | R1 (full sheet R1.1) |
 | Playback settings | Levelling mode, and fades from R1.1 | MUS-087, MUS-072 | R1 (fades R1.1) |
 | Equaliser | A quick toggle for the active preset | MUS-094 | R2 |
 | Signal path | Every stage that changed the audio | MUS-103 | R2 |
@@ -628,8 +629,9 @@ make it checkable.
 
 - **Gapless** in the browser (MUS-067) rests on trim values read at scan
   (MUS-069) and the light audio packager (MUS-230), whose per-browser
-  support is unverified. The listener sees nothing; from R1.1 the track
-  info sheet shows "Gapless: yes" and the trim applied. Native apps get
+  support is unverified. The listener sees nothing; track details say
+  whether a track joins the next without a gap (MUS-236), and from R1.1
+  the track info sheet shows "Gapless: yes" and the trim applied. Native apps get
   libmpv's gapless path in R2 (MUS-068).
 - **The next item is fetched early** (MUS-070), and from R1.1 further ahead
   on a patchy link (CLI-099), so a slow link does not stall between
@@ -643,9 +645,10 @@ make it checkable.
   Auto as the default
   (music.md, open decision 2). Positive gain never exceeds a track's
   true-peak headroom (MUS-088).
-- **The gain applied is shown** in the track info sheet from R1.1: its
-  source (tag, measured, or "estimated" for the fallback) and the decibels
-  applied (MUS-090).
+- **Where the gain came from** is shown in track details in R1 (tags, or
+  "estimated" for the fallback; MUS-236), and **the gain applied** in the
+  track info sheet from R1.1: its source (tag, measured, or "estimated")
+  and the decibels applied (MUS-090).
 - **Mono and channel balance** are in Settings > Accessibility, through Web
   Audio in R1.1 (CLI-151).
 - **Damaged files** flagged at scan are skipped with a notice, and the
