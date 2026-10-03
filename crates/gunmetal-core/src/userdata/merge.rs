@@ -22,6 +22,7 @@
 //! The derived values read one stream's events, so a profile's counts and
 //! loves never include another profile's.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
@@ -52,7 +53,7 @@ impl EventSet {
                 slot.insert(event);
             }
             Entry::Occupied(mut slot) => {
-                if event > *slot.get() {
+                if event.cmp(slot.get()) == Ordering::Greater {
                     slot.insert(event);
                 }
             }
