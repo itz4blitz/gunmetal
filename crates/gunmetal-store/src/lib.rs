@@ -10,3 +10,8 @@
 //! This file is a registry: it holds only `pub mod` lines.
 
 mod columns;
+pub mod readers;
+pub mod reply;
+pub mod schema;
+pub mod store;
+pub mod writer;
