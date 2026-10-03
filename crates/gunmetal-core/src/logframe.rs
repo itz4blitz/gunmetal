@@ -118,6 +118,8 @@ pub struct Records<'a> {
     segment: &'a [u8],
     /// The next octet to look at.
     pos: usize,
+    /// Set once the iterator has yielded its last item.
+    done: bool,
 }
 
 /// Frames `payload` as one record of version [`RECORD_VERSION`].
@@ -181,7 +183,11 @@ pub fn header(segment: &[u8]) -> Result<SegmentHeader, HeaderError> {
 /// Walks `segment`, yielding each whole record or a damaged range.
 #[must_use]
 pub fn records(segment: &[u8]) -> Records<'_> {
-    Records { segment, pos: 0 }
+    Records {
+        segment,
+        pos: 0,
+        done: false,
+    }
 }
 
 /// The length of the longest prefix of `segment` that is only whole records.
@@ -202,8 +208,12 @@ impl<'a> Iterator for Records<'a> {
     type Item = Item<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
         let pos = self.pos;
         if pos >= self.segment.len() {
+            self.done = true;
             return None;
         }
         if let Some((record, end)) = record_at(self.segment, pos) {
@@ -216,7 +226,7 @@ impl<'a> Iterator for Records<'a> {
                 return Some(Item::Damaged { range: pos..scan });
             }
         }
-        self.pos = self.segment.len();
+        self.done = true;
         Some(Item::Damaged {
             range: pos..self.segment.len(),
         })
@@ -473,6 +483,18 @@ mod tests {
         assert_eq!(items(&[]), []);
         assert_eq!(items(&frame(b"hi")), [rec(b"hi")]);
         assert_eq!(payload_of(&rec(b"hi")), Some(b"hi".as_slice()));
+        let mut empty = records(&[]);
+        assert_eq!(empty.next(), None);
+        assert_eq!(empty.next(), None);
+        let framed = frame(b"hi");
+        let mut walk = records(&framed);
+        assert_eq!(walk.next(), Some(rec(b"hi")));
+        assert_eq!(walk.next(), None);
+        assert_eq!(walk.next(), None);
+        let mut garbage = records(&[0xFF]);
+        assert_eq!(garbage.next(), Some(damaged(0..1)));
+        assert_eq!(garbage.next(), None);
+        assert_eq!(garbage.next(), None);
     }
 
     /// Verifies: SEC-MED-001
