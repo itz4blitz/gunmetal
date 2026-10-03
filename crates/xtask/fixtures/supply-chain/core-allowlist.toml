@@ -1,0 +1,5 @@
+# A test fixture for `xtask core-deps`, shaped like the real allowlist.
+
+[[crate]]
+name = "sha2"
+reason = "SHA-256 for content identity, in crypto.rs only"
