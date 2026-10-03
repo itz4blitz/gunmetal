@@ -13,6 +13,7 @@ pub mod bytes;
 pub mod checksum;
 pub mod clock;
 pub mod id3v1;
+pub mod mp4;
 pub mod mpa;
 pub mod riff;
 pub mod tempdir;

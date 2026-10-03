@@ -60,6 +60,8 @@ harnesses! {
     id3_structure,
     id3v1,
     link,
+    mp4_probe,
+    mp4_structure,
     mpa,
     net,
     riff,

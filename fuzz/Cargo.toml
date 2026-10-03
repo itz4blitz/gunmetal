@@ -130,6 +130,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "mp4_probe"
+path = "fuzz_targets/mp4_probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp4_structure"
+path = "fuzz_targets/mp4_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "mpa"
 path = "fuzz_targets/mpa.rs"
 test = false
