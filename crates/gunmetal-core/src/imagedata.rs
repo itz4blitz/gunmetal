@@ -422,10 +422,7 @@ fn pack_hash(args: &PackArgs<'_>) -> Placeholder {
             let nibble = u8::try_from(quantize(15.0 * *term, 15)).unwrap_or(0);
             let byte_index = ac_start.saturating_add(ac_index.wrapping_div(2));
             let shift = u32::try_from(ac_index.wrapping_rem(2).saturating_mul(4)).unwrap_or(0);
-            if let Some(slot) = bytes.get_mut(byte_index) {
-                *slot |= nibble.wrapping_shl(shift);
-                len = len.max(byte_index.saturating_add(1));
-            }
+            len = len.max(or_nibble(&mut bytes, byte_index, nibble, shift));
             ac_index = ac_index.saturating_add(1);
         }
     }
@@ -511,16 +508,21 @@ fn extract_palette(rgba: &[u8], _width: usize, _height: usize) -> Vec<Swatch> {
     if !chromatic.is_empty() {
         swatches = chromatic;
     }
+    distinct_lch(swatches)
+}
+
+/// Keep swatches with distinct OKLCH triples, at most [`MAX_SWATCHES`].
+fn distinct_lch(swatches: Vec<Swatch>) -> Vec<Swatch> {
     let mut unique = Vec::new();
     for swatch in swatches {
-        if unique.iter().all(|kept: &Swatch| {
-            kept.lightness != swatch.lightness
-                || kept.chroma != swatch.chroma
-                || kept.hue != swatch.hue
-        }) {
+        let key = (swatch.lightness, swatch.chroma, swatch.hue);
+        if unique
+            .iter()
+            .all(|kept: &Swatch| (kept.lightness, kept.chroma, kept.hue) != key)
+        {
             unique.push(swatch);
         }
-        if unique.len() == MAX_SWATCHES {
+        if unique.len() >= MAX_SWATCHES {
             break;
         }
     }
@@ -541,18 +543,35 @@ fn median_cut(pixels: &[[u8; 3]], max_boxes: usize) -> Vec<[u8; 3]> {
         else {
             break;
         };
-        let Some(cluster) = boxes.get_mut(index).map(std::mem::take) else {
-            break;
-        };
-        let Some((left, right)) = split_cluster(cluster) else {
-            break;
-        };
-        if let Some(slot) = boxes.get_mut(index) {
-            *slot = left;
-        }
-        boxes.push(right);
+        let _ = replace_with_split(&mut boxes, index);
     }
     boxes.iter().map(|cluster| mean_rgb(cluster)).collect()
+}
+
+/// Take the box at `index`, or an empty box if that slot is gone.
+fn take_cluster(boxes: &mut [RgbBox], index: usize) -> RgbBox {
+    boxes.get_mut(index).map(std::mem::take).unwrap_or_default()
+}
+
+/// Split the box at `index` into two and put both back. `false` when it
+/// cannot split.
+fn replace_with_split(boxes: &mut Vec<RgbBox>, index: usize) -> bool {
+    let cluster = take_cluster(boxes, index);
+    let Some((left, right)) = split_cluster(cluster) else {
+        return false;
+    };
+    store_box(boxes, index, left);
+    boxes.push(right);
+    true
+}
+
+/// Put `cluster` at `index`, or append it when that slot is gone.
+fn store_box(boxes: &mut Vec<RgbBox>, index: usize, cluster: RgbBox) {
+    if let Some(slot) = boxes.get_mut(index) {
+        *slot = cluster;
+    } else {
+        boxes.push(cluster);
+    }
 }
 
 /// `(range, channel)` of the RGB axis with the largest span.
@@ -561,23 +580,15 @@ fn longest_range(pixels: &[[u8; 3]]) -> (u8, u8) {
     let mut highest = [0_u8; 3];
     for pixel in pixels {
         for channel in 0..3_usize {
-            let value = pixel.get(channel).copied().unwrap_or(0);
-            if let Some(slot) = lowest.get_mut(channel) {
-                *slot = (*slot).min(value);
-            }
-            if let Some(slot) = highest.get_mut(channel) {
-                *slot = (*slot).max(value);
-            }
+            let value = rgb_channel(*pixel, channel);
+            set_u8(&mut lowest, channel, value, false);
+            set_u8(&mut highest, channel, value, true);
         }
     }
     let mut best = (0_u8, 0_u8);
     for channel in 0..3_u8 {
         let index = usize::from(channel);
-        let span = highest
-            .get(index)
-            .copied()
-            .unwrap_or(0)
-            .saturating_sub(lowest.get(index).copied().unwrap_or(0));
+        let span = rgb_channel(highest, index).saturating_sub(rgb_channel(lowest, index));
         if span >= best.0 {
             best = (span, channel);
         }
@@ -587,21 +598,66 @@ fn longest_range(pixels: &[[u8; 3]]) -> (u8, u8) {
 
 /// Split `pixels` at the median of the longest RGB axis.
 fn split_cluster(mut pixels: RgbBox) -> Option<(RgbBox, RgbBox)> {
+    if pixels.len() < 2 {
+        return None;
+    }
     let (range, channel) = longest_range(&pixels);
     if range == 0 {
         return None;
     }
     let axis = usize::from(channel);
-    pixels.sort_by_key(|pixel| pixel.get(axis).copied().unwrap_or(0));
-    let mid = pixels.len().checked_div(2).unwrap_or(0);
-    if mid == 0 || mid == pixels.len() {
-        return None;
-    }
+    pixels.sort_by_key(|pixel| rgb_channel(*pixel, axis));
+    let last = pixels.len().saturating_sub(1);
+    let mid = pixels.len().wrapping_div(2).clamp(1, last);
     let right = pixels.split_off(mid);
-    if pixels.is_empty() || right.is_empty() {
-        return None;
-    }
     Some((pixels, right))
+}
+
+/// Channel `index` of an sRGB triple, or 0 if that slot is missing.
+fn rgb_channel(pixel: [u8; 3], index: usize) -> u8 {
+    pixel.get(index).copied().unwrap_or(0)
+}
+
+/// Write `value` into `values[index]` as a min or max, when the slot exists.
+fn set_u8(values: &mut [u8; 3], index: usize, value: u8, prefer_max: bool) {
+    if let Some(slot) = values.get_mut(index) {
+        *slot = if prefer_max {
+            (*slot).max(value)
+        } else {
+            (*slot).min(value)
+        };
+    }
+}
+
+/// Overwrite `values[index]` when that slot exists.
+fn write_channel(values: &mut [u8; 3], index: usize, value: u8) {
+    if let Some(slot) = values.get_mut(index) {
+        *slot = value;
+    }
+}
+
+/// Saturating-add `value` into `values[index]` when that slot exists.
+fn add_u32(values: &mut [u32; 3], index: usize, value: u32) {
+    if let Some(slot) = values.get_mut(index) {
+        *slot = slot.saturating_add(value);
+    }
+}
+
+/// Channel `index` of a sum triple, or 0 if that slot is missing.
+fn u32_at(values: &[u32; 3], index: usize) -> u32 {
+    values.get(index).copied().unwrap_or(0)
+}
+
+/// Read a packed AC nibble into `bytes[index]`. Returns the exclusive end
+/// of the written byte, or 0 when `index` is out of range.
+fn or_nibble(bytes: &mut [u8], index: usize, nibble: u8, shift: u32) -> usize {
+    match bytes.get_mut(index) {
+        Some(slot) => {
+            *slot |= nibble.wrapping_shl(shift);
+            index.saturating_add(1)
+        }
+        None => 0,
+    }
 }
 
 /// Mean sRGB of a cluster, rounding each channel toward nearest.
@@ -610,17 +666,17 @@ fn mean_rgb(pixels: &[[u8; 3]]) -> [u8; 3] {
     let mut sums = [0_u32; 3];
     for pixel in pixels {
         for channel in 0..3_usize {
-            if let Some(slot) = sums.get_mut(channel) {
-                *slot = slot.saturating_add(u32::from(pixel.get(channel).copied().unwrap_or(0)));
-            }
+            add_u32(&mut sums, channel, u32::from(rgb_channel(*pixel, channel)));
         }
     }
     let mut mean = [0_u8; 3];
     for channel in 0..3_usize {
-        let sum = sums.get(channel).copied().unwrap_or(0);
-        if let Some(slot) = mean.get_mut(channel) {
-            *slot = u8::try_from(sum.checked_div(count).unwrap_or(0)).unwrap_or(u8::MAX);
-        }
+        let sum = u32_at(&sums, channel);
+        write_channel(
+            &mut mean,
+            channel,
+            u8::try_from(sum.checked_div(count).unwrap_or(0)).unwrap_or(u8::MAX),
+        );
     }
     mean
 }
@@ -1045,6 +1101,10 @@ mod tests {
         out
     }
 
+    fn header_alpha_flag(bytes: &[u8]) -> u8 {
+        bytes.get(2).copied().unwrap_or(0) & 0x80
+    }
+
     fn mean_channel(raster: &published::Raster, xs: std::ops::Range<usize>, channel: usize) -> f64 {
         let mut sum = 0.0;
         let mut n = 0.0;
@@ -1053,7 +1113,11 @@ mod tests {
                 if x >= raster.width {
                     continue;
                 }
-                let i = (y * raster.width + x) * 4 + channel;
+                let i = y
+                    .saturating_mul(raster.width)
+                    .saturating_add(x)
+                    .saturating_mul(4)
+                    .saturating_add(channel);
                 sum += f64::from(*raster.rgba.get(i).unwrap_or(&0));
                 n += 1.0;
             }
@@ -1074,10 +1138,10 @@ mod tests {
         for pixel in raster.rgba.chunks_exact(4) {
             for (got, want) in pixel.iter().take(3).zip(rgb) {
                 let delta = got.abs_diff(want);
+                let hash_bytes = hash.as_bytes();
                 assert!(
                     delta <= tolerance,
-                    "decoded {pixel:?} off {rgb:?} by {delta} (tol {tolerance}) hash {:02x?}",
-                    hash.as_bytes()
+                    "decoded {pixel:?} off {rgb:?} by {delta} (tol {tolerance}) hash {hash_bytes:02x?}"
                 );
             }
             assert!(pixel[3] >= 255 - tolerance, "alpha {pixel:?}");
@@ -1262,8 +1326,11 @@ mod tests {
     fn an_opaque_image_clears_the_alpha_header_flag() {
         let rgba = fill(2, 2, [10, 20, 30, 255]);
         let hash = placeholder(&rgba, 2, 2).unwrap();
-        let flag = hash.as_bytes().get(2).copied().unwrap_or(0) & 0x80;
-        assert_eq!(flag, 0, "{:02x?}", hash.as_bytes());
+        let bytes = hash.as_bytes();
+        let flag = header_alpha_flag(bytes);
+        assert_eq!(flag, 0, "{bytes:02x?}");
+        assert_eq!(header_alpha_flag(&[]), 0);
+        assert_eq!(header_alpha_flag(&[0, 0, 0x80]), 0x80);
         assert!(hash.len() >= 5);
     }
 
@@ -1318,12 +1385,11 @@ mod tests {
     fn fully_transparent_pixels_encode_alpha_and_yield_no_swatch() {
         let rgba = fill(4, 4, [255, 0, 0, 0]);
         let hash = placeholder(&rgba, 4, 4).unwrap();
-        assert!(
-            hash.len() >= 6,
-            "alpha header byte {:02x?}",
-            hash.as_bytes()
-        );
-        let raster = published::decode(hash.as_bytes());
+        let hash_bytes = hash.as_bytes();
+        assert!(hash.len() >= 6, "alpha header byte {hash_bytes:02x?}");
+        let (ar, ag, ab, aa) = published::average_rgba(hash_bytes);
+        assert!(aa < 0.2, "average alpha {aa} from ({ar},{ag},{ab},{aa})");
+        let raster = published::decode(hash_bytes);
         let mean_a = mean_channel(&raster, 0..raster.width, 3);
         assert!(mean_a < 40.0, "alpha {mean_a}");
         assert_eq!(palette(&rgba, 4, 4).unwrap(), Vec::<Swatch>::new());
@@ -1397,9 +1463,96 @@ mod tests {
         assert!(srgb_to_linear(255) > 0.9);
         assert_eq!(contrast_hundredths(0, 0, 0, 255, 255, 255), 2100);
         assert_eq!(contrast_hundredths(255, 255, 255, 0, 0, 0), 2100);
+        assert_eq!(published::aspect_ratio(&[0, 0, 0, 0, 0x80]), 1.0);
+    }
+
+    #[test]
+    fn palette_helpers_cover_out_of_range_slots() {
         assert_eq!(mean_rgb(&[]), [0, 0, 0]);
         assert_eq!(split_cluster(vec![[1, 2, 3]]), None);
+        assert_eq!(split_cluster(Vec::new()), None);
+        assert_eq!(split_cluster(vec![[4, 4, 4], [4, 4, 4]]), None);
+        assert!(split_cluster(vec![[0, 0, 0], [255, 0, 0]]).is_some());
+        let mut one = vec![vec![[9, 9, 9]]];
+        store_box(&mut one, 0, vec![[1, 2, 3]]);
+        assert_eq!(one, vec![vec![[1, 2, 3]]]);
+        let mut none: Vec<RgbBox> = Vec::new();
+        store_box(&mut none, 3, vec![[1, 2, 3]]);
+        assert_eq!(none, vec![vec![[1, 2, 3]]]);
         assert_eq!(longest_range(&[]), (0, 2));
+        assert_eq!(rgb_channel([1, 2, 3], 0), 1);
+        assert_eq!(rgb_channel([1, 2, 3], 9), 0);
+        assert_eq!(u32_at(&[1, 2, 3], 1), 2);
+        assert_eq!(u32_at(&[1, 2, 3], 9), 0);
+        let mut rgb = [5, 5, 5];
+        set_u8(&mut rgb, 9, 1, true);
+        set_u8(&mut rgb, 0, 9, true);
+        set_u8(&mut rgb, 1, 1, false);
+        write_channel(&mut rgb, 9, 7);
+        write_channel(&mut rgb, 2, 4);
+        assert_eq!(rgb, [9, 1, 4]);
+        let mut sums = [0_u32, 0, 0];
+        add_u32(&mut sums, 9, 4);
+        add_u32(&mut sums, 0, 4);
+        assert_eq!(sums, [4, 0, 0]);
+        let mut packed = [0_u8; 1];
+        assert_eq!(or_nibble(&mut packed, 0, 3, 0), 1);
+        assert_eq!(or_nibble(&mut packed, 9, 3, 0), 0);
+        write_u8(&mut packed, 9, 1);
+        write_u8(&mut packed, 0, 7);
+        assert_eq!(packed, [7]);
+        assert!(take_cluster(&mut Vec::new(), 0).is_empty());
+        assert!(!replace_with_split(&mut Vec::new(), 0));
+        assert!(!replace_with_split(&mut vec![vec![[8, 8, 8]]], 0));
+        assert!(replace_with_split(
+            &mut vec![vec![[0, 0, 0], [255, 0, 0]]],
+            0
+        ));
+        let dummy = |lightness, chroma, hue| Swatch {
+            lightness,
+            chroma,
+            hue,
+            contrast_black: 0,
+            contrast_white: 0,
+        };
+        let kept = distinct_lch(vec![
+            dummy(100, 10, 20),
+            dummy(100, 10, 20),
+            dummy(100, 11, 20),
+            dummy(100, 11, 21),
+            dummy(200, 30, 40),
+        ]);
+        assert_eq!(
+            kept.iter()
+                .map(|s| (s.lightness, s.chroma, s.hue))
+                .collect::<Vec<_>>(),
+            vec![(100, 10, 20), (100, 11, 20), (100, 11, 21)]
+        );
+        let empty_raster = published::Raster {
+            width: 0,
+            height: 0,
+            rgba: Vec::new(),
+        };
+        assert_eq!(mean_channel(&empty_raster, 0..4, 0), 0.0);
+        let unit = published::Raster {
+            width: 1,
+            height: 1,
+            rgba: vec![10, 0, 0, 255],
+        };
+        assert!(mean_channel(&unit, 0..4, 0) >= 0.0);
+    }
+
+    #[test]
+    fn transparent_landscape_and_portrait_hashes_carry_alpha() {
+        let wide_clear = fill(8, 2, [10, 20, 30, 0]);
+        let tall_clear = fill(2, 8, [10, 20, 30, 0]);
+        let wide_hash = placeholder(&wide_clear, 8, 2).unwrap();
+        let tall_hash = placeholder(&tall_clear, 2, 8).unwrap();
+        assert!(published::aspect_ratio(wide_hash.as_bytes()) > 1.0);
+        assert!(published::aspect_ratio(tall_hash.as_bytes()) < 1.0);
+        let _ = published::decode(wide_hash.as_bytes());
+        let _ = published::decode(tall_hash.as_bytes());
+        let _ = published::average_rgba(wide_hash.as_bytes());
     }
 
     proptest! {
