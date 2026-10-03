@@ -1143,8 +1143,9 @@ is what catches a mismatch.
   reported; seeds in `fuzz/seeds/<harness>/`; a stable `cargo test` per
   harness that replays every seed and every committed reproducer; a
   `cargo-fuzz` target per harness under `fuzz/fuzz_targets/`. Move the
-  EBML harness out of `lib.rs` into `ebml.rs`, so `lib.rs` becomes a
-  registry of `pub mod` lines. Fuzz each changed harness for at least 10
+  EBML harness out of `lib.rs` into `ebml.rs`, so both registries exist:
+  `lib.rs` holds `pub mod` lines, and `registry.rs` holds the
+  `harnesses!` list. Fuzz each changed harness for at least 10
   minutes on pull requests that touch `gunmetal-core`, and every harness
   for at least one CPU-hour nightly, with a 5 s per-input timeout and a
   memory cap (SEC-MED-029). An `xtask check-harnesses` fails when a public
@@ -1242,31 +1243,35 @@ is what catches a mismatch.
   allow-list before server code. No package wrote them. SEC-HIS-019 also
   forbids extracting an archive from outside until a record allows it,
   which restore (WP-109) needs.
-- **Scope.** Four draft records, each accepted or edited by the owner
-  (AGENTS.md: agents never edit ADR 1 or ADR 2). Record 7, identity and
-  sessions: no passwords and no TOTP (SEC-IAM-025), passkeys, OIDC and
-  browser pairing in R1, one session-lifetime table matching the baseline's
-  parameters table, the principal kinds, the host-equivalent action list
-  and where identity data lives. Record 8, HTTPS and naming: the
-  per-server name service as the install-time default with own domain,
-  tailnet and localhost as tested alternatives, the cleartext rule, the
-  label scheme. Record 9, cryptography: the reviewed implementation
-  allow-list, the rustls provider, the AEAD nonce strategy and the first
-  cryptographic inventory (SEC-STD-018, SEC-STD-019, SEC-NET-057). Record
-  10, backup archives: the archive format inside the age envelope, with
-  entry paths ignored, symlink entries refused and entry count and
-  unpacked size limited, which is what SEC-HIS-019 asks before extraction
-  is allowed.
+- **Scope.** Four records, accepted on 2026-10-03 through the owner's
+  technical answers (AGENTS.md: agents never edit ADR 1 or ADR 2). Record
+  7, identity and sessions: no passwords and no TOTP (SEC-IAM-025),
+  passkeys, OIDC and browser pairing in R1, one session-lifetime table
+  matching the baseline's parameters table, the principal kinds, the
+  host-equivalent action list and where identity data lives. Record 8,
+  HTTPS and naming: the per-server name service as the install-time
+  default with own domain, tailnet and localhost as tested alternatives,
+  the cleartext rule, the label scheme. Record 9, cryptography: the
+  reviewed implementation allow-list, the rustls provider, the AEAD nonce
+  strategy and the first cryptographic inventory (SEC-STD-018,
+  SEC-STD-019, SEC-NET-057). Record 10, backup archives: the archive
+  format inside the age envelope, with entry paths ignored, symlink
+  entries refused and entry count and unpacked size limited, which is
+  what SEC-HIS-019 asks before extraction is allowed.
 - **Not in scope.** Code. The remuxer placement record (SEC-MED-081) and
   the client security record (SEC-STD-039), which are R2.
 - **Tests.** Not code. The docs lint of WP-127 fails while SEC-IAM-025 and
   a password feature row are both live (SEC-STD-006), and the review
   checks each record against the requirements it names.
-- **Risks and decisions.** WP-046, and through it every package that
-  stores a user, waits for the owner to accept record 7; WP-109 waits for
-  record 10; WP-073 and WP-101 wait for record 9's provider choice. These
-  records restate the baseline's recommendations, which are open owner
-  decisions (baseline README decisions 1, 2, 9 and 12).
+- **Risks and decisions.** The four records are accepted. Record 7's
+  SEC-STD-006 "every file agrees" clause is still Not met: the stale
+  narrative in `standards-coverage.md` and `rival-security-history.md`
+  remains for the baseline's owner. Record 8 still has two unanswered
+  items: the outbound exception before the claim (decision 4) and the
+  release of the name service (decision 8). WP-046 may store a user
+  against the accepted identity record; WP-109 may extract against the
+  accepted archive format; WP-073 and WP-101 follow record 9's accepted
+  provider choice (aws-lc-rs if it builds cleanly, otherwise ring).
 
 ### WP-126 Data-root handle and the filesystem crate (added for the security baseline)
 
@@ -7641,17 +7646,30 @@ rebuilds (ADM-141) is WP-071's, which arrives in R1.1.
   **Depends on** WP-003 (ADR 5 accepted), WP-029, WP-071, WP-078, WP-079,
   WP-102.
 - **Owns** `crates/gunmetal-worker/src/jobs/loudness.rs`,
-  `crates/gunmetal-server/src/loudness/`.
+  `crates/gunmetal-server/src/loudness/`, and, registered through the
+  shared-file table, `crates/gunmetal-fuzz/src/loudness.rs`,
+  `crates/gunmetal-fuzz/tests/loudness_corpus.rs`,
+  `fuzz/fuzz_targets/loudness.rs` and `fuzz/seeds/loudness/`.
 - **Serves** MUS-086, MUS-089, LIB-024, ADM-095.
 - **Security.** Boundaries TB6; threats TM-T20, TM-T21. Verifies
   SEC-MED-018, SEC-MED-021, SEC-MED-026.
 - **Scope.** At low priority after a scan, throttled and checkpointed,
   decode untagged tracks in the worker and measure them; store results in
-  the derived-data store; mark the gain source as measured.
+  the derived-data store; mark the gain source as measured. The decoder
+  crate is admitted only after the recorded review SEC-MED-026 requires
+  (`unsafe`, scope, fuzzing, limits, supply chain), behind a Gunmetal
+  wrapper that is itself fuzzed. The loudness worker is single-threaded
+  and runs under the SEC-MED-021 limits (512 MiB memory, CPU-time, 300 s
+  per-file deadline).
 - **Tests.** Synthetic tones encoded in the test (FLAC with verbatim
   subframes is simple to write; other formats only if the testkit can
   produce them without an external encoder); a file over 12 hours keeps its
-  tags only; a restart resumes from the checkpoint.
+  tags only; a restart resumes from the checkpoint. The SEC-MED-026 review
+  record covers `unsafe`, scope, limits and supply chain; a test hook
+  reports that the loudness worker is single-threaded and runs under the
+  SEC-MED-021 limits, and a hung worker is killed at the 300 s deadline.
+  A wrapper fuzz harness in `crates/gunmetal-fuzz` replays its committed
+  seeds (SEC-MED-027, SEC-MED-028).
 
 #### WP-160 Builds for small ARM boards, including 32-bit (split from WP-121)
 

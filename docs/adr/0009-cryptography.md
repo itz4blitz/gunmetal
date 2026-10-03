@@ -182,9 +182,11 @@ after review or names another bundled root source.
   disagree with [record 10](0010-backup-archives.md):
   - age v1 payloads (backups) and TLS records carry the version their
     specifications define;
-  - the backup archive of record 10 puts a 2-byte format version in the
-    signed header and does not also prefix the 64-byte Ed25519 signature,
-    because the version is already in the signed bytes.
+  - the backup file of record 10's three 64-byte Ed25519 fields (the
+    file signature at 12+H, the certificate of `backup_signing` in the
+    header, and the checkpoint signature in the header) are raw outputs
+    versioned by the header's 2-byte format version; none of those
+    fields carries a leading version byte of its own.
 - **Hashes of stored secrets.** Random secrets the server stores only to
   check later (session tokens, invitations, pairing codes, recovery links,
   recovery codes) are kept as HMAC-SHA-256 under a key of their own, never

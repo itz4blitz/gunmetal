@@ -106,8 +106,9 @@ re-headed FLAC slice, which is packaging too.
    remuxer (SEC-MED-081). Record 1 decision 2 still holds: the remuxer's
    code lives in the core and is compiled into the one server binary. What
    changes is the process that runs it. Record 1 decision 3 kept only
-   FFmpeg out of the server process, and the README diagram says "Remux
-   in-process"; both are superseded on this point.
+   FFmpeg out of the server process. The first draft of the README showed
+   "Remux in-process"; this record and the README now agree that remux
+   runs in a jailed worker.
 10. **CUE slices take the same path (R2).** The re-headed FLAC slices of
     MUS-041 are built in the same kind of worker, as a `CueSlice` job
     (WP-213), under every rule above. A cue sheet's FILE entry resolves
@@ -171,5 +172,5 @@ an R1 row (D-80), WP-056 and WP-105 verify them as if they were R1.
   artwork job's image decoding above the floor SEC-MED-024 gives them is
   not decided by this record.
 - Records 1 and 2 are not edited (AGENTS.md); this record is the
-  amendment. The root README's diagram still shows "Remux in-process" and
-  needs a matching edit by its owner.
+  amendment. The first draft of the README showed "Remux in-process"; this
+  record and the README now agree that remux runs in a jailed worker.

@@ -169,7 +169,7 @@ owner's confirmation.
 
    | Operation | Only in | Requirements |
    |---|---|---|
-   | Path-based `std::fs` | `gunmetal-fs` (the door); the listed exceptions are the testkit, the fuzz corpus replay and the xtask's tree module | SEC-MED-033, SEC-HIS-016 |
+   | Path-based `std::fs` | `gunmetal-fs` (the door); the listed exceptions are the testkit, the fuzz corpus replay, `crates/gunmetal-fs/tests/` and the xtask's tree module | SEC-MED-033, SEC-HIS-016 |
    | Opening a `rusqlite::Connection` | The connection opener in `gunmetal-fs` (WP-126) | SEC-API-066, SEC-TM-039 |
    | Starting a process | The sandbox launcher in `gunmetal-worker/src/sandbox/` | SEC-MED-063 |
    | Outbound sockets and HTTP clients | `gunmetal-egress` | SEC-EXT-001, SEC-API-076 |
