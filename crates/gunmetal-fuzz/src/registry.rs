@@ -55,6 +55,7 @@ harnesses! {
     base64,
     detect,
     ebml,
+    flac_frames,
     flac_metadata,
     flac_structure,
     http_forwarded,

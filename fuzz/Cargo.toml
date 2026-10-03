@@ -95,6 +95,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "flac_frames"
+path = "fuzz_targets/flac_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "flac_metadata"
 path = "fuzz_targets/flac_metadata.rs"
 test = false
