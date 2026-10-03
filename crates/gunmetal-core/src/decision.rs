@@ -96,7 +96,7 @@ impl Decision {
 }
 
 /// What this device reports it can play.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceCaps {
     codecs: Vec<(Codec, PlayCap)>,
     containers: Vec<(Container, PlayCap)>,
@@ -107,7 +107,11 @@ impl DeviceCaps {
     /// A report that supports nothing.
     #[must_use]
     pub fn none() -> Self {
-        Self::default()
+        Self {
+            codecs: Vec::new(),
+            containers: Vec::new(),
+            mse_fragmented_mp4: false,
+        }
     }
 
     /// Records how far this device can play `codec`. A later call for
@@ -840,9 +844,8 @@ mod tests {
     }
 
     #[test]
-    fn device_caps_default_to_nothing_and_a_later_entry_replaces_the_earlier_one() {
-        let empty = DeviceCaps::default();
-        assert_eq!(empty, DeviceCaps::none());
+    fn device_caps_start_empty_and_a_later_entry_replaces_the_earlier_one() {
+        let empty = DeviceCaps::none();
         assert_eq!(empty.codec(Codec::Flac), PlayCap::None);
         assert_eq!(empty.container(Container::Flac), PlayCap::None);
         assert!(!empty.accepts_package(PackageFormat::FragmentedMp4));
