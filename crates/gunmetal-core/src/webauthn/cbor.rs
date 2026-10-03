@@ -594,6 +594,12 @@ mod tests {
                 rest: &[],
             })
         );
+        // Width 0 is the one-octet head RFC 8949 uses for 0..=23.
+        assert_eq!(unsigned_at_width(23, 0), [0x17]);
+        assert_eq!(
+            decode_default(&unsigned_at_width(23, 0)),
+            ok_value(Cbor::Unsigned(23))
+        );
     }
 
     /// Verifies: SEC-MED-001
@@ -633,6 +639,8 @@ mod tests {
             decode_default(&[0x43, b'a', b'b', b'c']),
             ok_value(Cbor::Bytes(b"abc"))
         );
+        assert_eq!(encode(&Cbor::Bytes(&[])), [0x40]);
+        assert_eq!(encode(&Cbor::Bytes(b"abc")), [0x43, b'a', b'b', b'c']);
         assert_eq!(
             decode_default(&[0x58, 0x01, 0xFF]),
             ok_value(Cbor::Bytes(&[0xFF]))
@@ -677,7 +685,11 @@ mod tests {
         assert_eq!(decode_default(&[0xF4]), ok_value(Cbor::Bool(false)));
         assert_eq!(decode_default(&[0xF5]), ok_value(Cbor::Bool(true)));
         assert_eq!(decode_default(&[0xF6]), ok_value(Cbor::Null));
+        assert_eq!(encode(&Cbor::Bool(false)), [0xF4]);
+        assert_eq!(encode(&Cbor::Bool(true)), [0xF5]);
+        assert_eq!(encode(&Cbor::Null), [0xF6]);
         assert_eq!(decode_default(&[0x80]), ok_value(Cbor::Array(Vec::new())));
+        assert_eq!(encode(&Cbor::Array(Vec::new())), [0x80]);
         assert_eq!(
             decode_default(&[0x83, 0x01, 0x02, 0x03]),
             ok_value(Cbor::Array(vec![
@@ -686,10 +698,23 @@ mod tests {
                 Cbor::Unsigned(3)
             ]))
         );
+        assert_eq!(
+            encode(&Cbor::Array(vec![
+                Cbor::Unsigned(1),
+                Cbor::Unsigned(2),
+                Cbor::Unsigned(3)
+            ])),
+            [0x83, 0x01, 0x02, 0x03]
+        );
         assert_eq!(decode_default(&[0xA0]), ok_value(Cbor::Map(Vec::new())));
+        assert_eq!(encode(&Cbor::Map(Vec::new())), [0xA0]);
         assert_eq!(
             decode_default(&[0xA1, 0x01, 0xF5]),
             ok_value(Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Bool(true))]))
+        );
+        assert_eq!(
+            encode(&Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Bool(true))])),
+            [0xA1, 0x01, 0xF5]
         );
         assert_eq!(
             decode_default(&[0xA2, 0x01, 0x02, 0x03, 0x04]),

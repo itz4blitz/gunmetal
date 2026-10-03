@@ -306,6 +306,23 @@ mod tests {
             (vec![0x38, 0x02], bytes(&Y)),
         ]);
         assert_eq!(parse(&encoded), Ok(CoseKey::Es256 { x: X, y: Y }));
+        // Four- and eight-octet integer heads are ignored extra labels.
+        assert_eq!(unsigned(65_536), [0x1A, 0x00, 0x01, 0x00, 0x00]);
+        let four_g = u64::from(u32::MAX).checked_add(1).unwrap();
+        assert_eq!(
+            unsigned(four_g),
+            [0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
+        );
+        let with_wide = map(&[
+            (unsigned(1), unsigned(2)),
+            (unsigned(3), negative_arg(6)),
+            (negative_arg(0), unsigned(1)),
+            (negative_arg(1), bytes(&X)),
+            (negative_arg(2), bytes(&Y)),
+            (unsigned(65_536), unsigned(0)),
+            (unsigned(four_g), unsigned(0)),
+        ]);
+        assert_eq!(parse(&with_wide), Ok(CoseKey::Es256 { x: X, y: Y }));
     }
 
     /// Verifies: SEC-MED-001
@@ -413,6 +430,18 @@ mod tests {
         ]);
         assert_eq!(
             parse(&no_crv),
+            Err(WebauthnError::CoseField {
+                offset: 0,
+                label: -1,
+            })
+        );
+        let eddsa_no_crv = map(&[
+            (unsigned(1), unsigned(1)),
+            (unsigned(3), negative_arg(7)),
+            (negative_arg(1), bytes(&P)),
+        ]);
+        assert_eq!(
+            parse(&eddsa_no_crv),
             Err(WebauthnError::CoseField {
                 offset: 0,
                 label: -1,

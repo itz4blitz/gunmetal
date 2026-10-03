@@ -389,6 +389,18 @@ mod tests {
             got.extensions,
             Some(Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Unsigned(2))]))
         );
+        assert_eq!(unsigned(256), [0x19, 0x01, 0x00]);
+        assert_eq!(unsigned(65_536), [0x1A, 0x00, 0x01, 0x00, 0x00]);
+        let mut wide = prefix(ED, 0);
+        wide.extend_from_slice(&map(&[(unsigned(256), unsigned(65_536))]));
+        let got = parse(&wide).expect("wide extension integers");
+        assert_eq!(
+            got.extensions,
+            Some(Cbor::Map(vec![(
+                Cbor::Unsigned(256),
+                Cbor::Unsigned(65_536)
+            )]))
+        );
     }
 
     /// Verifies: SEC-IAM-018
