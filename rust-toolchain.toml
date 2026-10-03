@@ -1,0 +1,5 @@
+# The exact Rust release every build uses (SEC-SUP-038). CI installs the same
+# version in .github/workflows/ci.yml; change both together.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]

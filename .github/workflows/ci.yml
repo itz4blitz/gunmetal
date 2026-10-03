@@ -1,12 +1,14 @@
 name: CI
 
+# Runs on pull requests from branches and forks with a read-only token and no
+# secrets. Never use pull_request_target or workflow_run here (SEC-SUP-013).
 on:
   push:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,15 +18,26 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
+      # Every action is pinned to a full commit SHA (SEC-SUP-010).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      # The exact toolchain from rust-toolchain.toml (SEC-SUP-038). rustup
+      # also reads that file, so it wins if the two ever disagree.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
+          toolchain: 1.98.1
           components: rustfmt, clippy, llvm-tools-preview
+      # Pull-request CI only. Release workflows must not restore or save
+      # caches (SEC-SUP-015).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Exact tool versions, downloaded with SHA-256 verification; no fallback
+      # to unverified installers (SEC-SUP-011).
       - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
-          tool: cargo-llvm-cov,cargo-mutants
+          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0
+          fallback: none
       - run: scripts/gate.sh
