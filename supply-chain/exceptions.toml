@@ -1,0 +1,22 @@
+# Ignored security advisories (SEC-SUP-022).
+#
+# Every advisory in the `ignore` list of deny.toml's [advisories] section
+# needs one entry here, and every entry here needs a matching ignore. An
+# entry says why Gunmetal is not affected or how the issue is mitigated, who
+# owns it, and when it must be reviewed again: at most 90 days after it was
+# added or last reviewed. An expired entry fails CI. Changes need code-owner
+# review (SEC-SUP-005).
+#
+# The check that enforces this file is not written yet; until it is, review
+# both files together by hand.
+#
+# Entry format:
+#
+# [[advisory]]
+# id = "RUSTSEC-0000-0000"
+# crate = "example"
+# reason = "Gunmetal never calls the affected function; see ..."
+# owner = "@itz4blitz"
+# review-by = 2026-12-31
+#
+# There are no ignored advisories.

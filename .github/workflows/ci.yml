@@ -40,4 +40,8 @@ jobs:
         with:
           tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2
           fallback: none
+      # cargo-vet publishes no prebuilt binaries after 0.10.0, so build the
+      # exact version from crates.io; cargo checks each crate's checksum
+      # against the index, and --locked uses cargo-vet's own lockfile.
+      - run: cargo install cargo-vet --version 0.10.2 --locked
       - run: scripts/gate.sh
