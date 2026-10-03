@@ -4,7 +4,7 @@
 //! The client reads its artist and album pages, sort orders, genre browse
 //! and quality badges from these records (MUS-051, MUS-054, MUS-060,
 //! LIB-146). Every record names its library, so the visibility predicate
-//! can filter it (TB4, TM-T15). The field table
+//! can filter it (TB4, TM-T15). [`CatalogField`](super::field::CatalogField)
 //! gives each field a stable code for search and, from R1.1, the rule
 //! format. Paths relative to a library root (API-CAT-10) join the track
 //! record with the path rules' type (WP-024). The release-group record is
