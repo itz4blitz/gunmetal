@@ -412,7 +412,7 @@ fn replay_frames(name: &str, bytes: &[u8], stream: &[u8], indexed: Indexed) {
         frames(&file),
         Frames {
             stream: stream.to_vec(),
-            indexed: flac_frames::Frames {
+            indexed: flac_frames::Outcome {
                 plain: indexed.clone(),
                 cd: indexed,
             },
@@ -465,7 +465,7 @@ fn stereo(blocking: Blocking, entries: Vec<FrameEntry>, gaps: u64, end_sample: u
 /// Verifies: SEC-MED-028, SEC-MED-031
 #[test]
 fn replays_the_empty_frame_recipes() {
-    replay(
+    replay_frames(
         "empty",
         &[],
         &[],
@@ -484,7 +484,7 @@ fn replays_the_empty_frame_recipes() {
 fn replays_input_one_octet_short_of_a_recipe() {
     let mut bytes = frame_recipe(false, 0, 0xC9, 0x18, 0, 0, 0);
     bytes.pop();
-    replay(
+    replay_frames(
         "short-of-a-recipe",
         &bytes,
         &[],
@@ -565,7 +565,7 @@ fn replays_coded_numbers_of_every_width() {
         0xF_FFFF_FFFF,
     ];
     // Six numbers skip ahead of the one before plus its one sample.
-    replay(
+    replay_frames(
         "coded-number-widths",
         &bytes,
         &stream.concat(),
@@ -602,7 +602,7 @@ fn replays_end_of_header_fields() {
         &[0xFF, 0xF8, 0x64, 0x08, 0x03, 0x3F, 0x61],
     ]
     .concat();
-    replay(
+    replay_frames(
         "end-of-header-fields",
         &bytes,
         &stream,
@@ -631,7 +631,7 @@ fn replays_frame_numbers_kept_to_31_bits() {
         frame_recipe(false, 0, 0xC9, 0x18, 0xFF_8000_0001, 0, 0),
     ]
     .concat();
-    replay(
+    replay_frames(
         "fixed-frame-numbers-masked",
         &bytes,
         &[
@@ -661,7 +661,7 @@ fn replays_data_around_headers() {
         vec![0x00, 0xFF, 0xF8, 0xFF, 0x00],
     ]
     .concat();
-    replay(
+    replay_frames(
         "filler-around-headers",
         &bytes,
         &[
