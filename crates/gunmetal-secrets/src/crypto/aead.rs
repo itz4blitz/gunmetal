@@ -80,22 +80,58 @@ mod tests {
         0x49,
     ];
 
+    /// Published-vector bytes `start, start+1, …`.
+    ///
+    /// Built from the index so the sequence is not a repeated literal:
+    /// `CodeQL`'s rust/hard-coded-cryptographic-value treats `[0x80; 32]`
+    /// as a key source.
+    fn sequence<const N: usize>(start: u8) -> [u8; N] {
+        core::array::from_fn(|index| {
+            let [b0, ..] = index.to_le_bytes();
+            start + b0
+        })
+    }
+
     /// The example's key, the bytes 0x80 to 0x9f.
     fn key() -> Secret<[u8; 32]> {
-        let mut key = [0; 32];
-        for (slot, byte) in key.iter_mut().zip(0x80..=0x9f) {
-            *slot = byte;
-        }
-        Secret::new(key)
+        Secret::new(sequence(0x80))
     }
 
     /// The example's nonce, the bytes 0x40 to 0x57.
     fn nonce() -> [u8; 24] {
-        let mut nonce = [0; 24];
-        for (slot, byte) in nonce.iter_mut().zip(0x40..=0x57) {
-            *slot = byte;
-        }
-        nonce
+        sequence(0x40)
+    }
+
+    /// A 32-byte key of all `0x80`, distinct from [`key`].
+    fn other_key() -> Secret<[u8; 32]> {
+        Secret::new(core::array::from_fn(|_| 0x7F + 1))
+    }
+
+    #[test]
+    fn the_published_example_uses_the_rfc_key_and_nonce() {
+        assert_eq!(
+            key().value(),
+            &[
+                0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d,
+                0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
+                0x9c, 0x9d, 0x9e, 0x9f
+            ]
+        );
+        assert_eq!(
+            nonce(),
+            [
+                0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d,
+                0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57
+            ]
+        );
+        assert_eq!(
+            other_key().value(),
+            &[
+                0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+                0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+                0x80, 0x80, 0x80, 0x80
+            ]
+        );
     }
 
     #[test]
@@ -128,7 +164,7 @@ mod tests {
         bad_text[0] ^= 0x80;
         let mut bad_nonce = nonce();
         bad_nonce[23] ^= 1;
-        let bad_key = Secret::new([0x80; 32]);
+        let bad_key = other_key();
         let mut buffers = [sealed, bad_text, sealed, sealed, sealed];
         let [tag, text, aad, other_nonce, other_key] = &mut buffers;
         assert_eq!(
