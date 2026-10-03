@@ -52,6 +52,8 @@ macro_rules! harnesses {
 harnesses! {
     base64,
     ebml,
+    flac_metadata,
+    flac_structure,
     link,
     net,
     text,

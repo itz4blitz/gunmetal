@@ -196,6 +196,7 @@ dependencies = [
 name = "gunmetal-core"
 version = "0.0.0"
 dependencies = [
+ "gunmetal-testkit",
  "proptest",
  "sha2",
 ]
@@ -215,6 +216,7 @@ name = "gunmetal-fuzz"
 version = "0.0.0"
 dependencies = [
  "gunmetal-core",
+ "gunmetal-testkit",
 ]
 
 [[package]]
