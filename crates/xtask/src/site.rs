@@ -17,8 +17,10 @@
 //! - Every page links to the privacy notice at `/privacy/`, and no page
 //!   loads anything from another origin: only an `<a href>` may name one
 //!   (SEC-PRV-054).
-//! - No page runs script: no `<script>` or `<style>` element, no event
-//!   handler attribute and no `javascript:` address. So no landing page
+//! - No page runs script: no `<script>` or `<style>` element, no element
+//!   that embeds another document (`<iframe>`, `<frame>`, `<object>`,
+//!   `<embed>`), no event handler attribute and no `javascript:` address. So
+//!   no landing page
 //!   can read the invitation secret from the URL fragment, and the
 //!   fragment never reaches the project's servers (SEC-PRV-055).
 //! - The site holds only pages, text files and `_headers`: no script,
@@ -26,7 +28,9 @@
 //!   (SEC-HIS-061).
 //!
 //! The page scanner is small and fails closed: an unterminated tag, quoted
-//! value or comment is a finding, an attribute value with a character
+//! value or comment is a finding, a comment that a browser ends before its
+//! `-->` (one that starts `<!-->` or `<!--->`, or holds `--!>`) is one, an
+//! attribute value with a character
 //! reference (which it does not decode) is one, and an attribute value that
 //! only looks like another origin's address is one too. It reads addresses
 //! as a browser does, ignoring tabs and line breaks and taking `\` as `/`.
@@ -71,8 +75,10 @@ const YEAR: u64 = 365 * 86_400;
 /// The path pattern whose headers apply to every page.
 const EVERY_PAGE: &str = "/*";
 
-/// Elements whose content is code that the page scanner does not read.
-const CODE: [&str; 2] = ["script", "style"];
+/// Elements the site's pages may not have: their content is code that the
+/// page scanner does not read, or they embed another document, which can
+/// run script of its own.
+const CODE: [&str; 6] = ["script", "style", "iframe", "frame", "object", "embed"];
 
 /// Something `site` found wrong. Paths are from the repository root.
 #[derive(Debug, PartialEq, Eq)]
@@ -146,7 +152,8 @@ pub enum Finding {
         /// The page.
         path: String,
     },
-    /// A page with an element whose content is code.
+    /// A page with an element whose content is code or that embeds another
+    /// document.
     Code {
         /// The page.
         path: String,
@@ -557,12 +564,15 @@ fn as_address(value: &str) -> String {
 }
 
 /// Whether `address`, read by [`as_address`], may name anywhere but the
-/// site's own origin: it holds `//` or starts with an HTTP scheme.
+/// site's own origin: it holds `//` or an HTTP scheme anywhere, so a list of
+/// addresses or a style is caught too, once the site's own origin is taken
+/// from its start.
 fn names_another_origin(address: &str) -> bool {
-    let own = address == ORIGIN || address.starts_with(&format!("{ORIGIN}/"));
-    let absolute =
-        address.contains("//") || address.starts_with("http:") || address.starts_with("https:");
-    absolute && !own
+    let path = address
+        .strip_prefix(ORIGIN)
+        .filter(|path| path.is_empty() || path.starts_with('/'))
+        .unwrap_or(address);
+    path.contains("//") || path.contains("http:") || path.contains("https:")
 }
 
 /// A start tag: its lowercase name and its attributes, each a lowercase
@@ -584,13 +594,17 @@ impl Tag {
 }
 
 /// The start tags in `html`, skipping comments, end tags and declarations;
-/// `None` when a tag, quoted value or comment is not terminated.
+/// `None` when a tag, quoted value or comment is not terminated, or when a
+/// browser would end a comment before its `-->` and read what follows as
+/// tags.
 fn start_tags(html: &str) -> Option<Vec<Tag>> {
     let mut tags = Vec::new();
     let mut rest = html;
     while let Some((_, after)) = rest.split_once('<') {
         rest = if let Some(comment) = after.strip_prefix("!--") {
-            comment.split_once("-->")?.1
+            let (body, after) = comment.split_once("-->")?;
+            let early = body.starts_with('>') || body.starts_with("->") || body.contains("--!>");
+            (!early).then_some(after)?
         } else {
             let (tag, after) = tag(after)?;
             tags.extend(tag);
@@ -1157,6 +1171,10 @@ Preferred-Languages: en,
 <a href=\" JavaScript:send(location.hash)\">Go</a>
 <a href=\"java\tscript:send(location.hash)\">Go</a>
 <a href=\"\njava\nscript\r:send(location.hash)\">Go</a>
+<iframe srcdoc=\"<script>send(parent.location.hash)</script>\"></iframe>
+<frame src=/frame.html>
+<object data=/movie.html></object>
+<embed src=/movie.html>
 ";
         let script = |element: &str, attribute: &str| Finding::Script {
             path: "site/invite/index.html".to_owned(),
@@ -1177,6 +1195,10 @@ Preferred-Languages: en,
                 script("a", "href"),
                 script("a", "href"),
                 script("a", "href"),
+                code("iframe"),
+                code("frame"),
+                code("object"),
+                code("embed"),
             ]
         );
     }
@@ -1204,6 +1226,10 @@ Preferred-Languages: en,
 <img src=\"https:evil.example/g.png\">
 <img src=\"https://gunmetal.tv@evil.example/h.png\">
 <img src=\"/images/a.png\" alt=\"A picture: the logo\">
+<p style=\"background: url(http:evil.example/i.png)\">
+<img srcset=\"/a.png 1x, https:evil.example/j.png 2x\">
+<img srcset=\"https://gunmetal.tv/a.png 1x, http:evil.example/k.png 2x\">
+<img src=\"https://gunmetal.tv//evil.example/l.png\">
 ";
         assert_eq!(
             invite(html),
@@ -1222,6 +1248,14 @@ Preferred-Languages: en,
                 third_party("img", "src", "Http:evil.example/f.png"),
                 third_party("img", "src", "https:evil.example/g.png"),
                 third_party("img", "src", "https://gunmetal.tv@evil.example/h.png"),
+                third_party("p", "style", "background: url(http:evil.example/i.png)"),
+                third_party("img", "srcset", "/a.png 1x, https:evil.example/j.png 2x"),
+                third_party(
+                    "img",
+                    "srcset",
+                    "https://gunmetal.tv/a.png 1x, http:evil.example/k.png 2x"
+                ),
+                third_party("img", "src", "https://gunmetal.tv//evil.example/l.png"),
             ]
         );
     }
@@ -1269,6 +1303,9 @@ Preferred-Languages: en,
             "<img src='x",
             "<img src=x",
             "<img",
+            "<!--><script>send(location.hash)</script><!-- -->",
+            "<!---><script>send(location.hash)</script><!-- -->",
+            "<!-- a --!><script>send(location.hash)</script><!-- -->",
         ] {
             assert_eq!(
                 invite(&format!("<a href=/privacy/>Privacy</a>{tail}")),
@@ -1281,7 +1318,7 @@ Preferred-Languages: en,
 
     #[test]
     fn start_tags_reads_names_and_attributes_in_every_form() {
-        let html = "<!DOCTYPE html><P>text</p><!-- <b> --><x-card Data-A=\"1 > 2\" b='single' c=plain d = \"spaced\" e/><br/><>< img><a =x><a\nhref=/privacy/>";
+        let html = "<!DOCTYPE html><P>text</p><!-- <b> --><!----><!-- -> > --><x-card Data-A=\"1 > 2\" b='single' c=plain d = \"spaced\" e/><br/><>< img><a =x><a\nhref=/privacy/>";
         assert_eq!(
             start_tags(html),
             Some(vec![
