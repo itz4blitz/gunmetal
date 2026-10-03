@@ -119,8 +119,8 @@ const PRAGMA_CHANGES: [&str; 7] = [
 const NOT_ALLOWED: DbError = DbError::Sqlite { code: 23 };
 
 /// A store can build a pragma set only from `Pragmas::new` and its two
-/// methods (the type's fields are private, which its documentation tests
-/// prove), so these are all the kinds of set there are. None of them opens
+/// methods (the type's fields are private, so a struct literal does not
+/// compile), so these are all the kinds of set there are. None of them opens
 /// a connection with `secure_delete` off, and none can switch it off later.
 ///
 /// Verifies: SEC-PRV-050

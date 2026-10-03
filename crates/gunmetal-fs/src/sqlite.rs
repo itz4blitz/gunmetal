@@ -140,10 +140,10 @@ pub enum Synchronous {
 ///
 /// A store cannot build a pragma set any other way. The fields are
 /// private, so a struct literal does not compile, and the only values are
-/// the ones [`Pragmas::new`] and the two methods above return. If a field
-/// were made public this would compile, and the test would fail:
+/// the ones [`Pragmas::new`] and the two methods above return. This shows
+/// only that the literal is refused:
 ///
-/// ```compile_fail,E0451
+/// ```compile_fail
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
 /// let literal = Pragmas {
@@ -154,34 +154,25 @@ pub enum Synchronous {
 /// assert_eq!(literal, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// None of those values can say that `secure_delete` is off, because the
-/// set has no such field, public or private (a private one would be the
-/// privacy error E0451 instead):
+/// There is no method that sets `secure_delete`; if one with this name
+/// and argument were added, this would compile and the test would fail:
 ///
-/// ```compile_fail,E0560
-/// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
-///
-/// let off = Pragmas {
-///     secure_delete: false,
-///     ..Pragmas::new(Synchronous::Normal)
-/// };
-/// assert_ne!(off, Pragmas::new(Synchronous::Normal));
-/// ```
-///
-/// and no method that sets it:
-///
-/// ```compile_fail,E0599
+/// ```compile_fail
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
 /// let off = Pragmas::new(Synchronous::Normal).secure_delete(false);
 /// assert_ne!(off, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// These show only what a store can write. That every set a store can
-/// build opens a connection with `secure_delete` on, and that no statement
-/// switches it off afterwards, is proved by running them all in
+/// Neither example proves that `secure_delete` stays on: each passes on
+/// any compile error, and shows only what a store cannot write. The proof
+/// is structural and checked at run time. The opener executes the common
+/// pragmas, `secure_delete=ON` among them, on every connection, and a
+/// pragma set carries no state that reaches them: its three fields choose
+/// only `synchronous`, `busy_timeout` and `query_only`.
 /// `no_pragma_set_a_store_can_build_switches_secure_delete_off`
-/// (`tests/sqlite.rs`).
+/// (`tests/sqlite.rs`) opens a connection with every set a store can build
+/// and reads `secure_delete` back from each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pragmas {
     synchronous: Synchronous,
