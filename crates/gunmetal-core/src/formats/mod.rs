@@ -10,5 +10,7 @@ pub mod flac;
 pub mod id3v1;
 pub mod mp4;
 pub mod mpa;
+pub mod opus;
 pub mod riff;
+pub mod vorbis;
 pub mod vorbis_comment;

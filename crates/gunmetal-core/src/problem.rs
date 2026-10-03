@@ -91,10 +91,14 @@ problems! {
     MediaUrlExpired = ("media_url_expired", Some(401), "This media link has expired. Refresh it and try again."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// An Ogg Opus stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    OpusHeaderUnreadable = ("opus_header_unreadable", None, "This file's Opus stream headers are damaged or use a version we can't read."),
     /// A queue operation does not fit the queue as it is: it names an entry that is not there, adds an entry whose ID is taken, or has nothing to act on. It changed nothing.
     QueueRefused = ("queue_refused", Some(409), "That change doesn't fit the queue as it is now, so it wasn't made."),
     /// A queue operation was built on an older version of the queue. It changed nothing; the client rebuilds it on the current version.
     QueueStale = ("queue_stale", Some(409), "The queue changed somewhere else first, so this change wasn't made."),
+    /// An Ogg Vorbis stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
     WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
 }
@@ -132,7 +136,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 14] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 16] = [
         (
             "aiff_unreadable",
             None,
@@ -189,6 +193,11 @@ mod tests {
             "We couldn't find that. It may have been removed, or you may not have access to it.",
         ),
         (
+            "opus_header_unreadable",
+            None,
+            "This file's Opus stream headers are damaged or use a version we can't read.",
+        ),
+        (
             "queue_refused",
             Some(409),
             "That change doesn't fit the queue as it is now, so it wasn't made.",
@@ -197,6 +206,11 @@ mod tests {
             "queue_stale",
             Some(409),
             "The queue changed somewhere else first, so this change wasn't made.",
+        ),
+        (
+            "vorbis_header_unreadable",
+            None,
+            "This file's Vorbis stream headers are damaged or use a version we can't read.",
         ),
         (
             "wav_unreadable",

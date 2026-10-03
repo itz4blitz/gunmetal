@@ -186,6 +186,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "opus"
+path = "fuzz_targets/opus.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "otp"
 path = "fuzz_targets/otp.rs"
 test = false
@@ -230,6 +237,13 @@ bench = false
 [[bin]]
 name = "values"
 path = "fuzz_targets/values.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vorbis"
+path = "fuzz_targets/vorbis.rs"
 test = false
 doc = false
 bench = false

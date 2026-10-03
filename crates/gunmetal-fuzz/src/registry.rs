@@ -68,6 +68,7 @@ harnesses! {
     mp4_structure,
     mpa,
     net,
+    opus,
     otp,
     path,
     riff,
@@ -75,5 +76,6 @@ harnesses! {
     time,
     token,
     values,
+    vorbis,
     vorbis_comment,
 }
