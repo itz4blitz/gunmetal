@@ -79,6 +79,8 @@ problems! {
     BadForwardingHeader = ("bad_forwarding_header", Some(400), "A proxy in front of this server sent forwarding information we couldn't read."),
     /// An `ID3v1` or APE tag at the end of a file could not be read and was skipped; the rest of the file was kept (SEC-MED-017).
     EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
+    /// The caller is signed in but may not do this (SEC-IAM-068).
+    Forbidden = ("forbidden", Some(403), "You don't have permission to do that."),
     /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
     InvalidCode = ("invalid_code", Some(400), "That code is not valid. Check it and try again."),
     /// A folder offered as a library root, or as an approved link target, is the filesystem root (SEC-MED-037).
@@ -99,6 +101,8 @@ problems! {
     QueueStale = ("queue_stale", Some(409), "The queue changed somewhere else first, so this change wasn't made."),
     /// An MP4 file's sample tables, which map play times to positions in the file, could not be joined into a seek index (WP-018).
     SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
+    /// The action needs an administrator session or a fresh check with a passkey first (SEC-IAM-041, SEC-TM-017).
+    StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
     /// An Ogg Vorbis stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
     VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
@@ -138,7 +142,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 17] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 19] = [
         (
             "aiff_unreadable",
             None,
@@ -163,6 +167,11 @@ mod tests {
             "end_tag_skipped",
             None,
             "We couldn't read a tag at the end of this file, so we skipped it.",
+        ),
+        (
+            "forbidden",
+            Some(403),
+            "You don't have permission to do that.",
         ),
         (
             "invalid_code",
@@ -213,6 +222,11 @@ mod tests {
             "sample_table_damaged",
             None,
             "The part of this file that maps play times to positions is damaged, so seeking in it won't work.",
+        ),
+        (
+            "step_up_required",
+            Some(403),
+            "Confirm it's you with your passkey, then try again.",
         ),
         (
             "vorbis_header_unreadable",

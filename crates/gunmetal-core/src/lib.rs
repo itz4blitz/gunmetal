@@ -4,6 +4,7 @@
 //! into the server, the native clients and the web client alike.
 
 pub mod audit_event;
+pub mod authz;
 pub mod base64;
 pub mod catalog;
 pub mod client_context;
