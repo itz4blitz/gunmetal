@@ -407,6 +407,45 @@ mod tests {
     }
 
     #[test]
+    fn reports_a_bad_credential_key_at_the_offset_of_the_key() {
+        // 37-octet prefix, 16-octet AAGUID, 2-octet length, 3-octet id: the
+        // key starts at octet 58.
+        let mut not_map = prefix(AT, 0);
+        not_map.extend_from_slice(&attested(CRED_ID, &[0x00]));
+        assert_eq!(parse(&not_map), Err(WebauthnError::NotMap { offset: 58 }));
+
+        let rs256 = map(&[(unsigned(1), unsigned(3)), (unsigned(3), negative_arg(256))]);
+        assert_eq!(rs256, [0xA2, 0x01, 0x03, 0x03, 0x39, 0x01, 0x00]);
+        let mut rsa = prefix(AT, 0);
+        rsa.extend_from_slice(&attested(CRED_ID, &rs256));
+        assert_eq!(
+            parse(&rsa),
+            Err(WebauthnError::Algorithm {
+                offset: 58,
+                kty: Some(3),
+                alg: Some(-257),
+                crv: None,
+            })
+        );
+
+        let without_x = map(&[
+            (unsigned(1), unsigned(2)),
+            (unsigned(3), negative_arg(6)),
+            (negative_arg(0), unsigned(1)),
+            (negative_arg(2), bytes(&Y)),
+        ]);
+        let mut no_x = prefix(AT, 0);
+        no_x.extend_from_slice(&attested(CRED_ID, &without_x));
+        assert_eq!(
+            parse(&no_x),
+            Err(WebauthnError::CoseField {
+                offset: 58,
+                label: -2,
+            })
+        );
+    }
+
+    #[test]
     fn refuses_trailing_octets() {
         let mut prefix_only = prefix(UP, 0);
         prefix_only.push(0x00);

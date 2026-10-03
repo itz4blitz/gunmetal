@@ -249,6 +249,54 @@ mod tests {
     }
 
     #[test]
+    fn reports_a_bad_credential_key_from_the_object_start() {
+        // "fmt", "none", "attStmt", {} take 19 octets with the map head;
+        // "authData" and the two-octet byte-string head take 11 more, so
+        // the authenticator data starts at 30. Its 37-octet prefix, 16-octet
+        // AAGUID, 2-octet length and 2-octet id put the key at 30 + 57.
+        let mut head = RP.to_vec();
+        head.push(0x41);
+        head.extend_from_slice(&7u32.to_be_bytes());
+        head.extend_from_slice(&AAGUID);
+        head.extend_from_slice(&[0x00, 0x02]);
+        head.extend_from_slice(CRED_ID);
+
+        let mut not_map = head.clone();
+        not_map.push(0x00);
+        assert_eq!(
+            parse(&object(&not_map)),
+            Err(WebauthnError::NotMap { offset: 87 })
+        );
+
+        let mut rsa = head.clone();
+        rsa.extend_from_slice(&[0xA2, 0x01, 0x03, 0x03, 0x39, 0x01, 0x00]);
+        assert_eq!(
+            parse(&object(&rsa)),
+            Err(WebauthnError::Algorithm {
+                offset: 87,
+                kty: Some(3),
+                alg: Some(-257),
+                crv: None,
+            })
+        );
+
+        let mut no_x = head;
+        no_x.extend_from_slice(&map(&[
+            (unsigned(1), unsigned(2)),
+            (unsigned(3), negative_arg(6)),
+            (negative_arg(0), unsigned(1)),
+            (negative_arg(2), bytes(&Y)),
+        ]));
+        assert_eq!(
+            parse(&object(&no_x)),
+            Err(WebauthnError::CoseField {
+                offset: 87,
+                label: -2,
+            })
+        );
+    }
+
+    #[test]
     fn refuses_authenticator_data_without_a_credential() {
         // "fmt", "none", "attStmt", {} take 19 octets with the map head;
         // "authData" and the byte-string head take 11 more, so the flags
