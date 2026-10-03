@@ -95,6 +95,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gunmetal-testkit"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
