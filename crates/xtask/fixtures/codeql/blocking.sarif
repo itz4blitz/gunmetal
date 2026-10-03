@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "semanticVersion": "2.23.0",
+          "rules": []
+        },
+        "extensions": [
+          {
+            "name": "codeql/rust-queries",
+            "rules": [
+              {
+                "id": "rust/sql-injection",
+                "name": "rust/sql-injection",
+                "defaultConfiguration": { "level": "error" },
+                "properties": {
+                  "precision": "high",
+                  "security-severity": "8.8",
+                  "tags": ["security", "external/cwe/cwe-089"]
+                }
+              },
+              {
+                "id": "rust/unused-variable",
+                "name": "rust/unused-variable",
+                "defaultConfiguration": { "level": "note" },
+                "properties": { "precision": "high", "tags": ["maintainability"] }
+              }
+            ]
+          }
+        ]
+      },
+      "results": [
+        {
+          "ruleId": "rust/unused-variable",
+          "rule": { "id": "rust/unused-variable", "index": 1, "toolComponent": { "index": 0 } },
+          "message": { "text": "Variable 'x' is not used." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/main.rs", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 4 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "rust/sql-injection",
+          "rule": { "id": "rust/sql-injection", "index": 0, "toolComponent": { "index": 0 } },
+          "message": { "text": "This query depends on a user-provided value." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/db.rs", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 12 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 859226471458506e3348f25cd8ce5efc9d0ca6cdef6a26e622d0c1b5afac995b # shrinks to stream = ([255, 248, 25, 24, 0, 237, 0, 0, 0, 0, 0, 0, 155, 186], FrameIndex { blocking: Fixed, sample_rate: Some(SampleRate(44100)), channels: Channels(2), bits: Some(BitDepth(16)), entries: [FrameEntry { offset: 0, first_sample: 0 }], stride: 1, frames: 1, gaps: 0, end_sample: 192, end: None })
+cc 5d66088d221a3162f504a90bc3cb38f64e3de0c54093c3106f5d4c15d9668e48 # shrinks to count = 1, limit = 1
+cc c33619cb6ca31f3b8e4e998efdbac7ec5c98deea110c786082caf6288dcdeceb # shrinks to stream = ([255, 248, 25, 24, 0, 237, 0, 0, 0, 0, 0, 0, 155, 186], FrameIndex { blocking: Fixed, sample_rate: Some(SampleRate(44100)), channels: Channels(2), bits: Some(BitDepth(16)), entries: [FrameEntry { offset: 0, first_sample: 0 }], stride: 1, frames: 1, gaps: 0, end_sample: 192, end: None }), read = 16, limit = 0
+cc 10f91ae00474ce28f92199e95a31c3430c4519088ff22e7022f761e97fd2c410 # shrinks to bytes = [], read = 16

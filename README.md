@@ -51,7 +51,7 @@ flowchart LR
     subgraph server [Gunmetal server]
         index[Index and segment map]
         index --> direct[Send original bytes]
-        index --> remux[Remux in-process]
+        index --> remux[Remux in a jailed worker]
         index --> jail[Sandboxed FFmpeg]
     end
 
@@ -66,8 +66,9 @@ flowchart LR
 2. **Play the original.** Clients with our player (built on libmpv) take the
    file as it is. The server's job is a disk read and a network write.
 3. **Remux before transcoding.** When a browser or TV can decode the video
-   but not the container, the server repackages it without touching the
-   picture or sound. This is cheap and lossless.
+   but not the container, a jailed worker repackages it without touching
+   the picture or sound. This is cheap and lossless, and it never runs in
+   the server process.
 4. **Transcode as a last resort.** Only when nothing else works does FFmpeg
    run, in a sandboxed worker with no network and no access beyond the one
    file it was handed.
@@ -77,7 +78,7 @@ flowchart LR
 | Part | Built in | Job |
 |---|---|---|
 | **Core** | Rust crate | Container parsers, remuxer, playback decisions, protocol types. Compiled into everything below. |
-| **Server** | Rust, single binary, SQLite | Indexes the library, serves bytes, remuxes, supervises the transcode sandbox. |
+| **Server** | Rust, single binary, SQLite | Indexes the library, serves bytes, remuxes in a jailed worker, supervises the transcode sandbox. |
 | **Client** | React Native, TypeScript | One interface for TVs, browsers and desktop, dark-first and built around a persistent player. |
 | **Mobile app** | React Native, TypeScript | Phones and tablets, with offline downloads and background playback. |
 | **Site** | Cloudflare | Docs and landing page at [gunmetal.tv](https://gunmetal.tv). |

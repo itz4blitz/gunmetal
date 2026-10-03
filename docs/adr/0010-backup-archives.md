@@ -1,14 +1,14 @@
 # 10. Backup archives
 
 Date: 2026-10-03
-Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
-is register decision D-08, which the owner delegated on 2026-10-02,
-accepting its recommendation of "a small hand-written archive format"
-inside the age envelope
-([decisions](../decisions.md#owner-answers-2026-10-02)). That answer
-settles the choice, not this format. The owner accepts or edits the
-record when reviewing the wave-0 pull request into `main` (D-01), and
-this line then says so, with the date.
+Status: accepted, through the owner's technical answers of 2026-10-03
+([decision register](../decisions.md#technical-answers-to-wave-0s-package-questions-2026-10-03)),
+on the input of register decision D-08, which the owner delegated on
+2026-10-02, accepting its recommendation of "a small hand-written archive
+format" inside the age envelope
+([decisions](../decisions.md#owner-answers-2026-10-02)). The format below
+is the author's, accepted with the version-byte fix that agrees with
+[record 9](0009-cryptography.md).
 
 ## Context
 
@@ -81,6 +81,14 @@ The header is outside the encryption so that restore can say which server
 made the backup and when before anything is decrypted (SEC-OPS-043). It
 reveals the server's random ID, its public keys, the time, the sizes and
 the audit head, and nothing about people or media.
+
+The format version is a 2-byte field at offset 8, inside the signed
+header. That is how this format meets [record 9](0009-cryptography.md)'s
+agility rule and the baseline's version-byte rule. The 64-byte signature
+is the raw Ed25519 output over the labeled header; it is not a standalone
+signature value and does not itself start with a version byte. The age
+payload carries age v1's own version. Record 9 records both as the
+exceptions to a leading version byte.
 
 ### 3. The payload
 
@@ -249,12 +257,8 @@ fingerprint the kit prints stays valid.
 
 ## Requirement check
 
-Review record, dated 2026-10-03. This is the author's check, written by
-the coding agent working on WP-125; no person has reviewed it yet. The
-package's pull request merges into `wave-0` through the integrator agent
-once the gate passes, with no human review (D-01). The owner's review of
-the wave-0 pull request into `main` confirms or edits this check, and only
-then does it stand as the dated review record for SEC-HIS-019.
+Review record, dated 2026-10-03, accepted with this follow-up on
+2026-10-03. It stands as the dated review record for SEC-HIS-019.
 
 | Requirement | What it asks | Result |
 |---|---|---|

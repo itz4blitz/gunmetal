@@ -1,15 +1,14 @@
 # 7. Identity and sessions
 
 Date: 2026-10-03
-Status: proposed. Drafted by WP-125 for the owner's acceptance. Its input
-is the owner's answer to register decision D-06 on 2026-10-02: no
-passwords, TOTP or emailed codes; passkeys, OIDC and approval from a
-signed-in phone, with the recovery ladder; the recommendation accepted
-([decisions](../decisions.md#owner-answers-2026-10-02)). That answer
-settles the model, not this text. The owner accepts or edits the record
-when reviewing the wave-0 pull request into `main` (D-01), and this line
-then says so, with the date. Extends decisions 6 and 7 of
-[record 1](0001-architecture.md) without changing them.
+Status: accepted, through the owner's technical answers of 2026-10-03
+([decision register](../decisions.md#technical-answers-to-wave-0s-package-questions-2026-10-03)),
+on the input of the owner's answer to D-06 on 2026-10-02: no passwords,
+TOTP or emailed codes; passkeys, OIDC and approval from a signed-in phone,
+with the recovery ladder; the recommendation accepted
+([decisions](../decisions.md#owner-answers-2026-10-02)). Extends
+decisions 6 and 7 of [record 1](0001-architecture.md) without changing
+them.
 
 This is the identity architecture record that SEC-STD-006 requires before
 any server code stores a user.
@@ -263,11 +262,10 @@ or a vendor (SEC-IAM-025).
 
 ## Consequences
 
-- Once the owner accepts this record, the identity store (WP-046) and
-  every package that stores a user may build to it, together with record
-  3. Until then SEC-STD-006 keeps them waiting. WP-062, WP-063, WP-064,
-  WP-080, WP-081, WP-106 and WP-120 follow it. OIDC (WP-096) and share
-  links (WP-134) are R1.2.
+- This record is accepted, so the identity store (WP-046) and every
+  package that stores a user may build to it, together with record 3.
+  WP-062, WP-063, WP-064, WP-080, WP-081, WP-106 and WP-120 follow it.
+  OIDC (WP-096) and share links (WP-134) are R1.2.
 - A person with no passkey-capable device and no phone needs a hardware
   security key or help from someone in the household. D-06's
   recommendation states that trade-off, and the owner accepted the
@@ -288,16 +286,15 @@ or a vendor (SEC-IAM-025).
 
 ## Requirement check
 
-Review record, dated 2026-10-03. This is the author's check, written by
-the coding agent working on WP-125; no person has reviewed it yet. The
-package's pull request merges into `wave-0` through the integrator agent
-once the gate passes, with no human review (D-01). The owner's review of
-the wave-0 pull request into `main` confirms or edits this check, and
-only then does it stand as the dated review record for SEC-STD-006.
+Review record, dated 2026-10-03, accepted with this follow-up on
+2026-10-03. The first two clauses and the withdrawn-citation clause of
+SEC-STD-006 stand as dated review records. The "every file agrees" clause
+does not: the earlier check called it met while the stale narrative listed
+under Consequences was still present, which overstated the verdict.
 
 | Requirement | What it asks | Result |
 |---|---|---|
 | SEC-STD-006 | One record decides whether account passwords and TOTP exist in R1 | Met: decision 1, no passwords or TOTP in any release |
 | SEC-STD-006 | It fixes one session-lifetime table, the parameters table, with native access tokens of 10 minutes under SEC-IAM-050 | Met: decision 5 adopts the parameters table; token.native_access is 10 minutes |
-| SEC-STD-006 | Every file in `docs/security/` and `docs/features/` agrees with it | Met for every requirement and feature row: ACC-052 and ACC-053 are No; SEC-TM-013, SEC-HIS-045 and SEC-STD-009 are withdrawn and cited only as redirects or in the control-ownership table; no live requirement offers a password, TOTP, an emailed code or a security question. The stale narrative listed under Consequences remains for the baseline's owner |
+| SEC-STD-006 | Every file in `docs/security/` and `docs/features/` agrees with it | Not met. Live requirement and feature rows agree: ACC-052 and ACC-053 are No; SEC-TM-013, SEC-HIS-045 and SEC-STD-009 are withdrawn and cited only as redirects or in the control-ownership table; no live requirement offers a password, TOTP, an emailed code or a security question. SEC-STD-006 also asks every file to agree, and the stale narrative in `standards-coverage.md` and `rival-security-history.md` listed under Consequences does not. That remains for the baseline's owner |
 | SEC-STD-006 | Requirements it withdraws are marked withdrawn and no live requirement cites them | Met: this record withdraws nothing new; the rows withdrawn on 2026-10-02 are marked |
