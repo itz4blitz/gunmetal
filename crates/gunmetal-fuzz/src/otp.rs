@@ -4,6 +4,7 @@
 use gunmetal_core::otp::{
     Code, CodeError, CodeKind, claim_code, pairing_code, parse_code, recovery_code,
 };
+use gunmetal_core::untrusted::Untrusted;
 
 /// What [`parse_code`] reported for one input, for each kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,10 +42,10 @@ pub fn run(data: &[u8]) -> Outcome {
     let generated_recovery = recovery_code(recovery_bytes);
     let generated_pairing = pairing_code(pairing_bytes);
     assert!(
-        parse_code(&generated_claim.text(), CodeKind::Claim) == Ok(Code::Claim(generated_claim))
-            && parse_code(&generated_recovery.text(), CodeKind::Recovery)
+        parse(&generated_claim.text(), CodeKind::Claim) == Ok(Code::Claim(generated_claim))
+            && parse(&generated_recovery.text(), CodeKind::Recovery)
                 == Ok(Code::Recovery(generated_recovery))
-            && parse_code(&generated_pairing.text(), CodeKind::Pairing)
+            && parse(&generated_pairing.text(), CodeKind::Pairing)
                 == Ok(Code::Pairing(generated_pairing))
             && generated_pairing
                 .text()
@@ -55,16 +56,16 @@ pub fn run(data: &[u8]) -> Outcome {
     );
 
     let text = String::from_utf8_lossy(data);
-    let claim = parse_code(&text, CodeKind::Claim).map(Code::text);
-    let recovery = parse_code(&text, CodeKind::Recovery).map(Code::text);
-    let pairing = parse_code(&text, CodeKind::Pairing).map(Code::text);
+    let claim = parse(&text, CodeKind::Claim).map(Code::text);
+    let recovery = parse(&text, CodeKind::Recovery).map(Code::text);
+    let pairing = parse(&text, CodeKind::Pairing).map(Code::text);
     assert!(
         claim.as_ref().ok().is_none_or(|written| {
-            parse_code(written, CodeKind::Claim).map(Code::text) == Ok(written.clone())
+            parse(written, CodeKind::Claim).map(Code::text) == Ok(written.clone())
         }) && recovery.as_ref().ok().is_none_or(|written| {
-            parse_code(written, CodeKind::Recovery).map(Code::text) == Ok(written.clone())
+            parse(written, CodeKind::Recovery).map(Code::text) == Ok(written.clone())
         }) && pairing.as_ref().ok().is_none_or(|written| {
-            parse_code(written, CodeKind::Pairing).map(Code::text) == Ok(written.clone())
+            parse(written, CodeKind::Pairing).map(Code::text) == Ok(written.clone())
         }),
         "{text:?} gave {claim:?}, {recovery:?}, {pairing:?}"
     );
@@ -73,4 +74,8 @@ pub fn run(data: &[u8]) -> Outcome {
         recovery,
         pairing,
     }
+}
+
+fn parse(text: &str, kind: CodeKind) -> Result<Code, CodeError> {
+    parse_code(Untrusted::new(text), kind)
 }

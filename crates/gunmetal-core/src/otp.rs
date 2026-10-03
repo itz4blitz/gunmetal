@@ -11,6 +11,7 @@
 //! `XXXX-XXXX` (SEC-IAM-056).
 
 use crate::problem::{Describe, Problem, ProblemCode};
+use crate::untrusted::Untrusted;
 
 /// Crockford's base32 symbols, upper case, without `I`, `L`, `O` and `U`.
 const CROCKFORD: [u8; 32] = *b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -165,21 +166,24 @@ pub fn pairing_code(random: [u8; 8]) -> PairingCode {
 /// Hyphens and ASCII whitespace are ignored. Claim and recovery codes are
 /// case-insensitive and fold `O` to `0` and `I` and `L` to `1`. Pairing
 /// codes are case-insensitive and do not fold: `L` is a pairing symbol.
+/// The text arrives [`Untrusted`] (SEC-TM-031). Kept octets are copied into
+/// a 27-byte stack array; a 28th is [`CodeError::Malformed`] and the rest
+/// of the input is not stored (SEC-TM-032).
 ///
 /// # Errors
 ///
 /// Returns a [`CodeError`] when the text is not a well-formed code of
 /// `kind`. A wrong checksum is a distinct error so the setup page can catch
 /// a typo before an attempt is spent.
-pub fn parse_code(text: &str, kind: CodeKind) -> Result<Code, CodeError> {
-    let compact = compact(text);
-    match kind_for_len(compact.len()) {
+pub fn parse_code(text: Untrusted<&str>, kind: CodeKind) -> Result<Code, CodeError> {
+    let (compact, len) = compact(text.into_inner(), kind)?;
+    match kind_for_len(len) {
         None => Err(CodeError::Malformed { kind }),
         Some(actual) if actual != kind => Err(CodeError::WrongKind {
             expected: kind,
             actual,
         }),
-        Some(CodeKind::Claim) => parse_claim(copy_fixed(&compact)).map(Code::Claim),
+        Some(CodeKind::Claim) => parse_claim(compact).map(Code::Claim),
         Some(CodeKind::Recovery) => parse_recovery(copy_fixed(&compact)).map(Code::Recovery),
         Some(CodeKind::Pairing) => parse_pairing(copy_fixed(&compact)).map(Code::Pairing),
     }
@@ -194,11 +198,25 @@ impl Describe for CodeError {
     }
 }
 
-/// Drops hyphens and ASCII whitespace, keeping every other octet.
-fn compact(text: &str) -> Vec<u8> {
-    text.bytes()
-        .filter(|byte| *byte != b'-' && !byte.is_ascii_whitespace())
-        .collect()
+/// Drops hyphens and ASCII whitespace into a 27-octet stack array.
+///
+/// A 28th kept octet is malformed for `kind`; later octets are not stored.
+fn compact(text: &str, kind: CodeKind) -> Result<([u8; CLAIM_LEN], usize), CodeError> {
+    let mut kept = [0_u8; CLAIM_LEN];
+    let len = {
+        let mut slots = kept.iter_mut();
+        for byte in text.bytes() {
+            if byte == b'-' || byte.is_ascii_whitespace() {
+                continue;
+            }
+            let Some(slot) = slots.next() else {
+                return Err(CodeError::Malformed { kind });
+            };
+            *slot = byte;
+        }
+        CLAIM_LEN.wrapping_sub(slots.len())
+    };
+    Ok((kept, len))
 }
 
 /// The kind whose compact length is `len`.
@@ -320,26 +338,26 @@ fn group(symbols: &[u8], width: usize) -> String {
 }
 
 /// Reads 27 compact claim symbols, after folding, into 16 bytes.
-fn parse_claim(compact: [u8; CLAIM_LEN]) -> Result<ClaimCode, CodeError> {
-    let folded = copy_fixed::<CLAIM_LEN>(&fold_crockford(&compact));
+fn parse_claim(mut compact: [u8; CLAIM_LEN]) -> Result<ClaimCode, CodeError> {
+    fold_crockford(&mut compact);
     let mut payload = [0; 26];
-    for (slot, &byte) in payload.iter_mut().zip(&folded) {
+    for (slot, &byte) in payload.iter_mut().zip(&compact) {
         *slot = byte;
     }
     let value = decode_crockford(&payload, CodeKind::Claim)?;
-    check_match(value, folded[26], CodeKind::Claim)?;
+    check_match(value, compact[26], CodeKind::Claim)?;
     Ok(ClaimCode(value.to_be_bytes()))
 }
 
 /// Reads 17 compact recovery symbols, after folding, into 10 bytes.
-fn parse_recovery(compact: [u8; RECOVERY_LEN]) -> Result<RecoveryCode, CodeError> {
-    let folded = copy_fixed::<RECOVERY_LEN>(&fold_crockford(&compact));
+fn parse_recovery(mut compact: [u8; RECOVERY_LEN]) -> Result<RecoveryCode, CodeError> {
+    fold_crockford(&mut compact);
     let mut payload = [0; 16];
-    for (slot, &byte) in payload.iter_mut().zip(&folded) {
+    for (slot, &byte) in payload.iter_mut().zip(&compact) {
         *slot = byte;
     }
     let value = decode_crockford(&payload, CodeKind::Recovery)?;
-    check_match(value, folded[16], CodeKind::Recovery)?;
+    check_match(value, compact[16], CodeKind::Recovery)?;
     Ok(RecoveryCode(low_80(value)))
 }
 
@@ -370,15 +388,14 @@ fn check_match(value: u128, check: u8, kind: CodeKind) -> Result<(), CodeError> 
 }
 
 /// Upper-cases and folds Crockford ambiguous letters in `compact`.
-fn fold_crockford(compact: &[u8]) -> Vec<u8> {
-    compact
-        .iter()
-        .map(|byte| match byte {
+fn fold_crockford(compact: &mut [u8]) {
+    for byte in compact {
+        *byte = match *byte {
             b'o' | b'O' => b'0',
             b'i' | b'I' | b'l' | b'L' => b'1',
-            _ => byte.to_ascii_uppercase(),
-        })
-        .collect()
+            other => other.to_ascii_uppercase(),
+        };
+    }
 }
 
 /// Reads Crockford payload symbols as one integer.
@@ -405,6 +422,10 @@ fn decode_crockford(symbols: &[u8], kind: CodeKind) -> Result<u128, CodeError> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    fn parse_code(text: &str, kind: CodeKind) -> Result<Code, CodeError> {
+        super::parse_code(Untrusted::new(text), kind)
+    }
 
     /// Crockford payload symbols, written out independently of the code
     /// under test.
@@ -455,6 +476,16 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("-")
+    }
+
+    /// RFC 8628 section 6.1: `alphabet[byte % 20]`, independent of
+    /// [`pairing_symbol`].
+    fn reference_pairing_symbol(byte: u8) -> u8 {
+        REFERENCE_PAIRING
+            .as_bytes()
+            .get(usize::from(byte % 20))
+            .copied()
+            .expect("20 symbols")
     }
 
     /// The 128-bit integer `bytes` write.
@@ -566,12 +597,11 @@ mod tests {
     #[test]
     fn pairing_codes_use_only_the_base20_alphabet_for_every_input_byte() {
         for byte in 0_u8..=255 {
-            let text = pairing_code([byte; 8]).text();
-            let compact: String = text.chars().filter(|c| *c != '-').collect();
-            assert_eq!(compact.len(), 8, "{byte}");
-            assert!(
-                compact.chars().all(|c| REFERENCE_PAIRING.contains(c)),
-                "{byte}: {text}"
+            let expected = [reference_pairing_symbol(byte); 8];
+            assert_eq!(
+                pairing_code([byte; 8]).text(),
+                reference_hyphens(&expected, 4),
+                "{byte}"
             );
         }
     }
@@ -617,7 +647,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-IAM-007, SEC-IAM-056, SEC-IAM-089
     #[test]
     fn grouping_hyphens_every_width_including_short_tails() {
         assert_eq!(group(b"", 5), "");
@@ -767,6 +796,61 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-TM-032
+    #[test]
+    fn parse_refuses_a_twenty_eighth_kept_octet() {
+        let twenty_eight_zeros: String = (0..28).map(|_| '0').collect();
+        assert_eq!(
+            parse_code(&twenty_eight_zeros, CodeKind::Claim),
+            Err(malformed(CodeKind::Claim))
+        );
+        assert_eq!(
+            parse_code(&twenty_eight_zeros, CodeKind::Recovery),
+            Err(malformed(CodeKind::Recovery))
+        );
+        let twenty_eight_bees: String = (0..28).map(|_| 'B').collect();
+        assert_eq!(
+            parse_code(&twenty_eight_bees, CodeKind::Pairing),
+            Err(malformed(CodeKind::Pairing))
+        );
+        let huge: String = (0..65_536).map(|_| 'A').collect();
+        assert_eq!(
+            parse_code(&huge, CodeKind::Claim),
+            Err(malformed(CodeKind::Claim))
+        );
+        let mut trailing_ignored = String::from("00000-00000-00000-00000-00000-00");
+        for _ in 0..1_000 {
+            trailing_ignored.push_str(" \t-\n");
+        }
+        assert_eq!(
+            parse_code(&trailing_ignored, CodeKind::Claim),
+            Ok(Code::Claim(claim_code([0; 16])))
+        );
+        assert_eq!(
+            parse_code("00000-00000-00000-00000-00000-00-0", CodeKind::Claim),
+            Err(malformed(CodeKind::Claim))
+        );
+    }
+
+    /// Verifies: SEC-TM-031
+    #[test]
+    fn a_code_leaves_the_wrapper_only_through_its_validator() {
+        assert_eq!(
+            super::parse_code(
+                Untrusted::new("00000-00000-00000-00000-00000-00"),
+                CodeKind::Claim
+            ),
+            Ok(Code::Claim(claim_code([0; 16])))
+        );
+        assert_eq!(
+            super::parse_code(
+                Untrusted::new("../../../../../../../../etc/passwd"),
+                CodeKind::Claim
+            ),
+            Err(malformed(CodeKind::Claim))
+        );
+    }
+
     /// Verifies: SEC-API-072
     #[test]
     fn describes_every_error_as_the_same_invalid_code() {
@@ -808,11 +892,11 @@ mod tests {
         /// Verifies: SEC-IAM-056
         #[test]
         fn pairing_text_uses_only_the_written_base20_alphabet(bytes in any::<[u8; 8]>()) {
-            let text = pairing_code(bytes).text();
-            let compact: String = text.chars().filter(|c| *c != '-').collect();
-            prop_assert_eq!(compact.len(), 8);
-            prop_assert!(compact.chars().all(|c| REFERENCE_PAIRING.contains(c)));
-            prop_assert_eq!(text.chars().filter(|c| *c == '-').count(), 1);
+            let expected = bytes.map(reference_pairing_symbol);
+            prop_assert_eq!(
+                pairing_code(bytes).text(),
+                reference_hyphens(&expected, 4)
+            );
         }
 
         /// Verifies: SEC-IAM-007, SEC-IAM-056, SEC-IAM-089
@@ -836,7 +920,7 @@ mod tests {
             );
         }
 
-        /// Verifies: SEC-IAM-007, SEC-MED-001
+        /// Verifies: SEC-MED-001
         #[test]
         fn parse_returns_on_any_text(text in "(?s).{0,64}", kind in kind_strategy()) {
             let _ = parse_code(&text, kind);
