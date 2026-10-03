@@ -71,8 +71,24 @@ macro_rules! problems {
 problems! {
     /// The audit log could not write the record of a security event, so the action it records did not take effect (SEC-OPS-020).
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
+    /// A request body was larger than its route allows, and was refused before it was decoded (SEC-API-060).
+    BodyTooLarge = ("body_too_large", Some(413), "That request is too large."),
+    /// A request carried a credential somewhere other than the session cookie or the Authorization header, or carried two (SEC-API-004, SEC-EXT-006).
+    CredentialMisplaced = ("credential_misplaced", Some(400), "Send credentials only in the Authorization header or the session cookie, and only once."),
+    /// A cookie-authenticated request did not come from the server's own pages (SEC-API-033, SEC-API-034).
+    CrossSiteRequest = ("cross_site_request", Some(403), "This request was refused because it didn't come from this server's own pages."),
+    /// Request handling failed unexpectedly. Nothing about the failure reaches the client (SEC-API-073, SEC-TM-040).
+    InternalError = ("internal_error", Some(500), "Something went wrong on the server. Try again later."),
+    /// A request's parameters or body were not in the form its route expects (SEC-API-067).
+    InvalidRequest = ("invalid_request", Some(400), "The request wasn't in the expected form."),
+    /// The route does not take this method (SEC-API-008).
+    MethodNotAllowed = ("method_not_allowed", Some(405), "That action isn't available here."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
+    UnknownHost = ("unknown_host", Some(421), "This server doesn't answer to that name."),
+    /// A request body was not JSON, or was compressed (SEC-API-035, SEC-API-065).
+    UnsupportedBody = ("unsupported_body", Some(415), "The request body must be JSON, sent without compression."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -108,16 +124,52 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 10] = [
         (
             "audit_unavailable",
             Some(503),
             "We couldn't record this action, so it didn't happen. Try again later.",
         ),
+        ("body_too_large", Some(413), "That request is too large."),
+        (
+            "credential_misplaced",
+            Some(400),
+            "Send credentials only in the Authorization header or the session cookie, and only once.",
+        ),
+        (
+            "cross_site_request",
+            Some(403),
+            "This request was refused because it didn't come from this server's own pages.",
+        ),
+        (
+            "internal_error",
+            Some(500),
+            "Something went wrong on the server. Try again later.",
+        ),
+        (
+            "invalid_request",
+            Some(400),
+            "The request wasn't in the expected form.",
+        ),
+        (
+            "method_not_allowed",
+            Some(405),
+            "That action isn't available here.",
+        ),
         (
             "not_found",
             Some(404),
             "We couldn't find that. It may have been removed, or you may not have access to it.",
+        ),
+        (
+            "unknown_host",
+            Some(421),
+            "This server doesn't answer to that name.",
+        ),
+        (
+            "unsupported_body",
+            Some(415),
+            "The request body must be JSON, sent without compression.",
         ),
     ];
 
