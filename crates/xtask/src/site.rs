@@ -14,7 +14,10 @@
 //!   (SEC-STD-016), and a `Content-Security-Policy` of `default-src 'none'`
 //!   whose sources are only `'none'` and `'self'`, so a browser loads
 //!   nothing from another origin. No path may send a weaker value of
-//!   either, and no other header's value may name another origin
+//!   either, each of those two headers may appear only once in the file
+//!   (a host that sees two lines joins them and a browser then ignores
+//!   HSTS), a `! Name` line may not unset either, and no other header's
+//!   value may name another origin
 //!   (SEC-PRV-054).
 //! - Every page links to the privacy notice at `/privacy/`, and no page
 //!   loads anything from another origin: only an `<a href>` may name one
@@ -144,6 +147,23 @@ pub enum Finding {
     NoHeader {
         /// The header.
         header: &'static str,
+    },
+    /// A checked header appears a second time in `_headers`. The host
+    /// joins the two values with a comma, and a browser then ignores HSTS
+    /// (RFC 6797, section 6.1).
+    DuplicateHeader {
+        /// The header.
+        header: &'static str,
+        /// The path pattern of the second line.
+        path: String,
+    },
+    /// A path unsets a checked header with Cloudflare's `! Name` detach,
+    /// with or without a value after the name.
+    UnsetHeader {
+        /// The header.
+        header: &'static str,
+        /// The path pattern it is unset for.
+        path: String,
     },
     /// A path's value for a checked header is weaker than the rules allow.
     WeakHeader {
@@ -434,14 +454,17 @@ const RULES: [Header; 2] = [
 
 /// The findings for `_headers`, whose text is `text`. A line that does
 /// not start with whitespace is a path pattern; an indented line is a
-/// header for the pattern above it. A header with a rule is held to it;
-/// any other header's value may not name another origin, read as a page's
-/// addresses are, because `Link` and `Refresh` make a browser fetch what
-/// they name.
+/// header for the pattern above it. A header with a rule is held to it
+/// and may appear only once in the file. After trim, a name that starts
+/// with `! ` is a detach of the rest of the name; unsetting a header
+/// with a rule is refused. Any other header's value may not name another
+/// origin, read as a page's addresses are, because `Link` and `Refresh`
+/// make a browser fetch what they name.
 fn headers(text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut path = None;
     let mut everywhere = [false; RULES.len()];
+    let mut seen = [false; RULES.len()];
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -451,20 +474,51 @@ fn headers(text: &str) -> Vec<Finding> {
             path = Some(trimmed);
             continue;
         }
-        let Some((path, (name, value))) = path.zip(trimmed.split_once(':')) else {
+        let Some(path) = path else {
             findings.push(Finding::Malformed {
                 path: HEADERS.to_owned(),
                 line: index + 1,
             });
             continue;
         };
-        let (name, value) = (name.trim(), value.trim());
+        let (raw_name, value) = match trimmed.split_once(':') {
+            Some((name, value)) => (name.trim(), Some(value.trim())),
+            None => (trimmed, None),
+        };
+        let (detached, name) = match raw_name.strip_prefix("! ") {
+            Some(rest) => (true, rest.trim()),
+            None => (false, raw_name),
+        };
         let rule = RULES
             .iter()
             .zip(&mut everywhere)
-            .find(|(rule, _)| name.eq_ignore_ascii_case(rule.name));
+            .zip(&mut seen)
+            .find(|((rule, _), _)| name.eq_ignore_ascii_case(rule.name));
+        if detached {
+            if let Some(((rule, _), _)) = rule {
+                findings.push(Finding::UnsetHeader {
+                    header: rule.name,
+                    path: path.to_owned(),
+                });
+                continue;
+            }
+        }
+        let Some(value) = value else {
+            findings.push(Finding::Malformed {
+                path: HEADERS.to_owned(),
+                line: index + 1,
+            });
+            continue;
+        };
         match rule {
-            Some((rule, sent)) => {
+            Some(((rule, sent), already)) => {
+                if *already {
+                    findings.push(Finding::DuplicateHeader {
+                        header: rule.name,
+                        path: path.to_owned(),
+                    });
+                }
+                *already = true;
                 *sent |= path == EVERY_PAGE;
                 if !(rule.strong)(value) {
                     findings.push(Finding::WeakHeader {
@@ -831,6 +885,20 @@ Hiring: anything else is ignored
             header,
             path: path.to_owned(),
             value: value.to_owned(),
+        }
+    }
+
+    fn duplicate(header: &'static str, path: &str) -> Finding {
+        Finding::DuplicateHeader {
+            header,
+            path: path.to_owned(),
+        }
+    }
+
+    fn unset(header: &'static str, path: &str) -> Finding {
+        Finding::UnsetHeader {
+            header,
+            path: path.to_owned(),
         }
     }
 
@@ -1241,18 +1309,100 @@ Preferred-Languages: en,
         let text = format!("{HEADERS}/old/*\n  Strict-Transport-Security: max-age=0\n");
         assert_eq!(
             headers(&text),
-            [weak("Strict-Transport-Security", "/old/*", "max-age=0")]
+            [
+                duplicate("Strict-Transport-Security", "/old/*"),
+                weak("Strict-Transport-Security", "/old/*", "max-age=0")
+            ]
         );
     }
 
-    /// Cloudflare Pages removes a header from a path with a `! Name` line;
-    /// the check reads no such line, so no path can drop a header.
+    /// A second `Strict-Transport-Security` or `Content-Security-Policy`,
+    /// even with a strong value, is joined by the host into one field that
+    /// a browser then ignores (RFC 6797, section 6.1).
+    ///
+    /// Verifies: SEC-STD-016, SEC-PRV-054
+    #[test]
+    fn a_rules_header_may_appear_only_once() {
+        let strong_sts = "max-age=63072000; includeSubDomains; preload";
+        let strong_csp = "default-src 'none'";
+        let twice_on_every_page = format!(
+            "\
+/*
+  Strict-Transport-Security: {strong_sts}
+  Strict-Transport-Security: {strong_sts}
+  Content-Security-Policy: {strong_csp}
+"
+        );
+        assert_eq!(
+            headers(&twice_on_every_page),
+            [duplicate("Strict-Transport-Security", "/*")]
+        );
+        let again_on_invite = format!(
+            "\
+/*
+  Strict-Transport-Security: {strong_sts}
+  Content-Security-Policy: {strong_csp}
+/invite/*
+  Strict-Transport-Security: {strong_sts}
+"
+        );
+        assert_eq!(
+            headers(&again_on_invite),
+            [duplicate("Strict-Transport-Security", "/invite/*")]
+        );
+        let twice_csp = format!(
+            "\
+/*
+  Strict-Transport-Security: {strong_sts}
+  Content-Security-Policy: {strong_csp}
+  Content-Security-Policy: {strong_csp}
+"
+        );
+        assert_eq!(
+            headers(&twice_csp),
+            [duplicate("Content-Security-Policy", "/*")]
+        );
+    }
+
+    /// Cloudflare Pages removes a header from a path with a `! Name` line,
+    /// with or without a value. After trim, a name that starts with `! `
+    /// is a detach of the rest of the name; unsetting a checked header is
+    /// refused.
     ///
     /// Verifies: SEC-STD-016
     #[test]
     fn a_line_that_removes_a_header_from_a_path_is_refused() {
         let text = format!("{HEADERS}  ! Strict-Transport-Security\n");
-        assert_eq!(headers(&text), [malformed("site/_headers", 9)]);
+        assert_eq!(
+            headers(&text),
+            [unset("Strict-Transport-Security", "/invite/*")]
+        );
+        let with_value = format!(
+            "{HEADERS}  ! Strict-Transport-Security: max-age=63072000; includeSubDomains; preload\n"
+        );
+        assert_eq!(
+            headers(&with_value),
+            [unset("Strict-Transport-Security", "/invite/*")]
+        );
+        let csp = format!("{HEADERS}  ! Content-Security-Policy\n");
+        assert_eq!(
+            headers(&csp),
+            [unset("Content-Security-Policy", "/invite/*")]
+        );
+        let csp_value = format!("{HEADERS}  ! Content-Security-Policy: default-src 'none'\n");
+        assert_eq!(
+            headers(&csp_value),
+            [unset("Content-Security-Policy", "/invite/*")]
+        );
+        let other = format!("{HEADERS}  ! Cache-Control: no-store\n");
+        assert_eq!(headers(&other), []);
+        let extra_space = format!("{HEADERS}  !  strict-transport-security\n");
+        assert_eq!(
+            headers(&extra_space),
+            [unset("Strict-Transport-Security", "/invite/*")]
+        );
+        let no_space = format!("{HEADERS}  !Strict-Transport-Security\n");
+        assert_eq!(headers(&no_space), [malformed("site/_headers", 9)]);
     }
 
     #[test]
