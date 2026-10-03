@@ -23,6 +23,7 @@ pub mod path;
 pub mod player;
 pub mod problem;
 pub mod queue;
+pub mod ratelimit;
 pub mod schema;
 pub mod shuffle;
 pub mod text;
