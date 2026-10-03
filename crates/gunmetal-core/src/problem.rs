@@ -73,6 +73,10 @@ problems! {
     AuditUnavailable = ("audit_unavailable", Some(503), "We couldn't record this action, so it didn't happen. Try again later."),
     /// No object with this identifier is visible to the caller: it does not exist, the caller may not see it, or the identifier is malformed or of another kind. All of these get this one answer (SEC-API-011, SEC-API-024).
     NotFound = ("not_found", Some(404), "We couldn't find that. It may have been removed, or you may not have access to it."),
+    /// An Ogg Opus stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    OpusHeaderUnreadable = ("opus_header_unreadable", None, "This file's Opus stream headers are damaged or use a version we can't read."),
+    /// An Ogg Vorbis stream's identification or comment header could not be read; the scan records it against the file (SEC-MED-017).
+    VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -108,7 +112,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 2] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 4] = [
         (
             "audit_unavailable",
             Some(503),
@@ -118,6 +122,16 @@ mod tests {
             "not_found",
             Some(404),
             "We couldn't find that. It may have been removed, or you may not have access to it.",
+        ),
+        (
+            "opus_header_unreadable",
+            None,
+            "This file's Opus stream headers are damaged or use a version we can't read.",
+        ),
+        (
+            "vorbis_header_unreadable",
+            None,
+            "This file's Vorbis stream headers are damaged or use a version we can't read.",
         ),
     ];
 

@@ -54,7 +54,9 @@ harnesses! {
     ebml,
     link,
     net,
+    opus,
     text,
     time,
     values,
+    vorbis,
 }
