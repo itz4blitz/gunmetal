@@ -888,7 +888,6 @@ mod tests {
     // Malformed streams give typed errors.
     // -----------------------------------------------------------------------
 
-    /// Verifies: SEC-MED-001
     #[test]
     fn truncation_at_every_octet_gives_the_typed_error() {
         let text = b"truncate me, truncate me".to_vec();
