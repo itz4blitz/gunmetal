@@ -385,9 +385,23 @@ mod tests {
         sort_key(display, None, lang)
     }
 
+    fn arb_char() -> impl Strategy<Value = char> {
+        prop_oneof![
+            8 => any::<char>(),
+            1 => prop_oneof![
+                Just('\u{304C}'),
+                Just('\u{3071}'),
+                Just('\u{3099}'),
+                Just('\u{309A}'),
+                Just('\u{AC00}'),
+                Just('\u{D55C}'),
+                Just('\u{D7A3}'),
+            ],
+        ]
+    }
+
     fn arb_text() -> impl Strategy<Value = String> {
-        proptest::collection::vec(any::<char>(), 0..48)
-            .prop_map(|chars| chars.into_iter().collect())
+        proptest::collection::vec(arb_char(), 0..48).prop_map(|chars| chars.into_iter().collect())
     }
 
     fn arb_lang() -> impl Strategy<Value = Lang> {
@@ -857,16 +871,16 @@ mod tests {
         #[test]
         fn fold_never_holds_punctuation_or_folded_marks(s in arb_text()) {
             let folded = fold(&s);
-            let letters_spaces_or_voicing = folded.chars().all(|c| {
-                c.is_alphanumeric() || c == ' ' || matches!(c, '\u{3099}' | '\u{309A}')
-            });
+            let letters_spaces_or_voicing = folded
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == ' ' || is_kana_voicing(c));
             prop_assert!(letters_spaces_or_voicing);
             prop_assert!(!folded.starts_with(' '));
             prop_assert!(!folded.ends_with(' '));
             prop_assert!(!folded.contains("  "));
-            let only_kept_marks = folded.chars().all(|c| {
-                !is_combining_mark(c) || matches!(c, '\u{3099}' | '\u{309A}')
-            });
+            let only_kept_marks = folded
+                .chars()
+                .all(|c| !is_combining_mark(c) || is_kana_voicing(c));
             prop_assert!(only_kept_marks);
         }
 
