@@ -9,3 +9,4 @@
 //! This file is a registry: it holds only `pub mod` lines, one per module.
 
 pub mod bytes;
+pub mod checksum;
