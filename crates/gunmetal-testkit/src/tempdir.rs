@@ -117,10 +117,8 @@ fn private_directory() -> DirBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::io::ErrorKind;
     use std::panic::{self, AssertUnwindSafe};
-    use std::path::PathBuf;
     use std::sync::{Barrier, Mutex};
     use std::thread;
 

@@ -192,7 +192,8 @@ impl Bits {
         Self::default()
     }
 
-    /// Appends the low `width` bits of `value`, most significant first.
+    /// Appends `value` as a field `width` bits wide, most significant bit
+    /// first.
     ///
     /// # Panics
     ///
