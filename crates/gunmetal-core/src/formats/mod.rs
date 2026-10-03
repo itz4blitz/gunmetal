@@ -4,6 +4,8 @@
 //! This file is a registry: it holds only module lines and re-exports.
 
 pub mod aiff;
+pub mod ape;
 pub mod detect;
+pub mod id3v1;
 pub mod mpa;
 pub mod riff;

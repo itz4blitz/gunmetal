@@ -18,11 +18,14 @@
 //! `fuzz/seeds/<name>/`.
 
 pub mod aiff;
+pub mod ape;
 pub mod base64;
 pub mod detect;
 pub mod ebml;
 pub mod http_forwarded;
 pub mod http_range;
+pub mod id3_structure;
+pub mod id3v1;
 pub mod link;
 pub mod mpa;
 pub mod net;

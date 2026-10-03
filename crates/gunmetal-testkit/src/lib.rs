@@ -8,9 +8,11 @@
 //!
 //! This file is a registry: it holds only `pub mod` lines, one per module.
 
+pub mod ape;
 pub mod bytes;
 pub mod checksum;
 pub mod clock;
+pub mod id3v1;
 pub mod mpa;
 pub mod riff;
 pub mod tempdir;

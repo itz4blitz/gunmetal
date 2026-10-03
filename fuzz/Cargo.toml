@@ -46,6 +46,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ape"
+path = "fuzz_targets/ape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "base64"
 path = "fuzz_targets/base64.rs"
 test = false
@@ -97,6 +104,20 @@ bench = false
 [[bin]]
 name = "http_range"
 path = "fuzz_targets/http_range.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3_structure"
+path = "fuzz_targets/id3_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3v1"
+path = "fuzz_targets/id3v1.rs"
 test = false
 doc = false
 bench = false

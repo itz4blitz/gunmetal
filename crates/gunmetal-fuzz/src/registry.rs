@@ -51,11 +51,14 @@ macro_rules! harnesses {
 
 harnesses! {
     aiff,
+    ape,
     base64,
     detect,
     ebml,
     http_forwarded,
     http_range,
+    id3_structure,
+    id3v1,
     link,
     mpa,
     net,
