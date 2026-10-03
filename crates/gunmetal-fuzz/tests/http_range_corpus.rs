@@ -53,7 +53,7 @@ const fn part(first: u64, last: u64) -> Answer {
     Answer::Partial { first, last }
 }
 
-/// Verifies: SEC-MED-028, SEC-MED-030, SEC-HIS-036
+/// Verifies: SEC-MED-028
 #[test]
 fn the_corpus_holds_exactly_the_seeds_tested_here() {
     let mut names: Vec<String> = fs::read_dir(seeds_dir())

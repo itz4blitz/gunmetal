@@ -587,10 +587,23 @@ fn piece_len(bytes: &[u8], separator: u8) -> usize {
 )]
 mod tests {
     use super::*;
-    use crate::parse::small_stack::on_small_stack;
     use proptest::collection::vec;
     use proptest::prelude::*;
     use proptest::sample::select;
+
+    /// The stack size SEC-MED-001 names, in octets.
+    const SMALL_STACK: usize = 262_144;
+
+    /// Runs `work` on a 256 KiB stack so a recursive forwarding parse fails
+    /// its test instead of passing on the runner's larger stack (SEC-MED-001).
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(work)
+            .expect("the test thread starts")
+            .join()
+            .expect("the code under test returned instead of panicking")
+    }
 
     fn ip(text: &str) -> IpAddr {
         text.parse().unwrap()

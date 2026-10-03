@@ -283,10 +283,23 @@ fn answer(spec: Spec, len: u64) -> RangeOutcome {
 )]
 mod tests {
     use super::*;
-    use crate::parse::small_stack::on_small_stack;
     use proptest::collection::vec;
     use proptest::prelude::*;
     use proptest::sample::select;
+
+    /// The stack size SEC-MED-001 names, in octets.
+    const SMALL_STACK: usize = 262_144;
+
+    /// Runs `work` on a 256 KiB stack so a recursive Range parse fails its
+    /// test instead of passing on the runner's larger stack (SEC-MED-001).
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(work)
+            .expect("the test thread starts")
+            .join()
+            .expect("the code under test returned instead of panicking")
+    }
 
     fn outcome(header: &str, len: u64) -> RangeOutcome {
         range(Untrusted::new(header.as_bytes()), len)
@@ -375,7 +388,7 @@ mod tests {
     /// whatever they would select. SEC-MED-060 would serve the whole
     /// representation; D-03 takes the stricter answer.
     ///
-    /// Verifies: SEC-NET-050, SEC-API-031, SEC-MED-060
+    /// Verifies: SEC-API-031, SEC-NET-050
     #[test]
     fn answers_416_to_two_or_more_ranges() {
         let cases = [
