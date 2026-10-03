@@ -8,6 +8,7 @@
 //! value is held in a [`Secret`] that cannot be printed, serialised or
 //! compared with `==` (SEC-OPS-013, SEC-IAM-095).
 
+pub mod crypto;
 pub mod mint;
 pub mod random;
 pub mod root;
