@@ -5,10 +5,14 @@ the screens the UI needs and the server work behind them can be read off
 one place. It was written on 2026-10-02 from the research in
 `docs/research/` and stays inside the two accepted architecture records:
 [ADR 1](../adr/0001-architecture.md) (architecture) and
-[ADR 2](../adr/0002-music-is-first-class.md) (music is first-class). This
-README is the shared key for all ten area files. Where an area file and
+[ADR 2](../adr/0002-music-is-first-class.md) (music is first-class). It is
+built on the [security baseline](../security/README.md): its first
+principles are absolute, and a row that breaks one is a defect in the row.
+This README is the shared key for all ten area files. Where an area file and
 this README disagree about a release, this README wins and the area file is
-a bug.
+a bug; where either disagrees with the baseline's release-scope table, the
+table wins (SEC-TM-074). Open questions are settled in the
+[decision register](../decisions.md).
 
 | Area | File | What it covers |
 |---|---|---|
@@ -27,7 +31,7 @@ a bug.
 
 ### The columns
 
-Every feature table in every area file has the same nine columns.
+Every feature table in every area file has the same ten columns.
 
 | Column | Meaning |
 |---|---|
@@ -36,10 +40,11 @@ Every feature table in every area file has the same nine columns.
 | **What the user gets** | The outcome in the user's words. For a reference row, it names the owning row. |
 | **Rivals today** | What Plex, Jellyfin, Emby, Navidrome and the specialist apps do, from the research. "(unverified)" marks a claim the research could not confirm. |
 | **Demand** | The evidence of demand, on the scale below. |
-| **Release** | One of the five release values below. |
+| **Release** | One of the eight release values below. |
 | **How Gunmetal does it better** | The edge, or an honest "parity" or "behind" where a rival is already good. |
 | **Server needs** | What the server (or the shared Rust core) must provide. "None beyond X" means the owning row X covers it. |
 | **UI surfaces** | The screens or controls the feature appears on, named so the UI plan can collect them. |
+| **Security** | The SEC requirement IDs the row's tests must verify (SEC-TM-001, SEC-STD-004). A row with none uses one of three fixed forms, which the docs lint accepts: `None (No)` for a No row, which is never built; `See X` for a reference row, whose tests are the owning row's; and a cell starting `None specific` for a row that adds no security control or trust boundary of its own, such as a client-side sleep timer. Every row also falls under its file's Security notes, which name the trust boundaries and threats the file's features cross. |
 
 ### Demand
 
@@ -60,30 +65,48 @@ none, not that nobody wants it.
 
 ### Releases
 
-The Release cell holds exactly one of these five values.
+The Release cell holds exactly one of these eight values: R1, R1.1, R1.2,
+R1.3, R2, R3, Later or No. R1.1 to R1.3 are point releases of R1. On
+2026-10-02 the owner adopted the smaller R1 in the decision register's
+[R1 scope](../decisions.md#r1-scope) section, with the rest of the earlier
+R1 in those three point releases
+([D-10](../decisions.md#d-10-r1-scope-and-the-release-table)). The owner
+also moved the project-run name service to R2
+([D-07](../decisions.md#d-07-https-and-naming-record-8)).
 
 | Release | What it contains | Clients | Infrastructure |
 |---|---|---|---|
-| **R1** (music) | The first usable release: the server, the web client and the music library and player. Sign-in, backups and the security baseline. | The web client and the installable web app only (browsers on desktop and phone). | No remuxer and no transcoder (ADR 2, decision 2); one light audio-only packager for browser gapless (MUS-230). No plugin host. No iroh: remote use means the owner's reverse proxy, VPN or domain (ACC-097, ACC-134). |
-| **R2** (video) | Movies and TV, plus everything that needs a native app or a sandbox: downloads, handoff and remote control, casting, the plugin host and the scrobblers, the OpenSubsonic adapter, household profiles and parental controls, share links, webhooks, Opus streams. | Android phones and tablets, Android TV and Google TV (and Fire OS), the desktop shell, and the web client. | The pure-Rust remuxer, the sandboxed transcoder (software encoders), iroh remote access for native clients, the WebAssembly plugin host. |
+| **R1** (music) | The first usable release. A server that installs safely and is claimed with a passkey over real HTTPS. It scans a music folder and plays the original files gaplessly in a browser, levelled from their loudness tags. It keeps a queue, manual playlists and lyrics from the files. People sign in by passkey or by approval from a signed-in device (no passwords) and invite others. Each person sees, erases and exports their own history. Backups, restore at setup, and the security baseline. | The web client only, in browsers on desktop and phone. The installable web app arrives in R1.1. | No remuxer and no transcoder (ADR 2, decision 2). One light audio-only packager for browser gapless (MUS-230), which runs in a worker process and streams over a pipe, never in the server process (SEC-MED-018, SEC-MED-081). Linux servers only: x86-64, ARM64 and the container image. No plugin host and no metadata provider. HTTPS comes from the owner's own domain with automatic certificates (ADM-022, ACC-099), a tailnet name, or the machine itself (CLI-150). There is no project name service (ADM-023 is R2). No iroh: remote use goes through the owner's reverse proxy or a tailnet (ACC-097). |
+| **R1.1** (bring your music in) | Playlist files and history imports. Built-in MusicBrainz and Cover Art Archive lookups (LIB-111, LIB-112), off until the owner turns them on in the setup step that lists what each provider receives. Ratings, richer credits, editions and browsing, filters and saved filters. Offline loading and the installable web app. Profile pictures. Continue on this device. | As R1, plus the installable web app (CLI-003). | The egress client gains the metadata-provider purposes (SEC-PRV-014, SEC-PRV-015, SEC-PRV-017). Playlist files are parsed in the worker (SEC-MED-050, SEC-HIS-018). Uploaded images are re-encoded (SEC-MED-061, SEC-PRV-006). |
+| **R1.2** (the household and the admin) | Single sign-on with OIDC (ACC-057). Music share links (ACC-086 to ACC-089). Several administrators. The admin's live view, with each person's opt-in for titles (ADM-099, MUS-235), and stopping a stream. An arrangeable home. The task list, diagnostic bundles and restore from the UI. Serving under a path prefix behind a reverse proxy (ACC-134). Deep links and translations. | As R1.1. | The OIDC client (SEC-TM-022, SEC-IAM-026 to SEC-IAM-036, SEC-STD-025, SEC-CLI-026). Share-link pages (SEC-API-097, SEC-STD-008). Diagnostic bundles (SEC-PRV-046, SEC-OPS-030). |
+| **R1.3** (discovery and analysis) | The rule editor and smart playlists; the rule format they use ships earlier, in R1.1 work, because saved filters are stored in it (register D-85). Library radio and suggestions. Loudness measured for untagged files (MUS-086), if ADR 5 is accepted. Folder view. Manual curation, the review queue, and fixes that survive every rebuild. Builds for 32-bit ARM boards (ADM-004). | As R1.1. | One reviewed pure-Rust audio decoder in the scan worker, for loudness (ADR 5, SEC-MED-026). The derived-data store (ADM-141) and the neighbour table. |
+| **R2** (video) | Movies and TV, plus everything that needs a native app or a sandbox: downloads, handoff and remote control, casting, the plugin host and the scrobblers, the OpenSubsonic adapter and the Jellyfin adapter's music subset, API keys, household profiles and parental controls, video share links (off by default), webhooks, Opus streams. Built-in remote access. The project-run per-server name service, with its naming client and its certificate-transparency monitoring (ADM-023, register D-07). | Android phones and tablets, Android TV and Google TV (and Fire OS), and the web client. | The pure-Rust remuxer, in a worker process (SEC-MED-081); the sandboxed transcoder (software encoders); iroh remote access for native clients; the name service (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to SEC-NET-071); the plugin host, with each plugin in its own sandboxed process. |
 | **R3** (live) | M3U playlists and live TV: sources, guide, lineup, live playback, recording. | As R2. | The live TV ingest and recorder. |
-| **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, Roku through the Jellyfin adapter's video subset, hardware transcoding, audiobooks and the other adjacent media types, and watch together. | | |
+| **Later** | Wanted, not scheduled. Includes the Apple platforms, Samsung and LG TVs, the desktop shell (SEC-TM-074), Roku through the Jellyfin adapter's video subset, hardware transcoding, audiobooks and the other adjacent media types, household activity features, and watch together. | | |
 | **No** | Deliberately not doing. The row says why. | | |
 
-Two notes apply across all files:
+Three notes apply across all files:
 
+- **Point releases.** R1.1, R1.2 and R1.3 ship after R1 in that order. They
+  use the same server platforms and the same web client, and none adds a
+  native app. The native Android music app is not part of R1.x (register
+  D-14). A security requirement whose only surface moved to a point release
+  is due in that release, and the release cannot ship without it
+  (SEC-STD-004; register "Security requirements for the adopted R1"). Every
+  other R1 requirement stays due in R1.
 - **Apple platforms** (iPhone, iPad, Apple TV, CarPlay, AirPlay, Apple
   Watch) are **Later**, with the note "R2 if the App Store licence decision
   allows" (open decision 3). The App Store terms and the AGPL with no
   contributor agreement are the blocker, not engineering.
 - **Feature release versus client reach.** A feature is placed in the
-  first release in which it ships on at least one client. An R1 feature
-  reaches the native apps when they ship in R2; the UI surfaces column says
-  where.
+  first release in which it ships on at least one client. An R1 or R1.x
+  feature reaches the native apps when they ship in R2; the UI surfaces
+  column says where.
 
-How this lines up with the README roadmap: R1 is the roadmap's server and
-web client milestones; R2 is "Mobile and Android TV", "Video", the iroh
-part of "Remote access", and the OpenSubsonic part of "Adapters"; R3 is
+How this lines up with the README roadmap: R1 and its point releases are
+the roadmap's server and web client milestones. R2 is "Mobile and Android
+TV", "Video", the iroh part of "Remote access" (with the project name
+service), and the OpenSubsonic part of "Adapters"; R3 is
 "M3U playlists and live TV". "Apple builds, Samsung and LG packaging" and
 the Jellyfin adapter's video subset are Later. The root README lists remote
 access and adapters after video as separate milestones; it should be
@@ -134,64 +157,87 @@ updated to match (open decision 2).
 
 ## Summary by area
 
-Counts are the real rows in each file's feature tables, taken after this
-review. Reference rows are counted in their own area and release, and the
-last column says how many of each area's rows are references.
+Counts are the real rows in each file's feature tables, counted
+mechanically on 2026-10-03, after the maps were realigned to the owner's
+answers to D-07 and D-10, and again after D-83 added MUS-236. Reference rows are counted in their own area and
+release, and the last column says how many of each area's rows are
+references (rows whose "How Gunmetal does it better" cell begins with the
+word See followed by a feature ID or a quoted section name, such as
+`See "Deliberately not doing"`; cells that begin "Seeded", "Seeds",
+"Seerr" or "See episodes" are not references).
 
-| Area | File | R1 | R2 | R3 | Later | No | Total | Of which references |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| Music | [music.md](music.md) | 111 | 79 | 1 | 34 | 7 | 232 | 48 |
-| Library and metadata | [library.md](library.md) | 72 | 95 | 1 | 28 | 7 | 203 | 35 |
-| Discovery, home and search | [discovery.md](discovery.md) | 58 | 89 | 3 | 28 | 7 | 185 | 32 |
-| Clients, devices and offline | [clients.md](clients.md) | 30 | 84 | 2 | 32 | 6 | 154 | 1 |
-| Accounts, sharing and security | [accounts.md](accounts.md) | 49 | 57 | 2 | 24 | 3 | 135 | 7 |
-| Setup, administration and operations | [admin.md](admin.md) | 73 | 52 | 1 | 11 | 4 | 141 | 7 |
-| Integrations and extensibility | [integrations.md](integrations.md) | 22 | 91 | 3 | 35 | 8 | 159 | 5 |
-| Adjacent media types | [later-media.md](later-media.md) | 7 | 13 | 0 | 143 | 12 | 175 | 2 |
-| Video playback | [video.md](video.md) | 0 | 136 | 1 | 43 | 5 | 185 | 10 |
-| Live TV and recording | [live-tv.md](live-tv.md) | 0 | 0 | 140 | 25 | 11 | 176 | 0 |
-| **All areas** | | **422** | **696** | **154** | **403** | **70** | **1745** | **147** |
+| Area | File | R1 | R1.1 | R1.2 | R1.3 | R2 | R3 | Later | No | Total | Of which references |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Music | [music.md](music.md) | 73 | 30 | 4 | 9 | 74 | 1 | 38 | 7 | 236 | 48 |
+| Library and metadata | [library.md](library.md) | 54 | 15 | 1 | 7 | 93 | 1 | 29 | 7 | 207 | 42 |
+| Discovery, home and search | [discovery.md](discovery.md) | 28 | 17 | 7 | 10 | 89 | 3 | 29 | 7 | 190 | 32 |
+| Clients, devices and offline | [clients.md](clients.md) | 20 | 10 | 3 | 0 | 80 | 2 | 38 | 6 | 159 | 2 |
+| Accounts, sharing and security | [accounts.md](accounts.md) | 52 | 1 | 10 | 0 | 50 | 2 | 17 | 7 | 139 | 7 |
+| Setup, administration and operations | [admin.md](admin.md) | 58 | 5 | 16 | 3 | 42 | 1 | 18 | 5 | 148 | 7 |
+| Integrations and extensibility | [integrations.md](integrations.md) | 8 | 1 | 2 | 0 | 105 | 2 | 38 | 8 | 164 | 6 |
+| Adjacent media types | [later-media.md](later-media.md) | 4 | 0 | 0 | 3 | 13 | 0 | 149 | 12 | 181 | 5 |
+| Video playback | [video.md](video.md) | 0 | 0 | 0 | 0 | 139 | 1 | 43 | 5 | 188 | 10 |
+| Live TV and recording | [live-tv.md](live-tv.md) | 0 | 0 | 0 | 0 | 0 | 144 | 24 | 12 | 180 | 2 |
+| **All areas** | | **297** | **79** | **43** | **32** | **685** | **157** | **423** | **76** | **1,792** | **161** |
 
 ## The R1 cut
 
-This list is the definition of the first release. R1 holds 422 rows,
-of which 369 are owning rows and 53 are references to them. Before
-this review the maps put about 600 rows in R1; the review moved the
-household and parental system, share links, downloads, handoff and remote
-control, the plugin host and scrobblers, the OpenSubsonic adapter, the
-webhook and public-API platform, rival-database importers, in-app metadata
-editing, most observability screens, and the second tier of discovery rows
-to R2.
+This list is the definition of the first release. The owner adopted it on
+2026-10-02: it is the R1 in the decision register's
+[R1 scope](../decisions.md#r1-scope) section
+([D-10](../decisions.md#d-10-r1-scope-and-the-release-table)), without the
+name service (ADM-023), which
+[D-07](../decisions.md#d-07-https-and-naming-record-8) moved to R2. The
+list is generated from the maps' R1 rows, so it cannot drift from them.
+R1 holds 297 rows: 265 owning rows and 32 references to them. The
+register's list counts two of these references, ADM-121 and CLI-157, as
+features. One owning row, MUS-236 (a minimal track details view), joined
+R1 on 2026-10-03 under
+[D-83](../decisions.md#d-83-track-details-in-r1). Video and live TV have
+no R1 rows.
 
-The floor that remains is larger than the 120 to 150 rows a reviewer
-proposed, for a reason worth stating: many R1 rows are rules of one
-component rather than separate pieces of work (for example ACC-120 "every
-endpoint needs sign-in", ACC-123 "secrets never in URLs or logs", ADM-080
-"one writer"), and the research shows those rules are where the rivals'
-2026 advisories came from. The build order inside R1 should still be: the
-music model and scan, the player (gapless, levelling, the honest
-unplayable state), the queue and playlists, lyrics, search and home, then
-sign-in, backups and the security baseline.
+How R1 got here. Before the first review the maps put about 600 rows in
+R1. That review moved these to R2: the household and parental system,
+downloads, handoff and remote control, the plugin host and scrobblers, the
+OpenSubsonic adapter, the webhook and public-API platform (API keys
+included), rival-database importers, in-app metadata editing, most
+observability screens, and the second tier of discovery rows. The security
+alignment then added the rows the baseline requires, which made 455 rows.
+It also moved API keys and their rows (ACC-049, INT-011, INT-012, INT-018
+to INT-022, INT-026) to R2, and made the password fallback and two-factor
+codes No (ACC-052, ACC-053). The owner's answers then moved 154 of those
+455 rows to point releases: 79 to R1.1, 43 to R1.2 and 32 to R1.3 (see
+"After R1: the point releases" below). Five more went to R2:
 
-### Music (100 features, plus 11 references)
+- the name service (ADM-023, D-07);
+- old clients keep working (CLI-032), which matters only for native apps;
+- the change feed and playlist writes for tools (INT-006, INT-138), which
+  need API keys;
+- LIB-056, whose owning row (MUS-014) is R2.
+
+Even this R1 is larger than the 120 to 150 rows a reviewer proposed, for a
+reason worth stating. Many R1 rows are rules of one component rather than
+separate pieces of work (for example ACC-120 "every endpoint needs
+sign-in", ACC-123 "secrets never in URLs or logs", ADM-080 "one writer"),
+and the research shows those rules are where the rivals' 2026 advisories
+came from. The build order inside R1 should still be: the music model and
+scan, the player (gapless, levelling, the honest unplayable state), the
+queue and playlists, lyrics, search and home, then sign-in, backups and the
+security baseline. The security doors themselves come first in the plan's
+waves, because every feature uses them.
+
+### Music (68 features, plus 5 references)
 
 - MUS-001: Every credited artist linked
 - MUS-002: Display credit kept as tagged
 - MUS-003: Album artist separate from track artist
 - MUS-004: "Appears on"
-- MUS-005: Roles: composer, conductor, lyricist, producer, remixer, performer
 - MUS-006: Same-name artists kept apart
-- MUS-007: Merge, split and alias artists
-- MUS-008: Release groups and editions
-- MUS-010: Release types
 - MUS-011: Compilations and Various Artists
 - MUS-012: Multi-disc albums with disc titles
-- MUS-013: Original date versus release date
 - MUS-017: Multi-valued genres per track
-- MUS-019: Moods, styles, labels and grouping
 - MUS-020: Sort names and natural sort
 - MUS-021: Technical details
-- MUS-024: Artist images from local files
 - MUS-027: Several music libraries with per-user access
 - MUS-032: Core formats
 - MUS-034: Multi-value tags in every tag format
@@ -201,15 +247,10 @@ sign-in, backups and the security baseline.
 - MUS-039: Album art from file and folder
 - MUS-040: Artwork sized for sync
 - MUS-044: Library health report
-- MUS-047: Explicit flag
-- MUS-049: Music home with sections you arrange
 - MUS-050: Continue listening by album or playlist
 - MUS-051: Artist page
 - MUS-052: All songs by an artist
-- MUS-053: Sort and filter a discography
 - MUS-054: Album page
-- MUS-055: Credits panel
-- MUS-056: Library views with remembered sort
 - MUS-059: Recently added that ignores upgrades
 - MUS-060: Genre, mood and label browse
 - MUS-061: Music search fields
@@ -218,55 +259,32 @@ sign-in, backups and the security baseline.
 - MUS-069: Encoder delay and padding honoured
 - MUS-070: Next track fetched early
 - MUS-071: Instant, exact seeking
-- MUS-072: Fades on pause, skip and resume
 - MUS-073: Browser media controls
-- MUS-076: Sleep timer
 - MUS-077: Repeat and stop-after
 - MUS-079: Damaged files skipped safely
 - MUS-084: ReplayGain and R128 tags, track and album
 - MUS-085: Opus gain done right
-- MUS-086: Loudness measured for untagged files
 - MUS-087: Auto, track and album modes
 - MUS-088: Target level with no clipping
 - MUS-089: Fallback for unmeasured tracks
-- MUS-090: Show the gain applied
 - MUS-099: A quality badge that tells the truth
 - MUS-108: Persistent now-playing bar
 - MUS-109: Love from the bar
 - MUS-110: Full-screen player
 - MUS-113: Layout contract
-- MUS-114: Track info sheet
 - MUS-116: Three-lane queue
 - MUS-117: Play next keeps your order
 - MUS-118: Add to queue and play last
 - MUS-119: Edit the whole queue
-- MUS-120: Reorder while shuffled
 - MUS-122: Persistent queue on every device
 - MUS-123: "Playing from" on every item
-- MUS-125: Save queue as playlist
 - MUS-126: Shuffle modes: random and spread out
-- MUS-127: Shuffle by album
-- MUS-128: Reshuffle the rest
-- MUS-129: Suggestions lane, visible and off by default
 - MUS-132: Manual playlists
 - MUS-133: Add-to-playlist sheet
-- MUS-134: Duplicate warning
-- MUS-135: Sort, filter and search inside a playlist
-- MUS-137: Automatic playlist covers
-- MUS-139: Pin and love playlists
-- MUS-140: M3U and M3U8 import and export
-- MUS-143: Smart playlists
-- MUS-144: Visual rule editor
-- MUS-145: Rich rule fields
-- MUS-146: Limits, sorts and percentages
 - MUS-149: Loved tracks as a playlist
 - MUS-154: Embedded lyrics
 - MUS-155: Synced .lrc sidecars
-- MUS-156: Word-by-word lyrics
-- MUS-158: Lyrics stay open
-- MUS-165: Library radio from any seed
 - MUS-180: Loves
-- MUS-181: Star ratings
 - MUS-182: Play counts, last played and skips
 - MUS-183: Listening history by date
 - MUS-184: Remove plays from history
@@ -275,18 +293,19 @@ sign-in, backups and the security baseline.
 - MUS-227: Accessible player
 - MUS-229: Honest unplayable state
 - MUS-230: Audio packaging for the web player
+- MUS-233: Clear history for a period, or all of it
+- MUS-234: Choose how long history is kept
+- MUS-236: Track details
 
-References that ship with their owning rows: MUS-028 (see LIB-008), MUS-038 (see LIB-028), MUS-042 (see LIB-016), MUS-043 (see LIB-021), MUS-057 (see DIS-107), MUS-058 (see DIS-101), MUS-062 (see DIS-111), MUS-063 (see DIS-110), MUS-185 (see ACC-117), MUS-189 (see ADM-042), MUS-190 (see ADM-099).
+References that ship with their owning rows: MUS-038 (see LIB-028), MUS-042 (see LIB-016), MUS-043 (see LIB-021), MUS-062 (see DIS-111), MUS-185 (see ACC-117).
 
-### Library and metadata (47 features, plus 25 references)
+### Library and metadata (38 features, plus 16 references)
 
 - LIB-001: Music libraries
 - LIB-003: Several folders per library
 - LIB-004: Several libraries
 - LIB-005: Add a library at first run
-- LIB-006: Exclusion rules
 - LIB-007: Read-only media
-- LIB-008: Folder view
 - LIB-011: Room for other media kinds
 - LIB-012: Manual scan
 - LIB-013: Scheduled safety-net scan
@@ -299,22 +318,15 @@ References that ship with their owning rows: MUS-028 (see LIB-008), MUS-038 (see
 - LIB-020: No helper process per file
 - LIB-021: Usable during the first scan
 - LIB-022: Scan and job activity
-- LIB-024: Background analysis that resumes
-- LIB-025: Upgrades without full rescans
 - LIB-028: Stable identity for every file
 - LIB-029: Moves and renames keep everything
 - LIB-030: Better copies replace, not duplicate
-- LIB-031: Move the server, keep the library
 - LIB-032: An offline drive never empties the library
 - LIB-033: Trash with a grace period
-- LIB-034: Missing files list
 - LIB-045: Albums built from tags
 - LIB-051: Same-titled albums stay apart
-- LIB-058: Merge and split albums by hand
 - LIB-059: Every raw tag kept
 - LIB-097: Identify without the internet
-- LIB-098: Every decision explains itself
-- LIB-099: Review queue
 - LIB-108: Nothing leaves by default
 - LIB-134: Embedded cover art
 - LIB-135: Local artwork files
@@ -322,94 +334,55 @@ References that ship with their owning rows: MUS-028 (see LIB-008), MUS-038 (see
 - LIB-142: Images sized for each device
 - LIB-143: Safe image handling
 - LIB-146: Quality badges as data
-- LIB-179: Fixes survive everything
-- LIB-187: One artist page across libraries
-- LIB-192: Playlist files in music folders
 - LIB-193: Damaged and unreadable files
-- LIB-194: Tag problems
+- LIB-204: Skipped links and approved link targets
+- LIB-205: Quarantined files
+- LIB-206: Scanner isolation status
+- LIB-207: Unresponsive storage pauses one folder
 
-References that ship with their owning rows: LIB-036 (see MUS-034), LIB-037 (see MUS-001), LIB-038 (see MUS-035), LIB-039 (see MUS-003), LIB-040 (see MUS-006), LIB-041 (see MUS-007), LIB-042 (see MUS-004), LIB-043 (see MUS-005), LIB-044 (see MUS-020), LIB-046 (see MUS-036), LIB-047 (see MUS-008), LIB-048 (see MUS-010), LIB-049 (see MUS-011), LIB-050 (see MUS-012), LIB-052 (see MUS-013), LIB-053 (see MUS-017), LIB-054 (see MUS-019), LIB-056 (see MUS-014), LIB-063 (see MUS-021), LIB-064 (see MUS-069), LIB-065 (see MUS-084), LIB-066 (see MUS-086), LIB-067 (see MUS-154), LIB-068 (see MUS-155), LIB-195 (see ADM-125).
+References that ship with their owning rows: LIB-036 (see MUS-034), LIB-037 (see MUS-001), LIB-038 (see MUS-035), LIB-039 (see MUS-003), LIB-040 (see MUS-006), LIB-042 (see MUS-004), LIB-044 (see MUS-020), LIB-046 (see MUS-036), LIB-049 (see MUS-011), LIB-050 (see MUS-012), LIB-053 (see MUS-017), LIB-063 (see MUS-021), LIB-064 (see MUS-069), LIB-065 (see MUS-084), LIB-067 (see MUS-154), LIB-068 (see MUS-155).
 
-### Discovery, home and search (54 features, plus 4 references)
+### Discovery, home and search (27 features, plus 1 reference)
 
 - DIS-001: Home made only of your media
 - DIS-002: Instant home
-- DIS-003: Build your own home
 - DIS-004: Good default home and empty states
-- DIS-007: Layout follows you
-- DIS-009: Rows as long as you like
-- DIS-012: Keep a library off home
-- DIS-013: Pinned shortcuts
-- DIS-015: A home that does not move
-- DIS-019: Speed you can check
 - DIS-020: Continue listening
 - DIS-021: Recently played
-- DIS-022: Dismiss from Continue rows
-- DIS-023: Undo, and a Hidden page
 - DIS-035: Recently added
 - DIS-036: Arrivals grouped by album
 - DIS-038: Upgrades are not "new"
 - DIS-045: Loves
 - DIS-046: Loved songs as a list
-- DIS-047: Personal ratings
 - DIS-050: History by date
 - DIS-051: Your play counts
 - DIS-052: Remove a play
 - DIS-058: Export everything you told the server
-- DIS-060: More like this
-- DIS-061: "Because you played" rows
-- DIS-062: Every suggestion says why
-- DIS-067: Radio from anything
-- DIS-070: Suggestions after the queue ends
-- DIS-071: Your top tracks by an artist
 - DIS-083: One search box
 - DIS-084: Search on the device
 - DIS-085: Forgiving matching
-- DIS-086: Search tags, genres and moods
-- DIS-087: Search people by role
-- DIS-088: Scope a search
-- DIS-089: Recent searches
-- DIS-091: Find inside a list
 - DIS-100: Endless, smooth lists
-- DIS-101: Alphabet jump
-- DIS-102: Filters on what the scanner knows
-- DIS-103: Filters remembered
 - DIS-104: Sorts that matter
-- DIS-105: Save a filter
-- DIS-107: Grid, list and compact
 - DIS-109: Browse pages
-- DIS-110: Multi-select
 - DIS-111: The same menu everywhere
 - DIS-112: Back keeps your place
-- DIS-119: One rule language
-- DIS-120: Rule editor with live preview
-- DIS-121: Smart playlists
-- DIS-122: Limits, order and refresh
 - DIS-140: Discovery per person
+- DIS-186: Clear a period or all history
+- DIS-187: Choose how long history is kept
+- DIS-188: History held during account recovery
+- DIS-189: "Only you can see this"
 
-References that ship with their owning rows: DIS-053 (see ACC-117), DIS-106 (see LIB-008), DIS-163 (see CLI-040), DIS-173 (see CLI-034).
+References that ship with their owning rows: DIS-053 (see ACC-117).
 
-### Clients, devices and offline (30 features)
+### Clients, devices and offline (19 features, plus 1 reference)
 
 - CLI-001: Web client served by your own server
 - CLI-002: Published browser support list
-- CLI-003: Installable web app
 - CLI-022: Library synced to the device
-- CLI-024: Sync and storage status
-- CLI-025: Losing the server never blocks the app
-- CLI-026: Offline is not a separate mode
-- CLI-030: Settings that follow you
 - CLI-031: A layout contract
-- CLI-032: Old clients keep working
-- CLI-033: Diagnostics you can read first
-- CLI-034: Deep links
-- CLI-040: Letter jump in long lists
 - CLI-060: Wide three-pane layout
-- CLI-062: Multi-select, drag and right-click
 - CLI-070: Lock-screen controls from the web app
 - CLI-093: Offline plays and progress merge cleanly
-- CLI-099: Fetch ahead on patchy signal
-- CLI-103: Continue on this device
 - CLI-135: Screen readers reach every control
 - CLI-136: Accessibility as a release gate
 - CLI-138: Full keyboard use with visible focus
@@ -417,47 +390,52 @@ References that ship with their owning rows: DIS-053 (see ACC-117), DIS-106 (see
 - CLI-140: Reduced motion
 - CLI-141: Themes, including high contrast
 - CLI-142: Motor accessibility
-- CLI-146: Translations with a completeness bar
 - CLI-149: Phone-width web layout
 - CLI-150: Secure context in R1
-- CLI-151: Mono audio and channel balance
+- CLI-155: Personal or shared browser
+- CLI-156: Signing out leaves nothing behind
+- CLI-159: Outside links say where they go
 
-### Accounts, sharing and security (45 features, plus 4 references)
+References that ship with their owning rows: CLI-157 (see ACC-117).
+
+### Accounts, sharing and security (50 features, plus 2 references)
 
 - ACC-001: Claim a new server with a one-time setup code
 - ACC-002: Owner account with no vendor account
 - ACC-003: Sign-in and playback with no internet
 - ACC-004: Owner recovery from the host
+- ACC-005: Hand ownership to another person
 - ACC-006: Local user accounts
 - ACC-007: No user list before sign-in
 - ACC-008: Disable an account without deleting it
+- ACC-009: Deletion with a grace period
 - ACC-010: Export your own data
-- ACC-011: Name and picture for each profile
 - ACC-012: Preferences that follow you
 - ACC-013: Identity data that survives a cache rebuild
 - ACC-017: Profiles separate from sign-in
 - ACC-030: Every path obeys the restrictions
 - ACC-037: Library access per person
-- ACC-040: Several administrators
-- ACC-049: Scoped tokens for integrations
 - ACC-050: Passkeys
-- ACC-052: Password sign-in as a fallback
-- ACC-053: Two-factor codes with recovery codes
 - ACC-055: Manage your own sign-in methods
 - ACC-056: Confirm sensitive changes
-- ACC-057: Single sign-on with your own identity provider
+- ACC-062: Approve a new browser from a signed-in one
 - ACC-063: Protection against guessing
 - ACC-064: Help a locked-out user
 - ACC-065: Sign out everywhere when a credential changes
 - ACC-068: Your devices, in one list
 - ACC-069: Revoke one device
 - ACC-070: Sign out of all sessions
+- ACC-071: New-device alerts
+- ACC-075: Stream limits that count playing, not browsing
+- ACC-076: Device limits and allow-lists
 - ACC-079: Session lifetimes
 - ACC-080: Invite by link or QR code
 - ACC-097: Works behind your own reverse proxy or VPN
 - ACC-098: HTTPS served by the server
+- ACC-099: Automatic certificates for your own domain
 - ACC-113: Nothing leaves the house by default
 - ACC-114: No social feed
+- ACC-115: What your admin can see
 - ACC-117: Private listening
 - ACC-118: Remove plays from history
 - ACC-120: Every endpoint needs sign-in
@@ -468,36 +446,30 @@ References that ship with their owning rows: DIS-053 (see ACC-117), DIS-106 (see
 - ACC-125: Uploads cannot reach the filesystem by name
 - ACC-126: An advisory for every fix
 - ACC-128: Nobody can switch your server off remotely
-- ACC-134: Serve under a path prefix behind a reverse proxy
+- ACC-136: Delete your own account
+- ACC-137: Recovery codes
+- ACC-138: Recovery hold
+- ACC-139: Your own security log
 
-References that ship with their owning rows: ACC-072 (see ADM-099), ACC-073 (see ADM-102), ACC-078 (see ADM-110), ACC-127 (see ADM-054).
+References that ship with their owning rows: ACC-078 (see ADM-110), ACC-127 (see ADM-054).
 
-### Setup, administration and operations (66 features, plus 7 references)
+### Setup, administration and operations (51 features, plus 7 references)
 
 - ADM-001: Single self-contained binary
 - ADM-002: Official container image
 - ADM-003: Container tags that pin a version
-- ADM-004: Builds for small ARM boards, including 32-bit
 - ADM-005: Install as an OS service with one command
-- ADM-006: Refuse to run as root by default
+- ADM-006: Refuse to run as root
 - ADM-007: Configuration that is checked, not guessed
-- ADM-010: Published footprint numbers
-- ADM-011: Hardware guide sized for direct play
 - ADM-020: Setup closes for good once an admin exists
 - ADM-021: A secure context for passkeys at setup
 - ADM-022: Built-in HTTPS for a domain you own
 - ADM-025: Add music folders with live checks
-- ADM-027: Language, region and time zone
 - ADM-028: Privacy choices at setup
 - ADM-029: Restore from backup on the welcome screen
-- ADM-030: "Coming from another server?" step
 - ADM-032: Startup and migration status page
-- ADM-042: Import Last.fm and ListenBrainz export files
-- ADM-043: Bulk playlist import with a match report
-- ADM-044: Matching with reasons and an unmatched queue
-- ADM-051: Move to new hardware, OS or container
 - ADM-052: Hand the server to a new owner
-- ADM-053: Opt-in update check from a signed feed
+- ADM-053: Update check from a signed feed, asked at setup
 - ADM-054: Security advisory banner
 - ADM-056: Automatic snapshot before every upgrade
 - ADM-057: Check migrations before serving
@@ -506,77 +478,91 @@ References that ship with their owning rows: ACC-072 (see ADM-099), ACC-073 (see
 - ADM-060: Rollback safety stated for every release
 - ADM-065: Daily backups on by default
 - ADM-066: Backup contents shown plainly
+- ADM-068: Encrypted backups
 - ADM-069: Download a backup, upload it elsewhere
-- ADM-070: Restore from the UI with a restore point and preview
 - ADM-071: Restore from the command line
 - ADM-072: Backups verified after they are written
-- ADM-074: Full export in documented formats
 - ADM-077: Rebuild the cache instead of repairing it
 - ADM-078: Checksummed user log that recovers from a torn write
 - ADM-079: Refuse a data directory on a network filesystem
 - ADM-080: One writer, so no "database is locked"
 - ADM-083: Free-space guard
-- ADM-088: Scans that report bytes read
 - ADM-089: Media mounted read-only
 - ADM-090: Separate locations for settings, log, cache and scratch space
-- ADM-093: One task list with run, cancel and history
 - ADM-095: Heavy jobs that are throttled and resumable
-- ADM-099: Now playing
-- ADM-100: Playback decision and its reason, per session
-- ADM-102: Stop a session with a message
 - ADM-108: Health of each library root
-- ADM-109: Health summary on the admin home
 - ADM-110: Activity and audit log
-- ADM-112: Restart and shut down from the UI
-- ADM-113: Emergency page served by the server
+- ADM-111: Retention and anonymisation of activity
 - ADM-116: Admin alerts with free destinations
 - ADM-119: Structured logs with rotation
 - ADM-122: Sign-in failure lines for fail2ban
 - ADM-123: `gunmetal doctor`
-- ADM-124: Diagnostic bundle with preview and masking
-- ADM-125: File inspector
 - ADM-128: Health endpoints for containers
 - ADM-129: Network activity page
-- ADM-130: Local crash records
-- ADM-140: Server name and sign-in message
-- ADM-141: Derived-data store kept across rebuilds
+- ADM-142: Security summary on the admin home
+- ADM-143: Recovery kit at setup
+- ADM-144: Rotate every server key in one action
+- ADM-145: Audit log verification and an anchor off the server
+- ADM-146: Outbound proxy and offline mode
+- ADM-147: Configuration changes made outside the server are reported
+- ADM-148: Compromise runbook
 
 References that ship with their owning rows: ADM-018 (see ACC-001), ADM-019 (see ACC-002), ADM-031 (see LIB-021), ADM-034 (see ACC-004), ADM-085 (see LIB-032), ADM-086 (see LIB-033), ADM-121 (see ACC-123).
 
-### Integrations and extensibility (20 features, plus 2 references)
+### Integrations and extensibility (8 features)
 
 - INT-001: API reference generated from code
 - INT-005: Capability discovery
-- INT-006: Change feed (delta sync)
 - INT-007: Consistent list endpoints
 - INT-008: IDs that survive rebuilds and file replacement
 - INT-009: MusicBrainz IDs on music items
-- INT-011: Path-scoped library refresh
-- INT-012: Per-token rate limits
 - INT-013: Health check for uptime monitors
-- INT-018: Scope limits by library, root and user
-- INT-019: Expiry and rotation
-- INT-020: Last use and audit trail per token
-- INT-021: Revoke one or revoke all
-- INT-022: No-escalation rule
 - INT-023: Credentials in headers only
-- INT-026: "Who am I" check for tools
-- INT-134: Playback decision in the API
-- INT-138: Playlist write API
-- INT-147: Stable deep links
 - INT-151: Documented history export
 
-References that ship with their owning rows: INT-017 (see ACC-049), INT-107 (see ADM-042).
-
-### Adjacent media types (7 features)
+### Adjacent media types (4 features)
 
 - LAT-001: Item kinds in the data model
-- LAT-002: People with typed roles
 - LAT-006: Typed positions in the user log
 - LAT-007: All user-made data in the user log
-- LAT-008: Typed links between items
 - LAT-009: Listening contexts in the queue protocol
-- LAT-010: Spoken word kept out of music
+
+### After R1: the point releases
+
+The rest of the earlier R1 ships in three point releases, in this order.
+The register's [Point releases after R1](../decisions.md#point-releases-after-r1)
+names every row. The IDs below are generated from the maps' Release cells.
+The register counts two of the references below, MUS-151 (R1.2) and DIS-106
+(R1.3), among its features, so its feature counts for those two releases
+are one higher than these; the totals agree.
+
+**R1.1, bring your music in** (79 rows: 68 owning rows and 11 references)
+
+- Music: MUS-005, MUS-008, MUS-010, MUS-013, MUS-019, MUS-024, MUS-047, MUS-053, MUS-055, MUS-056, MUS-072, MUS-076, MUS-090, MUS-114, MUS-120, MUS-125, MUS-127, MUS-128, MUS-134, MUS-135, MUS-137, MUS-139, MUS-140, MUS-156, MUS-158, MUS-181; references MUS-057 (see DIS-107), MUS-058 (see DIS-101), MUS-063 (see DIS-110), MUS-189 (see ADM-042).
+- Library and metadata: LIB-006, LIB-025, LIB-031, LIB-034, LIB-098, LIB-111, LIB-112, LIB-187, LIB-192, LIB-194; references LIB-043 (see MUS-005), LIB-047 (see MUS-008), LIB-048 (see MUS-010), LIB-052 (see MUS-013), LIB-054 (see MUS-019).
+- Discovery, home and search: DIS-019, DIS-022, DIS-023, DIS-047, DIS-071, DIS-086, DIS-087, DIS-088, DIS-089, DIS-091, DIS-101, DIS-102, DIS-103, DIS-105, DIS-107, DIS-110; references DIS-163 (see CLI-040).
+- Clients, devices and offline: CLI-003, CLI-024, CLI-025, CLI-026, CLI-030, CLI-040, CLI-062, CLI-099, CLI-103, CLI-151.
+- Accounts, sharing and security: ACC-011.
+- Setup, administration and operations: ADM-030, ADM-042, ADM-043, ADM-044, ADM-051.
+- Integrations and extensibility: references INT-107 (see ADM-042).
+
+**R1.2, the household and the admin** (43 rows: 37 owning rows and 6 references)
+
+- Music: MUS-049, MUS-235; references MUS-151 (see ACC-086), MUS-190 (see ADM-099).
+- Library and metadata: references LIB-195 (see ADM-125).
+- Discovery, home and search: DIS-003, DIS-007, DIS-009, DIS-012, DIS-013, DIS-015; references DIS-173 (see CLI-034).
+- Clients, devices and offline: CLI-033, CLI-034, CLI-146.
+- Accounts, sharing and security: ACC-040, ACC-057, ACC-086, ACC-087, ACC-088, ACC-089, ACC-116, ACC-134; references ACC-072 (see ADM-099), ACC-073 (see ADM-102).
+- Setup, administration and operations: ADM-010, ADM-011, ADM-027, ADM-070, ADM-074, ADM-093, ADM-099, ADM-100, ADM-102, ADM-109, ADM-112, ADM-113, ADM-124, ADM-125, ADM-130, ADM-140.
+- Integrations and extensibility: INT-134, INT-147.
+
+**R1.3, discovery and analysis** (32 rows: 28 owning rows and 4 references)
+
+- Music: MUS-007, MUS-086, MUS-129, MUS-143, MUS-144, MUS-145, MUS-146, MUS-165; references MUS-028 (see LIB-008).
+- Library and metadata: LIB-008, LIB-024, LIB-058, LIB-099, LIB-179; references LIB-041 (see MUS-007), LIB-066 (see MUS-086).
+- Discovery, home and search: DIS-060, DIS-061, DIS-062, DIS-067, DIS-070, DIS-119, DIS-120, DIS-121, DIS-122; references DIS-106 (see LIB-008).
+- Setup, administration and operations: ADM-004, ADM-088, ADM-141.
+- Adjacent media types: LAT-002, LAT-008, LAT-010.
 
 ## Differentiators
 
@@ -593,17 +579,23 @@ good, the entry says so.
    players, Kodi and Infuse on native direct play; the edge is that every
    first-party client defaults to the original and never burns in
    subtitles.
-2. **Gapless, levelled music in the browser** (MUS-067, MUS-230, MUS-086,
-   MUS-087; R1). Pain: gapless is Jellyfin's most-voted music request (647
-   votes, open since 2019), and Navidrome's web player will not do it.
-   Plexamp already does this well, but only in its own apps. Risks: the
-   audio packager's per-browser support is unverified, and scan-time
-   loudness needs an ADR on in-process decoders.
+2. **Gapless, levelled music in the browser** (MUS-067, MUS-230, MUS-087;
+   R1, with measured loudness, MUS-086, in R1.3). Pain: gapless is
+   Jellyfin's most-voted music request (647 votes, open since 2019), and
+   Navidrome's web player will not do it. Plexamp already does this well,
+   but only in its own apps. The packager runs in a worker process and
+   streams segments over a pipe. From R1.3, loudness is measured by a
+   reviewed pure-Rust decoder in the scan worker. Either way no untrusted
+   audio is parsed in the server process (SEC-MED-018, SEC-MED-026,
+   SEC-MED-081). R1 levels from loudness tags, with the fallback gain for
+   untagged tracks (MUS-089). Risks: the packager's per-browser support is
+   unverified, and measured loudness needs ADR 5 (open decision 8).
 3. **Instant browsing and search from a library synced to the device**
    (CLI-022, DIS-084, DIS-002, MUS-208; R1). Pain: Jellyfin's lazy-loading
    request has 1,179 votes and its search regressed repeatedly in 2025.
-   Every list and search answers locally, and keeps working when the server
-   is down (over HTTPS or localhost, CLI-150).
+   Every list and search answers locally, over HTTPS or on localhost
+   (CLI-150). From R1.1 the app also loads and keeps working when the
+   server is down (CLI-025).
 4. **Free offline downloads that manage themselves** (CLI-078, CLI-080,
    CLI-081; R2). Pain: offline is Jellyfin's most-voted request (1,820
    votes); Plex and Emby charge for downloads, and Plexamp only removed its
@@ -614,17 +606,27 @@ good, the entry says so.
    April 2025; Jellyfin leaves families to VPNs and reverse proxies. Native
    apps embed iroh. Honest limits: iroh's quoted direct-connection rate is
    unverified on carriers and TVs, the fee question depends on the relay
-   decision, and browsers still need the owner's proxy (ACC-102 is Later).
-6. **Modern sign-in, and revocation that really stops playback**
-   (ACC-050, ACC-053, ACC-057, ACC-120 to ACC-122; R1). Pain: single
-   sign-on (1,191 votes) and two-factor (1,103) are Jellyfin's most-voted
-   security requests; plex.tv has been breached twice; the rivals' 2026
-   advisories are mostly authorisation mistakes. Passkeys where the server
-   has a domain, password plus two-factor elsewhere (parity with Plex on
-   two-factor), OIDC, per-object authorisation tested on every route, and
-   stream URLs whose in-flight responses are cut on revocation.
+   decision, and browsers reach the server from outside only through the
+   owner's proxy or a tailnet until browser access without a domain
+   (ACC-102, R2) ships.
+6. **Sign-in with nothing to steal, and revocation that really stops
+   playback** (ACC-050, ACC-062, ACC-120 to ACC-122; R1, with OIDC,
+   ACC-057, in R1.2). Pain: single sign-on (1,191 votes) and two-factor
+   (1,103) are Jellyfin's most-voted security requests; plex.tv has been
+   breached twice; the rivals' 2026 advisories are mostly authorisation
+   mistakes. Passkeys everywhere, over real HTTPS from the owner's own
+   domain, a tailnet or the machine itself (the per-server name joins them
+   in R2); a browser that cannot use a passkey is approved from your phone
+   and gets a session that can play but never administer (ACC-062); from
+   R1.2, OIDC for households that run an identity provider. There are
+   no passwords and no authenticator codes, so there is nothing to stuff,
+   phish or leak (SEC-IAM-025); a passkey already proves both the device
+   and the face or fingerprint that unlocks it, which is more than
+   Plex's two-factor. Per-object authorisation is tested on every route,
+   and stream URLs have their in-flight responses cut on revocation.
 7. **History and fixes that survive every move, upgrade and rebuild**
-   (LIB-028, LIB-029, LIB-179, ADM-059, ADM-141; R1). Pain: the "Plex
+   (LIB-028, LIB-029, ADM-059; R1, with LIB-179 and ADM-141 in R1.3).
+   Pain: the "Plex
    Dance"; Jellyfin 10.11 lost watched state on file replacement (#15001);
    PlexDBRepair exists because databases hold irreplaceable data. Gunmetal
    keys everything to content identity, keeps user data in the user log,
@@ -635,20 +637,23 @@ good, the entry says so.
    charges for backups. A backup is the user log, settings and keys, so it
    can run daily by default; an older binary rolls back by rebuilding.
 9. **A music model that gets credits, editions and discs right** (MUS-001,
-   MUS-005, MUS-008, MUS-010, MUS-012; R1). Pain: Plex has refused multiple
+   MUS-012; R1, with roles, editions and release types, MUS-005, MUS-008
+   and MUS-010, in R1.1). Pain: Plex has refused multiple
    artists since 2015 (520 votes, plus 866 for robust tags), and Jellyfin
    regressed in 10.11. Navidrome is already good here, so this beats
    Navidrome only together with Gunmetal's own player.
 10. **Smart playlists and home rows from one free rule language** (MUS-143,
-    MUS-144, DIS-119 to DIS-121; R1). Pain: Jellyfin has no smart playlists
-    (588 votes) and Navidrome makes people write JSON. Plexamp's are good.
-    The same rules drive home rows now and download rules in R2.
-11. **Lyrics that are simply there, free** (MUS-154 to MUS-156, MUS-158;
-    R1). Pain: Plexamp charges for lyrics and Plex users want them shown
+    MUS-144, DIS-119 to DIS-121; R1.3). Pain: Jellyfin has no smart
+    playlists (588 votes) and Navidrome makes people write JSON. Plexamp's
+    are good. The same rules drive home rows and, in R2, download rules.
+11. **Lyrics that are simply there, free** (MUS-154, MUS-155; R1, with
+    word-timed lyrics and lyrics that stay open, MUS-156 and MUS-158, in
+    R1.1). Pain: Plexamp charges for lyrics and Plex users want them shown
     automatically (260 votes). Embedded, LRC and word-timed lyrics are read
     at scan time.
 12. **Your own record, under your control** (MUS-184, DIS-050, ACC-117,
-    ACC-010, DIS-022, DIS-023; R1). Pain: removing a play has 5,458 Spotify
+    ACC-010; R1, with dismiss and undo, DIS-022 and DIS-023, in R1.1).
+    Pain: removing a play has 5,458 Spotify
     votes and browsing history by date 2,035; Jellyfin's dismiss-with-undo
     request has 1,725. Remove plays, browse history by date, private
     sessions (no media server we checked documents them, unverified) and a
@@ -690,14 +695,28 @@ Every **No** row in the maps is listed here once, grouped by the reason.
   (LIB-133, MUS-048), a renamer (LIB-085), downloading trailers into media
   folders (LIB-162), baking overlays into posters (LIB-147, INT-143),
   merge-and-embed tools for books (LAT-046), and copying or syncing media
-  between drives or servers (ADM-092, LAT-112). Media stays read-only; the
-  one planned exception is opt-in deletion on a writable root (ADM-139,
-  Later).
+  between drives or servers (ADM-092, LAT-112). The server never creates,
+  changes or deletes anything under a media root, with no exception
+  (SEC-TM-042). Removing an item from the app (ADM-139, Later) hides it
+  and puts it in a trash with undo and audit; the file stays on disk, and
+  the owner deletes it on the host.
+- **Passwords and authenticator codes.** Password sign-in as a fallback
+  (ACC-052) and two-factor codes (ACC-053): there are no passwords, so a
+  code would protect nothing, and both can be stuffed, phished or sniffed.
+  Passkeys, OIDC and approval from a signed-in device replace them
+  (SEC-IAM-025).
+- **Sign-in delegated to something that is not an identity provider.**
+  LDAP directory sign-in (ACC-059) and sign-in from a trusted
+  reverse-proxy header (ACC-060): a proxy's identity header is never
+  authentication, and a directory belongs behind an OIDC provider. Either
+  would need its own architecture record first (SEC-NET-023).
 - **Protocols and shortcuts that undo per-object authorisation.**
   Passwordless sign-in on the local network (ACC-066), automatic port
-  forwarding (ACC-106), a DLNA server in the core (CLI-115, VID-152), Plex
-  API compatibility (INT-101), in-process native plugins (INT-073), plugins
-  that inject scripts into the web client (INT-074), scripts run inside the
+  forwarding (ACC-106), a DLNA server in the core (CLI-115, VID-152),
+  HDHomeRun emulation, which needs unauthenticated plain-HTTP endpoints and
+  LAN discovery (LIV-172; SEC-NET-001), Plex API compatibility (INT-101),
+  in-process native plugins (INT-073), plugins that inject scripts into
+  the web client (INT-074), scripts run inside the
   server (LIV-145), and Stalker portals and redirect mode for IPTV (LIV-021,
   LIV-022).
 - **DRM circumvention and legally exposed data.** DRM-protected audiobooks
@@ -726,8 +745,10 @@ Every **No** row in the maps is listed here once, grouped by the reason.
   (CLI-126), and CableCARD and QAM cable tuners (live-tv.md, Deliberately
   not doing).
 - **Social and tracking features.** A public social layer (DIS-177), a
-  friends' listening feed (MUS-191), and usage telemetry on by default
-  (ADM-136).
+  friends' listening feed (MUS-191), usage telemetry on by default
+  (ADM-136), and crash reports sent to the project, even opt-in (ADM-131):
+  a crash record goes into the diagnostic bundle (ADM-124), which the admin
+  may attach to a report themselves (SEC-PRV-009).
 - **Paywalls and vendor caps.** No paid tier, unlock or device cap for any
   feature, in any area (ADR 1, decision 10).
 
@@ -736,7 +757,12 @@ Every **No** row in the maps is listed here once, grouped by the reason.
 These are the decisions that cross areas or shape the release plan,
 de-duplicated from the area files. Each area file keeps its own list for
 decisions that affect only that area; where an area decision is settled
-here, the area file says so.
+here, the area file says so. The [decision register](../decisions.md) is
+now the single list of the owner's decisions and cites each item below by
+number. Where a recommendation here was written before the security
+baseline, the item now gives the register's recommendation and its ID;
+"owner to confirm" marks an item that rests on one of the baseline's open
+owner decisions, applied as the baseline recommends.
 
 1. **ADR 3: durable user state.** ADR 1 makes only watch history
    irreplaceable, but most R1 rows that write user data depend on more
@@ -763,34 +789,62 @@ here, the area file says so.
    API keys only. Reasons: R1 is already large, the adapter doubles the
    authorisation surface, and which Subsonic apps support API-key sign-in is
    unverified. *Recommendation:* keep R2, and state the R1 phone limits
-   plainly (CLI-003). Legacy password sign-in for older apps (INT-088) is a
-   separate decision; recommend Later and off by default.
+   plainly (CLI-003). Older Subsonic apps get INT-088 as it now reads, in
+   R2 with the adapter: a per-app legacy key the person marks as legacy,
+   off by default, accepted only on home-network paths, valid for 90 days
+   by default, never an account password, with token-and-salt refused
+   (SEC-EXT-069). See register D-54 and D-55; owner to confirm (security
+   README decision 8).
 5. **Ship the native Android music app early, as an R1 point release**
-   (clients 1). *Recommendation:* yes. Background audio, lock screen,
-   downloads and Android Auto do not depend on the remuxer, and this is the
-   best answer to the R1 phone gap.
+   (clients 1). Background audio, lock screen, downloads and Android Auto
+   do not depend on the remuxer, and the app is the best answer to the R1
+   phone gap. *Settled in part by register D-10:* the adopted R1 scope
+   keeps the app out of R1.x, because it would bring R2 requirements for
+   device keys and native storage with it. *Recommendation (register
+   D-14):* if it ships early, schedule it after R1.3, with those
+   requirements (SEC-IAM-048, SEC-CLI-030, SEC-CLI-036, SEC-CLI-046,
+   SEC-STD-039) moved with it in the release-scope table.
 6. **When the plugin host and scrobblers ship** (integrations 2, music 5).
-   *Decided here:* R2. A wasmtime host with grants, signing, an egress gate
-   and per-user secrets is a large R1 item. *Recommendation:* keep R2; R1
-   records every play with its real timestamp so the R2 scrobblers can
-   submit what Last.fm and ListenBrainz still accept.
-7. **HTTPS names from gunmetal.tv** (ADM-023; accounts 2, admin 2). Without
-   a domain, browsers cannot use passkeys. *Recommendation:* keep ADM-023
-   Later. It conflicts with ADR 1 decision 7 and decision 9 and needs its own
-   ADR. In R1, sign-in falls back to a password plus two-factor wherever
-   passkeys cannot work, and the first admin may set a password when setup
-   is not a secure context (ACC-002).
-8. **In-process decoders for untrusted audio** (MUS-086; music 6, library 5,
+   *Decided here:* R2. A plugin host with grants, signing, an egress gate
+   and per-user secrets is a large R1 item. *Recommendation (register
+   D-56):* keep R2, with each plugin in its own OS-sandboxed process and no
+   plugin runtime linked in R1. Scrobblers send only plays made after the
+   person links a service, or a backfill range they pick, so plays recorded
+   in R1 are never sent unasked (SEC-PRV-033).
+7. **Sign-in without passwords, and HTTPS names** (ADM-023; accounts 2,
+   admin 2). Without a secure context, browsers cannot use passkeys.
+   *Settled by register D-06 and D-07:* there are no passwords and no
+   authenticator codes anywhere (ACC-052 and ACC-053 are No,
+   SEC-IAM-025). A browser that cannot use a passkey is approved from a
+   signed-in device and gets a limited session that can play but never
+   administer (ACC-062, SEC-IAM-108). Plain HTTP gives every peer but
+   loopback a help page and nothing else (SEC-NET-001). R1 gets HTTPS
+   through the owner's own domain with automatic certificates (ADM-022,
+   ACC-099), a tailnet name, or the machine itself (CLI-150), and remote
+   use goes through the owner's reverse proxy or a tailnet (ACC-097). The
+   project-run per-server name service (ADM-023), its naming client and
+   its certificate-transparency monitoring are R2, with built-in remote
+   access. The name service still launches only once its zone is on the
+   Public Suffix List (SEC-NET-070), and it needs an ADR amending ADR 1
+   decisions 7 and 9.
+8. **Audio decoders in the scan worker** (MUS-086; music 6, library 5,
    later media 12). Scan-time loudness needs a full decode with a
-   third-party crate. *Recommendation:* an ADR that approves the decoder
-   crate, its licence, fuzzing and resource limits, and that defines one
-   sandboxed decoder worker for images and archives later. If it is not
-   accepted before R1, R1 uses loudness tags plus the fallback gain
-   (MUS-089).
+   third-party crate. *Recommendation (register D-09):* ADR 5 admits one
+   reviewed pure-Rust decoder (the candidate is Symphonia), with its
+   licence, fuzzing and resource limits, and it runs only in the scan
+   worker, never in the server process (SEC-MED-018, SEC-MED-024,
+   SEC-MED-026). R1 uses loudness tags plus the fallback gain (MUS-089).
+   Measured loudness (MUS-086) ships in R1.3 if ADR 5 is accepted (register
+   D-10). Owner to confirm (security README decision 9).
 9. **Amend ADR 2's "no remuxer for music"** (MUS-230, MUS-041).
    Browser gapless and CUE sheets need audio frames repackaged into
-   fragmented MP4 or re-headed FLAC slices. *Recommendation:* amend ADR 2
-   to name this light, in-process, audio-only packager as the exception.
+   fragmented MP4 or re-headed FLAC slices. *Recommendation (register
+   D-09):* amend ADR 2 through ADR 4 to name a light, audio-only packager
+   as the exception, and record that it and the CUE slicer run in a worker
+   process that streams over a pipe under the step budget, a memory cap
+   and a watchdog, never in the server process (SEC-MED-018,
+   SEC-MED-081). The server revalidates every segment it gets back
+   (SEC-MED-023). Owner to confirm (security README decision 9).
 10. **Who runs and pays for iroh relays** (accounts 3). *Recommendation:*
     make self-hosted relays first-class in R2 (ACC-100), and run one modest
     project relay only if it is funded, with a published policy on what
@@ -805,27 +859,43 @@ here, the area file says so.
     tracks, albums and artists rated directly, never derived; strictly per
     person.
 13. **What admins can see of other people's activity** (accounts 5, admin
-    7, discovery 6). *Recommendation:* live sessions, totals and security
-    events by default; full history only for managed child profiles or
-    adults who opt in; every person can see what the admin sees (ACC-115,
-    R2).
+    7, discovery 6). *Recommendation (register D-34):* admins see who is
+    playing, on which device, the bitrate and the playback method, and
+    totals; the title only when that person opts in (MUS-235); never
+    anyone's history, ratings or private playlists, and no server setting
+    widens this (SEC-PRV-025, SEC-TM-054). Each admin look is recorded in
+    the person's own security log (SEC-IAM-077), and every person can see
+    what the admin sees (ACC-115, R1). Only a managed profile's named
+    guardians see its history (ACC-034, R2). The owner accepted this on
+    2026-10-02 (register, "Owner answers"). The admin's live view and the
+    title opt-in arrive in R1.2 (ADM-099, MUS-235); R1 has no live view.
 14. **Private listening default** (accounts 6, discovery 6).
     *Recommendation:* off by default, one tap away from the player, and
     clearly shown while on.
-15. **Telemetry** (accounts 7, admin 4). *Recommendation:* no usage
-    telemetry, ever; opt-in, per-report crash sending after R1, with the
-    full report shown first.
+15. **Telemetry** (accounts 7, admin 4). *Recommendation (register
+    D-38):* no telemetry and no crash sending to the project in R1 and
+    R2, opt-in or not (ADM-131 is No). A crash record goes into the
+    diagnostic bundle (ADM-124, from R1.2), shown in full and
+    pseudonymised, which the admin may attach to a report themselves.
+    Project services hold only the name service's routing data, from R2
+    (SEC-PRV-009, SEC-TM-053, SEC-HIS-061).
+    Owner to confirm (security README decision 24).
 16. **Performance budgets** (DIS-019). The rows now carry proposed design
     goals: home in under 200 ms and browse or search in under 50 ms at
     100,000 tracks on the reference low-end device, initial sync of 100,000
     tracks in under 2 minutes, and time to interactive under 3 seconds on
     the cheapest supported stick. *Recommendation:* name the reference
     devices, accept these as goals, and publish the measured numbers either
-    way, as the README promises.
-17. **Media read-only, with one opt-in exception** (music 9, library 2,
-    later media 3, ADM-139). *Recommendation:* media folders stay read-only
-    by default; owner deletion from the UI is Later and needs an opt-in
-    writable root per library; tags and ratings are never written back.
+    way, as the README promises. *Owner answer (register D-87):* the budget
+    tests are enforced in the R1 gate, and only the published numbers wait
+    for DIS-019 in R1.1; naming the devices is still open (D-20).
+17. **Media read-only, with no exception** (music 9, library 2, later
+    media 3, ADM-139). *Recommendation (register D-43):* the server never
+    writes to a media root in R1 or R2 (SEC-TM-042). "Remove" (ADM-139,
+    Later) hides and trashes the item with undo and audit, and the owner
+    deletes files on the host with their own tools; tags and ratings are
+    never written back; recordings, podcast archives and trailers go to the
+    server's own stores. Owner to confirm (security README decision 23).
 18. **Watch together** (video 6, ACC-135). It is the second most-voted Plex
     suggestion (2,878 votes). *Recommendation:* ship the guest capability
     in R2 (ACC-135) and make watch together the first feature after R2.
@@ -841,9 +911,11 @@ here, the area file says so.
     plainly that until then a small server may manage one 1080p transcode
     or none.
 21. **The Linux desktop shell** (clients 10, CLI-014). React Native has no
-    first-party Linux desktop target (unverified). *Recommendation:*
-    prototype React Native Web in Tauri with libmpv before promising Linux
-    in R2; fall back to the web client.
+    first-party Linux desktop target (unverified). The shell is Later, as
+    the baseline's release-scope table says (SEC-TM-074; register D-10,
+    D-15). *Recommendation:* prototype the shell (the client security file
+    recommends Tauri 2 with mpv in a separate sandboxed process) before
+    promising Linux; until then desktops use the web client.
 22. **One sign-in across several servers** (accounts 16, ACC-133).
     *Recommendation:* design it as a device key trusted by several
     servers, review it in its own record, and keep it Later.
@@ -875,11 +947,13 @@ here.
   became one Later row (VID-185). Duplicates (LIB-196) went to R2 with a
   tag-and-MusicBrainz-ID rule.
 - **Partly applied.** The proposed R1 floor of 120 to 150 rows: R1 went from
-  about 600 rows to 422, but an "R1.x" release value was not
-  introduced, so that every file keeps the same five values; see "The R1
-  cut" for why the floor is larger. ACC-053 (two-factor) stayed in R1,
-  because password plus two-factor is the R1 default wherever passkeys
-  cannot work. Loudness measurement (MUS-086) stayed in R1 with a stated
+  about 600 rows to 422 (455 after the security alignment), but an "R1.x"
+  release value was not introduced, so that every file keeps the same five
+  values; see "The R1 cut" for why the floor is larger, and register D-10
+  for the point-release proposal. ACC-052 (password fallback) and ACC-053
+  (two-factor) are now No: there are no passwords, so there is nothing for
+  a code to protect (SEC-IAM-025; owner to confirm, security README
+  decision 1). Loudness measurement (MUS-086) stayed in R1 with a stated
   dependency rather than moving to a point release.
 - **Rejected.** Moving folder view to R2: it stays R1 (LIB-008 owns it),
   because paths are already in the synced library and Navidrome users rely
@@ -895,3 +969,10 @@ here.
   music model and music tag interpretation, and library.md owns scanning,
   change detection, file identity and health, so the music backend has one
   place to read.
+- **Realigned to the owner's answers, 2026-10-03.** The owner adopted the
+  register's smaller R1 with point releases (D-10) and moved the name
+  service to R2 (D-07). That supersedes three outcomes above. The R1.x
+  release values now exist, and every file uses the eight values in
+  "Releases". Loudness measurement (MUS-086) is R1.3. Folder view
+  (LIB-008) is R1.3. The summary, "The R1 cut" and the point-release
+  lists were regenerated from the maps' Release cells.

@@ -1,78 +1,417 @@
-# APIs that only one module may use. Each use outside that module fails the
-# lint; inside it, a narrowly scoped #[expect(clippy::disallowed_methods,
-# reason = "...")] that review can see marks the one sanctioned call.
+# APIs that only one module may use: the "one door per risk" rule of
+# docs/security/secure-coding.md. Each use outside the owning module fails
+# the lint (`disallowed_methods` and `disallowed_types` are denied in every
+# crate). Inside it, a narrowly scoped
+# `#[expect(clippy::disallowed_methods, reason = "...")]` that review can see
+# marks the one sanctioned call, and the xtask exception list (WP-008) names
+# every module that holds one.
+#
+# Clippy reads the clippy.toml nearest to each crate and ignores the rest, so
+# a crate with its own file would switch every rule here off for itself. The
+# gate allows exactly two: this one, and crates/gunmetal-core/clippy.toml,
+# which repeats every line below that is not a comment and adds the core's
+# own rules. Change both together.
 #
 # Clippy checks that each path resolves only when the crate it names is in
-# the build. Paths into std and into crates in today's graph (rand_core,
-# fastrand, rand_xorshift, through proptest's dev-only tree) were checked that
-# way; the others (tokio, socket2, hyper, hyper-util, reqwest, ureq) were
-# checked against docs.rs on 2026-10-02. Entries marked "feature-gated" print a
-# warning if their crate arrives without that feature; give such an entry
-# `allow-invalid = true` then, not before.
+# the build, and warns (an error in the gate) when one does not. Every path
+# below was checked that way on 2026-10-03, in a scratch crate with every
+# feature of every named crate turned on, against the versions pinned in
+# [workspace.dependencies] or, for crates never to be used, the newest
+# release. An entry marked "feature-gated" names an API that exists only with
+# that feature, so it carries `allow-invalid = true`: a crate of ours may use
+# the crate without the feature, and the path would then not resolve. Check
+# those paths the same way again when their crate's version changes. A path
+# into one of the workspace's own crates is checked once that crate exists;
+# until then it carries `allow-invalid` only if the crate is already built.
 
 disallowed-methods = [
-    # SEC-MED-063: external programs start only through the sandbox launcher.
+    # SEC-MED-063: external programs start only through the sandbox launcher
+    # in gunmetal-worker (WP-045).
     { path = "std::process::Command::new", reason = "start external programs only through the sandbox launcher (SEC-MED-063)" },
     # feature-gated: tokio "process"
-    { path = "tokio::process::Command::new", reason = "start external programs only through the sandbox launcher (SEC-MED-063)" },
+    { path = "tokio::process::Command::new", reason = "start external programs only through the sandbox launcher (SEC-MED-063)", allow-invalid = true },
 
-    # SEC-EXT-001: only the egress client opens outbound sockets.
-    { path = "std::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "std::net::TcpStream::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "std::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "std::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001)" },
+    # SEC-EXT-001, SEC-API-076: only the egress client in gunmetal-egress
+    # (WP-048) opens outbound sockets, resolves names or builds an HTTP client.
+    { path = "std::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "std::net::TcpStream::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "std::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "std::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "name resolution goes through the egress client (SEC-EXT-001, SEC-API-076)" },
     # feature-gated: tokio "net"
-    { path = "tokio::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "tokio::net::TcpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "tokio::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "tokio::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001)" },
-    { path = "socket2::Socket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-    { path = "socket2::Socket::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001)" },
-
-    # SEC-EXT-001: only the egress client constructs an HTTP client.
-    { path = "reqwest::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "tokio::net::TcpStream::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::TcpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::try_send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::poll_send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "tokio::net::lookup_host", reason = "name resolution goes through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "socket2::Socket::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::connect_timeout", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::send_to", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::send_to_with_flags", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::send_to_vectored", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::send_to_vectored_with_flags", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "socket2::Socket::sendmsg", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)" },
+    { path = "reqwest::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "reqwest::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "reqwest::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "reqwest::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
     # feature-gated: reqwest "blocking"
-    { path = "reqwest::blocking::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::blocking::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::blocking::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "reqwest::blocking::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::Agent::new_with_defaults", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "ureq::Agent::new_with_config", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "ureq::Agent::config_builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "ureq::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::post", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::put", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::delete", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::head", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
-    { path = "ureq::patch", reason = "only the egress client makes HTTP requests (SEC-EXT-001)" },
+    { path = "reqwest::blocking::Client::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "reqwest::blocking::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "reqwest::blocking::ClientBuilder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "reqwest::blocking::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "ureq::Agent::new_with_defaults", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::Agent::new_with_config", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::Agent::config_builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::get", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::post", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::put", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::delete", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::head", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
+    { path = "ureq::patch", reason = "only the egress client makes HTTP requests (SEC-EXT-001, SEC-API-076)" },
     # feature-gated: hyper "client" with "http1" or "http2"
-    { path = "hyper::client::conn::http1::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "hyper::client::conn::http2::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "hyper::client::conn::http1::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "hyper::client::conn::http2::handshake", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
     # feature-gated: hyper-util "client-legacy"
-    { path = "hyper_util::client::legacy::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
-    { path = "hyper_util::client::legacy::Builder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001)" },
+    { path = "hyper_util::client::legacy::Client::builder", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "hyper_util::client::legacy::Builder::new", reason = "only the egress client builds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    # feature-gated: rustix "net"
+    { path = "rustix::net::connect", reason = "outbound connections go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "rustix::net::sendto", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "rustix::net::sendmsg_addr", reason = "outbound datagrams go through the egress client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
 
-    # SEC-STD-022: security randomness comes from the OS CSPRNG through one
-    # function. A seeded generator is predictable. deny.toml bans rand's
+    # SEC-OPS-037: only the listener (crates/gunmetal-server/src/listener.rs,
+    # WP-118) sees a socket's peer address. Everything else takes the
+    # ClientContext it attaches, so every subsystem agrees where a request
+    # came from. The gate checks forwarding headers, which Clippy cannot see.
+    # Every call that accepts a connection with its address, reads a peer's
+    # address or receives a datagram with its sender's is listed, on every
+    # socket type and each half of a split stream. A module that passes
+    # descriptors over a socket pair with `recvmsg` needs a place on the
+    # exception list.
+    { path = "std::net::TcpListener::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)" },
+    { path = "std::net::TcpStream::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::net::UdpSocket::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::net::UdpSocket::recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::net::UdpSocket::peek_from", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::os::unix::net::UnixListener::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)" },
+    { path = "std::os::unix::net::UnixStream::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::os::unix::net::UnixDatagram::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "std::os::unix::net::UnixDatagram::recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    # feature-gated: tokio "net"
+    { path = "tokio::net::TcpListener::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::TcpListener::poll_accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::TcpStream::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::tcp::OwnedReadHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::tcp::OwnedWriteHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::tcp::ReadHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::tcp::WriteHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::poll_recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::try_recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::peek_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::poll_peek_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::try_peek_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::peek_sender", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::poll_peek_sender", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::try_peek_sender", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixListener::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixListener::poll_accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixStream::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::unix::OwnedReadHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::unix::OwnedWriteHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::unix::ReadHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::unix::WriteHalf::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::poll_recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::try_recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    # feature-gated: tokio "net" with "io-util"
+    { path = "tokio::net::UdpSocket::recv_buf_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UdpSocket::try_recv_buf_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::recv_buf_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "tokio::net::UnixDatagram::try_recv_buf_from", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "socket2::Socket::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::accept_raw", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::peer_addr", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::recv_from", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::recv_from_with_flags", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::recv_from_vectored", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::recv_from_vectored_with_flags", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::peek_from", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::peek_sender", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    { path = "socket2::Socket::recvmsg", reason = "only the listener reads the peer address (SEC-OPS-037)" },
+    # feature-gated: rustix "net"
+    { path = "rustix::net::acceptfrom", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "rustix::net::acceptfrom_with", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "rustix::net::getpeername", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "rustix::net::recvfrom", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "rustix::net::recvmsg", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    # feature-gated: axum "tokio" with "http1" or "http2"
+    { path = "axum::serve::IncomingStream::remote_addr", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+    { path = "axum::serve::Listener::accept", reason = "only the listener accepts connections and sees the peer address (SEC-OPS-037)", allow-invalid = true },
+
+    # SEC-MED-033: every file access goes through a directory handle beneath
+    # its root, in gunmetal-fs (WP-126, WP-060). Path-based file functions
+    # are refused everywhere else; the dev-only testkit is the one exception.
+    { path = "std::fs::canonicalize", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::copy", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::create_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::create_dir_all", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::exists", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::hard_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::read", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::read_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::read_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::read_to_string", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::remove_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::remove_dir_all", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::remove_file", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::rename", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::set_permissions", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::soft_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::symlink_metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::write", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::File::create", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::File::create_new", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::File::open", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::OpenOptions::open", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::fs::DirBuilder::create", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::os::unix::fs::chown", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::os::unix::fs::lchown", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::os::unix::fs::symlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::canonicalize", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::exists", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::is_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::is_file", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::is_symlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::read_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::read_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::symlink_metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    { path = "std::path::Path::try_exists", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+    # feature-gated: tokio "fs"
+    { path = "tokio::fs::canonicalize", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::copy", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::create_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::create_dir_all", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::hard_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::read", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::read_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::read_link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::read_to_string", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::remove_dir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::remove_dir_all", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::remove_file", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::rename", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::set_permissions", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::symlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::symlink_metadata", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::try_exists", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::write", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::File::create", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::File::create_new", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::File::open", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::OpenOptions::open", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "tokio::fs::DirBuilder::create", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    # feature-gated: rustix "fs". Every rustix function that takes a path:
+    # with `CWD` as the directory, the `*at` forms take one too. openat2,
+    # statx and the xattr functions exist on Linux only.
+    { path = "rustix::fs::access", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::accessat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::chmod", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::chmodat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::chown", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::chownat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::getxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::lgetxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::link", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::linkat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::listxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::llistxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::lremovexattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::lsetxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::lstat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::mkdir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::mkdirat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::mkfifoat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::mknodat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::open", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::openat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::openat2", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::readlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::readlinkat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::readlinkat_raw", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::removexattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::rename", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::renameat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::renameat_with", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::rmdir", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::setxattr", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::stat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::statat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::statfs", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::statvfs", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::statx", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::symlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::symlinkat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::unlink", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::unlinkat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    { path = "rustix::fs::utimensat", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)", allow-invalid = true },
+    # The capability crate's escape hatch back to path-based access.
+    { path = "cap_std::ambient_authority", reason = "open files only through a root directory handle in gunmetal-fs (SEC-MED-033)" },
+
+    # SEC-HIS-015: no path is built outside gunmetal-fs, so no path can be
+    # built from untrusted data. Files are named by generated IDs.
+    { path = "std::path::Path::new", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::Path::join", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::Path::with_extension", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::Path::with_file_name", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::PathBuf::push", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::PathBuf::set_extension", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+    { path = "std::path::PathBuf::set_file_name", reason = "build paths only in gunmetal-fs, never from untrusted data (SEC-HIS-015)" },
+
+    # SEC-TM-039: SQL runs only through the one connection opener in
+    # gunmetal-fs (WP-126), which takes statements as static queries with
+    # bound parameters. A Transaction or Savepoint reaches these methods
+    # through Deref, so the same entries cover it.
+    { path = "rusqlite::Connection::open", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::open_in_memory", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::open_in_memory_with_flags", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::open_in_memory_with_flags_and_vfs", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::open_with_flags", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::open_with_flags_and_vfs", reason = "open databases only through the connection opener in gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::execute", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::execute_batch", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::prepare", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    # feature-gated: rusqlite "cache"
+    { path = "rusqlite::Connection::prepare_cached", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)", allow-invalid = true },
+    { path = "rusqlite::Connection::prepare_with_flags", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::query_one", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::query_row", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::query_row_and_then", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::pragma", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::pragma_query", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::pragma_query_value", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::pragma_update", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+    { path = "rusqlite::Connection::pragma_update_and_check", reason = "run SQL only as a static query through gunmetal-fs (SEC-TM-039)" },
+
+    # SEC-STD-022: security randomness comes from the OS CSPRNG through the
+    # one function in gunmetal-secrets (WP-047). A seeded or user-space
+    # generator is predictable or a second door. deny.toml bans rand's
     # small_rng feature and the non-cryptographic generator crates.
     { path = "rand_core::SeedableRng::seed_from_u64", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
     { path = "rand_core::SeedableRng::from_seed", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
+    { path = "rand_core::SeedableRng::from_rng", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
+    { path = "rand_core::SeedableRng::try_from_rng", reason = "seeded generators are predictable; use the OS CSPRNG function (SEC-STD-022)" },
+    { path = "rand_core::SeedableRng::from_os_rng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    { path = "rand_core::SeedableRng::try_from_os_rng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    # feature-gated: rand "thread_rng", which proptest's rand leaves off
+    { path = "rand::rng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::random", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::random_bool", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::random_iter", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::random_range", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::random_ratio", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::fill", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "rand::thread_rng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    { path = "getrandom::fill", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    { path = "getrandom::fill_uninit", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    { path = "getrandom::u32", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    { path = "getrandom::u64", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
     { path = "fastrand::seed", reason = "non-cryptographic generator (SEC-STD-022)" },
+
+    # SEC-STD-018: cryptography lives in two named modules only:
+    # crates/gunmetal-core/src/crypto.rs (SHA-256, WP-122) and
+    # crates/gunmetal-secrets/src/crypto/ (everything else, WP-047). The
+    # rustls provider and configuration constructors are cryptography too:
+    # the server and the egress client receive ready-made configurations.
+    { path = "rustls::ClientConfig::builder", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::ClientConfig::builder_with_protocol_versions", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::ClientConfig::builder_with_provider", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::ServerConfig::builder", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::ServerConfig::builder_with_protocol_versions", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::ServerConfig::builder_with_provider", reason = "TLS configurations come from the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "rustls::crypto::CryptoProvider::install_default", reason = "the TLS provider is chosen in the secrets crate's crypto module (SEC-STD-018)" },
+    # feature-gated: rustls "aws_lc_rs"
+    { path = "rustls::crypto::aws_lc_rs::default_provider", reason = "the TLS provider is chosen in the secrets crate's crypto module (SEC-STD-018)", allow-invalid = true },
+    # feature-gated: rustls "ring"
+    { path = "rustls::crypto::ring::default_provider", reason = "the TLS provider is chosen in the secrets crate's crypto module (SEC-STD-018)", allow-invalid = true },
+
+    # SEC-HIS-026: TLS certificate verification can never be turned off, in
+    # any crate, the secrets crate included.
+    { path = "rustls::ConfigBuilder::dangerous", reason = "certificate verification is never switched off (SEC-HIS-026)" },
+    { path = "rustls::ClientConfig::dangerous", reason = "certificate verification is never switched off (SEC-HIS-026)" },
+
+    # SEC-HIS-012: a PublicId is built only from a Minted value, which only
+    # the secrets crate's minting function (WP-047) creates. allow-invalid
+    # until WP-006 adds the type; remove it then.
+    { path = "gunmetal_core::id::Minted::from_os_random", reason = "public IDs are minted only by the secrets crate's minting function (SEC-HIS-012)" },
+
+    # SEC-OPS-013, SEC-IAM-095: a secret's value is reachable only inside
+    # gunmetal-secrets (WP-047).
+    { path = "gunmetal_secrets::Secret::expose", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
+    { path = "secrecy::ExposeSecret::expose_secret", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
+    { path = "secrecy::ExposeSecretMut::expose_secret_mut", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
 ]
 
 disallowed-types = [
-    # SEC-EXT-001: only the egress client holds an HTTP client.
-    { path = "reqwest::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    # SEC-EXT-001, SEC-API-076: only the egress client holds an HTTP client.
+    { path = "reqwest::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001, SEC-API-076)" },
     # feature-gated: reqwest "blocking"
-    { path = "reqwest::blocking::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
-    { path = "ureq::Agent", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    { path = "reqwest::blocking::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
+    { path = "ureq::Agent", reason = "only the egress client holds an HTTP client (SEC-EXT-001, SEC-API-076)" },
     # feature-gated: hyper-util "client-legacy"
-    { path = "hyper_util::client::legacy::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001)" },
+    { path = "hyper_util::client::legacy::Client", reason = "only the egress client holds an HTTP client (SEC-EXT-001, SEC-API-076)", allow-invalid = true },
 
-    # SEC-STD-022: non-cryptographic generators.
+    # SEC-OPS-037: handlers never take the peer address; they take the
+    # ClientContext the listener attaches.
+    # feature-gated: axum "tokio"
+    { path = "axum::extract::ConnectInfo", reason = "only the listener reads the peer address (SEC-OPS-037)", allow-invalid = true },
+
+    # SEC-STD-022: non-cryptographic or user-space generators.
     { path = "fastrand::Rng", reason = "non-cryptographic generator (SEC-STD-022)" },
     { path = "rand_xorshift::XorShiftRng", reason = "non-cryptographic generator (SEC-STD-022)" },
+    { path = "rand::rngs::OsRng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)" },
+    # feature-gated: rand "std_rng"
+    { path = "rand::rngs::StdRng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+    # feature-gated: rand "thread_rng"
+    { path = "rand::rngs::ThreadRng", reason = "randomness comes only from the OS CSPRNG function (SEC-STD-022)", allow-invalid = true },
+
+    # SEC-STD-018: cryptographic types, only in the two crypto modules named
+    # above. SHA-256 may be named in both; everything else only in
+    # crates/gunmetal-secrets/src/crypto/.
+    { path = "sha2::Sha224", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "sha2::Sha256", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "sha2::Sha384", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "sha2::Sha512", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "sha2::Sha512_224", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "sha2::Sha512_256", reason = "cryptography only in the two crypto modules (SEC-STD-018)" },
+    { path = "hmac::Hmac", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "hmac::SimpleHmac", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "hkdf::Hkdf", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "hkdf::SimpleHkdf", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "chacha20poly1305::ChaCha20Poly1305", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "chacha20poly1305::XChaCha20Poly1305", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "argon2::Argon2", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "p256::PublicKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "p256::SecretKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "p256::ecdsa::Signature", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "p256::ecdsa::SigningKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "p256::ecdsa::VerifyingKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "ed25519_dalek::Signature", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "ed25519_dalek::SigningKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "ed25519_dalek::VerifyingKey", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "age::Decryptor", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "age::Encryptor", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "age::x25519::Identity", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+    { path = "age::x25519::Recipient", reason = "cryptography only in the secrets crate's crypto module (SEC-STD-018)" },
+
+    # SEC-HIS-026: the configuration that turns certificate checks off.
+    { path = "rustls::client::danger::DangerousClientConfig", reason = "certificate verification is never switched off (SEC-HIS-026)" },
 ]

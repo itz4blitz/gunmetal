@@ -15,8 +15,11 @@ file cites v1.1 task IDs. Anything not confirmed from a source is marked
 "(unverified)".
 
 Releases used below: **R1** Music (server, web client, music library and
-player), **R2** Video (movies and TV, remuxer, sandboxed transcoding, native
-TV and mobile clients), **R3** Live (M3U and live TV), **Later**. Anything
+player), **R1.1**, **R1.2** and **R1.3** (the point releases after R1:
+playlist files, metadata providers and image uploads in R1.1; OIDC, share
+links and diagnostic bundles in R1.2; discovery and analysis in R1.3),
+**R2** Video (movies and TV, remuxer, sandboxed transcoding, native
+TV and mobile clients, and the project name service), **R3** Live (M3U and live TV), **Later**. Anything
 that exists in R1 gets its security requirement in R1, even if the feature
 grows later.
 
@@ -225,7 +228,7 @@ CVE-2026-31852 is rated 10.0 in its CVE record.
 | SEC-HIS-015 | The server must never build a filesystem path from untrusted data (request values, headers, client names, uploaded file names, tag values, container attachment names, playlist entries, archive entry names); files it writes must be named by internally generated IDs or content hashes. | ASVS 5.0 5.3.2, 5.3.3, 5.4.1; A01:2025; CWE-22, CWE-23, CWE-36, CWE-73 | R1 | CI lint (clippy `disallowed-methods`) bans `Path::join`, `PathBuf::push` and `Path::new` on non-literal input outside the storage module. Property tests and a fuzz target for storage-name derivation. |
 | SEC-HIS-016 | All file access must go through directory handles that confine resolution beneath the library or data root, so that `..`, absolute paths and symlinks cannot escape even if a path is built wrongly. | ASVS 5.0 5.3.2; CWE-22, CWE-59 | R1 | Integration tests on a real filesystem that plant `..`, absolute-path and symlink escapes, expecting a typed error. Property test of the confined-open function. |
 | SEC-HIS-017 | The scanner must classify files by the content of the resolved target (magic bytes and a successful parse), not by entry name or extension, must not follow symlinks out of the library root, and must never serve bytes as a media type the content did not parse as. | ASVS 5.0 5.2.2; CWE-59, CWE-61, CWE-646 | R1 | Integration test with `passwd.flac` linked to a file outside the library, and a link into a library the user cannot read: neither is indexed or served. Fuzz target for classification. |
-| SEC-HIS-018 | Playlist files (M3U, M3U8, PLS, XSPF), whether found in a library or imported, must resolve entries only to items in libraries the playlist owner can read; URLs, paths outside libraries and non-media files must be dropped, and artwork paths or URLs in playlists must be ignored. | ASVS 5.0 5.3.2, 1.3.6, 8.2.2; CWE-22, CWE-918, CWE-639 | R1 | Property tests of the playlist resolver with generated entries (absolute paths, `..`, `file:` and `http:` URLs, other users' libraries). Integration test that `#EXTALBUMARTURL` causes no fetch and no file read. |
+| SEC-HIS-018 | Playlist files (M3U, M3U8, PLS, XSPF), whether found in a library or imported, must resolve entries only to items in libraries the playlist owner can read; URLs, paths outside libraries and non-media files must be dropped, and artwork paths or URLs in playlists must be ignored. | ASVS 5.0 5.3.2, 1.3.6, 8.2.2; CWE-22, CWE-918, CWE-639 | R1.1 | Property tests of the playlist resolver with generated entries (absolute paths, `..`, `file:` and `http:` URLs, other users' libraries). Integration test that `#EXTALBUMARTURL` causes no fetch and no file read. |
 | SEC-HIS-019 | The server must not extract archives (zip, rar, 7z and similar) received from outside until an architecture record allows it, and that record must require ignoring entry paths, refusing symlink entries, and limiting entry count and unpacked size. | ASVS 5.0 5.2.3, 5.2.5, 5.3.3; CWE-22, CWE-409 | R1 | `cargo-deny` ban on archive-extraction crates in the server and core, run in CI. Manual review of any record that lifts the ban. |
 | SEC-HIS-020 | External programs must be started only by one typed command builder, which accepts enumerated codecs, containers, levels and filters, passes input and output as file descriptors rather than paths, never invokes a shell, and never places request, setting, tag or file-name text into the argument list. | ASVS 5.0 1.2.5, 1.3.3; A05:2025; CWE-78, CWE-88, CWE-77 | R1 | CI lint (clippy `disallowed-types`) allows `std::process::Command` and its async equivalents only in the builder module. Property test: for generated adversarial inputs, every argument is drawn from the enumerated vocabulary or is a descriptor reference. Zero surviving mutants. |
 | SEC-HIS-021 | Paths to external programs must come only from the install or a read-only host configuration file; no API may read or write executable paths, command templates, script hooks or template directories. | ASVS 5.0 15.2.5, 1.3.7; A06:2025; CWE-15, CWE-94, CWE-1336 | R1 | Snapshot test of the configuration schema and of the route inventory: no field or route carries an executable path or template location. |
@@ -278,7 +281,7 @@ CVE-2026-31852 is rated 10.0 in its CVE record.
 **Bound by requirements in [standards-coverage.md](standards-coverage.md).** SEC-STD-004 (each regression test carries its requirement ID) and SEC-STD-035 (review of security-sensitive source and agent-written code).
 The 2026-10-02 challenge review merged duplicated controls into one owner each; withdrawn rows above say where their content went, and [threat-model.md](threat-model.md#control-ownership) lists every owner.
 
-Count: 57 live requirements: 51 R1, 5 R2, 1 R3 and 0 Later, plus 9 withdrawn rows kept so their IDs stay stable.
+Count: 57 live requirements: 50 R1, 1 R1.1, 0 R1.2, 0 R1.3, 5 R2, 1 R3 and 0 Later, plus 9 withdrawn rows kept so their IDs stay stable.
 
 ## Design guidance
 

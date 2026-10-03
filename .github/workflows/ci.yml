@@ -2,10 +2,17 @@ name: CI
 
 # Runs on pull requests from branches and forks with a read-only token and no
 # secrets. Never use pull_request_target or workflow_run here (SEC-SUP-013).
+#
+# Decision D-01: a pull request into a wave branch (wave-0, wave-1, ...) runs
+# the gate with mutation testing limited to the code it changes. A pull
+# request into main, every push to main or a wave branch, and the nightly run
+# on main run the full gate.
 on:
   push:
-    branches: [main]
+    branches: [main, "wave-*"]
   pull_request:
+  schedule:
+    - cron: "41 3 * * *"
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
 permissions: {}
@@ -17,7 +24,10 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The full mutation run over wave 0 (1,084 mutants) took 15 minutes on
+    # a 24-core workstation; hosted runners are slower. Shard it with
+    # cargo-mutants --shard before this limit is reached again.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -25,6 +35,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The diff-scoped mutation run needs the base branch's history.
+          fetch-depth: 0
       # The exact toolchain from rust-toolchain.toml (SEC-SUP-038). rustup
       # also reads that file, so it wins if the two ever disagree.
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
@@ -45,3 +57,56 @@ jobs:
       # against the index, and --locked uses cargo-vet's own lockfile.
       - run: cargo install cargo-vet --version 0.10.2 --locked
       - run: scripts/gate.sh
+        env:
+          # Set only for a pull request into a wave branch (D-01). Event data
+          # reaches the script through env, never through ${{ }} in run
+          # (SEC-SUP-014).
+          GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}
+
+  # SEC-MED-004: the core's tests, property tests included, on a target where
+  # usize is 32 bits wide, so a length that only fits in 64 bits is caught.
+  core-32-bit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+          targets: i686-unknown-linux-gnu
+      # The 32-bit C runtime the linker needs, from the runner's own signed
+      # Ubuntu archive.
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-multilib
+      - run: cargo test --locked -p gunmetal-core --target i686-unknown-linux-gnu
+
+  # SEC-SUP-020: proves the gate refuses a manifest that Cargo.lock does not
+  # match, by adding a crate without updating the lock file.
+  locked-self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - name: The gate fails on a manifest the lock file does not match
+        run: |
+          mkdir -p crates/locked-self-test/src
+          printf '[package]\nname = "locked-self-test"\nversion = "0.0.0"\nedition = "2024"\n' > crates/locked-self-test/Cargo.toml
+          printf '//! Added without a Cargo.lock update.\n' > crates/locked-self-test/src/lib.rs
+          if scripts/gate.sh > gate.log 2>&1; then
+            cat gate.log
+            echo "::error::the gate passed although Cargo.lock does not match the manifests"
+            exit 1
+          fi
+          cat gate.log
+          grep -F "because --locked was passed to prevent this" gate.log

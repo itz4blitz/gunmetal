@@ -98,7 +98,7 @@ profile PINs are checked only by the server with rate limits, and
 publishing to OS-wide surfaces (Watch Next, Top Shelf, Spotlight) is off by
 default.
 
-The file has 63 live requirements: 22 R1, 35 R2, 1 R3 and 5 Later, plus 9 withdrawn rows kept so their IDs stay stable. The R1 ones are R1 because they apply to the web
+The file has 63 live requirements: 21 R1, 0 R1.1, 1 R1.2, 0 R1.3, 35 R2, 1 R3 and 5 Later, plus 9 withdrawn rows kept so their IDs stay stable. The R1 ones are R1 because they apply to the web
 client, the server's session and device model, and shared rules that the R1
 server must be built around.
 
@@ -174,7 +174,7 @@ test or a CI check in the gate unless it says manual review.
 | SEC-CLI-023 | **Withdrawn 2026-10-02: merged into SEC-IAM-098, SEC-OPS-032.** Notices to the account's devices and owner alerts. | ASVS 6.3.5, 6.3.7; CWE-778 | Withdrawn | Proved by the tests of SEC-IAM-098, SEC-OPS-032 |
 | SEC-CLI-024 | The server must assign every enrolled device a class, personal (a device that can perform local user verification bound to its key, or a browser in personal mode with a user-verifying passkey) or limited (TVs, consoles, web-build TVs, browsers in shared mode, devices without a secure lock screen), and must refuse device approval, account-security changes and admin operations from limited devices whatever the client shows. | ASVS 8.1.3, 8.2.1, 8.3.1; NIST SP 800-63B-4 §2.1, §2.2; CWE-602, CWE-285 | R1 | Integration test that enumerates security-changing routes and calls each as a limited device, asserting refusal |
 | SEC-CLI-025 | All inbound links and codes (deep links, verified web links, QR payloads, notification and launcher intents, URL fragments) must be parsed by one pure function in the core into a closed set of typed routes; unrecognised input must yield "not recognised", and no route may change state without a confirmation screen. | ASVS 1.1.1; MASVS-PLATFORM-1; MASWE-0029, MASWE-0050; CWE-20, CWE-939 | R1 | Unit tests per route; property tests and a `cargo-fuzz` target asserting no panic and that no output is state-changing without its confirm flag |
-| SEC-CLI-026 | When the web client signs in through an OIDC provider, the server must act as a confidential client (backend for frontend) so that no OAuth access, refresh or ID token ever reaches browser JavaScript. | ASVS 10.1.1, 10.2.1, 10.4.6, 10.5.1; RFC 9700 §2.1.1; CWE-922 | R1 | Integration test of the full code flow with a test identity provider; Playwright test asserting no token in any script-readable place or URL |
+| SEC-CLI-026 | When the web client signs in through an OIDC provider, the server must act as a confidential client (backend for frontend) so that no OAuth access, refresh or ID token ever reaches browser JavaScript. | ASVS 10.1.1, 10.2.1, 10.4.6, 10.5.1; RFC 9700 §2.1.1; CWE-922 | R1.2 | Integration test of the full code flow with a test identity provider; Playwright test asserting no token in any script-readable place or URL |
 | SEC-CLI-027 | No client may include analytics, advertising, attribution, crash-reporting or tracking SDKs, or contact any host other than the user's servers, configured relays and the project's identifier-free advisory manifest; any crash report must be opt-in and sent only to the user's own server. | ASVS 14.2.3; MASVS-PRIVACY-1, PRIVACY-2, PRIVACY-3; Mobile Top 10 2024 M6; CWE-359 | R1 | CI dependency deny-list (SDK package names and known endpoints); network capture during the web and Android end-to-end suites asserting only allowed hosts |
 | SEC-CLI-028 | PIN, pairing-code and password fields must mask input and turn off autocorrect, suggestions and keyboard learning, and password fields must allow paste and password managers. | ASVS 6.2.6, 6.2.7; MASVS-STORAGE-2; CWE-549 | R1 | Component tests asserting `type`, `autocomplete`, `autocorrect`, `spellcheck` (web) and `secureTextEntry`, `autoCorrect`, `textContentType` (native) on every such field |
 | SEC-CLI-029 | **Withdrawn 2026-10-02: merged into SEC-IAM-062.** One PIN rule. | ASVS 6.1.1, 6.3.1; Top 10:2025 A07; CWE-603, CWE-307 | Withdrawn | Proved by the tests of SEC-IAM-062 |
@@ -225,7 +225,7 @@ test or a CI check in the gate unless it says manual review.
 **Bound by requirements in [standards-coverage.md](standards-coverage.md).** SEC-STD-012 (prototype pollution), SEC-STD-019 (the crypto allow-list applies to native code), SEC-STD-027 (no pushed approvals an outsider can trigger), SEC-STD-033 (hardened C components in the client media stack, R2) and SEC-STD-039 (MAS-L2 and MAS-P targets, MASTG verification).
 The 2026-10-02 challenge review merged duplicated controls into one owner each; withdrawn rows above say where their content went, and [threat-model.md](threat-model.md#control-ownership) lists every owner.
 
-Count: 63 live requirements: 22 R1, 35 R2, 1 R3 and 5 Later, plus 9 withdrawn rows kept so their IDs stay stable.
+Count: 63 live requirements: 21 R1, 0 R1.1, 1 R1.2, 0 R1.3, 35 R2, 1 R3 and 5 Later, plus 9 withdrawn rows kept so their IDs stay stable.
 
 ## Design guidance
 
@@ -756,6 +756,10 @@ deep assertions, 100% coverage, zero surviving mutants.
    gunmetal.tv naming service as an optional, account-free service, decided
    in its own ADR before R1. Trade-off: a naming service is a soft central
    dependency; without it, non-technical households struggle to get HTTPS.
+   *Answered (D-07, 2026-10-02):* the name service, its naming client and
+   its Certificate Transparency monitoring are R2. R1 gets HTTPS through
+   the owner's own domain with automatic certificates, a tailnet, or
+   localhost on the same machine (SEC-NET-013).
 2. **Default offline grant lifetime.** Recommendation: 30 days, renewed
    silently on any contact, admin range 1 to 90 days. Trade-off: longer
    suits long trips with no connection; shorter limits how long a lost,

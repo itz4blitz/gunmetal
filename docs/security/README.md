@@ -94,9 +94,11 @@ user.
 
 **There is no Gunmetal account.** Each server is its own island. Accounts
 live on the server, and no project service knows who uses it or what they
-play. The only project service a server may use by default is the name
-service that gives it an HTTPS address, which holds a random label and a
-public key and nothing about people (SEC-HIS-061).
+play. In R1 a server uses no project service by default: HTTPS comes from
+the owner's own domain, a tailnet name or the machine itself
+(SEC-NET-013; register D-07). From R2 a server may also use the project's
+per-server name service, which gives it an HTTPS address and holds a
+random label and a public key and nothing about people (SEC-HIS-061).
 
 **Who can sign in.** Only people the owner lets in:
 
@@ -112,7 +114,9 @@ public key and nothing about people (SEC-HIS-061).
   chosen set of profiles and work only on the home network by default.
 
 **Setting up.** On first start the server prints a claim link and a QR code
-on its console (with the name service, `https://<label>.<zone>/claim#<code>`).
+on its console: `https://<name>/claim#<code>` on the owner's own domain or
+tailnet name, or a localhost link on the machine itself (with the name
+service, from R2, `https://<label>.<zone>/claim#<code>`).
 The owner scans it with a phone, creates a passkey, and is the owner. The
 code is 128 bits, lasts 24 hours, appears only on the host, and wrong
 guesses from elsewhere cannot use it up (SEC-IAM-007, SEC-IAM-008).
@@ -121,7 +125,7 @@ guesses from elsewhere cannot use it up (SEC-IAM-007, SEC-IAM-008).
 
 - **Passkeys** (Face ID, fingerprint, Windows Hello, a security key) are
   the normal way. Synced passkeys survive a lost phone.
-- **OIDC**, if the owner already runs an identity provider. It never makes
+- **OIDC** (from R1.2), if the owner already runs an identity provider. It never makes
   someone the owner, and it is never enough on its own for the owner's
   most dangerous actions (SEC-IAM-107).
 - **Approve from your phone** when a browser cannot use a passkey (an old
@@ -160,7 +164,7 @@ and devices and end any of them, and that takes effect on the next request.
   access they grant. When an invitation gives more than one library, the
   inviter confirms the new person by comparing a short code, so a
   forwarded link cannot quietly let a stranger in (SEC-IAM-079).
-- **Share links** (R1, music) let anyone listen to one track, album or
+- **Share links** (R1.2, music) let anyone listen to one track, album or
   playlist without an account. They are listen-only by default, expire
   after 30 days, can have a password, allow 2 streams at once, and
   suspend themselves and tell the sharer if they spread widely
@@ -171,7 +175,7 @@ and devices and end any of them, and that takes effect on the next request.
 1. Another passkey: synced passkeys survive a lost phone.
 2. Recovery codes, offered to the owner and administrators when they
    enrol, and available to everyone under Account > Recovery.
-3. The identity provider, for OIDC accounts.
+3. The identity provider, for OIDC accounts (from R1.2).
 4. An administrator's recovery link, redeemed in person or on a device the
    person already approved.
 5. For the owner only, a command on the host.
@@ -206,10 +210,15 @@ mutants. Security requirements are held to the same rules:
   anonymous-request suite, the cross-user matrix, the route-tag check and
   the cleartext replay, so a new route cannot ship untested.
 - **The documents are tested too.** Docs lints check that cited IDs exist,
-  that Release values are R1, R2, R3, Later or Withdrawn, that no live row
-  cites a withdrawn one, and that no requirement restates a parameter or
-  header differently from its owner (SEC-TM-072 to SEC-TM-075, SEC-STD-001,
-  SEC-STD-006).
+  that Release values are allowed, that no live row cites a withdrawn one,
+  and that no requirement restates a parameter or header differently from
+  its owner (SEC-TM-072 to SEC-TM-075, SEC-STD-001, SEC-STD-006). A live
+  requirement's Release is R1, R1.1, R1.2, R1.3, R2, R3 or Later; a retired
+  one is Withdrawn. The feature map uses the same release values, with No
+  for a feature that is never built. R1.1 to R1.3 are the point releases
+  the owner adopted on 2026-10-02 (register D-10). A requirement in a point
+  release is mandatory for that release, which cannot ship without it
+  (SEC-STD-004).
 
 **How the gate grows.** `scripts/gate.sh` stays the definition of done; new
 checks join it or run beside it in CI.
@@ -224,33 +233,45 @@ checks join it or run beside it in CI.
 
 ## Requirements by file
 
-Counts are of real table rows after the 2026-10-02 challenge review.
+Counts are of real table rows, recounted on 2026-10-03 after the
+requirements were realigned to the owner's answers to D-07 and D-10.
 Withdrawn rows are kept so their IDs stay stable; each points to the
 requirement that now owns its content.
 
-| File | IDs | R1 | R2 | R3 | Later | Live total | Withdrawn |
-|---|---|---|---|---|---|---|---|
-| [Threat model](threat-model.md) | SEC-TM | 49 | 10 | 1 | 0 | 60 | 15 |
-| [Identity and access](identity-and-access.md) | SEC-IAM | 81 | 17 | 0 | 5 | 103 | 7 |
-| [Web and API](web-and-api-security.md) | SEC-API | 86 | 4 | 1 | 3 | 94 | 5 |
-| [Network and remote access](network-and-remote-access.md) | SEC-NET | 49 | 16 | 1 | 1 | 67 | 5 |
-| [Clients and devices](client-and-device-security.md) | SEC-CLI | 22 | 35 | 1 | 5 | 63 | 9 |
-| [Media and parsers](media-and-parser-safety.md) | SEC-MED | 57 | 22 | 2 | 1 | 82 | 0 |
-| [Plugins and integrations](plugins-and-integrations-security.md) | SEC-EXT | 8 | 66 | 1 | 1 | 76 | 0 |
-| [Operations and incident response](operations-and-incident-response.md) | SEC-OPS | 65 | 5 | 1 | 2 | 73 | 2 |
-| [Privacy and data protection](privacy-and-data-protection.md) | SEC-PRV | 49 | 7 | 1 | 1 | 58 | 2 |
-| [Supply chain and release](supply-chain-and-release.md) | SEC-SUP | 55 | 6 | 0 | 4 | 65 | 1 |
-| [Rival security history](rival-security-history.md) | SEC-HIS | 51 | 5 | 1 | 0 | 57 | 9 |
-| [Standards coverage](standards-coverage.md) | SEC-STD | 35 | 1 | 0 | 1 | 37 | 3 |
-| **All files** | | **607** | **194** | **10** | **24** | **835** | **58** |
+| File | IDs | R1 | R1.1 | R1.2 | R1.3 | R2 | R3 | Later | Live total | Withdrawn |
+|---|---|---|---|---|---|---|---|---|---|---|
+| [Threat model](threat-model.md) | SEC-TM | 48 | 0 | 1 | 0 | 10 | 1 | 0 | 60 | 15 |
+| [Identity and access](identity-and-access.md) | SEC-IAM | 70 | 0 | 11 | 0 | 17 | 0 | 5 | 103 | 7 |
+| [Web and API](web-and-api-security.md) | SEC-API | 85 | 0 | 1 | 0 | 4 | 1 | 3 | 94 | 5 |
+| [Network and remote access](network-and-remote-access.md) | SEC-NET | 43 | 0 | 0 | 0 | 22 | 1 | 1 | 67 | 5 |
+| [Clients and devices](client-and-device-security.md) | SEC-CLI | 21 | 0 | 1 | 0 | 35 | 1 | 5 | 63 | 9 |
+| [Media and parsers](media-and-parser-safety.md) | SEC-MED | 55 | 2 | 0 | 0 | 22 | 2 | 1 | 82 | 0 |
+| [Plugins and integrations](plugins-and-integrations-security.md) | SEC-EXT | 8 | 0 | 0 | 0 | 66 | 1 | 1 | 76 | 0 |
+| [Operations and incident response](operations-and-incident-response.md) | SEC-OPS | 64 | 0 | 1 | 0 | 5 | 1 | 2 | 73 | 2 |
+| [Privacy and data protection](privacy-and-data-protection.md) | SEC-PRV | 44 | 4 | 1 | 0 | 7 | 1 | 1 | 58 | 2 |
+| [Supply chain and release](supply-chain-and-release.md) | SEC-SUP | 55 | 0 | 0 | 0 | 6 | 0 | 4 | 65 | 1 |
+| [Rival security history](rival-security-history.md) | SEC-HIS | 50 | 1 | 0 | 0 | 5 | 1 | 0 | 57 | 9 |
+| [Standards coverage](standards-coverage.md) | SEC-STD | 33 | 0 | 2 | 0 | 1 | 0 | 1 | 37 | 3 |
+| **All files** | | **576** | **7** | **18** | **0** | **200** | **10** | **24** | **835** | **58** |
 
 ## The R1 security cut
 
 Nothing ships in R1 until every requirement below is met and its test or
-review record exists (SEC-STD-004). There are 607. The short names are
+review record exists (SEC-STD-004). There are 576. The short names are
 abbreviations of the requirement text, which is authoritative.
 
-### Threat model (49)
+This is the cut for the R1 the owner adopted on 2026-10-02 (register
+[D-10](../decisions.md#d-10-r1-scope-and-the-release-table) and
+[D-07](../decisions.md#d-07-https-and-naming-record-8)). Of the 607
+requirements the earlier R1 held, 31 protect only a surface that now ships
+later, so they moved with it; they are listed under "Due after R1" below.
+None was weakened or dropped. Every other requirement stays
+due in R1, including those that also protect the R1 paths to HTTPS (own
+domain, tailnet or localhost, SEC-NET-013, SEC-NET-072), the pre-claim
+egress rule (SEC-OPS-007) and every requirement the register lists as
+having an R1 carrier.
+
+### Threat model (48)
 
 | ID | Short name |
 |---|---|
@@ -265,7 +286,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-TM-012 | Shipped binaries: contain no default account |
 | SEC-TM-014 | Authentication pathway: listed in one inventory and apply the same per-account |
 | SEC-TM-017 | Host-equivalent actions: carry the fresh-uv tag of SEC-IAM-041 |
-| SEC-TM-022 | OIDC sign-in: use the authorization code flow with PKCE |
 | SEC-TM-024 | Read and write of a user-visible: pass through one authorization layer that takes the subject |
 | SEC-TM-025 | For every route: replay one user's object IDs as a second user |
 | SEC-TM-026 | Library grants: applied by the server when building every response |
@@ -304,7 +324,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-TM-074 | Release-scope table in this file: the single source for which surfaces exist |
 | SEC-TM-075 | Egress inventory in this file: list every outbound purpose with its default |
 
-### Identity and access (81)
+### Identity and access (70)
 
 | ID | Short name |
 |---|---|
@@ -331,17 +351,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-IAM-023 | Account: able to hold several credentials |
 | SEC-IAM-024 | Removing an account's last credential: refused unless the account is being deleted |
 | SEC-IAM-025 | Server: never offer account passwords |
-| SEC-IAM-026 | OIDC sign-in: use the authorization code flow with PKCE |
-| SEC-IAM-027 | ID tokens: verified with keys from the provider's JWKS using algorithms |
-| SEC-IAM-028 | OIDC identity: keyed only by the pair |
-| SEC-IAM-029 | Linking an OIDC identity: happen only inside that account's session after user verification |
-| SEC-IAM-030 | OIDC auto-registration: off by default |
-| SEC-IAM-031 | Provider claims: never confer the owner role |
-| SEC-IAM-032 | Server-side calls to an OIDC provider: verify TLS certificates and must not follow redirects |
-| SEC-IAM-033 | OIDC redirect URI: one exact registered URL on the configured origin |
-| SEC-IAM-034 | Authorization request: bound to the one provider it was sent |
-| SEC-IAM-035 | Sessions created through OIDC: lifetimes set by Gunmetal |
-| SEC-IAM-036 | Administrator elevation for an account: require a fresh provider sign-in |
 | SEC-IAM-037 | First-party session and access tokens: opaque values with at least 256 bits |
 | SEC-IAM-038 | New session token: issued at sign-in |
 | SEC-IAM-040 | State-changing request authenticated by cookie: carry the client's custom request header and an Origin |
@@ -390,7 +399,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-IAM-107 | Owner-only and fresh-uv actions: satisfied only by a passkey or device key enrolled |
 | SEC-IAM-108 | Person whose browser cannot use: able to sign it in by approval |
 
-### Web and API (86)
+### Web and API (85)
 
 | ID | Short name |
 |---|---|
@@ -479,9 +488,8 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-API-092 | Native API: versioned in its path |
 | SEC-API-095 | Access log: record method |
 | SEC-API-096 | Invitation link: carry a secret of at least 128 bits |
-| SEC-API-097 | Public share links: use the fragment pattern |
 
-### Network and remote access (49)
+### Network and remote access (43)
 
 | ID | Short name |
 |---|---|
@@ -492,9 +500,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-NET-005 | When no valid certificate is available: never serve the web client |
 | SEC-NET-006 | TLS private keys: generated on the server from the operating system's CSPRNG |
 | SEC-NET-009 | Outbound TLS: validate certificates against the WebPKI with hostname checks |
-| SEC-NET-010 | If the server uses: 128-bit random |
-| SEC-NET-011 | Name service: answer A and AAAA queries |
-| SEC-NET-012 | Name service: publish a CAA record for each registered label |
 | SEC-NET-013 | Browser HTTPS: also work without the project name service |
 | SEC-NET-014 | Server: answer 421 Misdirected Request to any request whose Host |
 | SEC-NET-015 | Absolute URL the server emits: built from the configured canonical origin for the path |
@@ -530,12 +535,9 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-NET-058 | Web client used on the LAN: served by the Gunmetal server from the same origin |
 | SEC-NET-059 | Core server: never implement or open SSDP |
 | SEC-NET-068 | Peer whose address equals the default: classified "unknown" and treated as non-local |
-| SEC-NET-069 | When the server uses the project: by default monitor Certificate Transparency for its own label |
-| SEC-NET-070 | Project name service: launch only after its zone is on the Public |
-| SEC-NET-071 | When the name service refuses: keep working on every other path |
 | SEC-NET-072 | Server: alert the owner 30 and 7 days |
 
-### Clients and devices (22)
+### Clients and devices (21)
 
 | ID | Short name |
 |---|---|
@@ -558,11 +560,10 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-CLI-021 | Clients: decode every server response with schema-validating decoders that bound |
 | SEC-CLI-024 | Server: assign every enrolled device a class |
 | SEC-CLI-025 | Inbound links and codes: parsed by one pure function in the core |
-| SEC-CLI-026 | When the web client signs: act as a confidential client |
 | SEC-CLI-027 | Client: never include analytics |
 | SEC-CLI-028 | PIN: mask input and turn off autocorrect |
 
-### Media and parsers (57)
+### Media and parsers (55)
 
 | ID | Short name |
 |---|---|
@@ -613,13 +614,11 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-MED-047 | Image endpoints: accept a size only from a fixed enumeration |
 | SEC-MED-048 | Derivative cache: bounded in total bytes |
 | SEC-MED-049 | LRC: parsed into a typed model within the limits table |
-| SEC-MED-050 | Entries in M3U: resolve only to items already indexed in the same |
 | SEC-MED-051 | Playlist entries: returned only for items in libraries the requesting user |
 | SEC-MED-057 | Clients: render media-derived strings only as text nodes inside |
 | SEC-MED-058 | URL from metadata: shown as a link only after it has been |
 | SEC-MED-059 | Byte-serving responses: carry |
 | SEC-MED-060 | Range parser: accept at most one byte range per request |
-| SEC-MED-061 | Uploaded artwork: size-capped while they stream |
 | SEC-MED-062 | Media-derived strings and paths written: escaped |
 | SEC-MED-063 | Server: never start any external program except through the sandbox launcher |
 | SEC-MED-077 | Clients: apply the core's parsers and limits to everything |
@@ -637,7 +636,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-EXT-007 | Credential: carry an immutable kind |
 | SEC-EXT-018 | Until SEC-EXT-019 to SEC-EXT-034 are implemented: never load or execute any plugin or other third-party code |
 
-### Operations and incident response (65)
+### Operations and incident response (64)
 
 | ID | Short name |
 |---|---|
@@ -667,7 +666,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-OPS-027 | Only the owner and holders: read the full audit log |
 | SEC-OPS-028 | Failed authentication on any surface: also be written to the diagnostic log |
 | SEC-OPS-029 | Diagnostic logging: default to info level and must never record request |
-| SEC-OPS-030 | Diagnostic bundles: meet SEC-PRV-046 |
 | SEC-OPS-031 | At startup the server: detect any configuration change made outside |
 | SEC-OPS-032 | Server: raise owner alerts |
 | SEC-OPS-033 | Alert about a device or credential: offer a one-step "This wasn't me" action that revokes |
@@ -707,7 +705,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-OPS-072 | Project: publish a compromise runbook for server owners |
 | SEC-OPS-075 | Audit log: an anchor off the host |
 
-### Privacy and data protection (49)
+### Privacy and data protection (44)
 
 | ID | Short name |
 |---|---|
@@ -716,16 +714,12 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-PRV-003 | Client IP addresses: stored only in the active-session table and the security |
 | SEC-PRV-004 | Server: never persist users' search queries |
 | SEC-PRV-005 | Retention for every data class: defined in one schedule in code with the defaults |
-| SEC-PRV-006 | Images uploaded by users: re-encoded with all EXIF |
 | SEC-PRV-007 | With the default configuration: cause no outbound connection or non-local DNS lookup |
 | SEC-PRV-008 | Outbound requests from the server: go through one egress component that enforces a per-feature |
 | SEC-PRV-009 | Server and every first-party client: never send telemetry |
 | SEC-PRV-012 | Admin: able to route all server egress through an HTTP |
 | SEC-PRV-013 | Metadata: never enabled by default |
-| SEC-PRV-014 | Provider requests: built only from a typed lookup-evidence value holding normalised |
-| SEC-PRV-015 | Provider lookups: run only during scans |
 | SEC-PRV-016 | Clients: fetch artwork |
-| SEC-PRV-017 | Outbound provider requests: send a User-Agent naming only the project |
 | SEC-PRV-018 | Web response: send Referrer-Policy |
 | SEC-PRV-019 | Web client: never keep Activity |
 | SEC-PRV-020 | Responses carrying Activity: send Cache-Control |
@@ -750,7 +744,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-PRV-043 | At the default log level: never contain media titles |
 | SEC-PRV-044 | Repository: contain a log inventory listing every log event type |
 | SEC-PRV-045 | Log files: created readable only by the service account |
-| SEC-PRV-046 | Diagnostic bundles: exclude the database |
 | SEC-PRV-047 | User: able to export all of their own data |
 | SEC-PRV-048 | Starting an export or an account: require authentication within the last 5 minutes |
 | SEC-PRV-049 | Users: able to delete one history entry |
@@ -821,7 +814,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-SUP-055 | Coding agents and other automation working: run without access to release credentials |
 | SEC-SUP-056 | Release: a unique version |
 
-### Rival security history (51)
+### Rival security history (50)
 
 | ID | Short name |
 |---|---|
@@ -840,7 +833,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-HIS-015 | Server: never build a filesystem path from untrusted data |
 | SEC-HIS-016 | File access: go through directory handles that confine resolution |
 | SEC-HIS-017 | Scanner: classify files by the content of the resolved target |
-| SEC-HIS-018 | Playlist files: resolve entries only to items in libraries the playlist |
 | SEC-HIS-019 | Server: never extract archives |
 | SEC-HIS-020 | External programs: started only by one typed command builder |
 | SEC-HIS-021 | Paths to external programs: come only from the install or a read-only host |
@@ -877,7 +869,7 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-HIS-065 | Vulnerability fixed in a released version: published as a GitHub security advisory with a CVE |
 | SEC-HIS-066 | "rival exploit replay" test suite: contain at least one test per incident |
 
-### Standards coverage (35)
+### Standards coverage (33)
 
 | ID | Short name |
 |---|---|
@@ -887,7 +879,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-STD-004 | SEC requirement whose release: referenced by at least one test |
 | SEC-STD-005 | Release: publish |
 | SEC-STD-006 | Before any server code stores: decide whether account passwords and TOTP exist in R1 |
-| SEC-STD-008 | Secret a person chooses: accept any Unicode characters with no composition rules |
 | SEC-STD-010 | Gunmetal: never include SAML |
 | SEC-STD-011 | Regular expressions applied to untrusted input: run only in a linear-time engine |
 | SEC-STD-012 | Client: keep data keyed by untrusted strings |
@@ -903,7 +894,6 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-STD-022 | Security randomness: come from the operating system CSPRNG through one function |
 | SEC-STD-023 | Main server process: disable core dumps |
 | SEC-STD-024 | Key derived from a human secret: use Argon2id with at least the second recommended RFC |
-| SEC-STD-025 | OIDC authorization requests: carry exactly the scopes in the provider's configuration |
 | SEC-STD-026 | Server: never act as an OAuth authorization server for third-party clients |
 | SEC-STD-027 | Flow: never show an approval prompt on a person's device |
 | SEC-STD-029 | Single-use or counted secret: consumed by one conditional update inside a single SQLite |
@@ -916,6 +906,49 @@ abbreviations of the requirement text, which is authoritative.
 | SEC-STD-037 | CONTRIBUTING.md: link a short secure-coding guide drawn from these files |
 | SEC-STD-038 | CI: fuzz the running server through its generated OpenAPI description |
 | SEC-STD-040 | Server: talk to its scan worker |
+
+### Due after R1
+
+These 31 requirements were in the earlier R1 cut. Each protects only a
+surface that now ships in a point release or in R2, and is mandatory in the
+release that ships that surface, which cannot ship without it
+(SEC-STD-004). The R1.1 and R1.2 rows follow the register's "Security
+requirements for the adopted R1"; the R2 rows follow D-07. No requirement
+is due in R1.3.
+
+| Release | Surface | ID | Short name |
+|---|---|---|---|
+| R1.1 | Playlist files imported or found in libraries (MUS-140, LIB-192) | SEC-MED-050 | Entries in M3U: resolve only to items already indexed in the same |
+| R1.1 | Playlist files imported or found in libraries (MUS-140, LIB-192) | SEC-HIS-018 | Playlist files: resolve entries only to items in libraries the playlist |
+| R1.1 | Metadata providers (LIB-111, LIB-112) | SEC-PRV-014 | Provider requests: built only from a typed lookup-evidence value holding normalised |
+| R1.1 | Metadata providers (LIB-111, LIB-112) | SEC-PRV-015 | Provider lookups: run only during scans |
+| R1.1 | Metadata providers (LIB-111, LIB-112) | SEC-PRV-017 | Outbound provider requests: send a User-Agent naming only the project |
+| R1.1 | Avatar and other image uploads (ACC-011) | SEC-MED-061 | Uploaded artwork: size-capped while they stream |
+| R1.1 | Avatar and other image uploads (ACC-011) | SEC-PRV-006 | Images uploaded by users: re-encoded with all EXIF |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-TM-022 | OIDC sign-in: use the authorization code flow with PKCE |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-026 | OIDC sign-in: use the authorization code flow with PKCE |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-027 | ID tokens: verified with keys from the provider's JWKS using algorithms |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-028 | OIDC identity: keyed only by the pair |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-029 | Linking an OIDC identity: happen only inside that account's session after user verification |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-030 | OIDC auto-registration: off by default |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-031 | Provider claims: never confer the owner role |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-032 | Server-side calls to an OIDC provider: verify TLS certificates and must not follow redirects |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-033 | OIDC redirect URI: one exact registered URL on the configured origin |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-034 | Authorization request: bound to the one provider it was sent |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-035 | Sessions created through OIDC: lifetimes set by Gunmetal |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-IAM-036 | Administrator elevation for an account: require a fresh provider sign-in |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-STD-025 | OIDC authorization requests: carry exactly the scopes in the provider's configuration |
+| R1.2 | OIDC sign-in (ACC-057) | SEC-CLI-026 | When the web client signs: act as a confidential client |
+| R1.2 | Music share links (ACC-086 to ACC-089, MUS-151) | SEC-API-097 | Public share links: use the fragment pattern |
+| R1.2 | Music share links (ACC-086 to ACC-089, MUS-151) | SEC-STD-008 | Secret a person chooses: accept any Unicode characters with no composition rules |
+| R1.2 | Diagnostic bundles (ADM-124, CLI-033) | SEC-PRV-046 | Diagnostic bundles: exclude the database |
+| R1.2 | Diagnostic bundles (ADM-124, CLI-033) | SEC-OPS-030 | Diagnostic bundles: meet SEC-PRV-046 |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-010 | If the server uses: 128-bit random |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-011 | Name service: answer A and AAAA queries |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-012 | Name service: publish a CAA record for each registered label |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-069 | When the server uses the project: by default monitor Certificate Transparency for its own label |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-070 | Project name service: launch only after its zone is on the Public |
+| R2 | The name service, its naming client and CT monitoring (ADM-023) | SEC-NET-071 | When the name service refuses: keep working on every other path |
 
 ## Add to the repository now
 
@@ -946,14 +979,19 @@ These come before more code lands. Each satisfies the requirement named.
 
 These consolidate the open decisions of every file in this directory,
 with duplicates merged. Each has a recommendation; the baseline is written
-as if the recommendation is accepted.
+as if the recommendation is accepted. The owner answered several of them
+on 2026-10-02 ([decision register](../decisions.md#owner-answers-2026-10-02)).
+Where an answer differs from the recommendation, the answer wins, and the
+item says so.
 
 1. **Identity: no passwords and no TOTP** (SEC-STD-006; identity OD-2,
    threat-model OD-3, standards OD-1). *Recommendation:* adopt it, with
    passkeys, OIDC and browser pairing in R1, and withdraw the accounts
    map's password fallback and TOTP (ACC-052, ACC-053) in the feature map.
    *Trade-off:* a person with no passkey-capable device and no phone needs
-   a hardware key or help from someone in the household.
+   a hardware key or help from someone in the household. *Answered (D-06,
+   D-10):* adopted, with passkeys and browser pairing in R1 and OIDC in
+   R1.2.
 2. **HTTPS for ordinary households** (network OD-1, identity OD-1,
    threat-model OD-2, web OD-1, client OD-1, rival OD-1, standards OD-2).
    Plain HTTP to LAN peers is already ruled out (SEC-NET-001). *Recommendation:* run the
@@ -965,12 +1003,18 @@ as if the recommendation is accepted.
    *Trade-off:* the project runs and pays for DNS and certificate
    automation and becomes a soft dependency that knows which labels
    exist; without it, R1 is only for people who can set up HTTPS.
+   *Answered (D-07), differs from the recommendation:* R1 gets HTTPS
+   through the owner's own domain with automatic certificates, a tailnet,
+   or the same machine (SEC-NET-013). The name service, its naming client
+   and its CT monitoring are R2 (SEC-NET-010 to SEC-NET-012, SEC-NET-069 to
+   SEC-NET-071). Its launch conditions still apply in full when it ships.
 3. **Remote browser access in R1** (network OD-2, OD-3, threat-model
    OD-12, privacy OD-11). *Recommendation:*
    in R1, remote use means the owner's reverse proxy or tailnet; iroh,
    relays and the browser edge come in R2. *Trade-off:* some R1 owners
    will port-forward, which the internet posture and exposure alerts are
-   built for.
+   built for. *Answered:* as recommended; built-in remote access (iroh)
+   arrives in R2.
 4. **The update and advisory check** (operations OD-3, privacy OD-5,
    rival OD-4, threat-model OD-5). *Recommendation:* a required first-run
    question with two explicit answers and no preselection (SEC-OPS-047).
@@ -991,6 +1035,8 @@ as if the recommendation is accepted.
    *Recommendation:* R1 for music, listen-only, 30 days, with per-link
    limits; video links in R2, off by default. *Trade-off:* the most
    requested sharing feature ships with friction for heavy sharers.
+   *Answered (D-10):* music share links ship in R1.2, with SEC-API-097 and
+   SEC-STD-008; the rest as recommended.
 8. **API keys and adapters** (plugins OD-2, OD-3, OD-4, OD-11; rival OD-3).
    *Recommendation:* both in R2, never with administrator scopes, no
    plaintext LAN exception, legacy Subsonic sign-in per key, local paths
@@ -1064,7 +1110,10 @@ as if the recommendation is accepted.
     lookups built in for R1 behind the egress client and the required
     setup question, each listing the fields it sends; per-owner provider
     API keys where a provider needs one. *Trade-off:* a few providers in
-    the server rather than in plugins.
+    the server rather than in plugins. *Answered (D-10):* built in, but in
+    R1.1 rather than R1, behind the setup question that lists what each
+    provider receives (SEC-PRV-014, SEC-PRV-015, SEC-PRV-017 move to R1.1;
+    SEC-PRV-013 stays R1).
 23. **Never write into media folders** (media OD-14, operations OD-11,
     threat-model OD-15). *Recommendation:* never in R1 or R2.
     *Trade-off:* no NFO or tag writing for people who want it.
@@ -1085,7 +1134,7 @@ as if the recommendation is accepted.
     OS versions (client OD-8, OD-11; supply-chain OD-11); step-up method
     (client OD-9); desktop shell (client OD-12); no over-the-air app
     updates (client OD-13, supply-chain OD-10); OIDC in R1 (identity
-    OD-3); federation, LDAP and proxy-header sign-in not before their own
+    OD-3; answered by D-10: R1.2); federation, LDAP and proxy-header sign-in not before their own
     records (identity OD-10, OD-11); device and stream limits (identity
     OD-13); limit defaults (media OD-5, network OD-11); image formats,
     original artwork and colour profiles (media OD-11 to OD-13,

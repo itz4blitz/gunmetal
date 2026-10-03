@@ -9,9 +9,38 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+sha2.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 
-[lints]
-workspace = true
+# A crate with lints of its own cannot also inherit the workspace's table, so
+# the workspace lints are repeated here first; the core's tests fail if one
+# is missing (tests/workspace_rules.rs).
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+await_holding_lock = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+# SEC-MED-002: the core returns a typed error for every input and never
+# panics or overflows. clippy.toml lets tests unwrap, expect, panic and index.
+# This is the list the plan spells out for wave 0 (WP-001), which the other
+# wave 0 packages write their code to. The only exception to a lint here is
+# an #[expect(lint, reason = "...")] whose reason states the invariant that
+# makes it safe, with a test covering that invariant; review refuses
+# #[allow]. Proposed for after wave 0 merges, when every core file can change
+# at once: string_slice, allow_attributes and allow_attributes_without_reason.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+large_stack_arrays = "deny"

@@ -1,0 +1,97 @@
+name: Dependency age
+
+# A pull request must not add or change a crate version published less
+# than seven days earlier (SEC-SUP-027). The check is `xtask lockfile-age`,
+# under the gate like all code; this file only feeds it. The xtask makes
+# no network request: it prints the crates.io records to fetch, curl saves
+# them, and the xtask checks the saved records. Both lock files count,
+# because the fuzz project's dependencies run in CI too.
+#
+# For an urgent security fix, a maintainer applies the
+# `dependency-age-override` label. Anyone with triage access can apply a
+# label, so the label does not skip the job: it swaps the age check for
+# `xtask lockfile-age override`, which passes only when a code owner of
+# every lock file, as the base commit's CODEOWNERS names them, has
+# approved the pull request's head commit. A push after that approval
+# fails the job again until a code owner approves the new head. A review
+# re-runs the job, so the approval takes effect without a push. The job
+# never skips itself, because a skipped job passes a required check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - Cargo.lock
+      - fuzz/Cargo.lock
+      - .github/workflows/dependency-age.yml
+  pull_request_review:
+    types: [submitted, dismissed]
+
+# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: dependency-age-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  age:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Read the pull request's reviews when the override label is present.
+      pull-requests: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # The full history, so that the base commit's files are present.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      # The code owners come from the base commit too, so a pull request
+      # cannot name its own author an owner.
+      - name: Take the lock files and code owners from the base commit
+        run: |
+          mkdir -p target/dependency-age
+          git show "$BASE_SHA:Cargo.lock" > target/dependency-age/base.lock
+          git show "$BASE_SHA:fuzz/Cargo.lock" > target/dependency-age/fuzz-base.lock
+          git show "$BASE_SHA:.github/CODEOWNERS" > target/dependency-age/CODEOWNERS
+      # crates.io asks API clients for a user agent and at most one request
+      # a second. A version crates.io does not know fails the fetch.
+      - name: Fetch the crates.io record of every added version
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'dependency-age-override') }}
+        run: |
+          cargo run --locked --quiet -p xtask -- lockfile-age requests \
+            target/dependency-age/base.lock Cargo.lock > target/dependency-age/requests
+          cargo run --locked --quiet -p xtask -- lockfile-age requests \
+            target/dependency-age/fuzz-base.lock fuzz/Cargo.lock >> target/dependency-age/requests
+          if [ -s target/dependency-age/requests ]; then
+            curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+              --retry 3 --rate 1/s \
+              --user-agent 'gunmetal-ci (https://github.com/PremierStudio/gunmetal)' \
+              --create-dirs --output-dir target/dependency-age/records \
+              --config target/dependency-age/requests
+          fi
+      - name: Check that each is at least seven days old
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'dependency-age-override') }}
+        run: |
+          cargo run --locked --quiet -p xtask -- lockfile-age check \
+            target/dependency-age/base.lock Cargo.lock target/dependency-age/records
+          cargo run --locked --quiet -p xtask -- lockfile-age check \
+            target/dependency-age/fuzz-base.lock fuzz/Cargo.lock target/dependency-age/records
+      - name: Check that a code owner approved the override
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'dependency-age-override') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
+            > target/dependency-age/reviews.json
+          cargo run --locked --quiet -p xtask -- lockfile-age override \
+            target/dependency-age/CODEOWNERS target/dependency-age/reviews.json "$HEAD_SHA"

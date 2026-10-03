@@ -1,0 +1,20 @@
+[package]
+name = "gunmetal-testkit"
+description = "Test support for Gunmetal: byte and bit writers, checksums, temporary directories and a manual clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+# Nothing from the workspace, so a builder here can never borrow the code it
+# is meant to check.
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
