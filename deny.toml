@@ -288,7 +288,10 @@ deny = [
 
     # SEC-MED-025, SEC-TM-034: no C or C++ media, image, font or subtitle
     # library is linked into the server or the worker. Such code may only run
-    # as an external program inside the sandbox.
+    # as an external program inside the sandbox. A list of names cannot
+    # catch a binding it does not name, so SEC-TM-034 also needs a check of
+    # every native (`-sys` or `links`) and unsafe-using crate in the shipped
+    # graph against a justified allowlist; that check is still to be written.
     { crate = "ffmpeg-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
     { crate = "ffmpeg-sys", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
     { crate = "ffmpeg-sys-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },

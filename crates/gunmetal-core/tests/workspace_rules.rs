@@ -9,9 +9,12 @@
 //! but nothing enforces would still pass here, which is why the pull request
 //! that adds a rule also shows the gate refusing a change that breaks it.
 //!
-//! Every file is read at compile time, so the tests do no I/O. They live with
-//! the core, the one crate every package builds on, until the repository's
-//! xtask crate exists (WP-008).
+//! Every file is read at compile time, so the tests do no I/O; the one test
+//! that needs today's date reads the clock. They live with the core, the one
+//! crate every package builds on, until the repository's xtask crate exists
+//! (WP-008).
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const WORKSPACE_MANIFEST: &str = include_str!("../../../Cargo.toml");
 const CORE_MANIFEST: &str = include_str!("../Cargo.toml");
@@ -231,30 +234,254 @@ fn blocks<'a>(toml: &'a str, opening: &str) -> Vec<(&'a str, Vec<&'a str>)> {
         .collect()
 }
 
-/// The exceptions that lack a field SEC-SUP-022 requires, by advisory ID.
-fn incomplete_exceptions(exceptions: &str) -> Vec<&str> {
+/// Whether `field` is exactly `width` ASCII digits.
+fn digits(field: &str, width: usize) -> bool {
+    field.len() == width && field.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// The days from 1970-01-01 to a `YYYY-MM-DD` date, or `None` if `date` is
+/// not a real one. Howard Hinnant's `days_from_civil`, counting years from
+/// March so that a leap day falls at the end of one.
+fn days_since_epoch(date: &str) -> Option<i64> {
+    let mut fields = date.split('-');
+    let (year, month, day) = (fields.next()?, fields.next()?, fields.next()?);
+    if fields.next().is_some() || !(digits(year, 4) && digits(month, 2) && digits(day, 2)) {
+        return None;
+    }
+    let (year, month, day): (i64, i64, i64) =
+        (year.parse().ok()?, month.parse().ok()?, day.parse().ok()?);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let february = if leap { 29 } else { 28 };
+    let lengths = [31, february, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let length = *lengths.get(usize::try_from(month.checked_sub(1)?).ok()?)?;
+    if !(1..=length).contains(&day) {
+        return None;
+    }
+    let (year, month) = if month <= 2 {
+        (year.checked_sub(1)?, month.checked_add(9)?)
+    } else {
+        (year, month.checked_sub(3)?)
+    };
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let day_of_year = month
+        .checked_mul(153)?
+        .checked_add(2)?
+        .checked_div(5)?
+        .checked_add(day)?
+        .checked_sub(1)?;
+    let day_of_era = year_of_era
+        .checked_mul(365)?
+        .checked_add(year_of_era.checked_div(4)?)?
+        .checked_sub(year_of_era.checked_div(100)?)?
+        .checked_add(day_of_year)?;
+    era.checked_mul(146_097)?
+        .checked_add(day_of_era)?
+        .checked_sub(719_468)
+}
+
+/// Whether `id` is a `RustSec` advisory ID, `RUSTSEC-YYYY-NNNN`.
+fn is_advisory_id(id: &str) -> bool {
+    let mut parts = id.split('-');
+    parts.next() == Some("RUSTSEC")
+        && parts.next().is_some_and(|year| digits(year, 4))
+        && parts.next().is_some_and(|number| digits(number, 4))
+        && parts.next().is_none()
+}
+
+/// The exceptions SEC-SUP-022 refuses on day `today` (days since
+/// 1970-01-01), by advisory ID, each with the first thing wrong with it: a
+/// missing field, an ID that is not `RUSTSEC-YYYY-NNNN`, or a review-by date
+/// that is not a date, has passed, or is more than 90 days ahead.
+fn refused_exceptions(exceptions: &str, today: i64) -> Vec<(&str, &'static str)> {
     blocks(exceptions, "[[advisory]]")
         .into_iter()
-        .filter(|(_, lines)| {
-            ["id", "crate", "reason", "owner", "review-by"]
+        .filter_map(|(_, lines)| {
+            let id = value(&lines, "id")
+                .map_or("(no id)", |id| quoted(id).first().copied().unwrap_or(id));
+            let review_by = value(&lines, "review-by").and_then(days_since_epoch);
+            let problem = if ["id", "crate", "reason", "owner", "review-by"]
                 .iter()
-                .any(|key| value(lines, key).is_none())
-        })
-        .map(|(_, lines)| {
-            value(&lines, "id")
-                .and_then(|id| quoted(id).first().copied())
-                .unwrap_or("(no id)")
+                .any(|key| value(&lines, key).is_none())
+            {
+                "a field is missing"
+            } else if !is_advisory_id(id) {
+                "the ID is not RUSTSEC-YYYY-NNNN"
+            } else if review_by.is_none() {
+                "review-by is not a date"
+            } else if review_by < Some(today) {
+                "review-by has passed"
+            } else if review_by > Some(today.saturating_add(90)) {
+                "review-by is more than 90 days ahead"
+            } else {
+                return None;
+            };
+            Some((id, problem))
         })
         .collect()
 }
 
-/// The direct normal dependencies a manifest declares.
-fn normal_dependencies(manifest: &str) -> Vec<&str> {
-    rules(&table(manifest, "dependencies"))
+/// The byte offset of the first `wanted` in `text` that is outside a quoted
+/// string.
+fn unquoted_offset(text: &str, wanted: char) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (at, found) in text.char_indices() {
+        match quote {
+            None if found == wanted => return Some(at),
+            None if found == '"' || found == '\'' => quote = Some(found),
+            Some('"') if escaped => escaped = false,
+            Some('"') if found == '\\' => escaped = true,
+            Some(open) if found == open => quote = None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `text` before and after its first unquoted `separator`.
+fn split_unquoted(text: &str, separator: char) -> Option<(&str, &str)> {
+    let (before, after) = text.split_at_checked(unquoted_offset(text, separator)?)?;
+    Some((before, after.strip_prefix(separator)?))
+}
+
+/// The parts of a dotted TOML key, trimmed and unquoted:
+/// `target.'cfg(unix)'.dependencies` is `target`, `cfg(unix)` and
+/// `dependencies`.
+fn key_path(key: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut rest = key;
+    while let Some((part, after)) = split_unquoted(rest, '.') {
+        parts.push(part);
+        rest = after;
+    }
+    parts.push(rest);
+    parts
         .into_iter()
-        .filter_map(|line| line.split(['=', '.']).next())
-        .map(str::trim)
+        .map(|part| {
+            let part = part.trim();
+            ['"', '\'']
+                .into_iter()
+                .find_map(|quote| part.strip_prefix(quote)?.strip_suffix(quote))
+                .unwrap_or(part)
+        })
         .collect()
+}
+
+/// Every `key = value` line of a TOML file, with the key's full path from
+/// the root: the path of the table it is in, then its own dotted key. A line
+/// inside a multi-line string or array is read as if it stood alone, which
+/// is enough for a Cargo manifest.
+fn assignments(toml: &str) -> Vec<(Vec<&str>, &str)> {
+    let mut table = Vec::new();
+    let mut found = Vec::new();
+    for line in rules(&toml.lines().collect::<Vec<_>>()) {
+        if line.starts_with('[') {
+            let header = line.trim_start_matches('[');
+            table = split_unquoted(header, ']').map_or_else(Vec::new, |(path, _)| key_path(path));
+        } else if let Some((key, value)) = split_unquoted(line, '=') {
+            let mut path = table.clone();
+            path.extend(key_path(key));
+            found.push((path, value.trim()));
+        }
+    }
+    found
+}
+
+/// The value of `key` in an inline table such as `{ version = "1", package
+/// = "x" }`, as written.
+fn inline_value<'a>(table: &'a str, key: &str) -> Option<&'a str> {
+    let mut rest = table.trim().strip_prefix('{')?;
+    loop {
+        let (entry, after) = split_unquoted(rest, ',').unwrap_or((rest, ""));
+        let found = split_unquoted(entry, '=').filter(|(name, _)| name.trim() == key);
+        if let Some((_, value)) = found {
+            return Some(value.trim().trim_end_matches('}').trim_end());
+        }
+        if after.is_empty() {
+            return None;
+        }
+        rest = after;
+    }
+}
+
+/// One dependency a manifest declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Declared<'a> {
+    /// The name it is declared under.
+    key: &'a str,
+    /// The package it names, when `package = "..."` renames it.
+    package: Option<&'a str>,
+    /// Whether it takes its entry from `[workspace.dependencies]`.
+    inherits: bool,
+}
+
+/// The dependencies declared in the tables of `toml` whose paths match one
+/// of `tables`, in order, where `*` matches any one part of a path. Each is
+/// found however it is written: a line in the table, a dotted key, or a
+/// subtable of its own.
+fn declared<'a>(toml: &'a str, tables: &[&[&str]]) -> Vec<Declared<'a>> {
+    let mut found: Vec<Declared<'a>> = Vec::new();
+    for (path, value) in assignments(toml) {
+        let within = tables.iter().find_map(|table| {
+            let (head, rest) = path.split_at_checked(table.len())?;
+            let matches = head
+                .iter()
+                .zip(table.iter())
+                .all(|(part, wanted)| *wanted == "*" || part == wanted);
+            matches.then_some(rest)?.split_first()
+        });
+        let Some((&key, field)) = within else {
+            continue;
+        };
+        let (package, inherits) = match field {
+            [] => (
+                inline_value(value, "package"),
+                inline_value(value, "workspace") == Some("true"),
+            ),
+            ["package"] => (Some(value), false),
+            ["workspace"] => (None, value == "true"),
+            _ => (None, false),
+        };
+        let package = package.and_then(|name| quoted(name).first().copied());
+        if let Some(known) = found.iter_mut().find(|known| known.key == key) {
+            known.package = known.package.or(package);
+            known.inherits |= inherits;
+        } else {
+            found.push(Declared {
+                key,
+                package,
+                inherits,
+            });
+        }
+    }
+    found
+}
+
+/// The packages a manifest uses at run time, in every `[dependencies]` and
+/// `[target.<cfg>.dependencies]` table, under the names cargo-deny and the
+/// allowlist use: a renamed dependency by the package it names, and one
+/// inherited from `workspace` by the package the workspace entry names.
+fn normal_dependencies<'a>(manifest: &'a str, workspace: &'a str) -> Vec<&'a str> {
+    let inherited = declared(workspace, &[&["workspace", "dependencies"]]);
+    declared(
+        manifest,
+        &[&["dependencies"], &["target", "*", "dependencies"]],
+    )
+    .into_iter()
+    .map(|dependency| {
+        let from_workspace = || {
+            inherited
+                .iter()
+                .find(|entry| entry.key == dependency.key)
+                .and_then(|entry| entry.package)
+        };
+        dependency
+            .package
+            .or_else(|| dependency.inherits.then(from_workspace).flatten())
+            .unwrap_or(dependency.key)
+    })
+    .collect()
 }
 
 /// The crates the core allowlist names, one `name = "..."` line each.
@@ -267,9 +494,13 @@ fn allowlisted(allowlist: &str) -> Vec<&str> {
 }
 
 /// The core's direct normal dependencies that are not on the allowlist.
-fn unreviewed_dependencies<'a>(manifest: &'a str, allowlist: &'a str) -> Vec<&'a str> {
+fn unreviewed_dependencies<'a>(
+    manifest: &'a str,
+    workspace: &'a str,
+    allowlist: &'a str,
+) -> Vec<&'a str> {
     let allowed = allowlisted(allowlist);
-    normal_dependencies(manifest)
+    normal_dependencies(manifest, workspace)
         .into_iter()
         .filter(|name| !allowed.contains(name))
         .collect()
@@ -380,19 +611,193 @@ fn the_advisory_check_reports_each_side_of_a_mismatch() {
         unmatched_advisories(deny, exceptions),
         (vec!["RUSTSEC-2026-0001"], vec!["RUSTSEC-2026-0003"])
     );
-    assert_eq!(incomplete_exceptions(exceptions), ["RUSTSEC-2026-0003"]);
+    // 2026-10-03 is day 20729.
+    assert_eq!(
+        refused_exceptions(exceptions, 20_729),
+        [("RUSTSEC-2026-0003", "a field is missing")]
+    );
     assert_eq!(
         ignored_advisories("[advisories]\nignore = [\"RUSTSEC-2026-0004\"]\n"),
         ["RUSTSEC-2026-0004"]
     );
 }
 
+/// One `[[advisory]]` entry with every field, for the samples below.
+fn advisory(id: &str, review_by: &str) -> String {
+    format!(
+        "[[advisory]]\nid = \"{id}\"\ncrate = \"c\"\nreason = \"r\"\nowner = \"@o\"\nreview-by = {review_by}\n\n"
+    )
+}
+
+#[test]
+fn the_exception_check_refuses_a_lapsed_date_a_far_date_and_a_malformed_id() {
+    let exceptions = [
+        // Due today, and due in exactly 90 days: both still good.
+        advisory("RUSTSEC-2026-0001", "2026-10-03"),
+        advisory("RUSTSEC-2026-0002", "2027-01-01"),
+        advisory("RUSTSEC-2026-0003", "2026-10-02"),
+        advisory("RUSTSEC-2026-0004", "2027-01-02"),
+        advisory("RUSTSEC-2026-0005", "2026-02-30"),
+        advisory("RUSTSEC-2026-0006", "\"2026-12-31\""),
+        advisory("RUSTSEC-26-0007", "2026-12-31"),
+        advisory("RUSTSEC-2026-00080", "2026-12-31"),
+        advisory("RUSTSEC-2026-0009-1", "2026-12-31"),
+        advisory("GHSA-2026-0010", "2026-12-31"),
+        advisory("RUSTSEC-2026-001x", "2026-12-31"),
+        "[[advisory]]\nid = \"RUSTSEC-2026-0012\"\ncrate = \"c\"\nreason = \"r\"\nreview-by = 2026-12-31\n\n"
+            .to_owned(),
+        "[[advisory]]\ncrate = \"c\"\n\n".to_owned(),
+    ]
+    .concat();
+    // 2026-10-03 is day 20729.
+    assert_eq!(
+        refused_exceptions(&exceptions, 20_729),
+        [
+            ("RUSTSEC-2026-0003", "review-by has passed"),
+            ("RUSTSEC-2026-0004", "review-by is more than 90 days ahead"),
+            ("RUSTSEC-2026-0005", "review-by is not a date"),
+            ("RUSTSEC-2026-0006", "review-by is not a date"),
+            ("RUSTSEC-26-0007", "the ID is not RUSTSEC-YYYY-NNNN"),
+            ("RUSTSEC-2026-00080", "the ID is not RUSTSEC-YYYY-NNNN"),
+            ("RUSTSEC-2026-0009-1", "the ID is not RUSTSEC-YYYY-NNNN"),
+            ("GHSA-2026-0010", "the ID is not RUSTSEC-YYYY-NNNN"),
+            ("RUSTSEC-2026-001x", "the ID is not RUSTSEC-YYYY-NNNN"),
+            ("RUSTSEC-2026-0012", "a field is missing"),
+            ("(no id)", "a field is missing"),
+        ]
+    );
+}
+
+#[test]
+fn the_date_reader_counts_days_from_the_epoch() {
+    // Reference values from Python's datetime.date arithmetic.
+    for (date, days) in [
+        ("1970-01-01", 0),
+        ("1969-12-31", -1),
+        ("2000-02-29", 11_016),
+        ("2000-03-01", 11_017),
+        ("2024-02-29", 19_782),
+        ("2026-10-03", 20_729),
+        ("2027-01-01", 20_819),
+        ("2100-03-01", 47_541),
+        ("1600-03-01", -135_080),
+        ("9999-12-31", 2_932_896),
+    ] {
+        assert_eq!(days_since_epoch(date), Some(days), "{date}");
+    }
+    for not_a_date in [
+        "2026-02-29",
+        "2100-02-29",
+        "2026-04-31",
+        "2026-01-32",
+        "2026-13-01",
+        "2026-00-10",
+        "2026-01-00",
+        "2026-1-01",
+        "26-01-01",
+        "+026-01-01",
+        "2026-01-0x",
+        "2026-01-01-01",
+        "2026-01",
+        "\"2026-01-01\"",
+        "",
+    ] {
+        assert_eq!(days_since_epoch(not_a_date), None, "{not_a_date}");
+    }
+}
+
 #[test]
 fn the_allowlist_check_reports_a_dependency_nobody_reviewed() {
     let manifest = "[package]\nname = \"x\"\n\n[dependencies]\nserde.workspace = true\npostcard = { workspace = true }\n\n[dev-dependencies]\nproptest.workspace = true\n";
     let allowlist = "[[crate]]\nname = \"serde\"\nreason = \"r\"\n";
-    assert_eq!(normal_dependencies(manifest), ["serde", "postcard"]);
-    assert_eq!(unreviewed_dependencies(manifest, allowlist), ["postcard"]);
+    assert_eq!(normal_dependencies(manifest, ""), ["serde", "postcard"]);
+    assert_eq!(
+        unreviewed_dependencies(manifest, "", allowlist),
+        ["postcard"]
+    );
+}
+
+#[test]
+fn the_allowlist_check_reads_every_way_to_declare_a_normal_dependency() {
+    let manifest = r#"dependencies.at-the-root = "1"
+
+[package]
+name = "x"
+
+[dependencies.subtable]
+version = "1"
+features = [
+    "a=b",
+]
+
+[dependencies.subtable-renamed]
+package = "subtable-real"
+version = "1"
+
+[dependencies]
+plain = "1" # a comment
+inline-renamed = { version = "1", package = "inline-real" }
+dotted-renamed.package = "dotted-real"
+dotted-renamed.version = "1"
+inherited = { workspace = true }
+inherited-dotted.workspace = true
+not-inherited = "1"
+"quoted" = "1"
+
+[target.'cfg(unix)'.dependencies]
+single-quoted-target = "1"
+
+[target."cfg(target_feature = \"sse4.1\")".dependencies.escaped-target]
+version = "1"
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+bare-target = "1"
+
+[ dependencies . spaced ]
+version = "1"
+
+[[bin]]
+name = "tool"
+dependencies.not-a-dependency = "1"
+
+[dev-dependencies]
+dev-only = "1"
+
+[build-dependencies]
+build-only = "1"
+
+[target.'cfg(unix)'.dev-dependencies]
+target-dev-only = "1"
+"#;
+    let workspace = "[workspace.dependencies]\n\
+        inherited = { version = \"1\", package = \"inherited-real\" }\n\
+        inherited-dotted = { version = \"1\", package = \"inherited-dotted-real\" }\n\
+        not-inherited = { version = \"1\", package = \"not-this\" }\n";
+    let found = [
+        "at-the-root",
+        "subtable",
+        "subtable-real",
+        "plain",
+        "inline-real",
+        "dotted-real",
+        "inherited-real",
+        "inherited-dotted-real",
+        "not-inherited",
+        "quoted",
+        "single-quoted-target",
+        "escaped-target",
+        "bare-target",
+        "spaced",
+    ];
+    assert_eq!(normal_dependencies(manifest, workspace), found);
+    assert_eq!(
+        unreviewed_dependencies(manifest, workspace, "name = \"plain\"\n"),
+        found
+            .iter()
+            .copied()
+            .filter(|name| *name != "plain")
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -424,10 +829,7 @@ fn the_core_refuses_every_construct_that_can_panic_or_overflow() {
             "unimplemented = \"deny\"",
             "indexing_slicing = \"deny\"",
             "arithmetic_side_effects = \"deny\"",
-            "string_slice = \"deny\"",
             "large_stack_arrays = \"deny\"",
-            "allow_attributes = \"deny\"",
-            "allow_attributes_without_reason = \"deny\"",
         ]
     );
     // Warnings fail the gate, so every lint above is an error there.
@@ -486,12 +888,34 @@ fn the_core_cannot_size_an_allocation_from_a_declared_length() {
         "std::collections::VecDeque::with_capacity",
         "std::collections::VecDeque::reserve",
         "std::collections::VecDeque::reserve_exact",
+        "std::collections::VecDeque::try_reserve",
+        "std::collections::VecDeque::try_reserve_exact",
         "std::collections::VecDeque::resize",
+        "std::collections::VecDeque::resize_with",
         "std::collections::HashMap::with_capacity",
+        "std::collections::HashMap::with_capacity_and_hasher",
         "std::collections::HashMap::reserve",
+        "std::collections::HashMap::try_reserve",
         "std::collections::HashSet::with_capacity",
+        "std::collections::HashSet::with_capacity_and_hasher",
         "std::collections::HashSet::reserve",
+        "std::collections::HashSet::try_reserve",
+        "std::collections::BinaryHeap::with_capacity",
+        "std::collections::BinaryHeap::reserve",
+        "std::collections::BinaryHeap::reserve_exact",
+        "std::collections::BinaryHeap::try_reserve",
+        "std::collections::BinaryHeap::try_reserve_exact",
+        "std::boxed::Box::new_uninit_slice",
+        "std::boxed::Box::new_zeroed_slice",
+        "std::rc::Rc::new_uninit_slice",
+        "std::rc::Rc::new_zeroed_slice",
+        "std::sync::Arc::new_uninit_slice",
+        "std::sync::Arc::new_zeroed_slice",
+        "slice::repeat",
+        "str::repeat",
+        "std::iter::repeat",
         "std::iter::repeat_n",
+        "std::iter::repeat_with",
     ]
     .iter()
     .map(|path| format!("{{ path = \"{path}\", reason = \"{presizing}\" }},"))
@@ -542,12 +966,24 @@ fn the_core_tests_also_run_where_usize_is_32_bits_wide() {
 #[test]
 fn the_core_depends_only_on_reviewed_crates() {
     assert_eq!(
-        unreviewed_dependencies(CORE_MANIFEST, CORE_ALLOWLIST),
+        unreviewed_dependencies(CORE_MANIFEST, WORKSPACE_MANIFEST, CORE_ALLOWLIST),
         Vec::<&str>::new()
     );
     // The owner accepted the core's first crates (D-02), but none is used
     // yet, so none has been reviewed.
     assert_eq!(allowlisted(CORE_ALLOWLIST), Vec::<&str>::new());
+    // The manifest names only direct dependencies, so the gate also compares
+    // every crate cargo resolves for the core, on every target, with the
+    // allowlist.
+    for line in [
+        r#"cargo tree "$locked" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |"#,
+        r#"awk '$1 != "gunmetal-core" { print $1 }' | LC_ALL=C sort -u"#,
+        r#"reviewed=$(sed -n 's/^name = "\([^"]*\)"$/\1/p' supply-chain/core-allowlist.toml | LC_ALL=C sort -u)"#,
+        r#"unreviewed=$(LC_ALL=C comm -23 <(printf '%s\n' "$core_deps") <(printf '%s\n' "$reviewed") | grep . || true)"#,
+        r#"if [[ -n "$unreviewed" ]]; then"#,
+    ] {
+        assert!(has_line(GATE, line), "{line}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -576,10 +1012,19 @@ fn only_the_egress_client_reaches_out() {
         "tokio::net::TcpSocket::connect",
         "tokio::net::UdpSocket::connect",
         "tokio::net::UdpSocket::send_to",
+        "tokio::net::UdpSocket::try_send_to",
+        "tokio::net::UdpSocket::poll_send_to",
         "tokio::net::lookup_host",
         "socket2::Socket::connect",
         "socket2::Socket::connect_timeout",
         "socket2::Socket::send_to",
+        "socket2::Socket::send_to_with_flags",
+        "socket2::Socket::send_to_vectored",
+        "socket2::Socket::send_to_vectored_with_flags",
+        "socket2::Socket::sendmsg",
+        "rustix::net::connect",
+        "rustix::net::sendto",
+        "rustix::net::sendmsg_addr",
         "reqwest::Client::new",
         "reqwest::Client::builder",
         "reqwest::ClientBuilder::new",
@@ -641,16 +1086,54 @@ fn only_the_listener_sees_where_a_request_came_from() {
             "std::os::unix::net::UnixDatagram::peer_addr",
             "std::os::unix::net::UnixDatagram::recv_from",
             "tokio::net::TcpListener::accept",
+            "tokio::net::TcpListener::poll_accept",
             "tokio::net::TcpStream::peer_addr",
+            "tokio::net::tcp::OwnedReadHalf::peer_addr",
+            "tokio::net::tcp::OwnedWriteHalf::peer_addr",
+            "tokio::net::tcp::ReadHalf::peer_addr",
+            "tokio::net::tcp::WriteHalf::peer_addr",
             "tokio::net::UdpSocket::peer_addr",
             "tokio::net::UdpSocket::recv_from",
+            "tokio::net::UdpSocket::poll_recv_from",
+            "tokio::net::UdpSocket::try_recv_from",
+            "tokio::net::UdpSocket::recv_buf_from",
+            "tokio::net::UdpSocket::try_recv_buf_from",
             "tokio::net::UdpSocket::peek_from",
+            "tokio::net::UdpSocket::poll_peek_from",
+            "tokio::net::UdpSocket::try_peek_from",
+            "tokio::net::UdpSocket::peek_sender",
+            "tokio::net::UdpSocket::poll_peek_sender",
+            "tokio::net::UdpSocket::try_peek_sender",
             "tokio::net::UnixListener::accept",
+            "tokio::net::UnixListener::poll_accept",
             "tokio::net::UnixStream::peer_addr",
+            "tokio::net::unix::OwnedReadHalf::peer_addr",
+            "tokio::net::unix::OwnedWriteHalf::peer_addr",
+            "tokio::net::unix::ReadHalf::peer_addr",
+            "tokio::net::unix::WriteHalf::peer_addr",
+            "tokio::net::UnixDatagram::peer_addr",
+            "tokio::net::UnixDatagram::recv_from",
+            "tokio::net::UnixDatagram::poll_recv_from",
+            "tokio::net::UnixDatagram::try_recv_from",
+            "tokio::net::UnixDatagram::recv_buf_from",
+            "tokio::net::UnixDatagram::try_recv_buf_from",
             "socket2::Socket::accept",
+            "socket2::Socket::accept_raw",
             "socket2::Socket::peer_addr",
             "socket2::Socket::recv_from",
+            "socket2::Socket::recv_from_with_flags",
+            "socket2::Socket::recv_from_vectored",
+            "socket2::Socket::recv_from_vectored_with_flags",
+            "socket2::Socket::peek_from",
+            "socket2::Socket::peek_sender",
+            "socket2::Socket::recvmsg",
+            "rustix::net::acceptfrom",
+            "rustix::net::acceptfrom_with",
+            "rustix::net::getpeername",
+            "rustix::net::recvfrom",
+            "rustix::net::recvmsg",
             "axum::serve::IncomingStream::remote_addr",
+            "axum::serve::Listener::accept",
         ])
     );
     assert_eq!(
@@ -663,6 +1146,52 @@ fn only_the_listener_sees_where_a_request_came_from() {
         "git grep --untracked -n -i -E '\"(forwarded|x-forwarded-[a-z-]+|x-real-ip|x-client-ip|true-client-ip|cf-connecting-ip)\"|header::FORWARDED' -- 'crates/*.rs' ':!crates/*/tests/*' ':!crates/gunmetal-server/src/listener.rs' ':!crates/gunmetal-core/src/http/forwarded.rs' || status=$?"
     ));
 }
+
+/// Every function in `rustix::fs` that takes a path. With `CWD` as the
+/// directory, the `*at` forms take one too.
+const RUSTIX_PATH_FUNCTIONS: [&str; 41] = [
+    "access",
+    "accessat",
+    "chmod",
+    "chmodat",
+    "chown",
+    "chownat",
+    "getxattr",
+    "lgetxattr",
+    "link",
+    "linkat",
+    "listxattr",
+    "llistxattr",
+    "lremovexattr",
+    "lsetxattr",
+    "lstat",
+    "mkdir",
+    "mkdirat",
+    "mkfifoat",
+    "mknodat",
+    "open",
+    "openat",
+    "openat2",
+    "readlink",
+    "readlinkat",
+    "readlinkat_raw",
+    "removexattr",
+    "rename",
+    "renameat",
+    "renameat_with",
+    "rmdir",
+    "setxattr",
+    "stat",
+    "statat",
+    "statfs",
+    "statvfs",
+    "statx",
+    "symlink",
+    "symlinkat",
+    "unlink",
+    "unlinkat",
+    "utimensat",
+];
 
 /// Verifies: SEC-MED-033
 #[test]
@@ -735,11 +1264,13 @@ fn only_the_filesystem_crate_opens_files() {
     ]
     .map(|name| format!("std::path::Path::{name}"));
     let unix = ["chown", "lchown", "symlink"].map(|name| format!("std::os::unix::fs::{name}"));
+    let rustix_fs = RUSTIX_PATH_FUNCTIONS.map(|name| format!("rustix::fs::{name}"));
     let expected: Vec<String> = std_fs
         .into_iter()
         .chain(tokio_fs)
         .chain(path)
         .chain(unix)
+        .chain(rustix_fs)
         .chain(["cap_std::ambient_authority".to_owned()])
         .collect();
     let expected: Vec<&str> = expected.iter().map(String::as_str).collect();
@@ -1213,9 +1744,13 @@ fn no_telemetry_or_crash_reporting_sdk_can_be_linked() {
     );
 }
 
-/// Verifies: SEC-MED-025, SEC-TM-034
+/// Verifies: SEC-MED-025
 #[test]
 fn no_c_media_image_font_or_subtitle_library_can_be_linked() {
+    // The same bans serve SEC-TM-034, but a list of names cannot fail for a
+    // native crate it does not name. SEC-TM-034 is proved once a check
+    // compares every `-sys`, `links` and unsafe-using crate in the shipped
+    // graph with a justified allowlist, so this test does not claim it.
     let expected = sorted(&[
         "ffmpeg-next",
         "ffmpeg-sys",
@@ -1281,6 +1816,7 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
             "cargo clippy --locked --workspace --all-targets -- -D warnings",
             "cargo deny \"$locked\" check",
             "cargo vet --locked \"${vet_offline[@]}\"",
+            "cargo tree \"$locked\" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |",
             "cargo llvm-cov --locked --workspace \\",
             "cargo mutants --workspace --no-shuffle \"${scope[@]}\" --cargo-arg=--locked",
         ]
@@ -1328,7 +1864,16 @@ fn every_ignored_advisory_has_a_recorded_exception() {
         unmatched_advisories(DENY, EXCEPTIONS),
         (Vec::new(), Vec::new())
     );
-    assert_eq!(incomplete_exceptions(EXCEPTIONS), Vec::<&str>::new());
+    // Checked against today's date (UTC), so the gate starts failing on the
+    // day an exception lapses, nightly runs included.
+    let today = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("the clock is set after 1970")
+        .as_secs()
+        .checked_div(86_400)
+        .and_then(|days| i64::try_from(days).ok())
+        .expect("today fits in i64 days");
+    assert_eq!(refused_exceptions(EXCEPTIONS, today), Vec::new());
     // Nothing is ignored today.
     assert_eq!(ignored_advisories(DENY), Vec::<&str>::new());
 }

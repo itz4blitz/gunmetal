@@ -75,6 +75,22 @@ cargo deny "$locked" check
 echo "==> dependency audits"
 cargo vet --locked "${vet_offline[@]}"
 
+echo "==> the core's dependencies are reviewed"
+# SEC-SUP-025: every crate the core uses at run time, on any target and
+# through any other crate, is on the reviewed allowlist. The core's tests
+# read its manifest; this reads what cargo resolves from it, until WP-008's
+# xtask core-deps takes the check over.
+core_deps=$(
+  cargo tree "$locked" -p gunmetal-core -e normal --target all --prefix none --format '{p}' |
+    awk '$1 != "gunmetal-core" { print $1 }' | LC_ALL=C sort -u
+)
+reviewed=$(sed -n 's/^name = "\([^"]*\)"$/\1/p' supply-chain/core-allowlist.toml | LC_ALL=C sort -u)
+unreviewed=$(LC_ALL=C comm -23 <(printf '%s\n' "$core_deps") <(printf '%s\n' "$reviewed") | grep . || true)
+if [[ -n "$unreviewed" ]]; then
+  printf 'the core depends on crates supply-chain/core-allowlist.toml does not list (SEC-SUP-025):\n%s\n' "$unreviewed" >&2
+  exit 1
+fi
+
 echo "==> tests with 100% coverage"
 cargo llvm-cov --locked --workspace \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100

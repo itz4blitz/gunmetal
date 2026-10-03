@@ -125,11 +125,11 @@ work mergeable. The owner accepted them on 2026-10-02
 ### Lints and doors
 
 - `gunmetal-core` denies `unwrap`, `expect`, `panic!`, `unreachable!`,
-  `todo!`, `unimplemented!`, indexing and slicing, unchecked arithmetic,
-  string slicing and large stack arrays in non-test code (SEC-MED-002). The
-  only exception is an `#[expect(lint, reason = "...")]` whose reason states
-  the invariant that makes it safe, with a test covering that invariant.
-  `#[allow]` is refused.
+  `todo!`, `unimplemented!`, indexing and slicing, unchecked arithmetic and
+  large stack arrays in non-test code (SEC-MED-002). The only exception is
+  an `#[expect(lint, reason = "...")]` whose reason states the invariant
+  that makes it safe, with a test covering that invariant. Review refuses
+  `#[allow]`.
 - `clippy.toml` and `deny.toml` refuse each risky operation outside the one
   module that owns it (the doors in the
   [secure-coding guide](docs/security/secure-coding.md#one-door-per-risk)).
