@@ -13,6 +13,7 @@ pub mod link;
 pub mod net;
 pub mod parse;
 pub mod problem;
+pub mod retention;
 pub mod schema;
 pub mod text;
 pub mod time;
