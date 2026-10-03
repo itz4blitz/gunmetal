@@ -1,13 +1,17 @@
 //! Every registered harness. A registry file: a package that adds a harness
-//! adds one entry here, in sorted position, and changes nothing else.
+//! adds one line to the list at the end of this file, in sorted position,
+//! and changes nothing else.
 //!
 //! The registry is how stable `cargo test` finds every harness's seeds
 //! (SEC-MED-028) and how `xtask check-harnesses` knows which parser modules
-//! have a harness (SEC-MED-027). The name is also the harness's module in
-//! this crate, its cargo-fuzz target in `fuzz/Cargo.toml`, its target file
+//! have a harness (SEC-MED-027). The list holds module names, and each
+//! entry's name and function come from that one token, so an entry cannot
+//! carry one harness's name and run another's code. The name is also the
+//! harness's cargo-fuzz target in `fuzz/Cargo.toml`, its target file
 //! `fuzz/fuzz_targets/<name>.rs`, its seed directory `fuzz/seeds/<name>/`
 //! and its exact-outcome replay test `tests/<name>_corpus.rs`; the check
-//! fails when any of them is missing.
+//! fails when any of them is missing, when the target file does not call
+//! `gunmetal_fuzz::<name>::run`, and when the target builds another file.
 
 /// One fuzz harness: every entry point of one parser behind a plain
 /// function of bytes (SEC-MED-027).
@@ -25,16 +29,26 @@ pub struct Harness {
     pub run: fn(&[u8]),
 }
 
-/// Every harness, sorted by name.
-static HARNESSES: &[Harness] = &[Harness {
-    name: "ebml",
-    run: |data| {
-        let _ = crate::ebml::run(data);
-    },
-}];
-
 /// Every registered harness, sorted by name.
 #[must_use]
 pub fn all() -> &'static [Harness] {
     HARNESSES
+}
+
+/// Defines `HARNESSES` from the names of the harness modules: each entry is
+/// named after its module and runs that module's `run`.
+macro_rules! harnesses {
+    ($($module:ident,)*) => {
+        /// Every harness, sorted by name.
+        static HARNESSES: &[Harness] = &[$(Harness {
+            name: stringify!($module),
+            run: |data| {
+                let _ = crate::$module::run(data);
+            },
+        }),*];
+    };
+}
+
+harnesses! {
+    ebml,
 }

@@ -13,11 +13,13 @@
 # replay test and a fix, test first (SEC-MED-030).
 #
 # This file is a registry: a package that adds a harness adds one [[bin]]
-# block for it, in sorted position, named after the harness.
-# `xtask check-harnesses` fails when a registered harness has no block or a
-# block names no registered harness. Targets named canary_* are not
-# harnesses: each carries a planted bug that the fuzz workflow's canary job
-# must find (SEC-MED-029).
+# block for it, in sorted position, named after the harness, with
+# path = "fuzz_targets/<name>.rs". `xtask check-harnesses` fails when a
+# registered harness has no block, a block names no registered harness, a
+# block builds any other file, or a target file does not call
+# gunmetal_fuzz::<name>::run. Targets named canary_* are not harnesses:
+# each carries a planted bug that the fuzz workflow's canary job must find
+# (SEC-MED-029).
 
 [package]
 name = "gunmetal-fuzz-targets"

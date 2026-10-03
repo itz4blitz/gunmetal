@@ -1,18 +1,31 @@
 //! `xtask check-harnesses` and `xtask fuzz-targets`.
 //!
-//! Every public function in a parser module of `gunmetal-core` must be
-//! called by a registered fuzz harness, and every registered harness must
-//! have its module, its exact-outcome replay test and its cargo-fuzz target
-//! (SEC-MED-027, SEC-TM-033, SEC-HIS-036). Each container format needs a
-//! structure-aware harness as well (SEC-MED-031). The seeds of every
-//! harness are checked by `gunmetal-fuzz`'s own replay test (SEC-MED-028).
+//! Every entry point of a parser module of `gunmetal-core` must be reached
+//! by a registered fuzz harness, and every registered harness must have its
+//! module, its exact-outcome replay test and a cargo-fuzz target that builds
+//! its own file and calls it (SEC-MED-027, SEC-TM-033, SEC-HIS-036). Each
+//! container format needs a structure-aware harness as well (SEC-MED-031).
+//! The seeds of every harness are checked by `gunmetal-fuzz`'s own replay
+//! test (SEC-MED-028).
 //!
-//! The rule for what counts as a parse entry point needs no Rust parser: a
-//! line that starts, after indentation, with `pub fn` or `pub const fn`, in
-//! any module below `formats/` or on [`PARSER_FILES`] or [`PARSER_DIRS`].
-//! Methods count too, so an entry point cannot hide in an `impl` block. A
-//! harness calls an entry point when its source holds the function's name
-//! followed by `(`, with no identifier character just before it.
+//! The rule for what counts as a parse entry point needs no Rust parser. In
+//! any module below `formats/` or on [`PARSER_FILES`] or [`PARSER_DIRS`],
+//! an entry point is either of these:
+//!
+//! - a line that starts, after indentation, with `pub fn` or `pub const fn`.
+//!   Methods count too, so an entry point cannot hide in an `impl` block. A
+//!   harness reaches it by calling it by name.
+//! - a line that starts, after indentation, with `impl` and names one of
+//!   [`ENTRY_TRAITS`] as a whole word, because parsing behind `FromStr`,
+//!   `TryFrom` or `Iterator` needs no public function. A harness reaches
+//!   it by calling one of the trait's methods, which the list names. The
+//!   word may stand in a bound rather than the implemented trait; such a
+//!   module then needs a harness it might not have needed, which is the
+//!   safe way to be wrong.
+//!
+//! A harness calls a function when a line of its source that is not a `//`
+//! comment holds the function's name followed by `(` or by a turbofish
+//! `::<`, with no identifier character just before the name.
 
 use crate::toml;
 use crate::tree::{Tree, is_rust};
@@ -48,10 +61,22 @@ pub const CONTAINERS: &[&str] = &["flac", "id3", "mp4", "ogg"];
 /// not harnesses.
 pub const CANARY: &str = "canary_";
 
+/// The standard-library traits through which a parser module can take
+/// input without a public function, sorted, each with the methods through
+/// which a harness reaches an implementation. An iterator is driven by a
+/// `for` loop or an adapter, which text cannot tell from other code, so it
+/// names none: its module needs a harness, and the call rule falls on
+/// whatever builds the iterator.
+pub const ENTRY_TRAITS: &[(&str, &[&str])] = &[
+    ("FromStr", &["from_str", "parse"]),
+    ("Iterator", &[]),
+    ("TryFrom", &["try_from", "try_into"]),
+];
+
 /// Something `check-harnesses` found wrong.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Finding {
-    /// A parser module has public functions but no registered harness.
+    /// A parser module has entry points but no registered harness.
     Unregistered {
         /// The module's path from the repository root.
         module: String,
@@ -92,6 +117,55 @@ pub enum Finding {
         /// The target's name.
         target: String,
     },
+    /// A module implements a parse trait and its harness calls none of the
+    /// trait's methods.
+    Unreached {
+        /// The module's path from the repository root.
+        module: String,
+        /// The module's harness.
+        harness: String,
+        /// The line of the `impl`, counted from 1.
+        line: usize,
+        /// The trait.
+        implemented: &'static str,
+    },
+    /// A registered harness's cargo-fuzz target file never calls
+    /// `gunmetal_fuzz::<harness>::run(`, so fuzzing it fuzzes something
+    /// else or nothing.
+    Unwired {
+        /// The harness.
+        harness: String,
+    },
+    /// A `[[bin]]` target that does not build `fuzz_targets/<name>.rs`.
+    Misplaced {
+        /// The target's name.
+        target: String,
+        /// The file the block names, if any.
+        path: Option<String>,
+    },
+}
+
+/// One way into a parser module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Entry {
+    /// A public function or method, reached by calling it by name.
+    Function(String),
+    /// An implementation of one of [`ENTRY_TRAITS`].
+    Trait {
+        /// The line of the `impl`, counted from 1.
+        line: usize,
+        /// The trait and the calls that reach it.
+        implemented: (&'static str, &'static [&'static str]),
+    },
+}
+
+/// One `[[bin]]` block of the cargo-fuzz manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Target {
+    /// Its `name`.
+    name: String,
+    /// Its `path`, if it has one.
+    path: Option<String>,
 }
 
 /// Checks the tree against the `registered` harness names.
@@ -104,8 +178,8 @@ pub fn check(tree: &dyn Tree, registered: &[&str]) -> Vec<Finding> {
         .filter(|module| is_parser(module))
     {
         let path = format!("{CORE}/{module}");
-        let functions = public_functions(&tree.read(&path).unwrap_or_default());
-        if functions.is_empty() {
+        let entries = entries(&tree.read(&path).unwrap_or_default());
+        if entries.is_empty() {
             continue;
         }
         let harness = harness_name(&module);
@@ -113,14 +187,25 @@ pub fn check(tree: &dyn Tree, registered: &[&str]) -> Vec<Finding> {
             let source = tree
                 .read(&format!("crates/gunmetal-fuzz/src/{harness}.rs"))
                 .unwrap_or_default();
-            for function in functions {
-                if !calls(&source, &function) {
-                    findings.push(Finding::Uncalled {
-                        module: path.clone(),
-                        harness: harness.clone(),
+            for entry in entries.into_iter().filter(|entry| !reaches(&source, entry)) {
+                let module = path.clone();
+                let harness = harness.clone();
+                findings.push(match entry {
+                    Entry::Function(function) => Finding::Uncalled {
+                        module,
+                        harness,
                         function,
-                    });
-                }
+                    },
+                    Entry::Trait {
+                        line,
+                        implemented: (implemented, _),
+                    } => Finding::Unreached {
+                        module,
+                        harness,
+                        line,
+                        implemented,
+                    },
+                });
             }
         } else {
             findings.push(Finding::Unregistered {
@@ -152,13 +237,26 @@ pub fn check(tree: &dyn Tree, registered: &[&str]) -> Vec<Finding> {
                 });
             }
         }
-        if !targets.iter().any(|target| target == harness) {
+        if let Some(source) = tree.read(&format!("fuzz/fuzz_targets/{harness}.rs"))
+            && !calls(&source, &format!("gunmetal_fuzz::{harness}::run"))
+        {
+            findings.push(Finding::Unwired {
+                harness: harness.to_owned(),
+            });
+        }
+        if !targets.iter().any(|target| target.name == harness) {
             findings.push(Finding::NoTarget {
                 harness: harness.to_owned(),
             });
         }
     }
-    for target in targets {
+    for Target { name: target, path } in targets {
+        if path.as_deref() != Some(format!("fuzz_targets/{target}.rs").as_str()) {
+            findings.push(Finding::Misplaced {
+                target: target.clone(),
+                path,
+            });
+        }
         if !target.starts_with(CANARY) && !registered.contains(&target.as_str()) {
             findings.push(Finding::Unknown { target });
         }
@@ -186,44 +284,85 @@ fn is_identifier(character: char) -> bool {
     character.is_alphanumeric() || character == '_'
 }
 
-/// Whether `source` calls `function`: its name and `(`, with no identifier
-/// character just before the name.
+/// Whether `source` calls `function`: on a line that is not a `//` comment,
+/// its name followed by `(` or `::<`, with no identifier character just
+/// before the name.
 fn calls(source: &str, function: &str) -> bool {
-    let call = format!("{function}(");
-    source
-        .match_indices(&call)
-        .any(|(at, _)| !source[..at].ends_with(is_identifier))
-}
-
-/// The names of the public functions and methods defined in `source`.
-fn public_functions(source: &str) -> Vec<String> {
     source
         .lines()
-        .filter_map(|line| {
-            let line = line.trim_start();
-            let rest = line
-                .strip_prefix("pub fn ")
-                .or_else(|| line.strip_prefix("pub const fn "))?;
-            rest.split(|character| !is_identifier(character))
-                .next()
-                .map(str::to_owned)
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .any(|line| {
+            line.match_indices(function).any(|(at, _)| {
+                let (before, rest) = line.split_at(at);
+                let after = &rest[function.len()..];
+                !before.ends_with(is_identifier)
+                    && (after.starts_with('(') || after.starts_with("::<"))
+            })
         })
-        .collect()
 }
 
-/// The names of the `[[bin]]` targets in a cargo-fuzz manifest.
-fn targets(manifest: &str) -> Vec<String> {
-    let mut in_bin = false;
-    let mut names = Vec::new();
-    for line in manifest.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_bin = line == "[[bin]]";
-        } else if in_bin && let Some(name) = toml::value(line, "name") {
-            names.push(name.to_owned());
+/// Whether `harness`, the source of a harness module, reaches `entry`.
+fn reaches(harness: &str, entry: &Entry) -> bool {
+    match entry {
+        Entry::Function(function) => calls(harness, function),
+        Entry::Trait {
+            implemented: (_, methods),
+            ..
+        } => methods.is_empty() || methods.iter().any(|method| calls(harness, method)),
+    }
+}
+
+/// The entry points defined in `source`.
+fn entries(source: &str) -> Vec<Entry> {
+    let mut found = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        let line = line.trim_start();
+        let mut words = line.split(|character| !is_identifier(character));
+        if let Some(rest) = line
+            .strip_prefix("pub fn ")
+            .or_else(|| line.strip_prefix("pub const fn "))
+        {
+            let name = rest.split(|character| !is_identifier(character)).next();
+            found.extend(name.map(|name| Entry::Function(name.to_owned())));
+        } else if words.next() == Some("impl") {
+            let words: Vec<&str> = words.collect();
+            found.extend(
+                ENTRY_TRAITS
+                    .iter()
+                    .filter(|(name, _)| words.contains(name))
+                    .map(|&implemented| Entry::Trait {
+                        line: index + 1,
+                        implemented,
+                    }),
+            );
         }
     }
-    names
+    found
+}
+
+/// The `[[bin]]` targets in a cargo-fuzz manifest. A block without a name
+/// is not a target cargo would build.
+fn targets(manifest: &str) -> Vec<Target> {
+    let mut blocks = Vec::new();
+    let mut block: Option<(Option<String>, Option<String>)> = None;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            blocks.extend(block.take());
+            block = (line == "[[bin]]").then_some((None, None));
+        } else if let Some((name, path)) = &mut block {
+            if let Some(value) = toml::value(line, "name") {
+                *name = Some(value.to_owned());
+            }
+            if let Some(value) = toml::value(line, "path") {
+                *path = Some(value.to_owned());
+            }
+        }
+    }
+    blocks.extend(block);
+    blocks
+        .into_iter()
+        .filter_map(|(name, path)| Some(Target { name: name?, path }))
+        .collect()
 }
 
 /// The registered harness names as a JSON array on one line, for the fuzz
@@ -260,7 +399,7 @@ fn is_valid_name(name: &str) -> bool {
 mod tests {
     use std::fmt::Write as _;
 
-    use super::{Finding, check, public_functions, targets, targets_json};
+    use super::{Entry, Finding, Target, check, entries, targets, targets_json};
     use crate::tree::memory::Memory;
 
     /// The path of the core module `module`, given below `src/`.
@@ -282,12 +421,19 @@ mod tests {
         text
     }
 
+    /// A cargo-fuzz target file that calls harness `name`.
+    fn target(name: &str) -> String {
+        format!(
+            "#![no_main]\n\nlibfuzzer_sys::fuzz_target!(|data: &[u8]| {{\n    let _ = gunmetal_fuzz::{name}::run(data);\n}});\n"
+        )
+    }
+
     /// `tree` with what a registered harness needs: its module holding
     /// `source`, its replay test and its cargo-fuzz target file.
     fn with_harness(tree: Memory, name: &str, source: &str) -> Memory {
         tree.with(&format!("crates/gunmetal-fuzz/src/{name}.rs"), source)
             .with(&format!("crates/gunmetal-fuzz/tests/{name}_corpus.rs"), "")
-            .with(&format!("fuzz/fuzz_targets/{name}.rs"), "")
+            .with(&format!("fuzz/fuzz_targets/{name}.rs"), &target(name))
     }
 
     /// The shape of the real EBML module's entry points.
@@ -403,6 +549,89 @@ pub fn elements(input: &[u8]) -> Elements<'_> {
         );
     }
 
+    /// Verifies: SEC-MED-027, SEC-TM-033, SEC-HIS-036
+    #[test]
+    fn a_parser_module_whose_only_entry_point_is_a_trait_impl_needs_a_harness() {
+        let tree = Memory::default()
+            .with(
+                &core("http/range.rs"),
+                "pub struct Range;\n\nimpl core::str::FromStr for Range {\n    type Err = RangeError;\n    fn from_str(text: &str) -> Result<Self, RangeError> {\n    }\n}\n",
+            )
+            .with(
+                &core("wire.rs"),
+                "impl<'a> TryFrom<&'a [u8]> for Header<'a> {\n",
+            )
+            .with(
+                &core("m3u.rs"),
+                "pub struct Lines<'a>(pub &'a str);\n\nimpl<'a> Iterator for Lines<'a> {\n",
+            )
+            .with("fuzz/Cargo.toml", &manifest(&[]));
+        let unregistered = |module: &str, harness: &str| Finding::Unregistered {
+            module: core(module),
+            harness: harness.to_owned(),
+        };
+        assert_eq!(
+            check(&tree, &[]),
+            [
+                unregistered("http/range.rs", "http_range"),
+                unregistered("m3u.rs", "m3u"),
+                unregistered("wire.rs", "wire"),
+            ]
+        );
+    }
+
+    /// Verifies: SEC-MED-027
+    #[test]
+    fn a_harness_must_call_a_method_of_each_parse_trait_its_module_implements() {
+        let module = "\
+impl FromStr for Range {
+}
+
+impl TryFrom<&[u8]> for Header {
+}
+
+impl Iterator for Lines<'_> {
+}
+";
+        let tree = Memory::default()
+            .with(&core("http/range.rs"), module)
+            .with(&core("wire.rs"), module)
+            .with(&core("path.rs"), module)
+            .with(
+                "fuzz/Cargo.toml",
+                &manifest(&["http_range", "path", "wire"]),
+            );
+        // `http_range` reaches both conversions the way callers write them,
+        // `wire` through the traits' own methods and a turbofish, and `path`
+        // only mentions them. An iterator is driven by a loop, so no call is
+        // required of it.
+        let tree = with_harness(
+            tree,
+            "http_range",
+            "let range: Result<Range, _> = text.parse();\nlet header: Result<Header, _> = data.try_into();",
+        );
+        let tree = with_harness(
+            tree,
+            "wire",
+            "let _ = text.parse::<Range>();\nlet _ = Header::try_from(data);\nlet _ = Range::from_str(text);",
+        );
+        let tree = with_harness(
+            tree,
+            "path",
+            "// parse(text), try_from(data)\nreparse(text);",
+        );
+        let unreached = |line: usize, implemented: &'static str| Finding::Unreached {
+            module: core("path.rs"),
+            harness: "path".to_owned(),
+            line,
+            implemented,
+        };
+        assert_eq!(
+            check(&tree, &["http_range", "path", "wire"]),
+            [unreached(1, "FromStr"), unreached(4, "TryFrom")]
+        );
+    }
+
     #[test]
     fn other_modules_and_files_need_no_harness() {
         let entry = "pub fn parse(input: &[u8]) {}\n";
@@ -413,7 +642,7 @@ pub fn elements(input: &[u8]) -> Elements<'_> {
             .with(&core("formats/mod.rs"), "pub mod flac;\n")
             .with(
                 &core("ebml.rs"),
-                "pub(crate) fn helper() {}\nfn private() {}\n",
+                "pub(crate) fn helper() {}\nfn private() {}\nimpl fmt::Display for Error {\n",
             )
             .with("fuzz/Cargo.toml", &manifest(&[]));
         assert_eq!(check(&tree, &[]), []);
@@ -433,9 +662,45 @@ pub struct NotAFunction;
 // pub fn commented_out() {}
 let call = pub_fn_lookalike();
 ";
+        let function = |name: &str| Entry::Function(name.to_owned());
         assert_eq!(
-            public_functions(source),
-            ["plain", "generic", "constant", "method", "nested_const"]
+            entries(source),
+            [
+                function("plain"),
+                function("generic"),
+                function("constant"),
+                function("method"),
+                function("nested_const"),
+            ]
+        );
+    }
+
+    #[test]
+    fn finds_the_parse_traits_an_impl_line_names() {
+        let source = "\
+impl FromStr for Range {
+impl core::str::FromStr for Range {
+  impl<'a> TryFrom<&'a [u8]> for Header<'a> {
+impl<'a> Iterator for Elements<'a> {
+impl From<TryFromIntError> for Error {
+impl fmt::Display for FromStrError {
+impl Range {
+impls.push(Iterator);
+// impl FromStr for Commented {
+let iterator = impl_iterator();
+";
+        let from_str = ("FromStr", &["from_str", "parse"][..]);
+        let iterator = ("Iterator", &[][..]);
+        let try_from = ("TryFrom", &["try_from", "try_into"][..]);
+        let entry = |line: usize, implemented| Entry::Trait { line, implemented };
+        assert_eq!(
+            entries(source),
+            [
+                entry(1, from_str),
+                entry(2, from_str),
+                entry(3, try_from),
+                entry(4, iterator),
+            ]
         );
     }
 
@@ -455,6 +720,65 @@ let call = pub_fn_lookalike();
                 missing("fuzz/fuzz_targets/ebml.rs"),
                 Finding::NoTarget {
                     harness: "ebml".to_owned()
+                },
+            ]
+        );
+    }
+
+    /// Verifies: SEC-MED-027, SEC-TM-033
+    #[test]
+    fn a_fuzz_target_file_that_does_not_call_its_own_harness_fails() {
+        // `lyrics` calls another harness, `m3u` is empty, and `wire` names
+        // its own call only in a comment. `ebml` is wired correctly.
+        let tree = with_harness(Memory::default(), "ebml", "").with(
+            "fuzz/Cargo.toml",
+            &manifest(&["ebml", "lyrics", "m3u", "wire"]),
+        );
+        let tree =
+            with_harness(tree, "lyrics", "").with("fuzz/fuzz_targets/lyrics.rs", &target("ebml"));
+        let tree = with_harness(tree, "m3u", "").with("fuzz/fuzz_targets/m3u.rs", "");
+        let tree = with_harness(tree, "wire", "").with(
+            "fuzz/fuzz_targets/wire.rs",
+            "// gunmetal_fuzz::wire::run(data)\nlibfuzzer_sys::fuzz_target!(|data: &[u8]| {});\n",
+        );
+        let unwired = |harness: &str| Finding::Unwired {
+            harness: harness.to_owned(),
+        };
+        assert_eq!(
+            check(&tree, &["ebml", "lyrics", "m3u", "wire"]),
+            [unwired("lyrics"), unwired("m3u"), unwired("wire")]
+        );
+    }
+
+    /// Verifies: SEC-MED-027, SEC-TM-033
+    #[test]
+    fn a_bin_target_that_builds_another_file_fails() {
+        // The `lyrics` block builds the EBML target's file, and the canary's
+        // block names no file, so cargo would look in `src/bin/`.
+        let manifest = "\
+[[bin]]
+name = \"canary_crash\"
+
+[[bin]]
+name = \"ebml\"
+path = \"fuzz_targets/ebml.rs\"
+
+[[bin]]
+name = \"lyrics\"
+path = \"fuzz_targets/ebml.rs\"
+";
+        let tree = with_harness(Memory::default(), "ebml", "").with("fuzz/Cargo.toml", manifest);
+        let tree = with_harness(tree, "lyrics", "");
+        assert_eq!(
+            check(&tree, &["ebml", "lyrics"]),
+            [
+                Finding::Misplaced {
+                    target: "canary_crash".to_owned(),
+                    path: None,
+                },
+                Finding::Misplaced {
+                    target: "lyrics".to_owned(),
+                    path: Some("fuzz_targets/ebml.rs".to_owned()),
                 },
             ]
         );
@@ -501,10 +825,11 @@ let call = pub_fn_lookalike();
     }
 
     #[test]
-    fn reads_only_the_names_of_bin_targets() {
+    fn reads_the_name_and_path_of_each_bin_target() {
         let manifest = "\
 [package]
 name = \"gunmetal-fuzz-targets\"
+path = \"not-a-target.rs\"
 
 [[bin]]
 name = \"ebml\"
@@ -512,12 +837,31 @@ path = \"fuzz_targets/ebml.rs\"
 
 [dependencies]
 name = \"not-a-target\"
+path = \"../not-a-target\"
 
 [[bin]]
+path = \"fuzz_targets/lyrics.rs\"
 test = false
 name = \"lyrics\"
+
+[[bin]]
+path = \"fuzz_targets/nameless.rs\"
+
+[[bin]]
+name = \"pathless\"
 ";
-        assert_eq!(targets(manifest), ["ebml", "lyrics"]);
+        let target = |name: &str, path: Option<&str>| Target {
+            name: name.to_owned(),
+            path: path.map(str::to_owned),
+        };
+        assert_eq!(
+            targets(manifest),
+            [
+                target("ebml", Some("fuzz_targets/ebml.rs")),
+                target("lyrics", Some("fuzz_targets/lyrics.rs")),
+                target("pathless", None),
+            ]
+        );
     }
 
     #[test]

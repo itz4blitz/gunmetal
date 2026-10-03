@@ -11,10 +11,11 @@
 //! invariant panics, which the fuzzer records as a crash.
 //!
 //! This file is a registry: it holds one `pub mod` line per harness module
-//! and nothing else. Adding a harness takes one line here, one entry in
-//! [`registry`], one `[[bin]]` block in `fuzz/Cargo.toml`, and files the
-//! harness's package owns: `src/<name>.rs`, `tests/<name>_corpus.rs`,
-//! `fuzz/fuzz_targets/<name>.rs` and `fuzz/seeds/<name>/`.
+//! and nothing else. Adding a harness takes one line here, one line in
+//! [`registry`]'s list, one `[[bin]]` block in `fuzz/Cargo.toml`, and
+//! files the harness's package owns: `src/<name>.rs`,
+//! `tests/<name>_corpus.rs`, `fuzz/fuzz_targets/<name>.rs` and
+//! `fuzz/seeds/<name>/`.
 
 pub mod ebml;
 pub mod registry;
