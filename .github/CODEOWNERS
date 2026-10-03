@@ -1,0 +1,32 @@
+# Code owners for the paths that control how Gunmetal is built, checked and
+# released, and for the security-sensitive source (SEC-SUP-005,
+# SEC-STD-035). A change to any of them needs a code owner's approval once
+# the ruleset on main requires code-owner review. Once two maintainers
+# exist, the approver must not be the author.
+#
+# Later lines take precedence over earlier ones.
+
+# Workflows, Dependabot and this file.
+/.github/ @itz4blitz
+/.github/CODEOWNERS @itz4blitz
+
+# The gate and other scripts.
+/scripts/ @itz4blitz
+
+# Dependency policy, audits, toolchain and lockfiles (every Cargo.lock).
+/deny.toml @itz4blitz
+/supply-chain/ @itz4blitz
+/rust-toolchain.toml @itz4blitz
+Cargo.lock @itz4blitz
+
+# Lint bans, workspace lints and the release profile.
+/clippy.toml @itz4blitz
+/Cargo.toml @itz4blitz
+
+# Disclosure policy, the security baseline and architecture records.
+/SECURITY.md @itz4blitz
+/docs/security/ @itz4blitz
+/docs/adr/ @itz4blitz
+
+# Parsers of untrusted input in the shared core.
+/crates/gunmetal-core/src/ @itz4blitz
