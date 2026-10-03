@@ -581,6 +581,12 @@ impl<'l> Caps<'l> {
         )
     }
 
+    /// Caps `text` to the line-length limit on a character boundary, and
+    /// notes the limit when it was over (SEC-MED-013).
+    fn cap_stored(&mut self, text: &mut String, offset: u64) {
+        *text = self.decode(text.as_bytes(), offset);
+    }
+
     /// A line as it is read: without a carriage return before its line
     /// feed, cut to the line limit, and without spaces at either end.
     fn prepare<'a>(&mut self, piece: &'a [u8], offset: u64) -> &'a [u8] {
@@ -923,6 +929,9 @@ impl<'l> Lrc<'l> {
                     None => words.push(Word { at: line_at, text }),
                 },
             }
+        }
+        for word in &mut words {
+            self.caps.cap_stored(&mut word.text, offset);
         }
         if self.caps.admit(1, size, offset) {
             self.by_word |= stamped;
@@ -1869,6 +1878,40 @@ mod tests {
                     0
                 )]
             ))
+        );
+    }
+
+    /// Dropped over-24h word stamps join onto the previous word. Each
+    /// fragment can fit the 4 KiB cap on its own and still exceed it after
+    /// the join, so the stored word is recapped (SEC-MED-013).
+    ///
+    /// Verifies: SEC-MED-013, SEC-MED-049, SEC-MED-006, SEC-API-090
+    #[test]
+    fn recaps_a_word_joined_from_dropped_stamps_of_invalid_utf8() {
+        let max = usize::try_from(Limits::DEFAULT.get(LimitKind::LyricsLineBytes)).unwrap();
+        assert_eq!(max, 4_096);
+        let kept = run_of('\u{FFFD}', max / 3);
+        assert_eq!(kept.len(), 4_095);
+        let chunk: Vec<u8> = (0..1_353).map(|_| 0xFF).collect();
+        assert_eq!(chunk.len() * 3, 4_059);
+        let mut text = b"[00:01.00]".to_vec();
+        text.extend(&chunk);
+        text.extend(b"<1441:00.00>");
+        text.extend(&chunk);
+        text.extend(b"<1441:00.00>");
+        text.extend(&chunk);
+        assert_eq!(text.len(), 4_093);
+        let parsed = read(&text).unwrap();
+        assert_well_formed(&parsed, &Limits::DEFAULT);
+        assert_eq!(
+            parsed,
+            limited(
+                lines(&[(1_000, &kept)]),
+                &[
+                    over(LimitKind::LyricsTimestampMs, 86_460_000, 86_400_000, 0),
+                    over(LimitKind::LyricsLineBytes, 4_097, 4_096, 0),
+                ]
+            )
         );
     }
 
