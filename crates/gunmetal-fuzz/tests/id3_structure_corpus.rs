@@ -396,7 +396,7 @@ fn raw(start: u64, end: u64, unsynchronised: bool) -> FrameBody {
 /// Verifies: SEC-MED-028, SEC-MED-031
 #[test]
 fn replays_the_empty_id3v2_recipe() {
-    replay(
+    replay_id3v2(
         "empty",
         &[],
         Tag::new(Version::V22).build(),
@@ -480,7 +480,7 @@ fn replays_a_2_4_tag_with_every_kind_of_frame() {
             },
         ],
     };
-    replay("v24-every-kind", &recipe, tag, read);
+    replay_id3v2("v24-every-kind", &recipe, tag, read);
 }
 
 /// The tag's unsynchronisation moves every frame after a size of 255 and
@@ -517,7 +517,7 @@ fn replays_an_unsynchronised_2_3_tag() {
         ],
         problems: vec![],
     };
-    replay("v23-unsynchronised", &recipe, tag, read);
+    replay_id3v2("v23-unsynchronised", &recipe, tag, read);
 }
 
 /// Without the tag's flag, a 2.3 tag is stored as written.
@@ -535,7 +535,7 @@ fn replays_a_2_3_tag_stored_as_written() {
         frames: vec![frame(four(b"PRIV"), 10, 0, raw(20, 22, false))],
         problems: vec![],
     };
-    replay("v23-plain", &recipe, tag, read);
+    replay_id3v2("v23-plain", &recipe, tag, read);
 }
 
 /// A 2.4 recipe with only the footer bit set writes a footer and no
@@ -544,7 +544,7 @@ fn replays_a_2_3_tag_stored_as_written() {
 /// Verifies: SEC-MED-028, SEC-MED-031
 #[test]
 fn replays_a_2_4_footer_without_unsynchronisation() {
-    replay(
+    replay_id3v2(
         "v24-footer-only",
         &[0x20],
         Tag::new(Version::V24).footer().build(),
@@ -613,7 +613,7 @@ fn replays_2_4_frame_flags() {
             },
         ],
     };
-    replay("v24-frame-flags", &recipe, tag, read);
+    replay_id3v2("v24-frame-flags", &recipe, tag, read);
 }
 
 /// 2.2 ignores frame flags and has no footer; its tag's unsynchronisation
@@ -642,7 +642,7 @@ fn replays_an_unsynchronised_2_2_tag_with_the_footer_bit() {
         ],
         problems: vec![],
     };
-    replay("v22-unsynchronised-with-the-footer-bit", &recipe, tag, read);
+    replay_id3v2("v22-unsynchronised-with-the-footer-bit", &recipe, tag, read);
 }
 
 /// A recipe of 65 frames writes 64.
@@ -668,5 +668,5 @@ fn replays_a_recipe_of_more_frames_than_are_written() {
             })
             .collect(),
     };
-    replay("sixty-five-frames", &recipe, tag, read);
+    replay_id3v2("sixty-five-frames", &recipe, tag, read);
 }
