@@ -337,6 +337,7 @@ pub fn parse(tag: &[u8], limits: &Limits, budget: &mut Budget) -> Result<Id3v2Ta
         budget,
         problems,
         pictures: 0,
+        walked: 0,
     };
     if major == 4 {
         reader.sizes = reader.sizes_of(source).map_err(Id3v2Error::Fault)?;
@@ -1123,7 +1124,7 @@ mod tests {
     ];
 
     proptest! {
-        /// Verifies: SEC-MED-001, SEC-MED-004, SEC-MED-008, SEC-TM-032
+        /// Verifies: SEC-MED-001, SEC-MED-008, SEC-TM-032
         #[test]
         fn returns_for_any_octets(octets in any_octets()) {
             on_small_stack(move || check_any(&octets));

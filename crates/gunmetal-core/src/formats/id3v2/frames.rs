@@ -45,6 +45,8 @@ pub(super) struct Reader<'p> {
     pub(super) problems: Vec<TagProblem>,
     /// Pictures kept so far.
     pub(super) pictures: u64,
+    /// Frames walked so far, kept or not, including those inside chapters.
+    pub(super) walked: u64,
 }
 
 /// A frame whose header was read, with its body.
@@ -126,7 +128,7 @@ impl Reader<'_> {
         depth: Depth,
         mut kept: Option<&mut Vec<Frame>>,
     ) -> Result<(), ParseFault> {
-        while let Some(found) = self.next(&mut source, kept.as_deref().map(Vec::len))? {
+        while let Some(found) = self.next(&mut source)? {
             let Some(payload) = self.payload(&found) else {
                 continue;
             };
@@ -146,23 +148,18 @@ impl Reader<'_> {
 
     /// Reads the next frame header in `source` and splits off the frame's
     /// body, or records why it cannot and returns `None`. At the end of the
-    /// frames or at padding it returns `None`. When `kept` frames are
-    /// counted, one more past the tag-field limit is refused.
-    fn next<'a>(
-        &mut self,
-        source: &mut Source<'a>,
-        kept: Option<usize>,
-    ) -> Result<Option<Found<'a>>, ParseFault> {
+    /// frames or at padding it returns `None`. One more past the tag-field
+    /// limit, counting every frame walked so far including those inside
+    /// chapters, is refused.
+    fn next<'a>(&mut self, source: &mut Source<'a>) -> Result<Option<Found<'a>>, ParseFault> {
         if source.first().is_none_or(|octet| octet == 0) {
             return Ok(None);
         }
         let offset = source.offset();
-        if let Some(kept) = kept {
-            let count = u64::try_from(kept).unwrap_or(u64::MAX).saturating_add(1);
-            if let Err(fault) = self.limits.check(LimitKind::TagFields, count, offset) {
-                self.problems.push(TagProblem::Fault(fault));
-                return Ok(None);
-            }
+        let count = self.walked.saturating_add(1);
+        if let Err(fault) = self.limits.check(LimitKind::TagFields, count, offset) {
+            self.problems.push(TagProblem::Fault(fault));
+            return Ok(None);
         }
         let (id, size, flags) = match header(source, self.major, self.sizes) {
             Ok(header) => header,
@@ -185,6 +182,7 @@ impl Reader<'_> {
         let header_len = if self.major == 2 { 6 } else { 10 };
         self.budget
             .charge(size.saturating_add(header_len), offset)?;
+        self.walked = count;
         Ok(Some(Found {
             id,
             offset,
@@ -554,6 +552,33 @@ mod tests {
                 })]
             ))
         );
+    }
+
+    /// Verifies: SEC-MED-006, SEC-TM-032
+    #[test]
+    fn counts_frames_inside_a_chapter_against_the_tag_field_limit() {
+        let empty = kit::frame(Version::V24, b"TIT2", 0, &[]);
+        let inner: Vec<u8> = (0..4_097).flat_map(|_| empty.iter().copied()).collect();
+        // CHAP at 10; body 20 to 41_008 (18 octets of fields, 4,097 empty
+        // TIT2 frames of 10 octets). Embedded frames start at 38.
+        let (frames, problems) = contents(&nested(1, &inner));
+        assert_eq!(frames, vec![frame(b"CHAP", 10, 0, raw(20, 41_008))]);
+        // The chapter is the first walked frame. The next 4,095 empty
+        // inner frames fill the 4,096-field limit; the 4,097th overall
+        // is refused, so the remaining empty frames are not recorded.
+        let mut expected: Vec<TagProblem> = (0..4_095)
+            .map(|index| TagProblem::EmptyFrame {
+                offset: 38 + 10 * index,
+                id: id(b"TIT2"),
+            })
+            .collect();
+        expected.push(TagProblem::Fault(ParseFault::LimitExceeded {
+            limit: LimitKind::TagFields,
+            value: 4_097,
+            max: 4_096,
+            offset: 38 + 10 * 4_095,
+        }));
+        assert_eq!(problems, expected);
     }
 
     #[test]
