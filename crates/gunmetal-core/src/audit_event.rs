@@ -47,6 +47,10 @@ impl<T: AuditField> AuditField for Option<T> {}
 /// name and its documented fields, so that one entry holds everything about
 /// an event. The macro makes the event type, the name type and the mapping
 /// between them, and bounds every field type by [`AuditField`].
+///
+/// Mutation testing does not see code a macro generates, and coverage does
+/// not count its match arms one by one, so the tests pin every vocabulary
+/// name against a literal list and build one event of every kind.
 macro_rules! security_events {
     ($(
         $(#[$doc:meta])*

@@ -16,6 +16,10 @@
 /// Declares the catalogue. Each entry is a documented variant, its stable
 /// code, its HTTP status where it has one, and its text, so that one line
 /// holds everything about a code.
+///
+/// Mutation testing does not see code a macro generates, and coverage does
+/// not count its match arms one by one, so the tests pin every generated
+/// value against a literal table instead.
 macro_rules! problems {
     ($(
         $(#[$doc:meta])*

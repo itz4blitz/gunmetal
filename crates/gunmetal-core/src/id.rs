@@ -75,9 +75,9 @@ impl IdKind {
 /// become one public identifier.
 ///
 /// The secrets crate's minting function (WP-047) is the only caller of
-/// [`Minted::from_os_random`]; a `disallowed-methods` entry rejects a call
-/// anywhere else. A `Minted` value cannot be copied, so one draw makes one
-/// identifier.
+/// [`Minted::from_os_random`]; a `disallowed-methods` entry in `clippy.toml`
+/// (WP-001) rejects a call anywhere else. A `Minted` value cannot be copied,
+/// so one draw makes one identifier.
 pub struct Minted([u8; 16]);
 
 impl Minted {
@@ -174,6 +174,9 @@ fn decode(symbols: &[u8]) -> Option<[u8; 16]> {
         let digit = (0_u8..)
             .zip(ALPHABET)
             .find_map(|(digit, candidate)| (candidate == symbol).then_some(digit))?;
+        // Only the last multiplication can overflow, and only when the first
+        // symbol is above 7. It leaves the low five bits zero, so adding a
+        // digit below 32 cannot wrap.
         value = value.checked_mul(32)?.wrapping_add(u128::from(digit));
     }
     Some(value.to_be_bytes())
