@@ -62,6 +62,9 @@ impl Target {
 /// back-references up to 32 KiB).
 const WINDOW: usize = TINFL_LZ_DICT_SIZE;
 
+/// What a fresh window holds.
+static ZEROS: [u8; WINDOW] = [0; WINDOW];
+
 /// The most octets one octet of deflate data can inflate to. The shortest
 /// back-reference takes two bits, a one-bit length code and a one-bit
 /// distance code, and copies at most 258 octets, so 8 bits give
@@ -219,7 +222,7 @@ pub fn inflate(
     // the bounded capacity helper may pre-size a vector.
     let size = widen(WINDOW);
     let mut window = bounded_vec(size, 1, size, size);
-    window.extend(core::iter::repeat_n(0_u8, WINDOW));
+    window.extend_from_slice(&ZEROS);
     let mut rest = input;
     let mut read: u64 = 0;
     let mut at = 0;
