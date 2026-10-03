@@ -20,6 +20,8 @@
 pub mod base64;
 pub mod ebml;
 pub mod link;
+pub mod mp4_sample_table;
+pub mod mp4_structure;
 pub mod net;
 pub mod registry;
 pub mod text;

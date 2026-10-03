@@ -81,6 +81,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "mp4_sample_table"
+path = "fuzz_targets/mp4_sample_table.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp4_structure"
+path = "fuzz_targets/mp4_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "net"
 path = "fuzz_targets/net.rs"
 test = false

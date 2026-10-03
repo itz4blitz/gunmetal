@@ -53,6 +53,8 @@ harnesses! {
     base64,
     ebml,
     link,
+    mp4_sample_table,
+    mp4_structure,
     net,
     text,
     time,
