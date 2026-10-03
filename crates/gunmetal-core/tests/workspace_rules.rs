@@ -980,13 +980,24 @@ fn the_core_depends_only_on_reviewed_crates() {
         [
             "block-buffer",
             "cfg-if",
+            "cobs",
             "cpufeatures",
             "crypto-common",
             "digest",
             "hybrid-array",
             "libc",
+            "postcard",
+            "proc-macro2",
+            "quote",
+            "serde",
+            "serde_core",
+            "serde_derive",
             "sha2",
+            "syn",
+            "thiserror",
+            "thiserror-impl",
             "typenum",
+            "unicode-ident",
         ]
     );
     // The manifest names only direct dependencies, so the gate also compares
@@ -1943,7 +1954,12 @@ fn only_reviewed_crates_run_build_scripts() {
             "libc",
             "libsqlite3-sys",
             "num-traits",
+            "proc-macro2",
+            "quote",
             "rustix",
+            "serde",
+            "serde_core",
+            "thiserror",
             "zerocopy",
         ]
     );
