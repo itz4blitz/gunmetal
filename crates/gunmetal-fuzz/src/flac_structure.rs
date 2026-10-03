@@ -135,7 +135,6 @@ impl Recipe<'_> {
 ///
 /// Metadata recipes stay in [`run`]. These recipes write frame headers
 /// with valid framing and index them through [`flac_frames`](crate::flac_frames).
-
 use crate::flac_frames;
 
 /// The octets of one recipe.

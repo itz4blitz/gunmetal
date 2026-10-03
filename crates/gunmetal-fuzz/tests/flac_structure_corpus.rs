@@ -15,13 +15,13 @@ use std::fs;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::PathBuf;
 
+use gunmetal_core::formats::flac::frames::{Blocking, FlacFrameError, FrameEntry, FrameIndex};
 use gunmetal_core::formats::flac::metadata::{
     AudioMd5, BlockProblem, BlockType, FlacError, FlacMetadata, PictureRef, RawBlock, SeekPoint,
     StreamInfo,
 };
-use gunmetal_core::text::Text;
-use gunmetal_core::formats::flac::frames::{Blocking, FlacFrameError, FrameEntry, FrameIndex};
 use gunmetal_core::parse::ParseFault;
+use gunmetal_core::text::Text;
 use gunmetal_core::values::{BitDepth, Channels, Field, SampleRate, ValueError};
 use gunmetal_fuzz::flac_frames::{self, Indexed};
 use gunmetal_fuzz::flac_metadata;

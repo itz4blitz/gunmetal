@@ -14,12 +14,12 @@ use std::fs;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
+use gunmetal_core::formats::mp4::sample_table::{SampleTableError, SeekIndex, SeekPoint};
 use gunmetal_core::formats::mp4::{
     AudioEntry, AudioTrack, CodecConfig, FileType, FourCc, Mp4Audio, Mp4Error, Mp4Problem,
     SampleTableRanges,
 };
 use gunmetal_core::parse::{LimitKind, ParseFault};
-use gunmetal_core::formats::mp4::sample_table::{SampleTableError, SeekIndex, SeekPoint};
 use gunmetal_core::values::{BitDepth, Channels, Duration, SampleRate};
 use gunmetal_fuzz::mp4_probe::Outcome;
 use gunmetal_fuzz::mp4_sample_table::{self, Outcome as TableOutcome};
@@ -67,7 +67,11 @@ fn replay(name: &str, bytes: &[u8], expected: &Outcome) {
 fn replay_tables(name: &str, bytes: &[u8], expected: &TableOutcome) {
     let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
     assert_eq!(file, bytes, "seed {name} holds different bytes");
-    assert_eq!(&mp4_sample_table::structured(&file), expected, "seed {name}");
+    assert_eq!(
+        &mp4_sample_table::structured(&file),
+        expected,
+        "seed {name}"
+    );
 }
 
 fn truncated(offset: u64, needed: u64, available: u64) -> Outcome {

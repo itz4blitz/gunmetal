@@ -280,7 +280,6 @@ fn allowed(key: &[u8]) -> bool {
 /// Structure-aware `ID3v2` tags.
 ///
 /// APE and `ID3v1` recipes stay in [`run`].
-
 use gunmetal_core::formats::id3v2::{
     self, BUDGET_FIXED, BUDGET_PER_OCTET, FrameId, Id3v2Error, Id3v2Tag, TagProblem,
 };
