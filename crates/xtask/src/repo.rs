@@ -215,6 +215,13 @@ pub enum Finding {
         /// The required score.
         required: i32,
     },
+    /// A `CodeQL` result at `error` level or security severity 7.0 or more.
+    CodeqlAlert {
+        /// The query's rule id.
+        rule: String,
+        /// The file the result points at, or empty when it names none.
+        path: String,
+    },
     /// A published advisory has no matching test name.
     UnmappedAdvisory {
         /// The GHSA id.
@@ -319,6 +326,50 @@ pub fn scorecard(text: &str) -> Vec<Finding> {
                 score: -1,
                 required: *required,
             });
+        }
+    }
+    findings
+}
+
+/// Fails on every result in the `CodeQL` SARIF log `text` whose rule has a
+/// security severity of 7.0 or more, or whose level is `error`
+/// (SEC-SUP-018). A log the check cannot read fails closed.
+pub fn codeql(text: &str) -> Vec<Finding> {
+    let unreadable = || {
+        vec![Finding::Unreadable {
+            path: "codeql".to_owned(),
+        }]
+    };
+    let Some(log) = json::parse(text) else {
+        return unreadable();
+    };
+    let Some(runs) = log.get("runs").and_then(Value::as_array) else {
+        return unreadable();
+    };
+    let mut findings = Vec::new();
+    for run in runs {
+        let rules = sarif_rules(run);
+        let Some(results) = run.get("results").and_then(Value::as_array) else {
+            return unreadable();
+        };
+        for result in results {
+            let Some(id) = result.get("ruleId").and_then(Value::as_str) else {
+                return unreadable();
+            };
+            let Some(rule) = rules
+                .iter()
+                .find(|rule| rule.get("id").and_then(Value::as_str) == Some(id))
+            else {
+                return unreadable();
+            };
+            match blocks(result, rule) {
+                None => return unreadable(),
+                Some(false) => {}
+                Some(true) => findings.push(Finding::CodeqlAlert {
+                    rule: id.to_owned(),
+                    path: sarif_path(result),
+                }),
+            }
         }
     }
     findings
@@ -899,6 +950,60 @@ fn threshold(name: &str) -> Option<i32> {
     }
 }
 
+/// Rules of a SARIF `run`: the driver's and every extension pack's.
+fn sarif_rules(run: &Value) -> Vec<&Value> {
+    let tool = run.get("tool");
+    let extensions = tool
+        .and_then(|tool| tool.get("extensions"))
+        .and_then(Value::as_array)
+        .unwrap_or_default();
+    tool.and_then(|tool| tool.get("driver"))
+        .into_iter()
+        .chain(extensions)
+        .filter_map(|component| component.get("rules").and_then(Value::as_array))
+        .flatten()
+        .collect()
+}
+
+/// Whether `result` of `rule` blocks a merge: its rule's security severity
+/// is 7.0 or more, or its level (the rule's default when the result names
+/// none) is `error`. `None` when the severity is not a finite number.
+fn blocks(result: &Value, rule: &Value) -> Option<bool> {
+    let severity = match rule
+        .get("properties")
+        .and_then(|properties| properties.get("security-severity"))
+    {
+        None => 0.0,
+        Some(Value::String(text) | Value::Number(text)) => text
+            .parse::<f64>()
+            .ok()
+            .filter(|severity| severity.is_finite())?,
+        Some(_) => return None,
+    };
+    let level = result
+        .get("level")
+        .or_else(|| {
+            rule.get("defaultConfiguration")
+                .and_then(|configuration| configuration.get("level"))
+        })
+        .and_then(Value::as_str);
+    Some(severity >= 7.0 || level == Some("error"))
+}
+
+/// The file a SARIF `result` first points at, or empty.
+fn sarif_path(result: &Value) -> String {
+    result
+        .get("locations")
+        .and_then(Value::as_array)
+        .and_then(<[Value]>::first)
+        .and_then(|location| location.get("physicalLocation"))
+        .and_then(|physical| physical.get("artifactLocation"))
+        .and_then(|artifact| artifact.get("uri"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
 /// Published-advisory objects from a list, `{ "advisories": [...] }`, or one object.
 fn advisory_items(text: &str) -> Option<Vec<Value>> {
     let value = json::parse(text)?;
@@ -1133,9 +1238,9 @@ fn contains(tree: &dyn Tree, path: &str, needle: &str) -> Vec<Finding> {
 mod tests {
     use super::{
         BASELINE, BINARY_EXT, COMPROMISE_COMMANDS, Finding, MUST_BE_TEN, PROTECTED, YEAR,
-        advisories, check, comment, cooldown_days, days_in, days_since_epoch, has_ecosystem,
-        is_binary, is_leap, pinned, runbook_block, runbook_presence_and_order, scorecard, settings,
-        skip_binary, unix_ymd, uses_spec,
+        advisories, check, codeql, comment, cooldown_days, days_in, days_since_epoch,
+        has_ecosystem, is_binary, is_leap, pinned, runbook_block, runbook_presence_and_order,
+        scorecard, settings, skip_binary, unix_ymd, uses_spec,
     };
     use crate::ROOT;
     use crate::tree::memory::Memory;
@@ -1537,6 +1642,134 @@ path = [\"fuzz/seeds/**\"]
                 setting: "two_factor_requirement_enabled".to_owned(),
             })
         );
+    }
+
+    /// A `CodeQL` SARIF log whose run has `driver` rules, one extension pack
+    /// with `extension` rules, and `results`.
+    fn sarif(driver: &str, extension: &str, results: &str) -> String {
+        format!(
+            r#"{{"version":"2.1.0","runs":[{{"tool":{{"driver":{{"name":"CodeQL","rules":[{driver}]}},"extensions":[{{"name":"codeql/rust-queries","rules":[{extension}]}}]}},"results":[{results}]}}]}}"#
+        )
+    }
+
+    /// A rule `id` with a default `level` and, when not empty, a security
+    /// severity written as `severity` (a JSON string or number).
+    fn sarif_rule(id: &str, level: &str, severity: &str) -> String {
+        let properties = if severity.is_empty() {
+            String::new()
+        } else {
+            format!(r#","properties":{{"security-severity":{severity}}}"#)
+        };
+        format!(r#"{{"id":"{id}","defaultConfiguration":{{"level":"{level}"}}{properties}}}"#)
+    }
+
+    /// A result of rule `id` in `src/lib.rs`, with `level` when not empty.
+    fn sarif_result(id: &str, level: &str) -> String {
+        let level = if level.is_empty() {
+            String::new()
+        } else {
+            format!(r#""level":"{level}","#)
+        };
+        format!(
+            r#"{{"ruleId":"{id}",{level}"message":{{"text":"m"}},"locations":[{{"physicalLocation":{{"artifactLocation":{{"uri":"src/lib.rs"}},"region":{{"startLine":3}}}}}}]}}"#
+        )
+    }
+
+    /// The finding for a blocking result of rule `id` in `src/lib.rs`.
+    fn alert(id: &str) -> Finding {
+        Finding::CodeqlAlert {
+            rule: id.to_owned(),
+            path: "src/lib.rs".to_owned(),
+        }
+    }
+
+    /// Verifies: SEC-SUP-018
+    #[test]
+    fn a_codeql_result_of_high_security_severity_or_error_level_fails() {
+        let id = "rust/sql-injection";
+        let result = sarif_result(id, "");
+        let at = |level: &str, severity: &str| {
+            codeql(&sarif("", &sarif_rule(id, level, severity), &result))
+        };
+        assert_eq!(at("warning", r#""7.0""#), [alert(id)]);
+        assert_eq!(at("warning", r#""8.8""#), [alert(id)]);
+        assert_eq!(at("warning", r#""6.9""#), []);
+        assert_eq!(at("note", ""), []);
+        assert_eq!(at("error", ""), [alert(id)]);
+        assert_eq!(at("error", r#""2.0""#), [alert(id)]);
+        let raised = sarif(
+            "",
+            &sarif_rule(id, "warning", r#""6.9""#),
+            &sarif_result(id, "error"),
+        );
+        assert_eq!(codeql(&raised), [alert(id)]);
+        let lowered = sarif(
+            "",
+            &sarif_rule(id, "error", r#""6.9""#),
+            &sarif_result(id, "warning"),
+        );
+        assert_eq!(codeql(&lowered), []);
+    }
+
+    #[test]
+    fn codeql_reads_rules_from_the_driver_and_every_extension_and_reports_each_result() {
+        let driver = sarif_rule("actions/a", "warning", r#""9.0""#);
+        let extension = sarif_rule("rust/b", "warning", "7.5");
+        let results = [
+            sarif_result("rust/b", ""),
+            sarif_result("actions/a", ""),
+            sarif_result("rust/b", "note"),
+        ]
+        .join(",");
+        assert_eq!(
+            codeql(&sarif(&driver, &extension, &results)),
+            [alert("rust/b"), alert("actions/a"), alert("rust/b")]
+        );
+        let two_runs = format!(
+            r#"{{"runs":[{{"tool":{{"driver":{{"rules":[{driver}]}}}},"results":[]}},{{"tool":{{"driver":{{"rules":[{driver}]}}}},"results":[{{"ruleId":"actions/a"}}]}}]}}"#
+        );
+        assert_eq!(
+            codeql(&two_runs),
+            [Finding::CodeqlAlert {
+                rule: "actions/a".to_owned(),
+                path: String::new(),
+            }]
+        );
+        assert_eq!(codeql(&sarif(&driver, &extension, "")), []);
+    }
+
+    #[test]
+    fn codeql_fails_closed_on_a_log_it_cannot_read() {
+        let unreadable = [Finding::Unreadable {
+            path: "codeql".to_owned(),
+        }];
+        let rule = sarif_rule("rust/a", "warning", r#""5.0""#);
+        for text in [
+            "not json".to_owned(),
+            "{}".to_owned(),
+            r#"{"runs":{}}"#.to_owned(),
+            r#"{"runs":[{"tool":{"driver":{"rules":[]}}}]}"#.to_owned(),
+            sarif("", &rule, r#"{"level":"note"}"#),
+            sarif("", &rule, &sarif_result("rust/unknown", "")),
+            sarif(
+                "",
+                &sarif_rule("rust/a", "warning", r#""high""#),
+                &sarif_result("rust/a", ""),
+            ),
+            sarif(
+                "",
+                &sarif_rule("rust/a", "warning", r#""NaN""#),
+                &sarif_result("rust/a", ""),
+            ),
+            sarif(
+                "",
+                &sarif_rule("rust/a", "warning", "true"),
+                &sarif_result("rust/a", ""),
+            ),
+            sarif("", &rule, &format!("{},5", sarif_result("rust/a", ""))),
+        ] {
+            assert_eq!(codeql(&text), unreadable, "{text}");
+        }
     }
 
     /// Verifies: SEC-SUP-019

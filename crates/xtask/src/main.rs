@@ -30,6 +30,8 @@
 //! - `repo scorecard <json>`: Scorecard thresholds (SEC-SUP-019).
 //! - `repo advisories <json>`: every published advisory has a test named
 //!   after it (SEC-TM-003).
+//! - `repo codeql <sarif>`: no `CodeQL` result at `error` level or security
+//!   severity 7.0 or more (SEC-SUP-018).
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
@@ -122,6 +124,7 @@ fn dispatch(
         ),
         ["repo"] => report(repo::check(&tree, now)),
         ["repo", "advisories", json] => report(repo::advisories(&tree, &read(&tree, json)?)),
+        ["repo", "codeql", sarif] => report(repo::codeql(&read(&tree, sarif)?)),
         ["repo", "scorecard", json] => report(repo::scorecard(&read(&tree, json)?)),
         ["repo", "settings", dir] => report(repo::settings(&tree, dir)),
         _ => Err(Failure::Usage),
@@ -234,6 +237,7 @@ mod tests {
             &["repo", "settings"],
             &["repo", "scorecard"],
             &["repo", "advisories"],
+            &["repo", "codeql"],
             &["repo", "unknown"],
         ] {
             assert_eq!(
@@ -496,6 +500,7 @@ mod tests {
             ],
             &["repo", "scorecard", "missing"],
             &["repo", "advisories", "missing"],
+            &["repo", "codeql", "missing"],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),
@@ -537,6 +542,29 @@ mod tests {
                 Err(findings(&[r#"Unreadable { path: "scorecard" }"#])),
                 String::new()
             )
+        );
+    }
+
+    /// Verifies: SEC-SUP-018
+    #[test]
+    fn repo_codeql_fails_on_a_high_severity_result_in_the_sarif_log() {
+        assert_eq!(
+            run_in(
+                FIXTURES,
+                &["repo", "codeql", "codeql/blocking.sarif"],
+                0,
+                &[]
+            ),
+            (
+                Err(findings(&[
+                    r#"CodeqlAlert { rule: "rust/sql-injection", path: "src/db.rs" }"#
+                ])),
+                String::new()
+            )
+        );
+        assert_eq!(
+            run_in(FIXTURES, &["repo", "codeql", "codeql/clean.sarif"], 0, &[]),
+            (Ok(()), String::new())
         );
     }
 
