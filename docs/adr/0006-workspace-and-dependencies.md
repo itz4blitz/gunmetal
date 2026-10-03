@@ -152,11 +152,24 @@ owner's confirmation.
    marks its sanctioned call with a module-level
    `#[expect(clippy::disallowed_methods, reason = "...")]`, and an xtask
    check (WP-008) fails when such an exception appears in a module that is
-   not on this list:
+   not on the written list in `crates/xtask/src/lint_exceptions.rs`
+   (`EXCEPTIONS`). That list is what the check reads. The first draft of
+   this table, and of the plan, described a single testkit exception for
+   path-based `std::fs`. The list now has eleven entries, the doors that
+   already exist plus the modules that must name a ban to test or to
+   operate: `crates/gunmetal-core/src/crypto.rs`,
+   `crates/gunmetal-core/src/id.rs`,
+   `crates/gunmetal-core/src/parse/capacity.rs`,
+   `crates/gunmetal-fs/src/dataroot.rs`, `crates/gunmetal-fs/src/host.rs`,
+   `crates/gunmetal-fs/src/path.rs`, `crates/gunmetal-fs/src/sqlite.rs`,
+   `crates/gunmetal-fs/tests/`, `crates/gunmetal-fuzz/tests/`,
+   `crates/gunmetal-testkit/src/tempdir.rs` (owner decision 33) and
+   `crates/xtask/src/tree.rs`. A change to that list is its own small
+   package under the merge protocol. The doors themselves are:
 
    | Operation | Only in | Requirements |
    |---|---|---|
-   | Path-based `std::fs` | `gunmetal-fs`, and the dev-only `gunmetal-testkit` (the one exception, owner decision 33) | SEC-MED-033, SEC-HIS-016 |
+   | Path-based `std::fs` | `gunmetal-fs` (the door); the listed exceptions are the testkit, the fuzz corpus replay, `crates/gunmetal-fs/tests/` and the xtask's tree module | SEC-MED-033, SEC-HIS-016 |
    | Opening a `rusqlite::Connection` | The connection opener in `gunmetal-fs` (WP-126) | SEC-API-066, SEC-TM-039 |
    | Starting a process | The sandbox launcher in `gunmetal-worker/src/sandbox/` | SEC-MED-063 |
    | Outbound sockets and HTTP clients | `gunmetal-egress` | SEC-EXT-001, SEC-API-076 |
@@ -192,8 +205,7 @@ owner's confirmation.
    confines the process before it reads a job (SEC-MED-018).
 
    A later package that needs one of these operations calls the module
-   that owns it. It never adds an exception; a change to the list is its
-   own small package under the merge protocol.
+   that owns it. It never adds an exception of its own.
 9. **`unsafe` is forbidden in every crate.** The workspace sets
    `unsafe_code = "forbid"`. The one possible exception is `gunmetal-wasm`,
    and only if the glue `wasm-bindgen` generates trips the lint, which is
