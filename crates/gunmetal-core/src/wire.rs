@@ -1641,11 +1641,12 @@ mod tests {
     }
 
     /// A declared length of `u32::MAX` would ask for four gigabytes; the
-    /// decode fails where the payload runs out instead of allocating it.
+    /// length is checked against what is left of the payload, and the
+    /// decode fails where the payload runs out.
     ///
     /// Verifies: SEC-TM-032
     #[test]
-    fn refuses_a_declared_length_longer_than_the_payload_without_allocating_it() {
+    fn refuses_a_declared_length_longer_than_the_payload() {
         let mut octets = vec![0xFF, 0xFF, 0xFF, 0xFF, 0x0F];
         octets.extend(b"short");
         let ends_at = |offset| WireError::Malformed {
