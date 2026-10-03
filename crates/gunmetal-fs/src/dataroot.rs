@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, OpenOptions, OpenOptionsExt};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
-use crate::host::{Filesystem, HostFacts, NetworkFs};
+use crate::host::{Holds, HostFacts, NetworkFs};
 use crate::path::{self, DataDir, DataPath};
 
 /// The mode of every directory in the data directory.
@@ -293,19 +293,6 @@ impl Facts {
             owner: stat.st_uid,
             mode: stat.st_mode & 0o7777,
         }
-    }
-}
-
-/// Refuses a network filesystem unless the policy accepts it.
-fn check_filesystem(
-    filesystem: Filesystem,
-    policy: NetworkFilesystems,
-) -> Result<(), DataRootError> {
-    match (filesystem, policy) {
-        (Filesystem::Network(kind), NetworkFilesystems::Refuse) => {
-            Err(DataRootError::NetworkFilesystem(kind))
-        }
-        _ => Ok(()),
     }
 }
 
@@ -597,7 +584,11 @@ impl DataRoot {
         network: NetworkFilesystems,
         settler: &mut Settler,
     ) -> Result<Self, DataRootError> {
-        check_filesystem(settler.host.filesystem, network)?;
+        settler
+            .host
+            .filesystem
+            .admits(Holds::Data(network))
+            .map_err(DataRootError::NetworkFilesystem)?;
         // Resolving once gives SQLite a path with no symlinks in it, which
         // its no-follow open then insists on (see `sqlite_path`).
         let path = std::fs::canonicalize(path).map_err(io_error(Item::Root, Op::Resolve))?;
@@ -747,6 +738,7 @@ impl DataRoot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::Filesystem;
     use proptest::prelude::*;
     use std::io::Read;
 
@@ -758,36 +750,6 @@ mod tests {
 
     fn key() -> Item {
         Item::Path(DataPath::constant(DataDir::Secrets, "root.key"))
-    }
-
-    #[test]
-    fn accepts_a_local_filesystem_and_an_allowed_network_one() {
-        assert_eq!(
-            check_filesystem(Filesystem::Local, NetworkFilesystems::Refuse),
-            Ok(())
-        );
-        assert_eq!(
-            check_filesystem(Filesystem::Local, NetworkFilesystems::Allow),
-            Ok(())
-        );
-        assert_eq!(
-            check_filesystem(
-                Filesystem::Network(NetworkFs::Smb),
-                NetworkFilesystems::Allow
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn refuses_a_network_filesystem_by_default() {
-        assert_eq!(
-            check_filesystem(
-                Filesystem::Network(NetworkFs::Fuse),
-                NetworkFilesystems::Refuse
-            ),
-            Err(DataRootError::NetworkFilesystem(NetworkFs::Fuse))
-        );
     }
 
     /// Verifies: SEC-OPS-012

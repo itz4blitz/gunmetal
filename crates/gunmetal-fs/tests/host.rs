@@ -8,7 +8,7 @@
 mod support;
 
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind};
 use std::os::unix::fs::MetadataExt;
 
 use gunmetal_fs::dataroot::{DataRootError, Item, Op};
@@ -28,6 +28,20 @@ fn reads_the_service_account_and_a_local_filesystem() {
             uid: owner,
             filesystem: Filesystem::Local
         })
+    );
+}
+
+/// The filesystem type of an open folder is read from its handle, which
+/// keeps describing the folder that was opened after its path is gone.
+#[test]
+fn reads_the_filesystem_type_of_an_open_folder_from_its_handle() {
+    let dir = TempDir::new();
+    fs::create_dir(dir.join("music")).expect("create the folder");
+    let folder = fs::File::open(dir.join("music")).expect("open the folder");
+    fs::rename(dir.join("music"), dir.join("moved")).expect("move the folder");
+    assert_eq!(
+        Filesystem::of(&folder).as_ref().map_err(io::Error::kind),
+        Ok(&Filesystem::Local)
     );
 }
 
