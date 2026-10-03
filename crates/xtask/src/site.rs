@@ -10,7 +10,7 @@
 //!   future and less than a year ahead (SEC-SUP-008).
 //! - `site/_headers`, which Cloudflare Pages and Netlify both read, sends
 //!   every page `Strict-Transport-Security` with a `max-age` of at least
-//!   two years, `includeSubDomains` and `preload` (SEC-STD-016), and a
+//!   two years, `includeSubDomains` and `preload`, each once (SEC-STD-016), and a
 //!   `Content-Security-Policy` of `default-src 'none'` whose sources are
 //!   only `'none'` and `'self'`, so a browser loads nothing from another
 //!   origin. No path may send a weaker value of either.
@@ -469,20 +469,30 @@ fn headers(text: &str) -> Vec<Finding> {
 }
 
 /// Whether the `Strict-Transport-Security` value `value` lasts at least two
-/// years and covers subdomains and the preload list.
+/// years and covers subdomains and the preload list, naming each of the
+/// three once: a browser ignores a header that repeats a directive (RFC
+/// 6797, section 6.1), so a second `max-age` would turn the header off.
 fn is_strong_hsts(value: &str) -> bool {
     let directives: Vec<String> = value
         .split(';')
         .map(|directive| directive.trim().to_ascii_lowercase())
         .collect();
-    let has = |wanted: &str| directives.iter().any(|directive| directive == wanted);
-    let long = directives.iter().any(|directive| {
-        directive
-            .strip_prefix("max-age=")
-            .and_then(|age| age.parse::<u64>().ok())
-            .is_some_and(|age| age >= HSTS_MAX_AGE)
-    });
-    long && has("includesubdomains") && has("preload")
+    let once = |wanted: &str| {
+        directives
+            .iter()
+            .filter(|directive| *directive == wanted)
+            .count()
+            == 1
+    };
+    let ages: Vec<&str> = directives
+        .iter()
+        .filter_map(|directive| directive.strip_prefix("max-age="))
+        .collect();
+    let long = matches!(
+        ages.as_slice(),
+        [age] if age.parse::<u64>().is_ok_and(|age| age >= HSTS_MAX_AGE)
+    );
+    long && once("includesubdomains") && once("preload")
 }
 
 /// Whether the `Content-Security-Policy` value `value` starts from
@@ -1130,6 +1140,10 @@ Preferred-Languages: en,
             "includeSubDomains; preload",
             "max-age=two-years; includeSubDomains; preload",
             "max-age=63072000 includeSubDomains preload",
+            "max-age=0; max-age=63072000; includeSubDomains; preload",
+            "max-age=63072000; Max-Age=63072000; includeSubDomains; preload",
+            "max-age=63072000; includeSubDomains; includesubdomains; preload",
+            "max-age=63072000; includeSubDomains; preload; PRELOAD",
         ] {
             let text = format!(
                 "/*\n  Strict-Transport-Security: {value}\n  Content-Security-Policy: default-src 'none'\n"
