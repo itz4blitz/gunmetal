@@ -18,6 +18,16 @@ version = "1.5.1"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.axum]]
+version = "0.8.9"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.axum-core]]
+version = "0.5.6"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.bitflags]]
 version = "2.13.2"
 criteria = "safe-to-deploy"
@@ -27,6 +37,11 @@ notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 20
 version = "0.12.1"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through digest. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.bytes]]
+version = "1.12.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.cap-primitives]]
 version = "4.0.3"
@@ -88,6 +103,21 @@ version = "0.20.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.futures-core]]
+version = "0.3.34"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.futures-task]]
+version = "0.3.34"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.futures-util]]
+version = "0.3.34"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.getrandom]]
 version = "0.3.4"
 criteria = "safe-to-run"
@@ -97,6 +127,21 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 version = "0.4.3"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.http]]
+version = "1.5.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.http-body]]
+version = "1.1.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.http-body-util]]
+version = "0.1.5"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.hybrid-array]]
 version = "0.4.15"
@@ -123,6 +168,11 @@ version = "2.12.2"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.itoa]]
+version = "1.0.18"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.libc]]
 version = "0.2.190"
 criteria = "safe-to-deploy"
@@ -138,15 +188,40 @@ version = "0.12.1"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.matchit]]
+version = "0.8.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.maybe-owned]]
 version = "0.3.4"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.memchr]]
+version = "2.8.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.mime]]
+version = "0.3.17"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.once_cell]]
 version = "1.21.4"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.percent-encoding]]
+version = "2.3.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.pin-project-lite]]
+version = "0.2.17"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.pkg-config]]
 version = "0.3.34"
@@ -238,10 +313,20 @@ version = "1.0.229"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire codec (WP-039, owner decision D-02); serde_core names it under cfg(any()) to pin its version, and the core's tests derive with it. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.serde_json]]
+version = "1.0.151"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.sha2]]
 version = "0.11.0"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 for gunmetal-core's crypto module, its only user in the core (WP-122, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.slab]]
+version = "0.4.12"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.smallvec]]
 version = "1.16.2"
@@ -258,6 +343,11 @@ version = "3.0.6"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire codec (WP-039, owner decision D-02); the parser behind serde_derive and thiserror-impl. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.sync_wrapper]]
+version = "1.0.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.thiserror]]
 version = "2.0.21"
 criteria = "safe-to-deploy"
@@ -272,6 +362,21 @@ notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire co
 version = "1.13.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with unicode-normalization for search folding and natural sort (WP-036, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.tower]]
+version = "0.5.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.tower-layer]]
+version = "0.3.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.tower-service]]
+version = "0.3.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.typenum]]
 version = "1.20.1"
@@ -412,3 +517,8 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 version = "0.8.59"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.zmij]]
+version = "1.0.23"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-044 for gunmetal-http (axum and serde_json; owner decision 7 / D-68). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."

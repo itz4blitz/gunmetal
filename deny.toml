@@ -348,6 +348,12 @@ include-archives = true
 # Added with WP-039's postcard and serde (D-02), reviewed 2026-10-03:
 # proc-macro2, quote, serde, serde_core and thiserror only run rustc on
 # probes of the compiler's version and features, and set cfg flags.
+#
+# Added with WP-044's axum and serde_json (owner decision 7 / D-68),
+# reviewed 2026-10-03: serde_json sets a cfg from the target architecture
+# and pointer width; zmij (serde_json's number parser) runs `rustc
+# --version` and sets cfg flags. Neither fetches anything or runs another
+# program.
 allow-build-scripts = [
     "cap-primitives",
     "cap-std",
@@ -362,8 +368,10 @@ allow-build-scripts = [
     "rustix",
     "serde",
     "serde_core",
+    "serde_json",
     "thiserror",
     "zerocopy",
+    "zmij",
 ]
 
 # Reviewed 2026-10-03, for this version only: zerocopy's build script runs
