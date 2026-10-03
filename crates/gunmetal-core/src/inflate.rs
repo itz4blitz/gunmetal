@@ -206,6 +206,9 @@ pub fn inflate(
     out: &mut BoundedBuf,
 ) -> Result<u64, InflateError> {
     let cap = out.cap();
+    // The cap as a length: the loop compares it with `out.bytes.len()`
+    // directly, so a mutant of [`widen`] cannot disable the stop.
+    let cap_len = usize::try_from(cap).unwrap_or(usize::MAX);
     // Give back an earlier call's octets before reserving, so the old and
     // the new reservation are never held at once.
     out.bytes = Vec::new();
@@ -233,18 +236,18 @@ pub fn inflate(
     loop {
         // Ask for one octet more than the cap leaves room for, so a stream
         // that passes the cap is caught after exactly one octet too many.
-        let room = cap.saturating_sub(widen(out.bytes.len()));
-        let ask = usize::try_from(room.saturating_add(1)).unwrap_or(usize::MAX);
+        let room = cap_len.saturating_sub(out.bytes.len());
+        let ask = room.saturating_add(1);
         let (status, used, made) =
             decompress_with_limit(&mut state, rest, &mut window, at, ask, flags);
         rest = rest.get(used..).unwrap_or_default();
         read = read.saturating_add(widen(used));
-        let keep = made.min(usize::try_from(room).unwrap_or(usize::MAX));
+        let keep = made.min(room);
         budget
             .charge(widen(used).saturating_add(widen(keep)), read)
             .map_err(InflateError::Fault)?;
         out.bytes.extend(window.iter().skip(at).take(keep));
-        if made > keep {
+        if made > keep || (matches!(status, TINFLStatus::HasMoreOutput) && room == 0) {
             return Err(out.overflow());
         }
         // The decompressor writes up to the window's end and no further, so
@@ -795,6 +798,28 @@ mod tests {
                 offset: 0,
             }))
         );
+    }
+
+    /// A bomb that fills the cap mid-stream reports overflow on the next
+    /// turn, when the decompressor still has output and the buffer is full,
+    /// without reading the rest of the compressed octets.
+    ///
+    /// Verifies: SEC-MED-009
+    #[test]
+    fn more_output_at_a_full_buffer_is_overflow() {
+        let input = bomb(400);
+        let (result, out) = run(&input, Framing::Deflate, 32 * KIB, None);
+        assert_eq!(
+            result,
+            Err(InflateError::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::InflatedCodecPrivate,
+                value: 32 * KIB + 1,
+                max: 32 * KIB,
+                offset: 0,
+            }))
+        );
+        assert_eq!(out.as_slice().len(), 32_768);
+        assert!(out.as_slice().iter().all(|&b| b == 0));
     }
 
     /// Verifies: SEC-MED-009
