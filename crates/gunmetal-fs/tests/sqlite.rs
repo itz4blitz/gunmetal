@@ -122,6 +122,8 @@ const NOT_ALLOWED: DbError = DbError::Sqlite { code: 23 };
 /// methods (the type's fields are private, so a struct literal does not
 /// compile), so these are all the kinds of set there are. None of them opens
 /// a connection with `secure_delete` off, and none can switch it off later.
+/// The longest busy timeout the type holds, 65,535 ms, is among them: the
+/// driver panics on one above 2,147,483,647 ms, which a `u16` cannot reach.
 ///
 /// Verifies: SEC-PRV-050
 #[test]
@@ -137,7 +139,7 @@ fn no_pragma_set_a_store_can_build_switches_secure_delete_off() {
             base.query_only(),
             base.busy_timeout(0),
             base.busy_timeout(5_000),
-            base.busy_timeout(u32::MAX).query_only(),
+            base.busy_timeout(65_535).query_only(),
             base.query_only().busy_timeout(1),
         ] {
             let db = open_db(&root, &LIBRARY, pragmas).expect("the cache opens");

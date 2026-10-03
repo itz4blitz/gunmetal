@@ -176,7 +176,9 @@ pub enum Synchronous {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pragmas {
     synchronous: Synchronous,
-    busy_timeout_ms: u32,
+    /// A `u16`, so every value fits the `i32` of milliseconds SQLite takes
+    /// and the driver's conversion, which panics above `i32::MAX`, cannot.
+    busy_timeout_ms: u16,
     query_only: bool,
 }
 
@@ -193,9 +195,11 @@ impl Pragmas {
     }
 
     /// Waits up to `ms` milliseconds for a lock instead of failing at once,
-    /// which only readers should do.
+    /// which only readers should do. The longest wait is 65,535 ms: the
+    /// type keeps every pragma set inside what the driver accepts, so
+    /// [`open_db`] cannot panic on one.
     #[must_use]
-    pub const fn busy_timeout(self, ms: u32) -> Self {
+    pub const fn busy_timeout(self, ms: u16) -> Self {
         Self {
             busy_timeout_ms: ms,
             ..self
