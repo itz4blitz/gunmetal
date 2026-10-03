@@ -42,38 +42,46 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
     let mut records_budget = input_budget(data);
     let items: Result<Vec<Item<'_>>, ParseFault> = records(data, &mut records_budget).collect();
     let mut tail_budget = input_budget(data);
-    let tail = recover_tail(data, &mut tail_budget);
-    if let Ok(tail) = tail {
-        assert!(tail <= data.len());
-    }
-    if let Ok(items) = &items {
-        let mut pos = 0_usize;
-        let mut first_damage = None;
-        for item in items {
-            match item {
-                Item::Record(record) => {
-                    assert!(
-                        u32::try_from(record.payload.len()).is_ok_and(|len| len <= MAX_PAYLOAD)
-                    );
-                    pos = pos.saturating_add(9).saturating_add(record.payload.len());
-                    assert!(pos <= data.len());
-                }
-                Item::Damaged { range } => {
-                    assert!(range.start < range.end && range.end <= data.len());
-                    assert_eq!(range.start, pos);
-                    if first_damage.is_none() {
-                        first_damage = Some(range.start);
+    let tail = recover_tail(data, &mut tail_budget)
+        .expect("recover_tail of n octets finishes inside STEPS_PER_OCTET * n + FIXED_STEPS");
+    assert!(tail <= data.len());
+    match &items {
+        Ok(items) => {
+            let mut pos = 0_usize;
+            let mut first_damage = None;
+            for item in items {
+                match item {
+                    Item::Record(record) => {
+                        assert!(
+                            u32::try_from(record.payload.len()).is_ok_and(|len| len <= MAX_PAYLOAD)
+                        );
+                        pos = pos.saturating_add(9).saturating_add(record.payload.len());
+                        assert!(pos <= data.len());
                     }
-                    pos = range.end;
+                    Item::Damaged { range } => {
+                        assert!(range.start < range.end && range.end <= data.len());
+                        assert_eq!(range.start, pos);
+                        if first_damage.is_none() {
+                            first_damage = Some(range.start);
+                        }
+                        pos = range.end;
+                    }
                 }
             }
+            assert_eq!(pos, data.len());
+            assert_eq!(
+                tail,
+                first_damage.unwrap_or(data.len()),
+                "recover_tail must be the first damaged start, or the input length"
+            );
         }
-        assert_eq!(pos, data.len());
-        assert_eq!(
-            tail,
-            Ok(first_damage.unwrap_or(data.len())),
-            "recover_tail must be the first damaged start, or the input length"
-        );
+        Err(fault) => {
+            let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
+            assert!(
+                matches!(fault, ParseFault::BudgetExceeded { offset } if *offset <= len),
+                "{fault:?}"
+            );
+        }
     }
 
     if let Ok(framed) = encode(data) {
@@ -112,7 +120,7 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
     let mut header_budget = input_budget(data);
     Outcome {
         items,
-        tail,
+        tail: Ok(tail),
         header: header(data, &mut header_budget),
     }
 }

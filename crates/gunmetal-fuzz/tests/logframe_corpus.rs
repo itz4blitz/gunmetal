@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use gunmetal_core::logframe::{
     HeaderError, Item, MAX_PAYLOAD, RECORD_VERSION, Record, SegmentHeader,
 };
+use gunmetal_core::parse::ParseFault;
 use gunmetal_fuzz::logframe::{Outcome, run};
 
 /// The committed corpus, which the nightly fuzz job also starts from.
@@ -24,7 +25,8 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 6] = [
+const SEEDS: [&str; 7] = [
+    "bad-crc",
     "empty",
     "four-gigabyte-length",
     "garbage-then-record",
@@ -79,6 +81,23 @@ fn replays_the_empty_input() {
             items: Ok(vec![]),
             tail: Ok(0),
             header: Err(HeaderError::Missing),
+        },
+    );
+}
+
+/// Independently framed `b"x"` with the last payload bit flipped, so the
+/// CRC does not match. Resync CRC work exceeds the documented budget.
+///
+/// Verifies: SEC-MED-007, SEC-MED-028
+#[test]
+fn replays_a_bad_crc_that_exhausts_the_budget() {
+    replay(
+        "bad-crc",
+        &[0x01, 0x00, 0x00, 0x00, 0x67, 0xE3, 0x82, 0x19, 0x01, 0xF8],
+        &Outcome {
+            items: Err(ParseFault::BudgetExceeded { offset: 8 }),
+            tail: Ok(0),
+            header: Err(HeaderError::Fault(ParseFault::BudgetExceeded { offset: 8 })),
         },
     );
 }
