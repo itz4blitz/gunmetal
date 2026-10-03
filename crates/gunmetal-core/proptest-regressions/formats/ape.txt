@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0c31fa6827d43ce42546922a13f34f9a764cd36b5431d800f7f9511f764a6129 # shrinks to specs = [], header = false, v1 = false, before = 0
+cc 72eb74a19e7598a176e77f0661a10ae6f64b96160a7439c3b94b619534dcbcb5 # shrinks to specs = [Spec { key: "  UAAaaa0a A AaAaA0Aa 00 0AaA0  UA0 Ua ", kind: 0, values: ["aa0 aa", "0aA000AaaA a"] }], header = true, v1 = false, before = 0

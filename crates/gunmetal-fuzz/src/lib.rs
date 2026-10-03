@@ -17,12 +17,38 @@
 //! `tests/<name>_corpus.rs`, `fuzz/fuzz_targets/<name>.rs` and
 //! `fuzz/seeds/<name>/`.
 
+pub mod aiff;
+pub mod ape;
 pub mod base64;
+pub mod detect;
 pub mod ebml;
+pub mod flac_frames;
+pub mod flac_metadata;
+pub mod flac_structure;
+pub mod http_forwarded;
+pub mod http_range;
+pub mod id3_structure;
+pub mod id3v1;
+pub mod id3v2_tag;
 pub mod inflate;
 pub mod link;
+pub mod logframe;
+pub mod lyrics;
+pub mod mp4_probe;
+pub mod mp4_sample_table;
+pub mod mp4_structure;
+pub mod mpa;
 pub mod net;
+pub mod ogg;
+pub mod ogg_structure;
+pub mod opus;
+pub mod otp;
+pub mod path;
 pub mod registry;
+pub mod riff;
 pub mod text;
 pub mod time;
+pub mod token;
 pub mod values;
+pub mod vorbis;
+pub mod vorbis_comment;

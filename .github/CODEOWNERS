@@ -4,9 +4,11 @@
 # the ruleset on main requires code-owner review. Once two maintainers
 # exist, the approver must not be the author.
 #
-# Later lines take precedence over earlier ones.
+# Later lines take precedence over earlier ones. Directory patterns cover
+# paths the plan creates in later waves, so a package that adds a
+# security-sensitive path already listed here does not edit this file.
 
-# Workflows, Dependabot and this file.
+# Workflows, Dependabot, the pull-request template and this file.
 /.github/ @itz4blitz
 /.github/CODEOWNERS @itz4blitz
 
@@ -23,10 +25,65 @@ Cargo.lock @itz4blitz
 /clippy.toml @itz4blitz
 /Cargo.toml @itz4blitz
 
-# Disclosure policy, the security baseline and architecture records.
+# Disclosure policy, the security baseline, architecture records and runbooks.
 /SECURITY.md @itz4blitz
 /docs/security/ @itz4blitz
 /docs/adr/ @itz4blitz
+/docs/runbooks/ @itz4blitz
+
+# Release and container files, once they exist.
+/Dockerfile @itz4blitz
+/compose.yml @itz4blitz
+/.github/workflows/release.yml @itz4blitz
+/.github/workflows/build.yml @itz4blitz
 
 # Parsers of untrusted input in the shared core.
 /crates/gunmetal-core/src/ @itz4blitz
+/crates/gunmetal-core/src/formats/ @itz4blitz
+/crates/gunmetal-core/src/tags/ @itz4blitz
+/crates/gunmetal-core/src/http/ @itz4blitz
+/crates/gunmetal-core/src/provider/ @itz4blitz
+/crates/gunmetal-core/src/webauthn/ @itz4blitz
+/crates/gunmetal-core/src/authz/ @itz4blitz
+/crates/gunmetal-core/src/token/ @itz4blitz
+/crates/gunmetal-core/src/crypto.rs @itz4blitz
+/crates/gunmetal-core/src/audit_event.rs @itz4blitz
+/crates/gunmetal-core/src/client_context.rs @itz4blitz
+/crates/gunmetal-core/src/retention.rs @itz4blitz
+/crates/gunmetal-core/src/inflate.rs @itz4blitz
+
+# Policy, credentials, cryptography, sandbox, egress, audit and names.
+/crates/gunmetal-secrets/ @itz4blitz
+/crates/gunmetal-egress/ @itz4blitz
+/crates/gunmetal-durable/src/audit/ @itz4blitz
+/crates/gunmetal-fs/src/sqlite.rs @itz4blitz
+/crates/gunmetal-worker/src/sandbox/ @itz4blitz
+/crates/gunmetal-names/ @itz4blitz
+
+# Server authentication, the policy layer, the listener and the public-route
+# allow-list. Paths are listed before the packages that create them.
+/crates/gunmetal-server/src/listener.rs @itz4blitz
+/crates/gunmetal-server/src/routes.rs @itz4blitz
+/crates/gunmetal-server/security/ @itz4blitz
+/crates/gunmetal-server/src/session/ @itz4blitz
+/crates/gunmetal-server/src/verifier/ @itz4blitz
+/crates/gunmetal-server/src/limiter/ @itz4blitz
+/crates/gunmetal-server/src/limits/ @itz4blitz
+/crates/gunmetal-server/src/access/ @itz4blitz
+/crates/gunmetal-server/src/audit_sink/ @itz4blitz
+/crates/gunmetal-server/src/audit_cli/ @itz4blitz
+/crates/gunmetal-server/src/passkey/ @itz4blitz
+/crates/gunmetal-server/src/oidc/ @itz4blitz
+/crates/gunmetal-server/src/signin/ @itz4blitz
+/crates/gunmetal-server/src/recovery/ @itz4blitz
+/crates/gunmetal-server/src/recovery_codes/ @itz4blitz
+/crates/gunmetal-server/src/setup/ @itz4blitz
+/crates/gunmetal-server/src/users/ @itz4blitz
+/crates/gunmetal-server/src/shares/ @itz4blitz
+/crates/gunmetal-server/src/keys/ @itz4blitz
+/crates/gunmetal-server/src/posture/ @itz4blitz
+/crates/gunmetal-server/src/stream/ @itz4blitz
+/crates/gunmetal-server/src/backup/ @itz4blitz
+/crates/gunmetal-server/src/restore/ @itz4blitz
+/crates/gunmetal-server/src/erasure/ @itz4blitz
+/crates/gunmetal-server/tests/route_security/ @itz4blitz

@@ -39,6 +39,20 @@ gunmetal-fuzz = { path = "../crates/gunmetal-fuzz", version = "0.0.0" }
 libfuzzer-sys = "0.4.13"
 
 [[bin]]
+name = "aiff"
+path = "fuzz_targets/aiff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ape"
+path = "fuzz_targets/ape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "base64"
 path = "fuzz_targets/base64.rs"
 test = false
@@ -67,8 +81,71 @@ doc = false
 bench = false
 
 [[bin]]
+name = "detect"
+path = "fuzz_targets/detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "ebml"
 path = "fuzz_targets/ebml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flac_frames"
+path = "fuzz_targets/flac_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flac_metadata"
+path = "fuzz_targets/flac_metadata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flac_structure"
+path = "fuzz_targets/flac_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_forwarded"
+path = "fuzz_targets/http_forwarded.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_range"
+path = "fuzz_targets/http_range.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3_structure"
+path = "fuzz_targets/id3_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3v1"
+path = "fuzz_targets/id3v1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id3v2_tag"
+path = "fuzz_targets/id3v2_tag.rs"
 test = false
 doc = false
 bench = false
@@ -88,8 +165,92 @@ doc = false
 bench = false
 
 [[bin]]
+name = "logframe"
+path = "fuzz_targets/logframe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lyrics"
+path = "fuzz_targets/lyrics.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp4_probe"
+path = "fuzz_targets/mp4_probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp4_sample_table"
+path = "fuzz_targets/mp4_sample_table.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp4_structure"
+path = "fuzz_targets/mp4_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mpa"
+path = "fuzz_targets/mpa.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "net"
 path = "fuzz_targets/net.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ogg"
+path = "fuzz_targets/ogg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ogg_structure"
+path = "fuzz_targets/ogg_structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "opus"
+path = "fuzz_targets/opus.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "otp"
+path = "fuzz_targets/otp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path"
+path = "fuzz_targets/path.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "riff"
+path = "fuzz_targets/riff.rs"
 test = false
 doc = false
 bench = false
@@ -109,8 +270,29 @@ doc = false
 bench = false
 
 [[bin]]
+name = "token"
+path = "fuzz_targets/token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "values"
 path = "fuzz_targets/values.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vorbis"
+path = "fuzz_targets/vorbis.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vorbis_comment"
+path = "fuzz_targets/vorbis_comment.rs"
 test = false
 doc = false
 bench = false

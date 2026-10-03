@@ -45,6 +45,11 @@ reason = "Target selection inside cpufeatures (WP-122, D-02)."
 reviewed = 2026-10-03
 
 [[crate]]
+name = "cobs"
+reason = "Consistent-overhead byte stuffing, a dependency of postcard (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
 name = "cpufeatures"
 reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02)."
 reviewed = 2026-10-03
@@ -75,11 +80,71 @@ reason = "Pure-Rust inflate behind the one decompression helper, src/inflate.rs 
 reviewed = 2026-10-03
 
 [[crate]]
+name = "postcard"
+reason = "The compact binary encoding of protocol types inside wire frames (WP-039, D-02, SEC-MED-023)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "proc-macro2"
+reason = "Build-time only: token streams for serde_derive and thiserror-impl (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "quote"
+reason = "Build-time only: code generation for serde_derive and thiserror-impl (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "serde"
+reason = "Protocol types serialise to postcard and JSON (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "serde_core"
+reason = "serde's data model and traits, behind serde (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "serde_derive"
+reason = "Build-time only: serde's derive macros; serde_core names it to pin its version (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
 name = "sha2"
 reason = "SHA-256 in src/crypto.rs only: the schema digest and content identity (WP-122, D-02, SEC-STD-018)."
 reviewed = 2026-10-03
 
 [[crate]]
+name = "syn"
+reason = "Build-time only: the Rust parser behind serde_derive and thiserror-impl (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "thiserror"
+reason = "Error types inside cobs, through postcard (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "thiserror-impl"
+reason = "Build-time only: thiserror's derive macro (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "tinyvec"
+reason = "Small-array buffer unicode-normalization uses while decomposing (WP-036, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
 name = "typenum"
 reason = "Type-level array lengths for hybrid-array (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "unicode-ident"
+reason = "Build-time only: identifier tables for proc-macro2 (WP-039, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "unicode-normalization"
+reason = "Canonical and compatibility decomposition for search folding and natural sort (WP-036, D-02, MUS-020, DIS-085)."
 reviewed = 2026-10-03

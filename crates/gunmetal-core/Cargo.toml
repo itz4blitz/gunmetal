@@ -10,10 +10,15 @@ homepage.workspace = true
 
 [dependencies]
 miniz_oxide.workspace = true
+postcard.workspace = true
+serde.workspace = true
 sha2.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
+gunmetal-testkit.workspace = true
 proptest.workspace = true
+serde = { workspace = true, features = ["alloc", "derive"] }
 
 # A crate with lints of its own cannot also inherit the workspace's table, so
 # the workspace lints are repeated here first; the core's tests fail if one

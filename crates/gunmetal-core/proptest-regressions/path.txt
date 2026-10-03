@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 327871f92ded0da9d6486bdf9d07de9b51afcfa5d4ffdfbe2fe3b8cfa10f990e # shrinks to path = RawPath([])
+cc 236f25ddd3a31d875c4d9b8dba56b2dd417dd6b78bd6b470c3e3f5f82ac7fe0f # shrinks to target = RawPath([]), root = RawPath([])
