@@ -249,6 +249,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "search_segment"
+path = "fuzz_targets/search_segment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "text"
 path = "fuzz_targets/text.rs"
 test = false
