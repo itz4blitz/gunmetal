@@ -192,7 +192,9 @@ proptest! {
         let result = decide(&principal, action, &resource, &context(ranks));
         for n in 0..4 {
             let library = library(n);
-            let held = result.as_ref().is_ok_and(|permit| permit.libraries().contains(&library));
+            // A pattern, not a closure: the closure ran only on a permit,
+            // which a run need not generate.
+            let held = matches!(&result, Ok(permit) if permit.libraries().contains(&library));
             let browse = decide(&principal, Action::BrowseLibrary, &ResourceFacts::Library(library), &at_home());
             prop_assert!([!held, allowed(&browse)].contains(&true));
         }
@@ -288,16 +290,16 @@ proptest! {
         empty.scope = Some(Scope { capabilities: CapabilitySet::EMPTY, libraries: scope.libraries.clone() });
         let with_empty_scope = decide(&empty, action, &resource, &context);
         prop_assert!(!allowed(&with_empty_scope) || action == Action::SignOut);
-        if let (Ok(with_scope), Ok(without)) = (&with_scope, &without) {
-            for n in 0..4 {
-                let library = library(n);
-                let seen = with_scope.libraries().contains(&library);
-                let reached = [
-                    without.libraries().contains(&library),
-                    scope_reaches(&scope, &library),
-                ];
-                prop_assert!(!seen || reached == [true, true]);
-            }
+        // Worked out for every case, permitted or not, so that whether a run
+        // generates a permit does not change what the run covers.
+        for n in 0..4 {
+            let library = library(n);
+            let seen = matches!(&with_scope, Ok(permit) if permit.libraries().contains(&library));
+            let reached = [
+                matches!(&without, Ok(permit) if permit.libraries().contains(&library)),
+                scope_reaches(&scope, &library),
+            ];
+            prop_assert!(!seen || reached == [true, true]);
         }
         let credential = matches!(
             action,
@@ -318,13 +320,16 @@ proptest! {
         requested in scope(),
     ) {
         // A random request almost always names something the creator lacks,
-        // so each case also asks for the part of it the creator may hand
-        // out: what it can use, less the owner-only capabilities, on the
-        // libraries it may browse. An unscoped creator may issue that, so
-        // the checks below meet permits as well as refusals.
+        // so on some runs no case was permitted and the checks below never
+        // ran. Every case therefore also asks, as the same creator without
+        // a scope, for the part of the request it may hand out: what it can
+        // use, less the owner-only capabilities, on the libraries it may
+        // browse. That is always permitted, so every case meets a permit.
+        let mut unscoped = creator.clone();
+        unscoped.scope = None;
         let mut libraries = Vec::new();
         for library in &requested.libraries {
-            let browse = decide(&creator, Action::BrowseLibrary, &ResourceFacts::Library(*library), &at_home());
+            let browse = decide(&unscoped, Action::BrowseLibrary, &ResourceFacts::Library(*library), &at_home());
             if allowed(&browse) {
                 libraries.push(*library);
             }
@@ -332,17 +337,19 @@ proptest! {
         let narrowed = Scope {
             capabilities: requested
                 .capabilities
-                .intersection(creator.effective())
+                .intersection(unscoped.effective())
                 .difference(CapabilitySet::of(&OWNER_ONLY)),
             libraries,
         };
-        let narrowed_result = may_issue(&creator, &narrowed);
-        if creator.scope.is_none() {
-            prop_assert_eq!(&narrowed_result, &Ok(narrowed.clone()));
-        } else {
-            prop_assert_eq!(&narrowed_result, &Err(Denial::ScopedCredential));
+        let narrowed_result = may_issue(&unscoped, &narrowed);
+        prop_assert_eq!(&narrowed_result, &Ok(narrowed.clone()));
+        if creator.scope.is_some() {
+            prop_assert_eq!(may_issue(&creator, &narrowed), Err(Denial::ScopedCredential));
         }
-        for (asked, result) in [(&requested, may_issue(&creator, &requested)), (&narrowed, narrowed_result)] {
+        for (creator, asked, result) in [
+            (&creator, &requested, may_issue(&creator, &requested)),
+            (&unscoped, &narrowed, narrowed_result),
+        ] {
             let Ok(issued) = result else { continue };
             prop_assert_eq!(&issued, asked);
             prop_assert!(creator.scope.is_none());
