@@ -79,6 +79,7 @@ harnesses! {
     otp,
     path,
     riff,
+    tags_riff,
     text,
     time,
     token,
