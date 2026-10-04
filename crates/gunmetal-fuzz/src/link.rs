@@ -26,13 +26,13 @@ pub struct Outcome {
 /// Panics when a result breaks an invariant that holds for every input. An
 /// accepted link must open `https://`, then exactly the host it shows, then
 /// at most `:` and a port other than 443 written without leading zeros,
-/// then `/`; its host must be printable ASCII without a character that ends
-/// a host or escapes one; what follows the host must hold only ASCII
-/// letters, digits and ``-._~!$&()*+,;=:@/?#%``, so that it cannot end an
-/// attribute or a quoted string; and it must read back unchanged. A return
-/// target
-/// must be the value itself or the home route, and must start with exactly
-/// one `/` that no `/` or `\` follows.
+/// then `/`; its host must hold only ASCII letters, digits, `-`, `.` and
+/// `_`, or the brackets and colons of an IPv6 address; what follows the
+/// host must hold only ASCII letters, digits and ``-._~!$&()*+,;=:@/?#%``,
+/// so that no part of the URL can end an attribute or a quoted string; and
+/// it must read back unchanged. A return target must be the value itself or
+/// the home route, and must start with exactly one `/` that no `/` or `\`
+/// follows.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let raw = String::from_utf8_lossy(data);
@@ -43,7 +43,7 @@ pub fn run(data: &[u8]) -> Outcome {
             !host.is_empty()
                 && host
                     .bytes()
-                    .all(|octet| octet.is_ascii_graphic() && !b"/\\?#@%".contains(&octet))
+                    .all(|octet| octet.is_ascii_alphanumeric() || b"-._:[]".contains(&octet))
                 && href
                     .strip_prefix("https://")
                     .and_then(|rest| rest.strip_prefix(host))

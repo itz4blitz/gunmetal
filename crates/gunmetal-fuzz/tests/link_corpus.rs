@@ -22,9 +22,11 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 9] = [
+const SEEDS: [&str; 11] = [
     "credentials-before-the-host",
     "empty",
+    "host-with-a-quote",
+    "host-with-an-escaped-quote",
     "https-with-a-port",
     "invalid-utf8-in-the-host",
     "ipv4-in-hexadecimal",
@@ -139,6 +141,32 @@ fn replays_invalid_utf8_in_the_host() {
     replay(
         "invalid-utf8-in-the-host",
         b"https://ex\xFFample.com",
+        &refused(LinkError::BadHost),
+    );
+}
+
+/// A domain holds only ASCII letters, digits, `-`, `.` and `_`, so a host
+/// that would end the attribute the link is placed in stays plain text.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_host_with_a_quote() {
+    replay(
+        "host-with-a-quote",
+        b"https://x\"onclick=alert(1)\"/",
+        &refused(LinkError::BadHost),
+    );
+}
+
+/// The escape is decoded before the host is checked, so the apostrophe it
+/// names is refused as a written one is.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_host_with_an_escaped_quote() {
+    replay(
+        "host-with-an-escaped-quote",
+        b"https://ex%27ample.com/",
         &refused(LinkError::BadHost),
     );
 }

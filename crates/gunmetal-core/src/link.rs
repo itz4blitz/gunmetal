@@ -12,11 +12,16 @@
 //! different host from it, and the host to show on the sheet before it
 //! opens.
 //!
-//! Two choices are stricter than the standard. A host with characters
+//! Three choices are stricter than the standard. A host with characters
 //! outside ASCII is refused, so a look-alike name such as `exаmple.com`
 //! with a Cyrillic `а` stays plain text; its punycode form is accepted and
 //! shown as punycode. A user name or password in the URL is refused,
-//! because `https://bank.example@evil.example` goes to `evil.example`.
+//! because `https://bank.example@evil.example` goes to `evil.example`. And
+//! a domain may hold only ASCII letters, digits, `-`, `.` and `_`, where
+//! the standard also lets through quotes, braces and other punctuation, so
+//! that `https://x"onclick=alert(1)"/` stays plain text and the host of an
+//! accepted link cannot end an attribute or a quoted string it is placed
+//! in.
 //!
 //! [`return_target`] validates the post-sign-in return target: a path that
 //! starts with exactly one `/` and names a known client route, or the home
@@ -44,8 +49,8 @@ pub enum LinkError {
     Credentials,
     /// Its host is empty.
     NoHost,
-    /// Its host is not one a browser would open, or holds characters
-    /// outside ASCII.
+    /// Its host is not one a browser would open, or holds a character
+    /// that is not an ASCII letter, a digit, `-`, `.` or `_`.
     BadHost,
     /// Its port is not a number from 0 to 65535.
     BadPort,
@@ -113,17 +118,19 @@ impl Link {
     }
 
     /// The URL to open: `https://`, the host, the port unless it is 443,
-    /// then the path, query and fragment. Those three hold only ASCII
-    /// letters, digits and ``-._~!$&()*+,;=:@/?#%``; every other octet is
-    /// percent-encoded, so the URL can be placed in an attribute or a
-    /// quoted string without ending it.
+    /// then the path, query and fragment. The host is the one [`Link::host`]
+    /// shows. The path, query and fragment hold only ASCII letters, digits
+    /// and ``-._~!$&()*+,;=:@/?#%``; every other octet is percent-encoded.
+    /// So the URL holds no quote, space, angle bracket or control, and can
+    /// be placed in an attribute or a quoted string without ending it.
     #[must_use]
     pub fn href(&self) -> &str {
         &self.href
     }
 
-    /// The host to show before opening it: a lower-case ASCII domain, a
-    /// dotted IPv4 address or a bracketed IPv6 address.
+    /// The host to show before opening it: a domain of lower-case ASCII
+    /// letters, digits, `-`, `.` and `_`, a dotted IPv4 address or a
+    /// bracketed IPv6 address.
     #[must_use]
     pub fn host(&self) -> &str {
         &self.host
@@ -136,23 +143,28 @@ fn ipv6_host(inside: &str) -> Result<String, LinkError> {
     Ok(format!("[{address}]"))
 }
 
+/// The characters, besides ASCII letters and digits, that a domain may
+/// hold.
+const KEPT_IN_DOMAIN: &[u8] = b"-._";
+
 /// A domain or IPv4 host, read as the WHATWG host parser reads it, except
-/// that anything outside ASCII is refused.
+/// that after percent-decoding every octet that is not an ASCII letter, a
+/// digit or in [`KEPT_IN_DOMAIN`] is refused.
 fn domain_host(text: &str) -> Result<String, LinkError> {
     if text.is_empty() {
         return Err(LinkError::NoHost);
     }
     let decoded = percent_decode(text);
-    if !decoded.is_ascii() {
+    if !decoded
+        .iter()
+        .all(|octet| octet.is_ascii_alphanumeric() || KEPT_IN_DOMAIN.contains(octet))
+    {
         return Err(LinkError::BadHost);
     }
     let domain: String = decoded
         .iter()
         .map(|octet| char::from(octet.to_ascii_lowercase()))
         .collect();
-    if domain.chars().any(forbidden_in_domain) {
-        return Err(LinkError::BadHost);
-    }
     if ends_in_number(&domain) {
         return ipv4(&domain)
             .map(|address| address.to_string())
@@ -186,15 +198,6 @@ fn percent_decode(text: &str) -> Vec<u8> {
         }
     }
     decoded
-}
-
-/// The WHATWG URL standard's forbidden domain code points.
-fn forbidden_in_domain(c: char) -> bool {
-    c <= ' '
-        || matches!(
-            c,
-            '#' | '%' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|' | '\u{7F}'
-        )
 }
 
 /// Whether the last label, ignoring one trailing dot, is a number, which
@@ -435,6 +438,12 @@ mod tests {
                 "example.com",
             ),
             ("https://a..b", "https://a..b/", "a..b"),
+            ("https://a_b.example", "https://a_b.example/", "a_b.example"),
+            (
+                "https://a%5Fb%2Dc%2Eexample",
+                "https://a_b-c.example/",
+                "a_b-c.example",
+            ),
             // No label is a number, so this is a domain, as the standard says.
             ("https://..", "https://../", ".."),
             (
@@ -714,8 +723,7 @@ mod tests {
             "https://ex%00ample.com",
             "https://ex%7Fample.com",
             "https://ex%ample.com",
-            // Not an escape, so the % stays and is refused; read as one it
-            // would give a backtick, which a domain may hold.
+            // Not an escape, so the % stays and is refused.
             "https://ex%6zample.com",
             "https://example%",
             "https://example.com]",
@@ -736,6 +744,38 @@ mod tests {
             "https://0x1g.example.0x1",
             "https://x.1",
             "https://1..2",
+        ] {
+            assert_eq!(link(raw), Err(LinkError::BadHost), "{raw:?}");
+        }
+    }
+
+    /// A host that holds a quote, a brace or any other punctuation besides
+    /// `-`, `.` and `_` stays plain text, written directly or as a percent
+    /// escape, so the host of an accepted link cannot end an attribute or
+    /// a quoted string either.
+    #[test]
+    fn refuses_a_host_with_a_character_that_is_not_a_letter_a_digit_or_one_of_three() {
+        for raw in [
+            "https://a\"b/",
+            "https://a'b/",
+            "https://a`b/",
+            "https://a%22b/",
+            "https://a{b}/",
+            "https://x\"onclick=alert(1)\"/",
+            "https://ex%27ample.com/",
+            "https://ex%60ample.com/",
+            "https://a!b",
+            "https://a$b",
+            "https://a&b",
+            "https://a(b",
+            "https://a)b",
+            "https://a*b",
+            "https://a+b",
+            "https://a,b",
+            "https://a;b",
+            "https://a=b",
+            "https://a}b",
+            "https://a~b",
         ] {
             assert_eq!(link(raw), Err(LinkError::BadHost), "{raw:?}");
         }
@@ -789,6 +829,8 @@ mod tests {
         /// Whatever is accepted opens an https URL whose host is the one
         /// shown, with nothing between the host and the path that another
         /// URL parser could read differently, and reads back unchanged.
+        /// The host holds only ASCII letters, digits, `-`, `.` and `_`, or
+        /// the brackets and colons of an IPv6 address.
         ///
         /// Verifies: SEC-API-047, SEC-CLI-002, SEC-STD-015
         #[test]
@@ -805,7 +847,7 @@ mod tests {
                 let after = accepted.href().strip_prefix("https://").and_then(|rest| rest.strip_prefix(host));
                 let tail = after.map(|after| after.trim_start_matches(|c: char| c == ':' || c.is_ascii_digit()));
                 (
-                    !host.is_empty() && host.bytes().all(|b| b.is_ascii_graphic() && !b"/\\?#@%".contains(&b)),
+                    !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:[]".contains(&b)),
                     tail.is_some_and(|tail| {
                         tail.starts_with('/')
                             && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~!$&()*+,;=:@/?#%".contains(&b))
