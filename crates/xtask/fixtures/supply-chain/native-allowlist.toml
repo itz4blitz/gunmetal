@@ -1,0 +1,6 @@
+# A test fixture for `xtask native-code`, shaped like the real allow-list.
+
+[[crate]]
+name = "bindings-sys"
+reason = "Bindings to the one native library the fixture server links."
+requirement = "SEC-HIS-016"

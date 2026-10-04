@@ -14,7 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use gunmetal_core::values::{Field, ValueError};
-use gunmetal_fuzz::values::{Outcome, run};
+use gunmetal_fuzz::values::{Float, Outcome, Whole, run};
 
 /// The committed corpus, which the nightly fuzz job also starts from.
 fn seeds_dir() -> PathBuf {
@@ -22,14 +22,17 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 8] = [
+const SEEDS: [&str; 11] = [
     "date-and-time",
     "empty",
     "isrc-with-hyphens",
     "mbid-in-upper-case",
+    "not-a-number",
+    "past-thirty-days",
     "peak-with-a-comma",
     "replaygain-with-a-comma",
     "track-of-total",
+    "two-channels",
     "year-alone",
 ];
 
@@ -54,7 +57,14 @@ fn nothing_read() -> Outcome {
         date: Err(malformed(Field::Year)),
         gain: Err(malformed(Field::Gain)),
         peak: Err(malformed(Field::Peak)),
+        whole: None,
+        float: None,
+        r128: None,
     }
+}
+
+fn out_of_range(field: Field, value: u64) -> ValueError {
+    ValueError::OutOfRange { field, value }
 }
 
 /// Verifies: SEC-MED-028, SEC-MED-030
@@ -165,7 +175,10 @@ fn replays_a_peak_with_a_decimal_comma() {
     );
 }
 
-/// A year is also a track number, but far beyond any gain or peak.
+/// A year is also a track number, but far beyond any gain or peak. As a
+/// number it is a sample rate and a duration, too many channels and too
+/// deep a sample; 2,019 ticks at 44,100 a second are 45 milliseconds, and
+/// 2,019 in Q7.8 is 7 and 227 256ths of a decibel.
 ///
 /// Verifies: SEC-MED-028, SEC-MED-014
 #[test]
@@ -178,6 +191,99 @@ fn replays_a_year_alone() {
             date: Ok((2019, None, None)),
             gain: Err(ValueError::Unusable { field: Field::Gain }),
             peak: Err(ValueError::Unusable { field: Field::Peak }),
+            whole: Some(Whole {
+                sample_rate: Ok(2019),
+                channels: Err(out_of_range(Field::Channels, 2019)),
+                bit_depth: Err(out_of_range(Field::BitDepth, 2019)),
+                duration: Ok(2019),
+                ticks: Ok(45),
+            }),
+            float: Some(Float {
+                gain: Err(ValueError::Unusable { field: Field::Gain }),
+                peak: Err(ValueError::Unusable { field: Field::Peak }),
+            }),
+            r128: Some(2019.0 / 256.0),
+            ..nothing_read()
+        },
+    );
+}
+
+/// Two is a track number, a gain, a peak, a sample rate, a channel count,
+/// a bit depth and a duration, but too short for a year. Two ticks at
+/// 44,100 a second round down to no milliseconds, and 2 in Q7.8 is one
+/// 128th of a decibel.
+///
+/// Verifies: SEC-MED-028, SEC-MED-014
+#[test]
+fn replays_two_channels() {
+    replay(
+        "two-channels",
+        b"2",
+        &Outcome {
+            number: Ok((2, None)),
+            gain: Ok(2.0),
+            peak: Ok(2.0),
+            whole: Some(Whole {
+                sample_rate: Ok(2),
+                channels: Ok(2),
+                bit_depth: Ok(2),
+                duration: Ok(2),
+                ticks: Ok(0),
+            }),
+            float: Some(Float {
+                gain: Ok(2.0),
+                peak: Ok(2.0),
+            }),
+            r128: Some(2.0 / 256.0),
+            ..nothing_read()
+        },
+    );
+}
+
+/// One millisecond past thirty days. It fits 32 bits, so every constructor
+/// is told the number itself; counted in ticks at 44,100 a second it is
+/// 58,775,510 milliseconds, well inside thirty days.
+///
+/// Verifies: SEC-MED-028, SEC-MED-014
+#[test]
+fn replays_a_millisecond_past_thirty_days() {
+    replay(
+        "past-thirty-days",
+        b"2592000001",
+        &Outcome {
+            number: Err(out_of_range(Field::Number, 2_592_000_001)),
+            gain: Err(ValueError::Unusable { field: Field::Gain }),
+            peak: Err(ValueError::Unusable { field: Field::Peak }),
+            whole: Some(Whole {
+                sample_rate: Err(out_of_range(Field::SampleRate, 2_592_000_001)),
+                channels: Err(out_of_range(Field::Channels, 2_592_000_001)),
+                bit_depth: Err(out_of_range(Field::BitDepth, 2_592_000_001)),
+                duration: Err(out_of_range(Field::Duration, 2_592_000_001)),
+                ticks: Ok(58_775_510),
+            }),
+            float: Some(Float {
+                gain: Err(ValueError::Unusable { field: Field::Gain }),
+                peak: Err(ValueError::Unusable { field: Field::Peak }),
+            }),
+            ..nothing_read()
+        },
+    );
+}
+
+/// No text parser reads `NaN`, and the constructors that are handed the
+/// number refuse it.
+///
+/// Verifies: SEC-MED-028, SEC-MED-014
+#[test]
+fn replays_a_value_that_is_not_a_number() {
+    replay(
+        "not-a-number",
+        b"NaN",
+        &Outcome {
+            float: Some(Float {
+                gain: Err(ValueError::Unusable { field: Field::Gain }),
+                peak: Err(ValueError::Unusable { field: Field::Peak }),
+            }),
             ..nothing_read()
         },
     );

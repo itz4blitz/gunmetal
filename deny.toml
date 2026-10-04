@@ -289,9 +289,9 @@ deny = [
     # SEC-MED-025, SEC-TM-034: no C or C++ media, image, font or subtitle
     # library is linked into the server or the worker. Such code may only run
     # as an external program inside the sandbox. A list of names cannot
-    # catch a binding it does not name, so SEC-TM-034 also needs a check of
-    # every native (`-sys` or `links`) and unsafe-using crate in the shipped
-    # graph against a justified allowlist; that check is still to be written.
+    # catch a binding it does not name, so the gate also checks every native
+    # (`-sys` or `links`) and unsafe-using crate in the shipped graph against
+    # supply-chain/native-allowlist.toml, with `xtask native-code`.
     { crate = "ffmpeg-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
     { crate = "ffmpeg-sys", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
     { crate = "ffmpeg-sys-next", reason = "FFmpeg binding (SEC-MED-025, SEC-TM-034)" },
@@ -348,6 +348,11 @@ include-archives = true
 # Added with WP-039's postcard and serde (D-02), reviewed 2026-10-03:
 # proc-macro2, quote, serde, serde_core and thiserror only run rustc on
 # probes of the compiler's version and features, and set cfg flags.
+#
+# Added with WP-044's serde_json (D-02), reviewed 2026-10-03:
+# serde_json sets a cfg flag from the target's architecture and pointer
+# width. zmij runs rustc --version and sets cfg flags from the answer and
+# from OPT_LEVEL. They fetch nothing and run no other program.
 allow-build-scripts = [
     "cap-primitives",
     "cap-std",
@@ -362,8 +367,10 @@ allow-build-scripts = [
     "rustix",
     "serde",
     "serde_core",
+    "serde_json",
     "thiserror",
     "zerocopy",
+    "zmij",
 ]
 
 # Reviewed 2026-10-03, for this version only: zerocopy's build script runs
@@ -385,6 +392,13 @@ allow-globs = ["setup_vcp.sh", "tests/*.sh"]
 crate = "rand"
 deny = ["small_rng"]
 reason = "SmallRng is a non-cryptographic generator (SEC-STD-022)"
+
+# SEC-EXT-018, SEC-HIS-056: SQLite never loads an extension. rusqlite's
+# load_extension feature would let a connection load a native library by path.
+[[bans.features]]
+crate = "rusqlite"
+deny = ["load_extension"]
+reason = "loads a native library into the server at run time (SEC-EXT-018, SEC-HIS-056)"
 
 # SEC-SUP-021: crates.io is the only allowed source. No git dependencies and
 # no other registries.

@@ -30,6 +30,11 @@
 # reviewed = 2026-10-09
 
 [[crate]]
+name = "adler2"
+reason = "Adler-32 for miniz_oxide's zlib checksum check (WP-128, D-02, SEC-MED-009)."
+reviewed = 2026-10-03
+
+[[crate]]
 name = "block-buffer"
 reason = "Block buffering for sha2, through digest (WP-122, D-02)."
 reviewed = 2026-10-03
@@ -67,6 +72,11 @@ reviewed = 2026-10-03
 [[crate]]
 name = "libc"
 reason = "cpufeatures reads CPU features through it on AArch64 Linux and Android (WP-122, D-02)."
+reviewed = 2026-10-03
+
+[[crate]]
+name = "miniz_oxide"
+reason = "Pure-Rust inflate behind the one decompression helper, src/inflate.rs only (WP-128, D-02, SEC-MED-009)."
 reviewed = 2026-10-03
 
 [[crate]]
