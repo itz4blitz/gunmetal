@@ -164,7 +164,7 @@ fn review_ids(tree: &dyn Tree) -> BTreeSet<String> {
 fn has_date(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut i: usize = 0;
-    while i != bytes.len() && i.saturating_add(10) <= bytes.len() {
+    while i.saturating_add(10) <= bytes.len() {
         let slice = text.get(i..i.saturating_add(10)).map_or("", |s| s);
         if is_date(slice) {
             return true;

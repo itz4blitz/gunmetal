@@ -644,7 +644,7 @@ fn find_word(haystack: &str, needle: &str) -> Option<usize> {
 fn find_a_id(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i: usize = 0;
-    while i != bytes.len() && i.saturating_add(3) <= bytes.len() {
+    while i.saturating_add(3) <= bytes.len() {
         let a = bytes.get(i).copied();
         let d1 = bytes.get(i.saturating_add(1)).copied();
         let d2 = bytes.get(i.saturating_add(2)).copied();
@@ -870,7 +870,10 @@ fn feed_versions(text: &str) -> Vec<String> {
     let mut versions = Vec::new();
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let Some(first) = line.chars().next() else {
+            continue;
+        };
+        if first == '#' {
             continue;
         }
         if line.starts_with('{') {
@@ -1375,11 +1378,14 @@ Recorded deviations
 | ASVS | Deviation | Compensating control | Owner | Review date |
 |---|---|---|---|---|
 | 15.1.6 | why | how | docs | 2026-10-01 |
-### The Register and Recorded
+### The Register
 | 15.1.1 | why | how | docs | 2026-10-01 |
+### The Recorded
+| 15.2.1 | why | how | docs | 2026-10-01 |
 ",
         );
         assert!(kept.contains_key("15.1.1"));
+        assert!(kept.contains_key("15.2.1"));
     }
 
     #[test]

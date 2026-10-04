@@ -781,7 +781,7 @@ fn find_directive(text: &str, name: &str) -> Option<String> {
         let after_char = after_name.chars().next();
         rest = after_name;
         let bounded = before.is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '-')
-            && after_char.is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '-');
+            && after_char.is_none_or(|ch| matches!(ch, '*' | '\'' | '"' | ' ' | '\t'));
         if !bounded {
             continue;
         }
@@ -2176,8 +2176,22 @@ Crosses TB1; threat TM-T01.
         );
         assert_eq!(super::find_directive("ximg-src 'self'", "img-src"), None);
         assert_eq!(super::find_directive("img-srcx 'self'", "img-src"), None);
+        assert_eq!(super::find_directive("img-src-'self'", "img-src"), None);
+        assert_eq!(super::find_directive("-img-src 'self'", "img-src"), None);
         assert_eq!(
             super::find_directive("img-src 'self'", "img-src").as_deref(),
+            Some("'self'")
+        );
+        assert_eq!(
+            super::find_directive("img-src'self'", "img-src").as_deref(),
+            Some("'self'")
+        );
+        assert_eq!(
+            super::find_directive("img-src*", "img-src").as_deref(),
+            Some("*")
+        );
+        assert_eq!(
+            super::find_directive("img-src\t'self'", "img-src").as_deref(),
             Some("'self'")
         );
         assert_eq!(super::cited_ids("SEC-API-001"), ["SEC-API-001"]);
