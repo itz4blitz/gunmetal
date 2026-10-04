@@ -107,6 +107,8 @@ problems! {
     VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
     WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
+    /// Passkey authenticator data, a COSE key or the CBOR that carries them could not be read (SEC-MED-001).
+    WebauthnDataUnreadable = ("webauthn_data_unreadable", None, "That passkey data could not be read."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -142,7 +144,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 19] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 20] = [
         (
             "aiff_unreadable",
             None,
@@ -237,6 +239,11 @@ mod tests {
             "wav_unreadable",
             None,
             "We couldn't read this WAV file. It may be damaged, or written in a way we don't support.",
+        ),
+        (
+            "webauthn_data_unreadable",
+            None,
+            "That passkey data could not be read.",
         ),
     ];
 

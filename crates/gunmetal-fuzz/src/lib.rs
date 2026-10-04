@@ -52,4 +52,8 @@ pub mod token;
 pub mod values;
 pub mod vorbis;
 pub mod vorbis_comment;
+pub mod webauthn_attestation;
+pub mod webauthn_authdata;
+pub mod webauthn_cbor;
+pub mod webauthn_cose;
 pub mod wire;

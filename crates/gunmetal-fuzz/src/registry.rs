@@ -84,5 +84,9 @@ harnesses! {
     values,
     vorbis,
     vorbis_comment,
+    webauthn_attestation,
+    webauthn_authdata,
+    webauthn_cbor,
+    webauthn_cose,
     wire,
 }
