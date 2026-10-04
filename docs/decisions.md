@@ -107,7 +107,7 @@ The owner delegated purely technical choices to the recommended defaults (D-02 a
 
 ### Technical answer on how the full gate scales, 2026-10-03
 
-D-01 asked how the gate keeps up as the workspace grows, and the owner delegated purely technical choices. Wave 0's 1,084 mutants took 45 minutes in one CI job with a 60-minute limit. Wave 1 has 5,104 before its last packages merge, about 3.5 hours in one job, so its pull request into `main` could never pass.
+D-01 asked how the gate keeps up as the workspace grows, and the owner delegated purely technical choices. Wave 0's 1,084 mutants took 45 minutes in one CI job with a 60-minute limit. Wave 1 has 6,008 before its last packages merge, about 4.2 hours in one job, so its pull request into `main` could never pass.
 
 - **What changed.** CI's full gate runs as one `checks` job with every step except mutation testing (`GATE_SKIP_MUTANTS=1`) and ten `mutants` jobs, one per shard (`GATE_MUTANTS_SHARD=k/10`). `scripts/gate.sh` is still the one script that local runs and CI share, and with no switch set it still runs everything. A pull request into a wave branch stays one diff-scoped job.
 - **No mutant is skipped.** Mutant i of the workspace's list belongs to shard i mod 10, so the ten shards test every mutant exactly once. A missed or timed-out mutant fails its shard, and a failed shard does not cancel the others. The script refuses an unreadable switch and any two of its three mutation switches together.

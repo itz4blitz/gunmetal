@@ -1912,6 +1912,20 @@ fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
     ] {
         assert!(has_line(GATE, line), "{line}");
     }
+    // What runs: every other step unless this is a shard, and mutation
+    // testing unless it is skipped. Nothing follows that could undo it.
+    assert!(GATE.ends_with(
+        r#"
+if [[ -z "$mutants_shard" ]]; then
+  checks
+fi
+if [[ "$skip_mutants" == 1 ]]; then
+  echo "==> mutation testing skipped (GATE_SKIP_MUTANTS=1)"
+else
+  mutants
+fi
+"#
+    ));
 
     assert_eq!(
         workflow_jobs(CI),

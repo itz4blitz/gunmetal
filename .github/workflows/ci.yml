@@ -75,8 +75,8 @@ jobs:
     if: ${{ !(github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-')) }}
     runs-on: ubuntu-latest
     # Wave 0's 1,084 mutants took 45 minutes in one hosted job, about 2.5
-    # seconds each. Wave 1 has 5,104 when this is written, about 3.5 hours
-    # in one job and so about 21 minutes for each of ten shards, plus a few
+    # seconds each. Wave 1 has 6,008 when this is written, about 4.2 hours
+    # in one job and so about 25 minutes for each of ten shards, plus a few
     # minutes to install tools and build and test the unmutated tree. 75
     # minutes leaves room for the workspace to triple before a shard times
     # out. A timed-out shard fails `gate`; raise the shard count here and
