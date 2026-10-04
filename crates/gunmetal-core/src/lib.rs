@@ -26,6 +26,7 @@ pub mod otp;
 pub mod parse;
 pub mod path;
 pub mod player;
+pub mod probe;
 pub mod problem;
 pub mod queue;
 pub mod ratelimit;
