@@ -49,8 +49,8 @@ type Row = (Action, On, Option<Capability>, &'static str);
 /// ceiling.
 const CEILINGS: [Row; 29] = [
     (A::SignOut, On::Server, None, "YYYYYYYYYY"),
-    (A::ReadOwnData, On::Mine, None, "YYYYYYYYYY"),
-    (A::WriteOwnData, On::Mine, None, "YYYYYYYYYY"),
+    (A::ReadOwnData, On::Mine, Some(C::OwnRead), "YYYYYYYYYY"),
+    (A::WriteOwnData, On::Mine, Some(C::OwnWrite), "YYYYYYYYYY"),
     (A::ManageOwnCredentials, On::Mine, None, "YYYYYYYYYY"),
     (
         A::BrowseLibrary,

@@ -16,6 +16,7 @@ pub mod gain;
 pub mod http;
 pub mod id;
 pub mod imagedata;
+pub mod inflate;
 pub mod link;
 pub mod logframe;
 pub mod lyrics;
