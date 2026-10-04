@@ -7,6 +7,9 @@
 //! record is a file under [`REVIEWS`] that holds a `YYYY-MM-DD` date and
 //! names the ID, in its file name or its text. Point releases are releases: an R1.1
 //! requirement with no evidence fails `trace R1.1` and not `trace R1`.
+//! A target that is not in [`RELEASES`] is refused rather than read as
+//! "every release", and a live requirement whose Release is not in it is a
+//! finding in every release rather than due in none.
 
 use std::collections::BTreeSet;
 
@@ -39,16 +42,34 @@ pub enum Finding {
         /// The incident requirement.
         id: String,
     },
+    /// A live requirement's Release names no release in [`RELEASES`], so
+    /// no release would know it was due.
+    UnknownRelease {
+        /// The requirement.
+        id: String,
+        /// Its Release column.
+        release: String,
+    },
 }
 
-/// Requirements due in `release` that lack the evidence SEC-STD-004 asks for.
-pub fn check(tree: &dyn Tree, release: &str) -> Vec<Finding> {
+/// Requirements due in `release` that lack the evidence SEC-STD-004 asks
+/// for, and live requirements whose release is unknown; `None` when
+/// `release` is not in [`RELEASES`].
+pub fn check(tree: &dyn Tree, release: &str) -> Option<Vec<Finding>> {
+    let target = release_index(release)?;
     let reqs = crate::docs_lint::requirements(tree);
     let verified = verified_ids(tree);
     let reviews = review_ids(tree);
     let mut findings = Vec::new();
     for req in reqs {
-        if !due(&req, release) {
+        if !due(&req, target) {
+            continue;
+        }
+        if release_index(&req.release).is_none() {
+            findings.push(Finding::UnknownRelease {
+                id: req.id,
+                release: req.release,
+            });
             continue;
         }
         if req.id.starts_with("SEC-HIS-") {
@@ -64,17 +85,19 @@ pub fn check(tree: &dyn Tree, release: &str) -> Vec<Finding> {
             });
         }
     }
-    findings
+    Some(findings)
 }
 
-/// A published mapping of due requirements to the evidence that covers them.
-pub fn report(tree: &dyn Tree, release: &str) -> String {
+/// A published mapping of due requirements to the evidence that covers
+/// them; `None` when `release` is not in [`RELEASES`].
+pub fn report(tree: &dyn Tree, release: &str) -> Option<String> {
+    let target = release_index(release)?;
     let reqs = crate::docs_lint::requirements(tree);
     let verified = verified_ids(tree);
     let reviews = review_ids(tree);
     let mut lines = vec![format!("# Traceability {release}\n")];
     for req in reqs {
-        if !due(&req, release) {
+        if !due(&req, target) {
             continue;
         }
         let evidence = if verified.contains(&req.id) {
@@ -86,20 +109,19 @@ pub fn report(tree: &dyn Tree, release: &str) -> String {
         };
         lines.push(format!("{} {} {evidence}\n", req.id, req.release));
     }
-    lines.concat()
+    Some(lines.concat())
 }
 
-/// Whether `req` is live and its release is at or before `target`.
-fn due(req: &Requirement, target: &str) -> bool {
-    req.is_live() && release_index(&req.release) <= release_index(target)
+/// Whether `req` is live and its release is at or before the release at
+/// `target` in [`RELEASES`]. A requirement whose release is unknown is due
+/// in every release, so that it cannot slip past all of them.
+fn due(req: &Requirement, target: usize) -> bool {
+    req.is_live() && release_index(&req.release).is_none_or(|at| at <= target)
 }
 
-/// Position of `release` in [`RELEASES`], or past the end when unknown.
-fn release_index(release: &str) -> usize {
-    RELEASES
-        .iter()
-        .position(|name| *name == release)
-        .unwrap_or(RELEASES.len())
+/// Position of `release` in [`RELEASES`].
+fn release_index(release: &str) -> Option<usize> {
+    RELEASES.iter().position(|name| *name == release)
 }
 
 /// Requirement IDs named on `Verifies:` lines in the repository's sources.
@@ -159,9 +181,20 @@ fn has_date(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Finding, check, report};
+    use super::Finding;
+    use crate::tree::Tree;
     use crate::tree::memory::Memory;
     use crate::{Failure, dispatch};
+
+    /// [`super::check`] for a release it knows.
+    fn check(tree: &dyn Tree, release: &str) -> Vec<Finding> {
+        super::check(tree, release).expect("a known release")
+    }
+
+    /// [`super::report`] for a release it knows.
+    fn report(tree: &dyn Tree, release: &str) -> String {
+        super::report(tree, release).expect("a known release")
+    }
 
     /// One requirement table used by every fixture.
     const ROWS: &str = "\
@@ -388,11 +421,45 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_release_is_after_every_known_one() {
+    fn an_unknown_target_release_is_refused() {
         let tested = tree(&[("src/lib.rs", "/// Verifies: SEC-HIS-001\n")]);
+        for target in ["R9", "r1", "v1.0.0", "Withdrawn", ""] {
+            assert_eq!(super::check(&tested, target), None);
+            assert_eq!(super::report(&tested, target), None);
+        }
         assert_eq!(
-            report(&tested, "R9"),
-            "# Traceability R9\nSEC-AA-001 R1 missing\nSEC-AA-002 R1.1 missing\nSEC-HIS-001 R1 test\n"
+            report(&tested, "Later"),
+            "# Traceability Later\nSEC-AA-001 R1 missing\nSEC-AA-002 R1.1 missing\nSEC-HIS-001 R1 test\n"
+        );
+    }
+
+    /// Verifies: SEC-STD-004
+    #[test]
+    fn a_requirement_with_an_unknown_release_is_a_finding_in_every_release() {
+        let tested = |path: &str| {
+            Memory::default()
+                .with(
+                    "docs/security/rules.md",
+                    &ROWS.replace("| R1.1 | test |", "| R1.l | test |"),
+                )
+                .with(path, "/// Verifies: SEC-AA-001, SEC-AA-002, SEC-HIS-001\n")
+        };
+        for target in ["R1", "Later"] {
+            assert_eq!(
+                check(&tested("src/lib.rs"), target),
+                [Finding::UnknownRelease {
+                    id: "SEC-AA-002".to_owned(),
+                    release: "R1.l".to_owned(),
+                }]
+            );
+        }
+        assert_eq!(
+            report(&tested("src/lib.rs"), "R1"),
+            "# Traceability R1\nSEC-AA-001 R1 test\nSEC-AA-002 R1.l test\nSEC-HIS-001 R1 test\n"
+        );
+        assert_eq!(
+            report(&tested("README.md"), "R1"),
+            "# Traceability R1\nSEC-AA-001 R1 missing\nSEC-AA-002 R1.l missing\nSEC-HIS-001 R1 missing\n"
         );
     }
 

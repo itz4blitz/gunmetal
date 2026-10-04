@@ -1058,8 +1058,12 @@ fn passwords_live(reqs: &[Requirement], features: &[Feature]) -> Vec<Finding> {
     findings
 }
 
-/// Whether the last-reviewed line names `tag` as a release tag.
+/// Whether the last-reviewed line names `tag` as a release tag. An empty
+/// tag, as from an unset variable, names nothing.
 fn names_tag(line: &str, tag: &str) -> bool {
+    if tag.is_empty() {
+        return false;
+    }
     if !tag.contains('.') {
         return line.contains(&format!("for {tag}")) && token_eq(line, tag);
     }
@@ -1581,13 +1585,13 @@ Crosses TB1; threat TM-T01.
                 "| R1.2 |",
                 &format!("| {release} |"),
             );
-            assert_eq!(check(&requirement), [], "{release}");
+            assert_eq!(check(&requirement), []);
             let feature = edited(
                 "docs/features/accounts.md",
                 "| High | R1 |",
                 &format!("| High | {release} |"),
             );
-            assert_eq!(check(&feature), [], "{release}");
+            assert_eq!(check(&feature), []);
         }
     }
 
@@ -1715,7 +1719,7 @@ Crosses TB1; threat TM-T01.
                 "SEC-API-001 cites it |\n| Content",
                 &format!("SEC-API-001 {ending} |\n| Content"),
             );
-            assert_eq!(check(&citing), [], "{ending}");
+            assert_eq!(check(&citing), []);
         }
         let merged = edited(
             "docs/security/threat-model.md",
@@ -1787,7 +1791,7 @@ Crosses TB1; threat TM-T01.
                 "OIDC sign-in must use PKCE.",
                 text,
             );
-            assert_eq!(check(&tree), [], "{text}");
+            assert_eq!(check(&tree), []);
         }
         // A withdrawn row may say anything.
         let withdrawn = edited(
@@ -2108,6 +2112,15 @@ Crosses TB1; threat TM-T01.
             "for v0.3.0.",
         );
         assert_eq!(reviewed(&last, "v0.3.0"), []);
+        for tag in ["", " "] {
+            assert_eq!(
+                reviewed(&last, tag),
+                [Finding::NotReviewed {
+                    tag: tag.to_owned(),
+                    line: Some("Last reviewed: 2026-10-02 for v0.3.0.".to_owned()),
+                }]
+            );
+        }
         let missing = edited(
             "docs/security/threat-model.md",
             "Last reviewed:",

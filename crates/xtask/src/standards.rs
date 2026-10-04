@@ -447,7 +447,12 @@ fn is_asvs_edition(token: &str) -> bool {
 
 /// Dotted `x.y.z` IDs until the next standard keyword or semicolon.
 fn dotted_ids(after: &str) -> Vec<String> {
-    let stop = after.find(';').unwrap_or(after.len());
+    let stop = after
+        .find(';')
+        .into_iter()
+        .chain(find_word(after, "ASVS"))
+        .min()
+        .unwrap_or(after.len());
     let span = after.get(..stop).unwrap_or(after);
     let mut ids = Vec::new();
     for token in span.split([',', ' ', '(', ')', '`']) {
@@ -1285,6 +1290,18 @@ Each is argued elsewhere.
                 .filter_map(|c| c.superseded.as_deref())
                 .collect::<Vec<_>>(),
             ["ASVS 4.0"]
+        );
+        assert_eq!(
+            super::asvs_citations("ASVS 1.1.1, ASVS 9.9.9, 2.2.2; ASVS 3.3.3")
+                .iter()
+                .map(|c| (c.id.as_str(), c.superseded.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("1.1.1", None),
+                ("9.9.9", None),
+                ("2.2.2", None),
+                ("3.3.3", None),
+            ]
         );
         assert_eq!(
             super::masvs_citations("MASVS-AUTH-1.2; MASVS-; MASVS v1")

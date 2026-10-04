@@ -52,6 +52,9 @@
 //!   final edition than the pinned copies (SEC-STD-003).
 //! - `trace <release>`: every requirement due in that release has a
 //!   `Verifies:` line or a dated review record (SEC-STD-004, SEC-HIS-066).
+//!   A release that is not in the requirement tables' list is a usage error.
+//! - `trace-report <release>`: the requirements due in that release and the
+//!   evidence for each, `test`, `review` or `missing`, for publishing.
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
@@ -164,8 +167,10 @@ fn dispatch(
         ["site"] => report(site::check(&tree, now)),
         ["standards-coverage"] => report(standards::coverage(&tree, now)),
         ["standards-watch", feeds] => report(standards::watch(&tree, feeds)),
-        ["trace", release] => report(trace::check(&tree, release)),
-        ["trace-report", release] => write(out, &trace::report(&tree, release)),
+        ["trace", release] => trace::check(&tree, release).map_or(Err(Failure::Usage), report),
+        ["trace-report", release] => {
+            write(out, &trace::report(&tree, release).ok_or(Failure::Usage)?)
+        }
         _ => Err(Failure::Usage),
     }
 }
@@ -278,7 +283,10 @@ mod tests {
             &["standards-coverage", "extra"],
             &["standards-watch"],
             &["trace"],
+            &["trace", "R9"],
+            &["trace", ""],
             &["trace-report"],
+            &["trace-report", "v1.0.0"],
             &["native-code"],
             &["native-code", "metadata", "extra"],
             &["repo", "settings"],
