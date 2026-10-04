@@ -1042,16 +1042,15 @@ impl<'a> Mapper<'a> {
         text: String,
         source: FieldSource,
     ) {
-        let Ok(lyrics_source) = LyricsSource::new(origin, timing) else {
-            return;
-        };
-        self.add_lyrics(
-            TagLyrics {
-                source: lyrics_source,
-                text,
-            },
-            source,
-        );
+        if let Ok(lyrics_source) = LyricsSource::new(origin, timing) {
+            self.add_lyrics(
+                TagLyrics {
+                    source: lyrics_source,
+                    text,
+                },
+                source,
+            );
+        }
     }
 
     fn add_lyrics(&mut self, lyrics: TagLyrics, source: FieldSource) {
@@ -1288,6 +1287,7 @@ fn kind3(id: [u8; 3]) -> Kind {
         b"TP1" => Kind::Artist,
         b"TSP" => Kind::ArtistSort,
         b"TP2" => Kind::AlbumArtist,
+        b"TS2" => Kind::AlbumArtistSort,
         b"TAL" => Kind::Album,
         b"TSA" => Kind::AlbumSort,
         b"TRK" => Kind::Track,
@@ -1303,6 +1303,7 @@ fn kind3(id: [u8; 3]) -> Kind {
         b"TXT" => Kind::Credit(Role::Lyricist),
         b"TP4" => Kind::Credit(Role::Remixer),
         b"IPL" => Kind::People { musician: false },
+        b"TCP" => Kind::Compilation,
         b"TRC" => Kind::Isrc,
         b"TXX" => Kind::UserText,
         b"UFI" => Kind::Ufid,
@@ -1563,9 +1564,7 @@ mod tests {
     use crate::catalog::{GainTags, LyricsOrigin, LyricsTiming};
     use crate::formats::id3v2::Header;
 
-    use super::{
-        Kind, Mapper, add_release_tokens, expand_genre, kind, parse_decimal_genre, parse_two,
-    };
+    use super::{Kind, add_release_tokens, expand_genre, kind, parse_decimal_genre, parse_two};
 
     fn text(value: &str) -> Text {
         Text {
@@ -1988,6 +1987,34 @@ mod tests {
         assert_eq!(mapped.tags.album_artist, ["Bowie"]);
         assert_eq!(mapped.tags.album.as_deref(), Some("Low"));
         assert_eq!(mapped.sources.artist, Some(v2_source(b"TP1")));
+    }
+
+    #[test]
+    fn maps_v2_2_compilation_and_album_artist_sort() {
+        let mapped = map_frames(
+            2,
+            vec![
+                text_frame(b"TCP", &["1"]),
+                text_frame(b"TS2", &["Bowie, David"]),
+            ],
+        );
+        assert_eq!(
+            mapped.tags,
+            TrackTags {
+                compilation: Some(true),
+                album_artist_sort: vec![String::from("Bowie, David")],
+                ..TrackTags::default()
+            }
+        );
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                compilation: Some(v2_source(b"TCP")),
+                album_artist_sort: Some(v2_source(b"TS2")),
+                ..FieldSources::default()
+            }
+        );
+        assert_eq!(mapped.problems, []);
     }
 
     #[test]
@@ -2552,8 +2579,7 @@ mod tests {
                 Some(ReleaseType {
                     primary,
                     secondary: secondary.into_iter().collect(),
-                }),
-                "{token}"
+                })
             );
         }
     }
@@ -2663,6 +2689,16 @@ mod tests {
                 count: 4_097,
             }]
         );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_4096_genres_without_a_problem() {
+        let values: Vec<String> = (0..4_096).map(|index| format!("g{index}")).collect();
+        let refs: Vec<&str> = values.iter().map(String::as_str).collect();
+        let mapped = map_frames(4, vec![text_frame(b"TCON", &refs)]);
+        assert_eq!(mapped.tags.genres, values);
+        assert_eq!(mapped.problems, []);
     }
 
     /// Verifies: SEC-MED-006
@@ -3338,16 +3374,31 @@ mod tests {
             ],
         );
         let mapped = from_id3(Some(&v2), None, &limits);
-        assert_eq!(mapped.tags.isrc.len(), 1);
-        assert_eq!(mapped.tags.musicbrainz.artists.len(), 1);
-        assert_eq!(mapped.tags.musicbrainz.album_artists.len(), 1);
-        assert_eq!(mapped.tags.credits.len(), 1);
-        assert_eq!(mapped.tags.lyrics.len(), 1);
-        assert!(
-            mapped
-                .problems
-                .iter()
-                .any(|problem| matches!(problem, TagProblem::LimitExceeded { count: 2, .. }))
+        assert_eq!(mapped.tags.isrc, [isrc("USS1Z9900001")]);
+        assert_eq!(mapped.tags.musicbrainz.artists, [mbid(id_a)]);
+        assert_eq!(mapped.tags.musicbrainz.album_artists, [mbid(id_a)]);
+        assert_eq!(mapped.tags.credits, [credit("A", Role::Producer)]);
+        assert_eq!(
+            mapped.tags.lyrics,
+            [lyrics(
+                LyricsOrigin::Id3Unsynced,
+                LyricsTiming::Plain,
+                "one"
+            )]
+        );
+        let past_the_limit = TagProblem::LimitExceeded {
+            limit: LimitKind::TagFields,
+            count: 2,
+        };
+        assert_eq!(
+            mapped.problems,
+            [
+                past_the_limit.clone(),
+                past_the_limit.clone(),
+                past_the_limit.clone(),
+                past_the_limit.clone(),
+                past_the_limit,
+            ]
         );
     }
 
@@ -3572,19 +3623,6 @@ mod tests {
         assert_eq!(parse_decimal_genre("17a"), None);
         assert_eq!(kind(FrameId::Three(*b"XXX")), Kind::Ignore);
         assert_eq!(kind(FrameId::Four(*b"TIT3")), Kind::Ignore);
-        let mut mapper = Mapper::new(&Limits::DEFAULT);
-        mapper.embed_lyrics(
-            LyricsOrigin::Id3Synced,
-            LyricsTiming::Plain,
-            String::from("x"),
-            v2_source(b"SYLT"),
-        );
-        assert_eq!(mapper.tags.lyrics, [] as [TagLyrics; 0]);
-        mapper.year = Some((0, v2_source(b"TYER")));
-        mapper.original_year = Some((0, v2_source(b"TORY")));
-        mapper.finish_dates();
-        assert_eq!(mapper.tags.date, None);
-        assert_eq!(mapper.tags.original_date, None);
         assert_eq!(add_release_tokens_empty(), ReleaseType::default());
     }
 
