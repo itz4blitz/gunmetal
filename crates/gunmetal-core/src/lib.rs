@@ -36,3 +36,4 @@ pub mod token;
 pub mod untrusted;
 pub mod userdata;
 pub mod values;
+pub mod wire;

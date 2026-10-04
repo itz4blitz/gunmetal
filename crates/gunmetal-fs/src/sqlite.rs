@@ -138,19 +138,58 @@ pub enum Synchronous {
 /// assert_ne!(reader, Pragmas::new(Synchronous::Normal));
 /// ```
 ///
-/// A pragma set that leaves out `secure_delete` cannot be built.
-/// Verifies: SEC-PRV-050
+/// A store cannot build a pragma set any other way. The fields are
+/// private, so a struct literal does not compile, and the only values are
+/// the ones [`Pragmas::new`] and the two methods above return. This shows
+/// only that the literal is refused:
 ///
-/// ```compile_fail,E0599
+/// ```compile_fail
 /// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
 ///
-/// let reader = Pragmas::new(Synchronous::Normal).secure_delete(false);
-/// assert_ne!(reader, Pragmas::new(Synchronous::Normal));
+/// let literal = Pragmas {
+///     synchronous: Synchronous::Normal,
+///     busy_timeout_ms: 0,
+///     query_only: false,
+/// };
+/// assert_eq!(literal, Pragmas::new(Synchronous::Normal));
 /// ```
+///
+/// No method sets `secure_delete`, and this example fails if one is ever
+/// added. Rust probes a method call's receivers in order and tries
+/// `&mut self` last, so an inherent `secure_delete` of any receiver —
+/// `self`, `&self` or `&mut self` — is found before this trait method.
+/// Adding one would stop the call below reaching the trait: it would no
+/// longer compile, or would return something other than this text.
+///
+/// ```
+/// use gunmetal_fs::sqlite::{Pragmas, Synchronous};
+///
+/// trait Absent {
+///     fn secure_delete(&mut self, _on: bool) -> &'static str {
+///         "Pragmas has no secure_delete method"
+///     }
+/// }
+/// impl Absent for Pragmas {}
+///
+/// let mut pragmas = Pragmas::new(Synchronous::Normal);
+/// let reached: &'static str = pragmas.secure_delete(false);
+/// assert_eq!(reached, "Pragmas has no secure_delete method");
+/// ```
+///
+/// That `secure_delete` is on for every set a store can build is checked
+/// at run time. The opener executes the common pragmas, `secure_delete=ON`
+/// among them, on every connection, and a pragma set carries no state that
+/// reaches them: its three fields choose only `synchronous`,
+/// `busy_timeout` and `query_only`.
+/// `no_pragma_set_a_store_can_build_switches_secure_delete_off`
+/// (`tests/sqlite.rs`) opens a connection with every kind of set and reads
+/// `secure_delete` back from each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pragmas {
     synchronous: Synchronous,
-    busy_timeout_ms: u32,
+    /// A `u16`, so every value fits the `i32` of milliseconds SQLite takes
+    /// and the driver's conversion, which panics above `i32::MAX`, cannot.
+    busy_timeout_ms: u16,
     query_only: bool,
 }
 
@@ -167,9 +206,11 @@ impl Pragmas {
     }
 
     /// Waits up to `ms` milliseconds for a lock instead of failing at once,
-    /// which only readers should do.
+    /// which only readers should do. The longest wait is 65,535 ms: the
+    /// type keeps every pragma set inside what the driver accepts, so
+    /// [`open_db`] cannot panic on one.
     #[must_use]
-    pub const fn busy_timeout(self, ms: u32) -> Self {
+    pub const fn busy_timeout(self, ms: u16) -> Self {
         Self {
             busy_timeout_ms: ms,
             ..self
@@ -301,6 +342,10 @@ pub enum DbError {
     },
     /// A database the server did not create failed `PRAGMA quick_check`.
     QuickCheck,
+    /// The path SQLite opened does not name the file the data-root handle
+    /// holds, or the two are in different directories: the data
+    /// directory's path was moved or replaced after it was opened.
+    OutsideRoot,
 }
 
 /// An open database connection.
@@ -396,11 +441,24 @@ impl ToSql for Bind<'_> {
 }
 
 /// The one call that gives SQLite a path: the data root's resolved
-/// directory joined with `db`'s constant name.
+/// directory joined with `db`'s constant name. SQLite opens that path
+/// itself, outside the data-root handle, so the file and its directory are
+/// then compared, by device and inode, with what the handle holds; a
+/// connection to anything else is closed and refused.
+///
+/// Two limits remain. The check and SQLite's open are separate steps, so a
+/// path swapped for the open and swapped back before the check is not
+/// caught. SQLite also opens `-wal` and `-shm` by path at the first
+/// statement, which is after the check, so a data directory swapped after
+/// this function returns still gets those files created outside the handle.
 fn connect(root: &DataRoot, db: &DbFile, flags: OpenFlags) -> Result<Db, DbError> {
     Connection::open_with_flags(root.sqlite_path(db.path()), flags)
-        .map(|conn| Db { conn })
         .map_err(driver_error)
+        .and_then(|conn| {
+            root.holds_sqlite_path(db.path())
+                .then_some(Db { conn })
+                .ok_or(DbError::OutsideRoot)
+        })
 }
 
 /// Opens the database `db` beneath `root` with `pragmas`, creating it with

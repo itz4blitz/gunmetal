@@ -84,4 +84,5 @@ harnesses! {
     values,
     vorbis,
     vorbis_comment,
+    wire,
 }

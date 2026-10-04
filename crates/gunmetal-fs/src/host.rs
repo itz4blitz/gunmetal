@@ -7,9 +7,12 @@
 )]
 
 use std::io;
+use std::os::fd::AsFd;
 use std::path::Path;
 
-use crate::dataroot::{DataRootError, Item, Op, io_error};
+use rustix::fs::StatFs;
+
+use crate::dataroot::{DataRootError, Item, NetworkFilesystems, Op, io_error};
 
 /// What the data-root checks need to know about the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +24,7 @@ pub struct HostFacts {
     pub filesystem: Filesystem,
 }
 
-/// The kind of filesystem holding the data directory.
+/// The kind of filesystem holding the data directory or a library folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filesystem {
     /// A filesystem on a disk of this machine.
@@ -63,6 +66,77 @@ impl Filesystem {
     }
 }
 
+/// What a folder holds, which decides the filesystems it may be on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holds {
+    /// The data directory, which the server writes and where SQLite keeps
+    /// its databases. A network or user-space filesystem is refused unless
+    /// the owner set the documented override (ADM-079).
+    Data(NetworkFilesystems),
+    /// A library folder, which the server only ever reads. Every
+    /// filesystem is accepted, FUSE included, because Unraid's `/mnt/user`
+    /// is FUSE (the owner's answer of 2026-10-03). The folder still gets the
+    /// same path and symlink checks as any other, and its filesystem type
+    /// is shown on the library's health page ([`Filesystem::name`]).
+    Library,
+}
+
+impl Filesystem {
+    /// The filesystem's name as the library's health page and `doctor`
+    /// show it: `local`, `nfs`, `smb`, `9p` or `fuse`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Network(NetworkFs::Nfs) => "nfs",
+            Self::Network(NetworkFs::Smb) => "smb",
+            Self::Network(NetworkFs::NineP) => "9p",
+            Self::Network(NetworkFs::Fuse) => "fuse",
+        }
+    }
+
+    /// Reads the type of the filesystem holding `handle`, an open file or
+    /// directory, such as a library folder's root handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating system's error when the handle cannot be
+    /// examined.
+    pub fn of(handle: impl AsFd) -> io::Result<Self> {
+        rustix::fs::fstatfs(handle)
+            .map(|stat| Self::of_statfs(&stat))
+            .map_err(io::Error::from)
+    }
+
+    /// Classifies what `statfs` or `fstatfs` reported.
+    fn of_statfs(stat: &StatFs) -> Self {
+        // `f_type`'s integer type depends on the target; widen it.
+        #[cfg_attr(
+            target_pointer_width = "64",
+            expect(
+                clippy::useless_conversion,
+                reason = "f_type is already an i64 on the 64-bit Linux targets R1 builds for"
+            )
+        )]
+        let magic = i64::from(stat.f_type);
+        Self::from_magic(magic)
+    }
+
+    /// Decides whether a folder holding `holds` may be on this filesystem,
+    /// or names the filesystem that refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kind of network or user-space filesystem when it is
+    /// refused.
+    pub const fn admits(self, holds: Holds) -> Result<(), NetworkFs> {
+        match (self, holds) {
+            (Self::Network(kind), Holds::Data(NetworkFilesystems::Refuse)) => Err(kind),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl HostFacts {
     /// Reads the effective user ID of this process and the filesystem type
     /// of `data_dir`.
@@ -73,20 +147,9 @@ impl HostFacts {
     /// when `data_dir` cannot be examined.
     pub fn probe(data_dir: &Path) -> Result<Self, DataRootError> {
         rustix::fs::statfs(data_dir)
-            .map(|stat| {
-                // `f_type`'s integer type depends on the target; widen it.
-                #[cfg_attr(
-                    target_pointer_width = "64",
-                    expect(
-                        clippy::useless_conversion,
-                        reason = "f_type is already an i64 on the 64-bit Linux targets R1 builds for"
-                    )
-                )]
-                let magic = i64::from(stat.f_type);
-                Self {
-                    uid: rustix::process::geteuid().as_raw(),
-                    filesystem: Filesystem::from_magic(magic),
-                }
+            .map(|stat| Self {
+                uid: rustix::process::geteuid().as_raw(),
+                filesystem: Filesystem::of_statfs(&stat),
             })
             .map_err(io::Error::from)
             .map_err(io_error(Item::Root, Op::Probe))
@@ -112,6 +175,68 @@ mod tests {
         for (magic, expected) in cases {
             assert_eq!(Filesystem::from_magic(magic), expected, "magic {magic:#x}");
         }
+    }
+
+    #[test]
+    fn admits_a_data_directory_on_a_local_filesystem_or_an_allowed_network_one() {
+        for (filesystem, network) in [
+            (Filesystem::Local, NetworkFilesystems::Refuse),
+            (Filesystem::Local, NetworkFilesystems::Allow),
+            (
+                Filesystem::Network(NetworkFs::Smb),
+                NetworkFilesystems::Allow,
+            ),
+            (
+                Filesystem::Network(NetworkFs::Fuse),
+                NetworkFilesystems::Allow,
+            ),
+        ] {
+            assert_eq!(filesystem.admits(Holds::Data(network)), Ok(()));
+        }
+    }
+
+    #[test]
+    fn refuses_a_data_directory_on_a_network_or_user_space_filesystem_by_default() {
+        for kind in [
+            NetworkFs::Nfs,
+            NetworkFs::Smb,
+            NetworkFs::NineP,
+            NetworkFs::Fuse,
+        ] {
+            assert_eq!(
+                Filesystem::Network(kind).admits(Holds::Data(NetworkFilesystems::Refuse)),
+                Err(kind)
+            );
+        }
+    }
+
+    /// The owner's answer of 2026-10-03: a library folder on FUSE, such as
+    /// Unraid's `/mnt/user`, is accepted, and so is one on any other
+    /// filesystem, because the server only reads it.
+    #[test]
+    fn admits_a_library_folder_on_every_filesystem_fuse_included() {
+        for filesystem in [
+            Filesystem::Local,
+            Filesystem::Network(NetworkFs::Fuse),
+            Filesystem::Network(NetworkFs::Nfs),
+            Filesystem::Network(NetworkFs::Smb),
+            Filesystem::Network(NetworkFs::NineP),
+        ] {
+            assert_eq!(filesystem.admits(Holds::Library), Ok(()));
+        }
+    }
+
+    #[test]
+    fn names_each_filesystem_for_the_health_page() {
+        let names = [
+            Filesystem::Local,
+            Filesystem::Network(NetworkFs::Nfs),
+            Filesystem::Network(NetworkFs::Smb),
+            Filesystem::Network(NetworkFs::NineP),
+            Filesystem::Network(NetworkFs::Fuse),
+        ]
+        .map(Filesystem::name);
+        assert_eq!(names, ["local", "nfs", "smb", "9p", "fuse"]);
     }
 
     #[test]
