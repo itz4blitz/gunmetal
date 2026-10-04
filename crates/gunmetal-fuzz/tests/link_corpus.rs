@@ -22,7 +22,7 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 8] = [
+const SEEDS: [&str; 9] = [
     "credentials-before-the-host",
     "empty",
     "https-with-a-port",
@@ -31,6 +31,7 @@ const SEEDS: [&str; 8] = [
     "known-route",
     "scheme-relative-target",
     "scheme-split-by-a-tab",
+    "tail-with-a-quote-and-a-backslash",
 ];
 
 /// Reads seed `name`, checks that it holds exactly `bytes`, and checks that
@@ -165,5 +166,22 @@ fn replays_a_scheme_relative_target() {
         "scheme-relative-target",
         b"//evil.example/library",
         &refused(LinkError::NotAbsolute),
+    );
+}
+
+/// A backslash in the path is the slash a browser reads it as; a space, a
+/// quote, a backslash in the query and a letter outside ASCII are written
+/// as percent escapes, so the link cannot end an attribute it is placed in.
+///
+/// Verifies: SEC-MED-028, SEC-API-047
+#[test]
+fn replays_a_tail_with_a_quote_and_a_backslash() {
+    replay(
+        "tail-with-a-quote-and-a-backslash",
+        b"https://example.com/a\\b \"c\"?d\\e#caf\xC3\xA9",
+        &opens(
+            "https://example.com/a/b%20%22c%22?d%5Ce#caf%C3%A9",
+            "example.com",
+        ),
     );
 }

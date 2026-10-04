@@ -27,7 +27,10 @@ pub struct Outcome {
 /// accepted link must open `https://`, then exactly the host it shows, then
 /// at most `:` and a port other than 443 written without leading zeros,
 /// then `/`; its host must be printable ASCII without a character that ends
-/// a host or escapes one; and it must read back unchanged. A return target
+/// a host or escapes one; what follows the host must hold only ASCII
+/// letters, digits and ``-._~!$&()*+,;=:@/?#%``, so that it cannot end an
+/// attribute or a quoted string; and it must read back unchanged. A return
+/// target
 /// must be the value itself or the home route, and must start with exactly
 /// one `/` that no `/` or `\` follows.
 #[must_use]
@@ -55,7 +58,13 @@ pub fn run(data: &[u8]) -> Outcome {
                         }
                         None => Some(after_host),
                     })
-                    .is_some_and(|path| path.starts_with('/'))
+                    .is_some_and(|path| {
+                        path.starts_with('/')
+                            && path.bytes().all(|octet| {
+                                octet.is_ascii_alphanumeric()
+                                    || b"-._~!$&()*+,;=:@/?#%".contains(&octet)
+                            })
+                    })
                 && Link::parse(Untrusted::new(href)).as_ref() == Ok(accepted),
             "{raw:?} gave {accepted:?}"
         );
