@@ -283,20 +283,31 @@ mod tests {
 
     /// Words that name what a client must never be told about: the
     /// language, the database, a query, a stack trace or a panic. Each is
-    /// matched as a whole word, in any case.
-    const FORBIDDEN_WORDS: [&str; 12] = [
+    /// matched as a whole word, in any case, so each inflected form is
+    /// listed too ("selected" is left out: a client may select a folder).
+    const FORBIDDEN_WORDS: [&str; 22] = [
         "backtrace",
         "panic",
         "panicked",
+        "panicking",
+        "panics",
         "rust",
+        "rustc",
         "select",
+        "selects",
         "sql",
         "sqlite",
+        "sqlstate",
         "stack",
+        "stacks",
         "stacktrace",
         "trace",
         "traceback",
+        "traces",
         "unwrap",
+        "unwrapped",
+        "unwrapping",
+        "unwraps",
     ];
 
     /// The forbidden words `text` holds, in the order it holds them. A
@@ -332,6 +343,23 @@ mod tests {
                 "traceback",
                 "unwrap",
                 "sql"
+            ]
+        );
+        assert_eq!(
+            forbidden_words(
+                "It panics, panicking; traces, stacks and selects. Unwrapped, unwrapping, unwraps: rustc sqlstate."
+            ),
+            [
+                "panics",
+                "panicking",
+                "traces",
+                "stacks",
+                "selects",
+                "unwrapped",
+                "unwrapping",
+                "unwraps",
+                "rustc",
+                "sqlstate"
             ]
         );
     }
