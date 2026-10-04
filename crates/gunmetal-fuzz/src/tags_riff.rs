@@ -59,7 +59,8 @@ pub fn run(data: &[u8]) -> Outcome {
             .offset
             .checked_sub(BEFORE)
             .and_then(|start| usize::try_from(start).ok())
-            .and_then(|start| data.get(start..start.checked_add(8)?))
+            .and_then(|start| data.get(start..))
+            .and_then(|rest| rest.get(..8))
             .is_some_and(|header| header.starts_with(&chunk.id))
     };
     let chunks = mapped
@@ -67,20 +68,17 @@ pub fn run(data: &[u8]) -> Outcome {
         .iter()
         .map(|(_, chunk)| *chunk)
         .collect::<Vec<_>>();
-    let noted = mapped
-        .problems
-        .iter()
-        .map(|problem| match *problem {
-            TagProblem::Value { source, .. } => Some(source),
-            TagProblem::BudgetSpent { .. } => None,
-        })
-        .collect::<Option<Vec<_>>>();
+    let mut previous_problem_offset = BEFORE;
     assert!(
         chunks.iter().all(read_at)
             && chunks.iter().map(|chunk| chunk.offset).is_sorted()
-            && noted.as_ref().is_some_and(|noted| {
-                noted.iter().all(read_at) && noted.iter().map(|chunk| chunk.offset).is_sorted()
-            }),
+            && mapped.problems.iter().all(
+                |problem| matches!(problem, TagProblem::Value { source, .. } if {
+                    let in_order = source.offset >= previous_problem_offset;
+                    previous_problem_offset = source.offset;
+                    read_at(source) && in_order
+                })
+            ),
         "{mapped:?} from {data:?}"
     );
     let t = &mapped.tags;
