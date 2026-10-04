@@ -8,7 +8,8 @@
 //! The audio packager (MUS-230) copies only FLAC, MP3 and Opus frames
 //! into fragmented MP4; it is chosen when the device can decode the
 //! codec but cannot play the original container, or can decode it only
-//! through Media Source Extensions.
+//! through Media Source Extensions. The original file is chosen only when
+//! the report says a path exists for both its codec and its container.
 //!
 //! [`track_details`] builds the R1 details summary from the synced track
 //! record, this decision and WP-028's gain decision. It holds no file
@@ -23,9 +24,12 @@ pub enum PlayCap {
     /// The device cannot play it.
     #[default]
     None,
-    /// Only through Media Source Extensions.
+    /// Only through Media Source Extensions: they decode this codec, or
+    /// accept this container, and the native player does not.
     MseOnly,
-    /// The original file plays in the device's native decoder.
+    /// In the device's native player. A native codec also decodes through
+    /// Media Source Extensions; a native container says nothing about
+    /// which containers they accept.
     Native,
 }
 
@@ -189,6 +193,20 @@ pub const fn package_format_for(codec: Codec) -> Option<PackageFormat> {
 }
 
 /// The playback decision for `tech` on a device that reported `device`.
+///
+/// A track reaches its decoder by one of three paths, tried in this order:
+///
+/// 1. The native player, when both the codec and the container are
+///    [`PlayCap::Native`]: [`Decision::Direct`].
+/// 2. The packager, when it carries the codec and Media Source Extensions
+///    accept its format: [`Decision::Packaged`]. It is preferred over the
+///    next path because it keeps the trim (MUS-067).
+/// 3. The original file through Media Source Extensions, when they take
+///    the container ([`PlayCap::MseOnly`]): [`Decision::Direct`].
+///
+/// With no path left the track cannot play here. Whether the packager's
+/// format is accepted never changes the answer for a codec the packager
+/// does not carry.
 #[must_use]
 pub fn decide_audio(tech: &TechInfo, device: &DeviceCaps) -> Decision {
     let codec = tech.codec();
@@ -205,13 +223,18 @@ pub fn decide_audio(tech: &TechInfo, device: &DeviceCaps) -> Decision {
     if package_format_for(codec).is_some() && device.accepts_package(PackageFormat::FragmentedMp4) {
         return Decision::Packaged(PackageFormat::FragmentedMp4);
     }
-    if container_cap == PlayCap::None {
-        return Decision::CannotPlay(vec![Reason::UnsupportedContainer { codec, container }]);
+    match container_cap {
+        PlayCap::None => {
+            Decision::CannotPlay(vec![Reason::UnsupportedContainer { codec, container }])
+        }
+        // Media Source Extensions take the original container, and every
+        // codec that reaches this arm decodes there.
+        PlayCap::MseOnly => Decision::Direct,
+        // The codec decodes only through Media Source Extensions, which
+        // were not reported to take this container, and the packager
+        // cannot carry it there.
+        PlayCap::Native => Decision::CannotPlay(vec![Reason::CannotDecode { codec }]),
     }
-    if codec_cap == PlayCap::MseOnly && !device.accepts_package(PackageFormat::FragmentedMp4) {
-        return Decision::CannotPlay(vec![Reason::CannotDecode { codec }]);
-    }
-    Decision::Direct
 }
 
 /// The R1 track-details summary (MUS-236).
@@ -677,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn each_core_format_is_refused_when_only_mse_can_decode_it_and_the_packager_cannot_run() {
+    fn each_core_format_plays_the_original_through_mse_when_the_packager_cannot_run() {
         let got: Vec<(Codec, Decision)> = CORES
             .iter()
             .map(|(codec, container)| {
@@ -693,36 +716,13 @@ mod tests {
         assert_eq!(
             got,
             [
-                (
-                    Codec::Aac,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Aac }])
-                ),
-                (
-                    Codec::Alac,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Alac }])
-                ),
-                (
-                    Codec::Flac,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Flac }])
-                ),
-                (
-                    Codec::Mp3,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Mp3 }])
-                ),
-                (
-                    Codec::Opus,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Opus }])
-                ),
-                (
-                    Codec::Pcm,
-                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Pcm }])
-                ),
-                (
-                    Codec::Vorbis,
-                    Decision::CannotPlay(vec![Reason::CannotDecode {
-                        codec: Codec::Vorbis
-                    }])
-                ),
+                (Codec::Aac, Decision::Direct),
+                (Codec::Alac, Decision::Direct),
+                (Codec::Flac, Decision::Direct),
+                (Codec::Mp3, Decision::Direct),
+                (Codec::Opus, Decision::Direct),
+                (Codec::Pcm, Decision::Direct),
+                (Codec::Vorbis, Decision::Direct),
             ]
         );
     }
@@ -774,6 +774,89 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn mse_only_codec_in_a_native_only_container_packages_or_is_refused() {
+        let got: Vec<(Codec, Decision)> = CORES
+            .iter()
+            .map(|(codec, container)| {
+                let device = DeviceCaps::none()
+                    .with_codec(*codec, PlayCap::MseOnly)
+                    .with_container(*container, PlayCap::Native)
+                    .with_package(PackageFormat::FragmentedMp4, true);
+                (*codec, decide_audio(&tech(*codec, *container), &device))
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    Codec::Aac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Aac }])
+                ),
+                (
+                    Codec::Alac,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Alac }])
+                ),
+                (
+                    Codec::Flac,
+                    Decision::Packaged(PackageFormat::FragmentedMp4)
+                ),
+                (Codec::Mp3, Decision::Packaged(PackageFormat::FragmentedMp4)),
+                (
+                    Codec::Opus,
+                    Decision::Packaged(PackageFormat::FragmentedMp4)
+                ),
+                (
+                    Codec::Pcm,
+                    Decision::CannotPlay(vec![Reason::CannotDecode { codec: Codec::Pcm }])
+                ),
+                (
+                    Codec::Vorbis,
+                    Decision::CannotPlay(vec![Reason::CannotDecode {
+                        codec: Codec::Vorbis
+                    }])
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_codec_the_packager_does_not_carry_decides_the_same_with_and_without_the_package() {
+        let caps = [
+            (PlayCap::None, PlayCap::None),
+            (PlayCap::None, PlayCap::MseOnly),
+            (PlayCap::None, PlayCap::Native),
+            (PlayCap::MseOnly, PlayCap::None),
+            (PlayCap::MseOnly, PlayCap::MseOnly),
+            (PlayCap::MseOnly, PlayCap::Native),
+            (PlayCap::Native, PlayCap::None),
+            (PlayCap::Native, PlayCap::MseOnly),
+            (PlayCap::Native, PlayCap::Native),
+        ];
+        let decide_all = |accepted: bool| -> Vec<Decision> {
+            [
+                (Codec::Aac, Container::Mp4),
+                (Codec::Alac, Container::Mp4),
+                (Codec::Pcm, Container::Wav),
+                (Codec::Vorbis, Container::Ogg),
+            ]
+            .iter()
+            .flat_map(|(codec, container)| {
+                caps.map(|(codec_cap, container_cap)| {
+                    let device = DeviceCaps::none()
+                        .with_codec(*codec, codec_cap)
+                        .with_container(*container, container_cap)
+                        .with_package(PackageFormat::FragmentedMp4, accepted);
+                    decide_audio(&tech(*codec, *container), &device)
+                })
+            })
+            .collect()
+        };
+        let with = decide_all(true);
+        assert_eq!(with.len(), 36);
+        assert_eq!(with, decide_all(false));
     }
 
     #[test]
@@ -1247,6 +1330,23 @@ mod tests {
 
     #[test]
     fn the_summary_field_list_is_this_literal_and_has_no_path() {
+        // Naming every field without `..` stops compiling when the struct
+        // gains one, so the literal list below cannot fall behind it.
+        let TrackDetails {
+            title: _,
+            credit: _,
+            artists: _,
+            album: _,
+            format: _,
+            decision: _,
+            badge: _,
+            gapless: _,
+            gain_source: _,
+        } = track_details(
+            &record("Fields", "Listed", flac_24_96(), None),
+            &Decision::Direct,
+            &gain(Source::Estimated),
+        );
         assert_eq!(
             TrackDetails::FIELDS,
             [
