@@ -28,7 +28,7 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
     let spent = u64::MAX.saturating_sub(budget.remaining());
     assert!(
         spent <= octets.saturating_add(1),
-        "{spent} steps for {octets} octets"
+        "more than one step per octet, plus one"
     );
     match &item {
         Ok(found) => {
@@ -36,13 +36,13 @@ pub fn run(data: &[u8]) -> Outcome<'_> {
             let tail = data.len().checked_sub(rest).and_then(|at| data.get(at..));
             assert!(
                 tail == Some(found.rest),
-                "decode returned a suffix that is not the tail of {octets} octets"
+                "decode returned a suffix that is not the tail of the input"
             );
         }
         Err(error) => {
             assert!(
                 error.offset() <= octets,
-                "{error:?} lies outside {octets} octets"
+                "the error offset lies outside the input"
             );
         }
     }

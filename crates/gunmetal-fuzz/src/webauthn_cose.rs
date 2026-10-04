@@ -26,12 +26,12 @@ pub fn run(data: &[u8]) -> Outcome {
     let spent = u64::MAX.saturating_sub(budget.remaining());
     assert!(
         spent <= octets.saturating_add(1),
-        "{spent} steps for {octets} octets"
+        "more than one step per octet, plus one"
     );
     if let Err(error) = &key {
         assert!(
             error.offset() <= octets,
-            "{error:?} lies outside {octets} octets"
+            "the error offset lies outside the input"
         );
     }
     Outcome { key }
