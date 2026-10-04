@@ -188,6 +188,9 @@ pub enum Reason {
     /// It was longer than this text limit and was cut to it. What was left
     /// was kept (SEC-MED-006).
     Truncated(LimitKind),
+    /// It means something only beside a value the tag did not give, such
+    /// as a `ReplayGain` peak without its gain, and it was dropped.
+    Unpaired,
 }
 
 impl From<ValueError> for Reason {
@@ -353,7 +356,11 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
         };
         match kept {
             Ok(true) => {
-                if !self.sources.contains(&(field, source)) {
+                // The values of one source are set one after another, and
+                // only a split track or disc number fills two fields from
+                // one value, both of which hold one value. So a source
+                // already named for this field is the last one named.
+                if self.sources.last() != Some(&(field, source)) {
                     self.sources.push((field, source));
                 }
             }
@@ -373,10 +380,24 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
             track: gain(self.track_gain, self.track_peak),
             album: gain(self.album_gain, self.album_peak),
         };
+        self.unless_paired(TagField::TrackPeak, self.track_gain.is_some());
+        self.unless_paired(TagField::AlbumPeak, self.album_gain.is_some());
         Mapped {
             tags: self.tags,
             sources: self.sources,
             problems: self.problems,
+        }
+    }
+
+    /// Unless `paired`, drops the source of the value `field` holds, which
+    /// means nothing alone, and records why.
+    fn unless_paired(&mut self, field: TagField, paired: bool) {
+        if paired {
+            return;
+        }
+        if let Some(at) = self.sources.iter().position(|(by, _)| *by == field) {
+            let (_, source) = self.sources.remove(at);
+            self.note(field, source, Reason::Unpaired);
         }
     }
 }
@@ -1585,36 +1606,75 @@ mod tests {
         );
     }
 
+    /// A peak with no gain to go with it is dropped, with the reason, and
+    /// is not named as a source.
     #[test]
-    fn keeps_a_gain_without_a_peak_and_no_peak_without_a_gain() {
+    fn keeps_a_gain_without_a_peak_and_drops_a_peak_without_a_gain() {
         assert_eq!(
             set(&[
                 (TagField::TrackGain, "-6.5 dB"),
                 (TagField::AlbumPeak, "1.0")
             ]),
-            mapped(
-                TrackTags {
+            Mapped {
+                tags: TrackTags {
                     gain: GainTags {
                         track: Some(replay_gain(-6.5, None)),
                         album: None,
                     },
                     ..TrackTags::default()
                 },
-                vec![(TagField::TrackGain, 0), (TagField::AlbumPeak, 1)],
-            )
+                sources: vec![(TagField::TrackGain, 0)],
+                problems: vec![problem(TagField::AlbumPeak, 1, Reason::Unpaired)],
+            }
         );
         assert_eq!(
             set(&[(TagField::AlbumGain, "2 dB"), (TagField::TrackPeak, "1.0")]),
-            mapped(
-                TrackTags {
+            Mapped {
+                tags: TrackTags {
                     gain: GainTags {
                         track: None,
                         album: Some(replay_gain(2.0, None)),
                     },
                     ..TrackTags::default()
                 },
-                vec![(TagField::AlbumGain, 0), (TagField::TrackPeak, 1)],
-            )
+                sources: vec![(TagField::AlbumGain, 0)],
+                problems: vec![problem(TagField::TrackPeak, 1, Reason::Unpaired)],
+            }
+        );
+    }
+
+    /// A peak whose gain was dropped is dropped too, after the gain.
+    #[test]
+    fn drops_a_peak_whose_gain_was_dropped() {
+        assert_eq!(
+            set(&[
+                (TagField::AlbumPeak, "0.5"),
+                (TagField::Title, "Kept"),
+                (TagField::TrackPeak, "0.25"),
+                (TagField::AlbumGain, "NaN"),
+                (TagField::TrackGain, "200 dB"),
+            ]),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Kept")),
+                    ..TrackTags::default()
+                },
+                sources: vec![(TagField::Title, 1)],
+                problems: vec![
+                    problem(
+                        TagField::AlbumGain,
+                        3,
+                        invalid(ValueError::Malformed { field: Field::Gain })
+                    ),
+                    problem(
+                        TagField::TrackGain,
+                        4,
+                        invalid(ValueError::Unusable { field: Field::Gain })
+                    ),
+                    problem(TagField::TrackPeak, 2, Reason::Unpaired),
+                    problem(TagField::AlbumPeak, 0, Reason::Unpaired),
+                ],
+            }
         );
     }
 
