@@ -79,6 +79,10 @@ problems! {
     BadForwardingHeader = ("bad_forwarding_header", Some(400), "A proxy in front of this server sent forwarding information we couldn't read."),
     /// An `ID3v1` or APE tag at the end of a file could not be read and was skipped; the rest of the file was kept (SEC-MED-017).
     EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
+    /// One optional part of a media file, such as a tag, a picture or its lyrics, could not be read and was skipped; the file's other facts were kept and it stays playable (SEC-MED-017).
+    FilePartSkipped = ("file_part_skipped", None, "We skipped a part of this file that we couldn't read. The rest of it was kept."),
+    /// A media file could not be probed: its format is not one we read, or the part of it that playback needs is damaged; the problem's argument gives the reason.
+    FileUnreadable = ("file_unreadable", None, "We couldn't read this file. It may be damaged, or in a format we don't support."),
     /// The caller is signed in but may not do this (SEC-IAM-068).
     Forbidden = ("forbidden", Some(403), "You don't have permission to do that."),
     /// A typed one-time code is missing, the wrong kind, mistyped or has a bad checksum.
@@ -144,7 +148,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 20] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 22] = [
         (
             "aiff_unreadable",
             None,
@@ -169,6 +173,16 @@ mod tests {
             "end_tag_skipped",
             None,
             "We couldn't read a tag at the end of this file, so we skipped it.",
+        ),
+        (
+            "file_part_skipped",
+            None,
+            "We skipped a part of this file that we couldn't read. The rest of it was kept.",
+        ),
+        (
+            "file_unreadable",
+            None,
+            "We couldn't read this file. It may be damaged, or in a format we don't support.",
         ),
         (
             "forbidden",
