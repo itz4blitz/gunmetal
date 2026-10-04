@@ -2,10 +2,13 @@
 //! test reads, and a security sink a test inspects.
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gunmetal_core::audit_event::{AuditUnavailable, SecurityEvent, SecuritySink};
 use gunmetal_core::time::{Clock, Timestamp};
+use gunmetal_fs::dataroot::{DataRootError, Item, Op};
+use gunmetal_fs::host::HostFacts;
 use gunmetal_testkit::clock::ManualClock;
 
 /// 2026-10-03T12:00:00.000Z, where the tests' clocks start.
@@ -42,14 +45,18 @@ impl Write for Capture {
 }
 
 /// Whether a refused start left the scratch directory without a `durable`
-/// layout directory. The start never opened a [`gunmetal_fs::dataroot::DataRoot`],
-/// so this is observed by path.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a refused start never opens a DataRoot, so emptiness of the scratch directory can only be observed by path"
-)]
+/// layout directory. The start never opened a
+/// [`gunmetal_fs::dataroot::DataRoot`], and opening one now would create the
+/// layout, so the host probe, which examines a directory and changes
+/// nothing, is asked about `durable` itself.
 pub fn durable_missing(dir: &gunmetal_testkit::tempdir::TempDir) -> bool {
-    !dir.path().join("durable").exists()
+    let durable = PathBuf::from(format!("{}/durable", dir.path().display()));
+    HostFacts::probe(&durable).err()
+        == Some(DataRootError::Io {
+            item: Item::Root,
+            op: Op::Probe,
+            kind: io::ErrorKind::NotFound,
+        })
 }
 
 impl Capture {

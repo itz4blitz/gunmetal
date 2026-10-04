@@ -23,8 +23,11 @@ fn run(args: &[OsString], vars: Vec<(OsString, OsString)>) -> u8 {
 mod tests {
     use super::*;
 
+    // The test harness's own command line names no gunmetal subcommand, so
+    // `main`, which reads it, refuses it as a usage error too.
     #[test]
     fn a_command_line_without_a_subcommand_exits_with_the_usage_code() {
         assert_eq!(run(&[], Vec::new()), 64);
+        assert_eq!(format!("{:?}", main()), format!("{:?}", ExitCode::from(64)));
     }
 }
