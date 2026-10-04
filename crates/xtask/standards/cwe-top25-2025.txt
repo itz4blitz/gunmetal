@@ -1,0 +1,27 @@
+# CWE Top 25 Most Dangerous Software Weaknesses, 2025 edition, from
+# https://cwe.mitre.org/top25/archive/2025/2025_cwe_top25.html (CWE terms of use).
+20
+22
+77
+78
+79
+89
+94
+120
+121
+122
+125
+200
+284
+306
+352
+416
+434
+476
+502
+639
+770
+787
+862
+863
+918
