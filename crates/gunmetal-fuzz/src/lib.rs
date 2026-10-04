@@ -27,6 +27,7 @@ pub mod flac_metadata;
 pub mod flac_structure;
 pub mod http_forwarded;
 pub mod http_range;
+pub mod id;
 pub mod id3_structure;
 pub mod id3v1;
 pub mod id3v2_tag;

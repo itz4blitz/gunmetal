@@ -60,6 +60,7 @@ harnesses! {
     flac_structure,
     http_forwarded,
     http_range,
+    id,
     id3_structure,
     id3v1,
     id3v2_tag,
