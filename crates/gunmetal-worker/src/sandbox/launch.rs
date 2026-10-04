@@ -105,31 +105,6 @@ impl Child {
     }
 }
 
-/// Coverage runtimes read `LLVM_PROFILE_FILE` before `main`. The child's
-/// working directory is `/`, so a relative profile path is made absolute.
-/// Production has none of these variables, so the environment stays empty
-/// (SEC-OPS-014).
-fn coverage_env(
-    vars: Vec<(std::ffi::OsString, std::ffi::OsString)>,
-    cwd: Option<&std::path::PathBuf>,
-) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
-    vars.into_iter()
-        .filter(|(key, _)| key.to_string_lossy().contains("LLVM"))
-        .map(|(key, value)| {
-            if key != "LLVM_PROFILE_FILE" {
-                return (key, value);
-            }
-            let mut path = value.to_string_lossy().into_owned();
-            if !path.starts_with('/') {
-                if let Some(cwd) = cwd {
-                    path = format!("{}{}{path}", cwd.display(), std::path::MAIN_SEPARATOR);
-                }
-            }
-            (key, path.into())
-        })
-        .collect()
-}
-
 impl Drop for Child {
     fn drop(&mut self) {
         // Both fail only when the process is already gone and reaped,
@@ -143,10 +118,10 @@ impl Drop for Child {
 ///
 /// The child runs with an empty environment, the root directory as its
 /// working directory, and the socket as descriptors 0, 1 and 2. Every
-/// descriptor the standard library opens is close-on-exec, so nothing
-/// else of this process's is inherited; a descriptor the process itself
-/// inherited without that flag is accounted for by the worker's
-/// confinement.
+/// extra descriptor in this process is marked close-on-exec first, so a
+/// descriptor this process inherited without that flag (a log file, a
+/// coverage handle, a parent application's socket) is not passed on.
+/// Confinement then refuses if any extra still remains.
 ///
 /// # Errors
 ///
@@ -175,6 +150,17 @@ fn spawn(
     spawn_argv(executable, args.argv(), fds)
 }
 
+/// Marks every descriptor numbered 3 and above close-on-exec.
+///
+/// The standard library's `Command` still inherits descriptors that
+/// arrived without that flag. Closing them by number needs `unsafe`,
+/// which this crate forbids; setting close-on-exec does not, and is
+/// enough that a child started afterwards receives only the descriptors
+/// `Command` is told to pass (SEC-MED-022).
+pub fn mark_others_close_on_exec() {
+    close_fds::set_fds_cloexec(3, &[]);
+}
+
 fn spawn_argv(
     executable: impl AsRef<std::ffi::OsStr>,
     argv: [&'static str; 3],
@@ -188,18 +174,13 @@ fn spawn_argv(
         .and_then(|output| errors.map(|errors| (output, errors)))
         .map_err(SpawnError::Descriptor)
         .and_then(|(output, errors)| {
+            mark_others_close_on_exec();
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the sandbox launcher is the one door that starts a process (SEC-MED-063)"
             )]
             let mut command = Command::new(executable);
             command.args(argv).env_clear();
-            for (key, value) in coverage_env(
-                std::env::vars_os().collect(),
-                std::env::current_dir().ok().as_ref(),
-            ) {
-                command.env(key, value);
-            }
             command
                 .current_dir("/")
                 .stdin(input)
@@ -215,83 +196,6 @@ fn spawn_argv(
 mod tests {
     use super::SpawnError;
     use std::io;
-
-    #[test]
-    fn coverage_variables_are_kept_and_profile_paths_are_made_absolute() {
-        use std::ffi::OsString;
-        use std::path::PathBuf;
-
-        let work = PathBuf::from("/work");
-        assert_eq!(
-            super::coverage_env(
-                vec![
-                    (OsString::from("HOME"), OsString::from("/home/x")),
-                    (
-                        OsString::from("LLVM_PROFILE_FILE"),
-                        OsString::from("p.profraw")
-                    ),
-                    (
-                        OsString::from("__LLVM_PROFILE_RT_INIT_ONCE"),
-                        OsString::from("1")
-                    ),
-                ],
-                Some(&work),
-            ),
-            [
-                (
-                    OsString::from("LLVM_PROFILE_FILE"),
-                    OsString::from("/work/p.profraw")
-                ),
-                (
-                    OsString::from("__LLVM_PROFILE_RT_INIT_ONCE"),
-                    OsString::from("1")
-                ),
-            ]
-        );
-        assert_eq!(
-            super::coverage_env(
-                vec![(
-                    OsString::from("LLVM_PROFILE_FILE"),
-                    OsString::from("/abs/p.profraw")
-                )],
-                Some(&work),
-            ),
-            [(
-                OsString::from("LLVM_PROFILE_FILE"),
-                OsString::from("/abs/p.profraw")
-            )]
-        );
-        assert_eq!(
-            super::coverage_env(
-                vec![(
-                    OsString::from("LLVM_PROFILE_FILE"),
-                    OsString::from("p.profraw")
-                )],
-                None,
-            ),
-            [(
-                OsString::from("LLVM_PROFILE_FILE"),
-                OsString::from("p.profraw")
-            )]
-        );
-        assert_eq!(
-            super::coverage_env(vec![(OsString::from("HOME"), OsString::from("/"))], None),
-            []
-        );
-        assert_eq!(
-            super::coverage_env(
-                vec![(
-                    OsString::from("LLVM_PROFILE_FILE"),
-                    OsString::from("/abs/p.profraw")
-                )],
-                None,
-            ),
-            [(
-                OsString::from("LLVM_PROFILE_FILE"),
-                OsString::from("/abs/p.profraw")
-            )]
-        );
-    }
 
     #[test]
     fn a_missing_executable_is_a_spawn_error() {
@@ -419,6 +323,24 @@ mod tests {
         assert!(
             rustix::process::test_kill_process(pid).is_err(),
             "Drop must stop the child"
+        );
+    }
+
+    #[test]
+    fn extra_descriptors_are_marked_close_on_exec() {
+        use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
+        use std::os::unix::net::UnixStream;
+
+        let (probe, _peer) = UnixStream::pair().unwrap();
+        fcntl_setfd(&probe, FdFlags::empty()).unwrap();
+        assert!(
+            !fcntl_getfd(&probe).unwrap().contains(FdFlags::CLOEXEC),
+            "the probe starts without close-on-exec"
+        );
+        super::mark_others_close_on_exec();
+        assert!(
+            fcntl_getfd(&probe).unwrap().contains(FdFlags::CLOEXEC),
+            "launch must mark extras close-on-exec so a worker does not inherit them"
         );
     }
 }

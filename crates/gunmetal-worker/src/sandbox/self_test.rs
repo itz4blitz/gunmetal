@@ -246,7 +246,6 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-023
     #[test]
     fn an_octet_without_the_whole_mark_is_not_an_answer() {
         for octet in [0x00, 0x1f, b'e', b'\n', 0x7f, 0x80, 0xc0, 0xdf, 0x6f, 0xaf] {

@@ -15,9 +15,9 @@ mod syscalls;
 mod tier;
 
 pub use args::{ENTRY, Job, TypedArgs};
-pub use confine::{ConfineError, Step, apply_landlock, apply_seccomp, confine};
+pub use confine::{ConfineError, Step, confine};
 pub use exit::{Cause, Exit};
-pub use launch::{Child, Inherited, SpawnError, launch};
+pub use launch::{Child, Inherited, SpawnError, launch, mark_others_close_on_exec};
 pub use limits::Profile;
 pub use programs::Program;
 pub use self_test::{answer_self_test, self_test};

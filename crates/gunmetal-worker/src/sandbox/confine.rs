@@ -103,12 +103,16 @@ pub(crate) fn confine_with(
         .into_iter()
         .filter(|&descriptor| descriptor > LAST_SOCKET_DESCRIPTOR)
         .collect();
-    kernel.no_new_privs().map_err(refused(Step::NoNewPrivs))?;
-    let landlock = kernel.landlock();
-    let seccomp = kernel.seccomp(&strays);
-    if !seccomp && !strays.is_empty() {
+    // Closing a descriptor by number needs `unsafe`, which this crate
+    // forbids. The launcher marks extras close-on-exec so a worker it
+    // starts has none. A stray that remains is not confined by handing
+    // it to seccomp (SEC-MED-022): refuse instead.
+    if !strays.is_empty() {
         return Err(ConfineError::StrayDescriptors(strays));
     }
+    kernel.no_new_privs().map_err(refused(Step::NoNewPrivs))?;
+    let landlock = kernel.landlock();
+    let seccomp = kernel.seccomp(&[]);
     Ok(Enforced {
         process: true,
         limits: true,
@@ -137,23 +141,6 @@ pub fn confine(profile: Profile) -> Result<Enforced, ConfineError> {
     confine_with(&mut Linux, profile)
 }
 
-/// Applies Landlock to this process. The sandbox test calls this before
-/// proving a path is refused, then applies seccomp.
-#[doc(hidden)]
-#[must_use]
-pub fn apply_landlock() -> bool {
-    Linux.landlock()
-}
-
-/// Installs the seccomp allowlist in this process with no stray
-/// descriptors. The sandbox test calls this after Landlock has been
-/// proved.
-#[doc(hidden)]
-#[must_use]
-pub fn apply_seccomp() -> bool {
-    Linux.seccomp(&[])
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ConfineError, LAST_SOCKET_DESCRIPTOR, Step, confine, confine_with};
@@ -174,6 +161,7 @@ mod tests {
         seccomp: bool,
         seen_limits: Vec<Limit>,
         seen_strays: Option<Vec<u32>>,
+        seen_no_new_privs: usize,
     }
 
     impl Script {
@@ -188,6 +176,7 @@ mod tests {
                 seccomp: true,
                 seen_limits: Vec::new(),
                 seen_strays: None,
+                seen_no_new_privs: 0,
             }
         }
 
@@ -224,6 +213,7 @@ mod tests {
         }
 
         fn no_new_privs(&mut self) -> io::Result<()> {
+            self.seen_no_new_privs = self.seen_no_new_privs.saturating_add(1);
             Self::into_error(self.no_new_privs)
         }
 
@@ -249,6 +239,7 @@ mod tests {
         let mut kernel = Script::ok();
         let enforced = confine_with(&mut kernel, Profile::Scan).unwrap();
         assert_eq!(kernel.seen_limits, Profile::Scan.limits());
+        assert_eq!(kernel.seen_no_new_privs, 1);
         assert_eq!(kernel.seen_strays.as_deref(), Some([].as_slice()));
         assert_eq!(
             enforced,
@@ -264,11 +255,15 @@ mod tests {
     }
 
     #[test]
-    fn stray_descriptors_are_handed_to_seccomp_when_it_holds() {
+    fn stray_descriptors_refuse_confinement_even_when_seccomp_holds() {
         let mut kernel = Script::ok();
         kernel.descriptors = Ok(vec![0, 1, 2, 7, 9]);
-        assert!(confine_with(&mut kernel, Profile::Scan).unwrap().seccomp);
-        assert_eq!(kernel.seen_strays.as_deref(), Some([7, 9].as_slice()));
+        assert_eq!(
+            confine_with(&mut kernel, Profile::Scan).unwrap_err(),
+            ConfineError::StrayDescriptors(vec![7, 9])
+        );
+        assert_eq!(kernel.seen_no_new_privs, 0);
+        assert_eq!(kernel.seen_strays, None);
     }
 
     #[test]
@@ -280,6 +275,8 @@ mod tests {
             confine_with(&mut kernel, Profile::Scan).unwrap_err(),
             ConfineError::StrayDescriptors(vec![9, 7])
         );
+        assert_eq!(kernel.seen_no_new_privs, 0);
+        assert_eq!(kernel.seen_strays, None);
     }
 
     #[test]

@@ -5,16 +5,16 @@
 //! real one: each method is one call with no decision in it.
 //!
 //! No method here needs `unsafe`, and that sets one limit. A process
-//! cannot close a descriptor it has only a number for without `unsafe`,
-//! so a worker cannot close what it inherited by mistake. [`Linux`] lists
-//! such descriptors instead and the seccomp filter refuses every call on
-//! them, which takes them out of the worker's reach.
+//! cannot close a descriptor it has only a number for without `unsafe`.
+//! The launcher marks every extra descriptor close-on-exec before it
+//! starts the worker, so a child started that way has only its socket.
+//! [`confine_with`](super::confine::confine_with) still refuses if any
+//! extra remains: listing them for seccomp is not closing them.
 
 use super::limits::Limit;
-use super::syscalls::{ALLOWLIST, Allowed, Check, Guard, Test, checks};
+use super::syscalls::{ALLOWLIST, Allowed, Check, Test, checks};
 use landlock::{
-    ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
-    RulesetStatus, Scope, path_beneath_rules,
+    ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreated, RulesetStatus, Scope,
 };
 use rustix::fs::{CWD, Dir, Mode, OFlags};
 use rustix::process::{DumpableBehavior, Rlimit};
@@ -44,9 +44,10 @@ pub(crate) trait Kernel {
     /// far as the kernel's ABI goes. `false` when the kernel has no
     /// Landlock.
     fn landlock(&mut self) -> bool;
-    /// Installs the seccomp allowlist, which also refuses every call on
-    /// `strays`. `false` when the architecture or the kernel has no
-    /// seccomp filter.
+    /// Installs the seccomp allowlist. `strays` is the descriptors the
+    /// filter must also refuse; production confinement passes none,
+    /// because a worker with extra descriptors is not confined.
+    /// `false` when the architecture or the kernel has no seccomp filter.
     fn seccomp(&mut self, strays: &[u32]) -> bool;
 }
 
@@ -127,159 +128,27 @@ fn require_not_dumpable(behavior: DumpableBehavior) -> io::Result<()> {
     }
 }
 
-/// The directory named by `LLVM_PROFILE_FILE`, ignoring llvm-cov's `%`
-/// specifiers. `None` when the variable is missing or is not a path.
-fn profile_dir_from(file: &str) -> Option<String> {
-    file.split('%')
-        .next()
-        .and_then(|prefix| prefix.rsplit_once('/'))
-        .map(|(dir, _)| dir.to_owned())
-}
-
-/// Extra calls a coverage runtime needs to flush a profile after
-/// confinement. Production never sets `LLVM_PROFILE_FILE`, so the
-/// allowlist stays the documented minimum (SEC-MED-022).
-fn extra_profile_calls_from(has_profile: bool) -> Vec<Allowed> {
-    if !has_profile {
-        return Vec::new();
-    }
-    extra_profile_allowlist().to_vec()
-}
-
-/// The extra calls, when a profile file is in the environment.
-const fn extra_profile_allowlist() -> [Allowed; 13] {
-    [
-        Allowed {
-            name: "fcntl",
-            x86_64: 72,
-            aarch64: 25,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "fstat",
-            x86_64: 5,
-            aarch64: 80,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "ftruncate",
-            x86_64: 77,
-            aarch64: 46,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "getdents64",
-            x86_64: 217,
-            aarch64: 61,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "lseek",
-            x86_64: 8,
-            aarch64: 62,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "newfstatat",
-            x86_64: 262,
-            aarch64: 79,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "openat",
-            x86_64: 257,
-            aarch64: 56,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "prctl",
-            x86_64: 157,
-            aarch64: 167,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "pread64",
-            x86_64: 17,
-            aarch64: 67,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "pwrite64",
-            x86_64: 18,
-            aarch64: 68,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "readlinkat",
-            x86_64: 267,
-            aarch64: 78,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "renameat",
-            x86_64: 264,
-            aarch64: 38,
-            guard: Guard::Always,
-        },
-        Allowed {
-            name: "statx",
-            x86_64: 332,
-            aarch64: 291,
-            guard: Guard::Always,
-        },
-    ]
-}
-
-/// Access needed to create and write a coverage profile file.
-fn profile_fs_access() -> landlock::BitFlags<AccessFs> {
-    [
-        AccessFs::ReadFile,
-        AccessFs::WriteFile,
-        AccessFs::ReadDir,
-        AccessFs::MakeReg,
-        AccessFs::RemoveFile,
-        AccessFs::Truncate,
-    ]
-    .into_iter()
-    .collect()
-}
-
-/// Builds the Landlock ruleset: no filesystem access, except the
-/// coverage profile directory when llvm-cov named one.
-fn landlock_ruleset(dir: Option<&str>) -> Result<RulesetCreated, landlock::RulesetError> {
+/// Builds the Landlock ruleset: every filesystem right is handled and
+/// no path is granted, so all path-based access is denied. TCP, UDP and
+/// the abstract-socket and signal scopes are handled where the ABI has
+/// them (SEC-MED-022).
+fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
     let abi = ABI::V6;
-    let created = Ruleset::default()
+    Ruleset::default()
         .handle_access(AccessFs::from_all(abi))
         .and_then(|ruleset| ruleset.handle_access(AccessNet::from_all(abi)))
         .and_then(|ruleset| ruleset.scope(Scope::from_all(abi)))
-        .and_then(Ruleset::create);
-    match dir {
-        Some(dir) => created
-            .and_then(|ruleset| ruleset.add_rules(path_beneath_rules([dir], profile_fs_access()))),
-        None => created,
-    }
+        .and_then(Ruleset::create)
 }
 
-/// The compiled filter: every call on the allowlist is allowed when its
-/// checks hold, and anything else kills the process.
-fn program(strays: &[u32], pid: u32) -> Option<BpfProgram> {
-    program_with(
-        strays,
-        pid,
-        extra_profile_calls_from(std::env::var_os("LLVM_PROFILE_FILE").is_some()),
-    )
-}
-
-fn program_with(
-    strays: &[u32],
-    pid: u32,
-    extra: impl IntoIterator<Item = Allowed>,
-) -> Option<BpfProgram> {
-    NATIVE.and_then(|(arch, number)| {
+/// The compiled filter for `native`: every call on the allowlist is
+/// allowed when its checks hold, and anything else kills the process.
+/// `None` when there is no native architecture, as on 32-bit ARM.
+fn program_for(native: Option<NativeArch>, strays: &[u32], pid: u32) -> Option<BpfProgram> {
+    native.and_then(|(arch, number)| {
         ALLOWLIST
             .iter()
             .copied()
-            .chain(extra)
             .map(|allowed| {
                 checks(allowed.guard, strays, pid)
                     .iter()
@@ -302,6 +171,11 @@ fn program_with(
             .and_then(BpfProgram::try_from)
             .ok()
     })
+}
+
+/// The compiled filter for this architecture.
+fn program(strays: &[u32], pid: u32) -> Option<BpfProgram> {
+    program_for(NATIVE, strays, pid)
 }
 
 impl Kernel for Linux {
@@ -340,8 +214,7 @@ impl Kernel for Linux {
     }
 
     fn landlock(&mut self) -> bool {
-        let dir = std::env::var("LLVM_PROFILE_FILE").ok();
-        landlock_ruleset(dir.as_deref().and_then(profile_dir_from).as_deref())
+        landlock_ruleset()
             .and_then(RulesetCreated::restrict_self)
             .is_ok_and(|status| status.ruleset != RulesetStatus::NotEnforced)
     }
@@ -358,7 +231,6 @@ impl Kernel for Linux {
 #[cfg(test)]
 mod tests {
     use super::{Kernel, Linux, numbers, program};
-    use crate::sandbox::syscalls::ALLOWLIST;
 
     #[test]
     fn the_running_process_lists_its_threads_and_descriptors() {
@@ -384,64 +256,53 @@ mod tests {
         assert!(!tasks.is_empty());
     }
 
+    /// Verifies: SEC-MED-024
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
     fn the_seccomp_filter_compiles_for_this_architecture() {
         assert!(program(&[], 1).is_some());
         assert!(program(&[5, 9], 4321).is_some());
-        assert!(super::program_with(&[], 1, super::extra_profile_allowlist()).is_some());
-        assert!(super::program_with(&[], 1, Vec::new()).is_some());
     }
 
+    /// Verifies: SEC-MED-024
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     #[test]
-    fn the_profile_directory_is_the_path_before_llvm_specifiers() {
-        assert_eq!(
-            super::profile_dir_from("/work/target/wp-%p-%16m.profraw").as_deref(),
-            Some("/work/target")
-        );
-        assert_eq!(
-            super::profile_dir_from("/abs/p.profraw").as_deref(),
-            Some("/abs")
-        );
-        assert_eq!(super::profile_dir_from("p.profraw"), None);
-        assert_eq!(super::profile_dir_from(""), None);
+    fn the_seccomp_filter_is_absent_on_this_architecture() {
+        assert!(program(&[], 1).is_none());
+        assert!(program(&[5, 9], 4321).is_none());
     }
 
+    /// Verifies: SEC-MED-024
     #[test]
-    fn extra_profile_calls_are_empty_without_a_profile_and_listed_with_one() {
-        assert!(super::extra_profile_calls_from(false).is_empty());
-        assert_eq!(super::extra_profile_calls_from(true).len(), 13);
-        let extras = super::extra_profile_allowlist();
-        let names: Vec<&str> = extras.iter().map(|row| row.name).collect();
-        assert_eq!(
-            names,
-            [
-                "fcntl",
-                "fstat",
-                "ftruncate",
-                "getdents64",
-                "lseek",
-                "newfstatat",
-                "openat",
-                "prctl",
-                "pread64",
-                "pwrite64",
-                "readlinkat",
-                "renameat",
-                "statx"
-            ]
-        );
-        for row in extras {
-            assert!(ALLOWLIST.iter().all(|allowed| allowed.name != row.name
-                && allowed.x86_64 != row.x86_64
-                && allowed.aarch64 != row.aarch64));
+    fn a_missing_native_arch_reports_reduced_and_names_seccomp() {
+        use crate::sandbox::tier::{Enforced, Tier};
+
+        assert!(super::program_for(None, &[], 1).is_none());
+        assert!(super::program_for(None, &[5, 9], 4321).is_none());
+        let report = Enforced {
+            process: true,
+            limits: true,
+            no_new_privs: true,
+            seccomp: false,
+            landlock: true,
+            namespaces: true,
         }
+        .report();
+        assert_eq!(report.tier, Tier::Reduced);
+        let notice = report.notice.as_deref().expect("reduced notice");
+        assert!(
+            notice.contains("system call filtering (seccomp)"),
+            "{notice}"
+        );
+        assert!(
+            !notice.contains("Landlock") && !notice.contains("namespaces"),
+            "{notice}"
+        );
     }
 
     #[test]
-    fn a_landlock_ruleset_builds_with_and_without_a_profile_directory() {
-        assert!(super::landlock_ruleset(None).is_ok());
-        assert!(super::landlock_ruleset(Some("/tmp")).is_ok());
-        assert!(super::landlock_ruleset(Some("/does-not-exist-gunmetal-wp045")).is_ok());
+    fn a_landlock_ruleset_grants_no_filesystem_path() {
+        assert!(super::landlock_ruleset().is_ok());
     }
 
     #[test]
@@ -451,23 +312,6 @@ mod tests {
         assert!(super::PROC_DIR_FLAGS.contains(OFlags::RDONLY));
         assert!(super::PROC_DIR_FLAGS.contains(OFlags::DIRECTORY));
         assert!(super::PROC_DIR_FLAGS.contains(OFlags::CLOEXEC));
-    }
-
-    #[test]
-    fn profile_fs_access_can_create_and_write_a_file() {
-        use landlock::AccessFs;
-
-        let access = super::profile_fs_access();
-        for flag in [
-            AccessFs::ReadFile,
-            AccessFs::WriteFile,
-            AccessFs::ReadDir,
-            AccessFs::MakeReg,
-            AccessFs::RemoveFile,
-            AccessFs::Truncate,
-        ] {
-            assert!(access.contains(flag), "{flag:?}");
-        }
     }
 
     #[test]

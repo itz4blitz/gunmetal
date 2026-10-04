@@ -34,6 +34,7 @@ impl Program {
 mod tests {
     use super::Program;
 
+    /// Verifies: SEC-HIS-021, SEC-TM-046
     #[test]
     fn the_worker_is_the_running_executable() {
         assert_eq!(Program::Worker.executable(), "/proc/self/exe");
