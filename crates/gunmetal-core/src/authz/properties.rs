@@ -317,11 +317,37 @@ proptest! {
         creator in facts(),
         requested in scope(),
     ) {
-        if let Ok(issued) = may_issue(&creator, &requested) {
-            prop_assert_eq!(&issued, &requested);
+        // A random request almost always names something the creator lacks,
+        // so each case also asks for the part of it the creator may hand
+        // out: what it can use, less the owner-only capabilities, on the
+        // libraries it may browse. An unscoped creator may issue that, so
+        // the checks below meet permits as well as refusals.
+        let mut libraries = Vec::new();
+        for library in &requested.libraries {
+            let browse = decide(&creator, Action::BrowseLibrary, &ResourceFacts::Library(*library), &at_home());
+            if allowed(&browse) {
+                libraries.push(*library);
+            }
+        }
+        let narrowed = Scope {
+            capabilities: requested
+                .capabilities
+                .intersection(creator.effective())
+                .difference(CapabilitySet::of(&OWNER_ONLY)),
+            libraries,
+        };
+        let narrowed_result = may_issue(&creator, &narrowed);
+        if creator.scope.is_none() {
+            prop_assert_eq!(&narrowed_result, &Ok(narrowed.clone()));
+        } else {
+            prop_assert_eq!(&narrowed_result, &Err(Denial::ScopedCredential));
+        }
+        for (asked, result) in [(&requested, may_issue(&creator, &requested)), (&narrowed, narrowed_result)] {
+            let Ok(issued) = result else { continue };
+            prop_assert_eq!(&issued, asked);
             prop_assert!(creator.scope.is_none());
             prop_assert!(issued.capabilities.is_subset(creator.effective()));
-            prop_assert!(OWNER_ONLY.iter().all(|capability| !issued.capabilities.contains(*capability)));
+            prop_assert_eq!(issued.capabilities.intersection(CapabilitySet::of(&OWNER_ONLY)), CapabilitySet::EMPTY);
             let every = creator
                 .capabilities
                 .intersection(creator.kind.ceiling())
