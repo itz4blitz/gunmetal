@@ -65,11 +65,6 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "a test helper stands in for the secrets crate's minting function (SEC-HIS-012, WP-006)",
     },
     Exception {
-        path: "crates/gunmetal-core/src/inflate.rs",
-        lint: LINTS[1],
-        reason: "the one streaming decompression helper (SEC-MED-009, WP-128)",
-    },
-    Exception {
         path: "crates/gunmetal-core/src/parse/capacity.rs",
         lint: LINTS[1],
         reason: "the core's one bounded pre-sizing helper (SEC-MED-003, WP-004)",
@@ -103,6 +98,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         path: "crates/gunmetal-fuzz/tests/",
         lint: LINTS[1],
         reason: "corpus replay reads the committed seeds by path (SEC-MED-028)",
+    },
+    Exception {
+        path: "crates/gunmetal-secrets/src/crypto/",
+        lint: LINTS[2],
+        reason: "the secrets crate's crypto module: HMAC, HKDF and the AEAD (SEC-STD-018, WP-047)",
     },
     Exception {
         path: "crates/gunmetal-secrets/src/mint.rs",

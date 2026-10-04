@@ -296,3 +296,10 @@ path = "fuzz_targets/vorbis_comment.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "wire"
+path = "fuzz_targets/wire.rs"
+test = false
+doc = false
+bench = false
