@@ -256,6 +256,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "probe"
+path = "fuzz_targets/probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "riff"
 path = "fuzz_targets/riff.rs"
 test = false

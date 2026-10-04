@@ -45,6 +45,7 @@ pub mod ogg_structure;
 pub mod opus;
 pub mod otp;
 pub mod path;
+pub mod probe;
 pub mod registry;
 pub mod riff;
 pub mod text;

@@ -78,6 +78,7 @@ harnesses! {
     opus,
     otp,
     path,
+    probe,
     riff,
     text,
     time,
