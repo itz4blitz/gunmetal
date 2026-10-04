@@ -40,6 +40,9 @@
 //!   after it (SEC-TM-003).
 //! - `repo codeql <sarif>`: no `CodeQL` result at `error` level or security
 //!   severity 7.0 or more (SEC-SUP-018).
+//! - `site`: the project site's static files under `site/` hold the
+//!   security baseline's rules for gunmetal.tv (SEC-SUP-008, SEC-STD-016,
+//!   SEC-PRV-054, SEC-PRV-055, SEC-HIS-061).
 //! - `standards-coverage`: ASVS items at or below each chapter target have
 //!   a citing requirement or a complete register row (SEC-STD-002).
 //! - `standards-watch <feeds-dir>`: recorded release feeds name no newer
@@ -64,6 +67,7 @@ mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
 mod repo;
+mod site;
 mod standards;
 mod toml;
 mod trace;
@@ -148,6 +152,7 @@ fn dispatch(
         ["repo", "codeql", sarif] => report(repo::codeql(&read(&tree, sarif)?)),
         ["repo", "scorecard", json] => report(repo::scorecard(&read(&tree, json)?)),
         ["repo", "settings", dir] => report(repo::settings(&tree, dir)),
+        ["site"] => report(site::check(&tree, now)),
         ["standards-coverage"] => report(standards::coverage(&tree, now)),
         ["standards-watch", feeds] => report(standards::watch(&tree, feeds)),
         ["trace", release] => report(trace::check(&tree, release)),
