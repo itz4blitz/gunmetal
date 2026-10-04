@@ -171,9 +171,19 @@ reason = "Small inline vectors inside rusqlite (WP-126). Unsafe managing its inl
 requirement = "SEC-PRV-050"
 
 [[crate]]
+name = "toml_parser"
+reason = "The TOML lexer and parser under toml, which gunmetal-server reads its configuration file with (WP-043, owner decision 23). Every `unsafe` in it is unchecked string slicing behind its `unsafe` feature, which is off: without it the crate sets `forbid(unsafe_code)` and takes the checked slicing path, so none of that code is compiled into the server."
+requirement = "SEC-HIS-004, SEC-HIS-021, SEC-TM-046"
+
+[[crate]]
 name = "unicode-normalization"
 reason = "Canonical and compatibility decomposition for search folding and natural sort, in the core (WP-036, D-02, MUS-020, DIS-085). No security requirement asks for it; it is in the core under the reviewed allowlist SEC-SUP-025 keeps. Unsafe `char::from_u32_unchecked` on Hangul syllables it composed or decomposed by arithmetic."
 requirement = "SEC-SUP-025"
+
+[[crate]]
+name = "winnow"
+reason = "The parser-combinator input streams under toml and toml_parser, for gunmetal-server's configuration file (WP-043, owner decision 23). Unsafe transmutes of a byte slice into its `#[repr(transparent)]` `Bytes` and `BStr` wrappers, and unchecked slicing in `next_slice_unchecked` and `peek_slice_unchecked` whose callers must pass an in-bounds offset."
+requirement = "SEC-HIS-004, SEC-HIS-021, SEC-TM-046"
 
 [[crate]]
 name = "zeroize"
