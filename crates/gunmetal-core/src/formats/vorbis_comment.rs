@@ -979,7 +979,7 @@ mod tests {
             let expected = truncation(3, &[7, 9], cut as u64, 0);
             let result = read(&LITERAL[..cut]);
             match expected {
-                Some(fault) => assert_eq!(result, Err(fault), "cut at {cut}"),
+                Some(fault) => assert_eq!(result, Err(fault)),
                 None => assert_eq!(cut, 35),
             }
         }
@@ -1476,8 +1476,7 @@ mod tests {
             let mut budget = Budget::for_input(0, 0, PLENTY);
             assert_eq!(
                 picture_data(value.as_bytes(), &Limits::DEFAULT, &mut budget),
-                Err(fault),
-                "cut at {cut}"
+                Err(fault)
             );
             let block = CommentBlock::new(b"")
                 .field("METADATA_BLOCK_PICTURE", &value)
@@ -1487,8 +1486,7 @@ mod tests {
                 Ok(vec![FieldProblem::Picture {
                     offset: 35,
                     error: fault,
-                }]),
-                "cut at {cut}"
+                }])
             );
         }
     }
