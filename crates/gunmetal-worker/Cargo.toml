@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-close_fds = "0.3.2"
+close_fds.workspace = true
 landlock.workspace = true
 rustix = { workspace = true, features = ["fs", "process", "std", "thread"] }
 seccompiler.workspace = true

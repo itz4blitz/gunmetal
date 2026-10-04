@@ -61,6 +61,11 @@ reason = "The XChaCha20 stream cipher inside chacha20poly1305, the one AEAD in g
 requirement = "SEC-STD-018, SEC-STD-019"
 
 [[crate]]
+name = "close_fds"
+reason = "Marks every descriptor above 2 close-on-exec in the worker sandbox launcher before it starts a worker, so the worker inherits only its socket (WP-045). Unsafe calls into libc: the `close_range` system call with `CLOSE_RANGE_CLOEXEC`, and on kernels without it `fcntl` on each descriptor it lists from `/proc/self/fd` with `getdents64`. One publisher, last release 2021: kept only until the owner answers WP-045's dependency request."
+requirement = "SEC-MED-022"
+
+[[crate]]
 name = "cmov"
 reason = "Constant-time conditional moves for ctutils, which the cipher and MAC crates compare and select secrets with (WP-047). Unsafe for the CPU instructions that do it without a branch, and for casts between integer slices of one layout."
 requirement = "SEC-STD-018, SEC-STD-019"
@@ -69,6 +74,11 @@ requirement = "SEC-STD-018, SEC-STD-019"
 name = "cpufeatures"
 reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02). Unsafe to run `cpuid` and read the auxiliary vector."
 requirement = "SEC-STD-018"
+
+[[crate]]
+name = "enumflags2"
+reason = "Flag sets for landlock's access rights and scopes (WP-045, D-02). Unsafe to build a flag set from bits it has already masked to the known flags, and the `RawBitFlags` trait its derive implements."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "errno"
@@ -104,6 +114,11 @@ requirement = "SEC-MED-033"
 name = "io-lifetimes"
 reason = "Owned and borrowed file-descriptor types for cap-std, cap-primitives and fs-set-times, which need two versions (WP-126). Unsafe converting to and from raw file descriptors."
 requirement = "SEC-MED-033"
+
+[[crate]]
+name = "landlock"
+reason = "The Landlock ruleset a media worker enforces on itself, which grants no path (WP-045, D-02). Unsafe calls of the three Landlock system calls through libc, taking ownership of the ruleset descriptor, and building access sets from checked bits."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "libc"
@@ -149,6 +164,11 @@ requirement = "SEC-MED-033, SEC-HIS-016"
 name = "rustix-linux-procfs"
 reason = "Opens `/proc` safely for cap-primitives, which reads a descriptor's path through it (WP-126). One unsafe transmute of an initialised byte buffer."
 requirement = "SEC-MED-033"
+
+[[crate]]
+name = "seccompiler"
+reason = "Compiles the media worker's seccomp allowlist to BPF and installs it (WP-045, D-02). Unsafe calls of `prctl(PR_SET_NO_NEW_PRIVS)` and the `seccomp` system call through libc."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "serde"
