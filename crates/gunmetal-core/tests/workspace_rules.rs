@@ -978,6 +978,7 @@ fn the_core_depends_only_on_reviewed_crates() {
     assert_eq!(
         allowlisted(CORE_ALLOWLIST),
         [
+            "adler2",
             "block-buffer",
             "cfg-if",
             "cobs",
@@ -986,6 +987,7 @@ fn the_core_depends_only_on_reviewed_crates() {
             "digest",
             "hybrid-array",
             "libc",
+            "miniz_oxide",
             "postcard",
             "proc-macro2",
             "quote",
@@ -1528,6 +1530,24 @@ fn tls_certificate_verification_cannot_be_switched_off() {
     assert_eq!(
         citing(&workspace_types(), "SEC-HIS-026"),
         ["rustls::client::danger::DangerousClientConfig"]
+    );
+}
+
+/// Verifies: SEC-MED-009
+#[test]
+fn only_the_streaming_helper_inflates() {
+    assert_eq!(
+        citing(&workspace_methods(), "SEC-MED-009"),
+        sorted(&[
+            "miniz_oxide::inflate::core::decompress",
+            "miniz_oxide::inflate::core::decompress_with_limit",
+            "miniz_oxide::inflate::decompress_slice_iter_to_slice",
+            "miniz_oxide::inflate::decompress_to_vec",
+            "miniz_oxide::inflate::decompress_to_vec_with_limit",
+            "miniz_oxide::inflate::decompress_to_vec_zlib",
+            "miniz_oxide::inflate::decompress_to_vec_zlib_with_limit",
+            "miniz_oxide::inflate::stream::inflate",
+        ])
     );
 }
 
