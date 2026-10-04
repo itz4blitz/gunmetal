@@ -19,7 +19,7 @@ pub const READERS: usize = 4;
 
 /// How long a reader waits for a lock, which in WAL mode only a checkpoint
 /// or recovery holds, before failing.
-const BUSY_TIMEOUT_MS: u32 = 5_000;
+const BUSY_TIMEOUT_MS: u16 = 5_000;
 
 /// The pragmas of every pooled connection: query-only, on top of the
 /// opener's own (`secure_delete` among them).
