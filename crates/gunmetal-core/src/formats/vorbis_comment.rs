@@ -1598,7 +1598,10 @@ mod tests {
         prop_oneof![
             4 => (key(), value()).prop_map(|(key, value)| Generated::Text(key, value)),
             1 => picture().prop_map(Generated::Picture),
-            1 => vec(any::<u8>(), 0..12).prop_map(Generated::Raw),
+            // One octet in four is a separator, so every run writes raw
+            // comments with a name before it: uniform octets left that case
+            // out of about one run in twenty.
+            1 => vec(prop_oneof![1 => Just(b'='), 3 => any::<u8>()], 0..12).prop_map(Generated::Raw),
         ]
     }
 
