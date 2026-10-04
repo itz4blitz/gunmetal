@@ -18,5 +18,6 @@ pub mod paging;
 pub mod pipeline;
 pub mod problem;
 mod query;
+pub mod request;
 pub mod route;
 pub mod table;

@@ -1,11 +1,9 @@
 //! What a handler receives and what it answers with.
 //!
 //! A [`Call`] reaches a handler only after every pipeline check has passed,
-//! and holds the request already split into its typed parts. Its decoders
-//! map every failure to the one `invalid_request` problem, without echoing
-//! what was sent (SEC-API-067, SEC-API-072). Request types derive
-//! `Deserialize` with `#[serde(deny_unknown_fields)]`, so an unknown field
-//! or a repeated key is refused (SEC-IAM-072).
+//! and holds the request already decoded into the types its route declared
+//! ([`crate::request`]): a handler never sees the raw query or body, so it
+//! cannot skip the decoding or decode into a looser type.
 //!
 //! A [`Reply`] is JSON built from a [`ResponseBody`] or nothing at all; a
 //! handler cannot set a header, so the response layer's headers are the
@@ -13,26 +11,27 @@
 
 use std::sync::Arc;
 
-use axum::body::Bytes;
 use axum::http::Extensions;
 use gunmetal_core::problem::ProblemCode;
 use serde::Serialize;
-use serde::de::DeserializeOwned;
-use serde_json::{Map, Value};
 
 use crate::headers::BodyKind;
 use crate::problem::ApiError;
+use crate::request::{NoBody, NoQuery};
 
-/// One request, as a handler sees it.
+/// One request, as a handler sees it: `Q` is the route's query type and `B`
+/// its body type.
 #[derive(Debug)]
-pub struct Call {
+pub struct Call<Q = NoQuery, B = NoBody> {
     pub(crate) params: Vec<(&'static str, String)>,
-    pub(crate) query: Vec<(String, String)>,
-    pub(crate) body: Bytes,
+    /// The query, decoded.
+    pub query: Q,
+    /// The body, decoded.
+    pub body: B,
     pub(crate) grant: Arc<Extensions>,
 }
 
-impl Call {
+impl<Q, B> Call<Q, B> {
     /// The value of a path parameter, such as `id` in `/api/v1/tracks/{id}`.
     ///
     /// # Errors
@@ -46,42 +45,12 @@ impl Call {
             .ok_or(ApiError::new(ProblemCode::NotFound))
     }
 
-    /// Decodes the query string into a typed request. Every value arrives
-    /// as a string, so numeric parameters use a bounded type that parses
-    /// one, such as [`crate::paging::PageLimit`].
-    ///
-    /// # Errors
-    ///
-    /// `invalid_request` when the query does not fit the type.
-    pub fn query<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
-        let map: Map<String, Value> = self
-            .query
-            .iter()
-            .map(|(name, value)| (name.clone(), Value::String(value.clone())))
-            .collect();
-        serde_json::from_value(Value::Object(map)).map_err(|_| invalid())
-    }
-
-    /// Decodes the body into a typed request.
-    ///
-    /// # Errors
-    ///
-    /// `invalid_request` when the body does not fit the type.
-    pub fn json<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
-        serde_json::from_slice(&self.body).map_err(|_| invalid())
-    }
-
     /// What the access hook granted: the principal and anything else the
     /// session and authorisation layers attach.
     #[must_use]
     pub fn grant(&self) -> &Extensions {
         &self.grant
     }
-}
-
-/// The `invalid_request` problem.
-fn invalid() -> ApiError {
-    ApiError::new(ProblemCode::InvalidRequest)
 }
 
 /// A type written for one response, and so allowed to be sent as one
@@ -157,41 +126,20 @@ impl Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serializer};
+    use serde::Serializer;
 
-    #[derive(Debug, PartialEq, Eq, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Rename {
-        name: String,
-        public: bool,
-    }
-
-    #[derive(Debug, PartialEq, Eq, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Filter {
-        genre: String,
-        sort: Option<String>,
-    }
-
-    fn call(query: &[(&str, &str)], body: &str) -> Call {
-        granted(query, body, Extensions::new())
-    }
-
-    fn granted(query: &[(&str, &str)], body: &str, grant: Extensions) -> Call {
+    fn call(grant: Extensions) -> Call {
         Call {
             params: vec![("id", "pls_1".to_owned())],
-            query: query
-                .iter()
-                .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
-                .collect(),
-            body: Bytes::from(body.to_owned()),
+            query: NoQuery {},
+            body: NoBody {},
             grant: Arc::new(grant),
         }
     }
 
     #[test]
     fn reads_path_parameters() {
-        let call = call(&[], "");
+        let call = call(Extensions::new());
         assert_eq!(call.param("id"), Ok("pls_1"));
         assert_eq!(
             call.param("other"),
@@ -199,52 +147,11 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-067, SEC-IAM-072
-    #[test]
-    fn decodes_bodies_strictly() {
-        let invalid = Err(ApiError::new(ProblemCode::InvalidRequest));
-        assert_eq!(
-            call(&[], r#"{"name":"Mix","public":false}"#).json::<Rename>(),
-            Ok(Rename {
-                name: "Mix".to_owned(),
-                public: false
-            })
-        );
-        assert_eq!(
-            call(&[], r#"{"name":"Mix","public":false,"owner":"x"}"#).json::<Rename>(),
-            invalid
-        );
-        assert_eq!(
-            call(&[], r#"{"name":"Mix","name":"Mix","public":false}"#).json::<Rename>(),
-            invalid
-        );
-        assert_eq!(
-            call(&[], r#"{"name":"Mix","public":"no"}"#).json::<Rename>(),
-            invalid
-        );
-    }
-
-    /// Verifies: SEC-API-067
-    #[test]
-    fn decodes_queries_strictly() {
-        assert_eq!(
-            call(&[("genre", "jazz")], "").query::<Filter>(),
-            Ok(Filter {
-                genre: "jazz".to_owned(),
-                sort: None
-            })
-        );
-        assert_eq!(
-            call(&[("genre", "jazz"), ("callback", "f")], "").query::<Filter>(),
-            Err(ApiError::new(ProblemCode::InvalidRequest))
-        );
-    }
-
     #[test]
     fn exposes_the_grant() {
         let mut grant = Extensions::new();
         grant.insert(7_u32);
-        let call = granted(&[], "", grant);
+        let call = call(grant);
         assert_eq!(call.grant().get::<u32>(), Some(&7));
         assert_eq!(call.grant().get::<u64>(), None);
     }

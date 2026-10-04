@@ -7,9 +7,9 @@
 //! that names a user, profile, owner, account or household on a route that
 //! may not name principals: the acting principal comes only from the
 //! credential. Nothing is built from the body here, so the checks cost no
-//! more memory than the deepest path through it. The handler then decodes
-//! the same bytes into its typed request, which refuses unknown fields
-//! ([`crate::call::Call::json`]).
+//! more memory than the deepest path through it. The pipeline then decodes
+//! the same bytes into the route's typed request, which refuses unknown
+//! fields ([`crate::request`]).
 
 use core::cell::Cell;
 use core::fmt;

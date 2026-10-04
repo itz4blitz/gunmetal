@@ -9,6 +9,8 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
+use crate::request::Fields;
+
 /// The page size most routes allow.
 pub const PAGE_CAP: u32 = 500;
 
@@ -96,6 +98,10 @@ pub struct PageQuery<const MAX: u32 = PAGE_CAP> {
     pub limit: Option<PageLimit<MAX>>,
     /// Where to continue from.
     pub cursor: Option<Cursor>,
+}
+
+impl<const MAX: u32> Fields for PageQuery<MAX> {
+    const FIELDS: &'static [&'static str] = &["cursor", "limit"];
 }
 
 /// One page of a list.

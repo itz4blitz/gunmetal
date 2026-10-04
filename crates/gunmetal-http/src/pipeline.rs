@@ -28,7 +28,10 @@
 //!    the route's size cap (413, before anything is decoded), then the
 //!    structural checks of [`crate::decode`] and the placement of every
 //!    parameter (400) (SEC-API-035, SEC-API-060, SEC-API-065, SEC-API-067).
-//! 10. The handler.
+//! 10. The typed request: the query and the body decode into the types the
+//!     route declared, and a name neither type declares is refused (400)
+//!     (SEC-API-067, SEC-IAM-072; [`crate::request`]).
+//! 11. The handler.
 //!
 //! Whatever happens, the response is built in one place: its headers come
 //! from [`security_headers`] and its error body from the problem catalogue
@@ -53,13 +56,14 @@ use axum::http::{Extensions, HeaderMap, HeaderValue, Request, Response, StatusCo
 use gunmetal_core::problem::ProblemCode;
 
 use crate::browser::same_origin;
-use crate::call::{Call, Reply};
+use crate::call::Reply;
 use crate::credential::{self, Credential};
 use crate::decode;
 use crate::headers::{BodyKind, security_headers};
 use crate::host::{Host, HostAllowList, HostKind};
 use crate::problem::{ApiError, RequestId, render};
 use crate::query::parse_query;
+use crate::request::Raw;
 use crate::route::{BodyRule, Method, RouteSpec};
 use crate::table::{RouteEntry, Table, TableError};
 
@@ -280,21 +284,25 @@ impl Pipeline {
         (self.hooks.rate)(spec, Arc::clone(&grant)).await?;
         let bytes = read_body(&spec, &parts.headers, body).await?;
         let names_principals = spec.access.names_principals();
-        let keys = match spec.body {
-            BodyRule::None => Vec::new(),
-            BodyRule::Json(limits) => decode::check(&bytes, limits, names_principals)
-                .map_err(|_| ProblemCode::InvalidRequest)?,
+        let (body, keys) = match spec.body {
+            BodyRule::None => (None, Vec::new()),
+            BodyRule::Json(limits) => {
+                let keys = decode::check(&bytes, limits, names_principals)
+                    .map_err(|_| ProblemCode::InvalidRequest)?;
+                (Some(bytes), keys)
+            }
         };
         if !decode::placed(&query, &found.params, &keys, names_principals) {
             return Err(ProblemCode::InvalidRequest.into());
         }
-        let call = Call {
+        let raw = Raw {
             params: found.params,
             query,
-            body: bytes,
+            body,
+            keys,
             grant,
         };
-        Ok(entry.call(call).await?)
+        Ok(entry.call(raw).await?)
     }
 
     /// The host the request named, if the server answers to it. A request

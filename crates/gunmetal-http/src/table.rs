@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use crate::call::{Call, Reply};
 use crate::problem::ApiError;
+use crate::request::{Fields, Raw, typed};
 use crate::route::{AccessClass, Method, RouteSpec};
 
 /// Where every route lives (SEC-API-092).
@@ -24,11 +25,12 @@ pub const PREFIX: &str = "/api/v1/";
 /// What a handler returns.
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Reply, ApiError>> + Send>>;
 
-/// A handler, shared by every request to its route.
-type Handler = Arc<dyn Fn(Call) -> HandlerFuture + Send + Sync>;
+/// A route's decoder and handler, shared by every request to the route.
+type Handler = Arc<dyn Fn(Raw) -> HandlerFuture + Send + Sync>;
 
-/// A route's spec and its handler. A handler cannot reach the router any
-/// other way.
+/// A route's spec, its request types and its handler. A handler cannot
+/// reach the router any other way, and is not called until the request has
+/// decoded into those types.
 #[derive(Clone)]
 pub struct RouteEntry {
     spec: RouteSpec,
@@ -36,15 +38,25 @@ pub struct RouteEntry {
 }
 
 impl RouteEntry {
-    /// Pairs a spec with its handler.
-    pub fn new<F, Fut>(spec: RouteSpec, handler: F) -> Self
+    /// Pairs a spec with its handler. The handler's argument names the
+    /// route's query type `Q` and body type `B`; a route that takes neither
+    /// has a handler over plain [`Call`]. The request is decoded into both
+    /// before the handler is called, and a request that names a field
+    /// either type does not, or does not fit them, is answered with
+    /// `invalid_request` (SEC-API-067, SEC-IAM-072).
+    pub fn new<Q, B, F, Fut>(spec: RouteSpec, handler: F) -> Self
     where
-        F: Fn(Call) -> Fut + Send + Sync + 'static,
+        Q: Fields,
+        B: Fields,
+        F: Fn(Call<Q, B>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Reply, ApiError>> + Send + 'static,
     {
         Self {
             spec,
-            handler: Arc::new(move |call| Box::pin(handler(call))),
+            handler: Arc::new(move |raw| {
+                let answer = typed::<Q, B>(raw).map(&handler);
+                Box::pin(async move { answer?.await })
+            }),
         }
     }
 
@@ -54,8 +66,10 @@ impl RouteEntry {
         &self.spec
     }
 
-    pub(crate) fn call(&self, call: Call) -> HandlerFuture {
-        (self.handler)(call)
+    /// Decodes the request and, if it fits the route's types, calls the
+    /// handler.
+    pub(crate) fn call(&self, raw: Raw) -> HandlerFuture {
+        (self.handler)(raw)
     }
 }
 
@@ -229,9 +243,9 @@ mod tests {
     use super::*;
     use crate::client::block_on;
     use crate::route::{Access, BodyRule, Effect, RateClass, RouteTag};
-    use axum::body::Bytes;
     use axum::http::Extensions;
     use gunmetal_core::problem::ProblemCode;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const fn spec(method: Method, path: &'static str, effect: Effect) -> RouteSpec {
         RouteSpec {
@@ -429,23 +443,52 @@ mod tests {
         }
     }
 
+    fn raw(params: Vec<(&'static str, String)>, query: &[(&str, &str)]) -> Raw {
+        Raw {
+            params,
+            query: query
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
+                .collect(),
+            body: None,
+            keys: Vec::new(),
+            grant: Arc::new(Extensions::new()),
+        }
+    }
+
     #[test]
     fn an_entry_calls_its_handler_with_the_call() {
         let entry = entry(Method::Get, "/api/v1/a/{id}");
-        let call = |params| Call {
-            params,
-            query: Vec::new(),
-            body: Bytes::new(),
-            grant: Arc::new(Extensions::new()),
-        };
         assert_eq!(
-            block_on(entry.call(call(vec![("id", "a_1".to_owned())]))),
+            block_on(entry.call(raw(vec![("id", "a_1".to_owned())], &[]))),
             Ok(Reply::empty())
         );
         assert_eq!(
-            block_on(entry.call(call(Vec::new()))),
+            block_on(entry.call(raw(Vec::new(), &[]))),
             Err(ApiError::new(ProblemCode::NotFound))
         );
+    }
+
+    /// Verifies: SEC-API-067
+    #[test]
+    fn an_entry_decodes_before_it_calls_its_handler() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let entry = RouteEntry::new(
+            spec(Method::Get, "/api/v1/a/{id}", Effect::Reads),
+            move |_: Call| {
+                counted.fetch_add(1, Ordering::SeqCst);
+                async { Ok(Reply::empty()) }
+            },
+        );
+        let id = || vec![("id", "a_1".to_owned())];
+        assert_eq!(
+            block_on(entry.call(raw(id(), &[("callback", "f")]))),
+            Err(ApiError::new(ProblemCode::InvalidRequest))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(block_on(entry.call(raw(id(), &[]))), Ok(Reply::empty()));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

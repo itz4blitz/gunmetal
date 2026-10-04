@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{HeaderValue, Request};
-use gunmetal_http::call::Reply;
+use gunmetal_http::call::{Call, Reply};
 use gunmetal_http::client::{TestClient, TestResponse};
 use gunmetal_http::credential::Credential;
 use gunmetal_http::pipeline::{AccessRecord, router};
@@ -96,7 +96,7 @@ fn logs_the_route_template_and_never_the_path_or_a_credential() {
     let (client, seen) = client();
     let mut with_peer = bearer(
         "GET",
-        "/api/v1/playlists/pls_SECRET?limit=tok_SECRET",
+        "/api/v1/playlists/pls_SECRET?cursor=tok_SECRET",
         &[],
         "",
     );
@@ -116,7 +116,9 @@ fn logs_the_route_template_and_never_the_path_or_a_credential() {
             vec![with_peer, refused, unknown, get("/api/v1/server")]
         ),
         [
-            json(200, r#"{"id":"pls_SECRET","name":"Mix"}"#),
+            // The playlist route takes no query, so this one is refused;
+            // its record still names only the template.
+            invalid(0),
             not_found(1),
             not_found(2),
             json(200, r#"{"name":"gm"}"#),
@@ -127,7 +129,7 @@ fn logs_the_route_template_and_never_the_path_or_a_credential() {
         logged,
         [
             (
-                record(0, Some(Method::Get), Some("/api/v1/playlists/{id}"), 200),
+                record(0, Some(Method::Get), Some("/api/v1/playlists/{id}"), 400),
                 Some("Bearer alice".to_owned()),
                 Some(Peer(9)),
             ),
@@ -194,7 +196,7 @@ fn builds_a_router_only_from_a_well_formed_table() {
     let build = |method, path, effect| {
         let entry = RouteEntry::new(
             spec(method, path, Access::Public { effect }, BodyRule::None),
-            |_| async { Ok(Reply::empty()) },
+            |_: Call| async { Ok(Reply::empty()) },
         );
         router(&[entry.clone(), entry], hooks(&seen, false)).map(|_| ())
     };
@@ -234,7 +236,7 @@ fn lists_the_routes_that_need_no_session() {
     let mut more = entries(&seen);
     more.push(RouteEntry::new(
         spec(Method::Get, "/api/v1/leak", PUBLIC, BodyRule::None),
-        |_| async { Ok(Reply::empty()) },
+        |_: Call| async { Ok(Reply::empty()) },
     ));
     let mut longer = allow_list.to_vec();
     longer.push((Method::Get, "/api/v1/leak"));
@@ -707,8 +709,8 @@ fn refuses_bodies_over_the_cap_before_decoding() {
                 // unread.
                 bearer("POST", "/api/v1/notes", &[JSON], &"{".repeat(33)),
                 bearer("DELETE", "/api/v1/playlists/p", &[], "x"),
-                bearer("POST", "/api/v1/notes", &[JSON], "[1,2,3,4,5]"),
-                bearer("POST", "/api/v1/notes", &[JSON], "[1,2,3,4]"),
+                bearer("POST", "/api/v1/notes", &[JSON], r#"{"tags":[1,2,3,4,5]}"#),
+                bearer("POST", "/api/v1/notes", &[JSON], r#"{"tags":[1,2,3,4]}"#),
                 bearer("POST", "/api/v1/notes", &[JSON], &"[".repeat(32)),
                 bearer("POST", "/api/v1/notes", &[JSON], ""),
             ]
@@ -729,8 +731,9 @@ fn refuses_bodies_over_the_cap_before_decoding() {
 /// Verifies: SEC-API-067, SEC-IAM-072
 #[test]
 fn refuses_extra_duplicate_and_repeated_fields() {
-    let (client, _) = client();
-    let patch = |body: &str| bearer("PATCH", "/api/v1/playlists/p", &[JSON], body);
+    let (client, seen) = client();
+    let patch_at = |target: &str, body: &str| bearer("PATCH", target, &[JSON], body);
+    let patch = |body: &str| patch_at("/api/v1/playlists/p", body);
     let requests = vec![
         patch(r#"{"name":"x","public":true}"#),
         patch(r#"{"name":"x","role":"admin"}"#),
@@ -752,9 +755,25 @@ fn refuses_extra_duplicate_and_repeated_fields() {
         bearer("GET", "/api/v1/playlists/p?id=q", &[], ""),
         bearer("GET", "/api/v1/tracks?limit=%zz", &[], ""),
         bearer("GET", "/api/v1/nowhere?limit=%zz", &[], ""),
+        // Routes that declare no query type take no query parameter, though
+        // their handlers never look at the query.
+        bearer("GET", "/api/v1/me?callback=f", &[], ""),
+        bearer("GET", "/api/v1/playlists/p?limit=5", &[], ""),
+        bearer("DELETE", "/api/v1/playlists/p?force=1", &[], ""),
+        get("/api/v1/server?callback=f"),
+        patch_at("/api/v1/playlists/p?limit=5", r#"{"name":"x"}"#),
+        // A key the body type does not name, on a handler that never reads
+        // the body's fields.
+        bearer("POST", "/api/v1/notes", &[JSON], r#"{"pinned":true}"#),
+        bearer("POST", "/api/v1/notes?limit=5", &[JSON], "{}"),
+        // A body is one object: not the fields in order, and not a scalar.
+        patch(r#"["x"]"#),
+        patch(r#""x""#),
+        bearer("POST", "/api/v1/notes", &[JSON], "[]"),
     ];
-    let expected: Vec<TestResponse> = (0..15).map(invalid).collect();
+    let expected: Vec<TestResponse> = (0..25).map(invalid).collect();
     assert_eq!(send_all(&client, requests), expected);
+    assert_eq!(seen.handled(), [] as [&str; 0]);
     assert_eq!(
         send_all(
             &client,
@@ -762,12 +781,23 @@ fn refuses_extra_duplicate_and_repeated_fields() {
                 bearer("GET", "/api/v1/tracks?limit=500", &[], ""),
                 bearer("GET", "/api/v1/tracks", &[], ""),
                 bearer("GET", "/api/v1/tracks?", &[], ""),
+                bearer("GET", "/api/v1/tracks?cursor=n1&limit=2", &[], ""),
+                patch(" {\"name\":\"x\"}"),
+                bearer(
+                    "POST",
+                    "/api/v1/notes",
+                    &[JSON],
+                    r#"{"text":"a","tags":[1]}"#
+                ),
             ]
         ),
         [
             json(200, r#"{"limit":500}"#),
             json(200, r#"{"limit":null}"#),
             json(200, r#"{"limit":null}"#),
+            json(200, r#"{"limit":2}"#),
+            json(200, r#"{"id":"p","name":"x"}"#),
+            empty(),
         ]
     );
 }
@@ -785,8 +815,12 @@ fn takes_the_acting_principal_only_from_the_credential() {
         bearer("GET", "/api/v1/tracks?user_id=usr_b", &[], ""),
         bearer("GET", "/api/v1/tracks?Profile=prf_b", &[], ""),
         bearer("GET", "/api/v1/me?household=h", &[], ""),
+        // The notes route's types declare `owner` and `user_id`, so only
+        // the principal check refuses these two.
+        bearer("POST", "/api/v1/notes", &[JSON], r#"{"owner":"usr_b"}"#),
+        bearer("POST", "/api/v1/notes?user_id=usr_b", &[JSON], "{}"),
     ];
-    let expected: Vec<TestResponse> = (0..7).map(invalid).collect();
+    let expected: Vec<TestResponse> = (0..9).map(invalid).collect();
     assert_eq!(send_all(&client, requests), expected);
     // An admin route that acts on other principals may name one.
     assert_eq!(
@@ -1034,7 +1068,7 @@ fn sends_the_golden_headers_and_no_cors_or_server_header() {
         ],
         "",
     );
-    // A callback parameter changes nothing: the answer is still JSON.
+    // A callback parameter is refused: nothing answers as a script.
     let foreign = bearer("GET", "/api/v1/me?callback=f", &[("origin", "null")], "");
     let sets: Vec<(u16, Vec<(String, String)>)> = send_all(
         &client,
@@ -1071,7 +1105,7 @@ fn sends_the_golden_headers_and_no_cors_or_server_header() {
             (200, golden("28", &[("content-type", "application/json")])),
             (204, golden("0", &[])),
             (405, golden("152", &[problem_type, ("allow", "GET")])),
-            (200, golden("28", &[("content-type", "application/json")])),
+            (400, golden("156", &[problem_type])),
             (404, golden("192", &[problem_type])),
             (400, golden("208", &[problem_type])),
             (421, golden("153", &[problem_type])),

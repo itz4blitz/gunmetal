@@ -19,6 +19,7 @@ use gunmetal_http::host::HostAllowList;
 use gunmetal_http::paging::{PageLimit, PageQuery};
 use gunmetal_http::pipeline::{AccessRecord, Attempt, Hooks, router};
 use gunmetal_http::problem::{ApiError, RequestId};
+use gunmetal_http::request::{Fields, NoQuery};
 use gunmetal_http::route::{
     Access, AdminEffect, BodyRule, Capability, Effect, IdPlace, JsonLimits, Method, RateClass,
     RouteSpec, RouteTag, Target,
@@ -72,16 +73,44 @@ struct Playlist {
 }
 impl ResponseBody for Playlist {}
 
+// None of the stand-in request types refuses unknown fields itself: the
+// pipeline has to, from the fields each one names.
+
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Rename {
     name: String,
 }
+impl Fields for Rename {
+    const FIELDS: &'static [&'static str] = &["name"];
+}
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Disable {
     user: String,
+}
+impl Fields for Disable {
+    const FIELDS: &'static [&'static str] = &["user"];
+}
+
+/// A note. `owner` is the mistake SEC-API-013 guards against: a field that
+/// names a principal, declared on a route that may not name one.
+#[derive(Deserialize)]
+struct Note {
+    text: Option<String>,
+    tags: Option<Vec<u8>>,
+    owner: Option<String>,
+}
+impl Fields for Note {
+    const FIELDS: &'static [&'static str] = &["owner", "tags", "text"];
+}
+
+/// The notes route's query, with the same mistake.
+#[derive(Deserialize)]
+struct NoteQuery {
+    user_id: Option<String>,
+}
+impl Fields for NoteQuery {
+    const FIELDS: &'static [&'static str] = &["user_id"];
 }
 
 #[derive(Serialize)]
@@ -239,7 +268,7 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
     vec![
         RouteEntry::new(
             spec(Method::Get, "/api/v1/server", PUBLIC, BodyRule::None),
-            |_| async { Reply::json(&Server { name: "gm" }) },
+            |_: Call| async { Reply::json(&Server { name: "gm" }) },
         ),
         RouteEntry::new(
             spec(
@@ -262,7 +291,7 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 user(Effect::Mutates),
                 BodyRule::None,
             ),
-            move |_| {
+            move |_: Call| {
                 let seen = Arc::clone(&write);
                 async move {
                     let transaction = Transaction::begin(&seen);
@@ -279,11 +308,10 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 user(Effect::Mutates),
                 BodyRule::Json(JsonLimits::DEFAULT),
             ),
-            |call: Call| async move {
-                let rename: Rename = call.json()?;
+            |call: Call<NoQuery, Rename>| async move {
                 Reply::json(&Playlist {
                     id: call.param("id")?.to_owned(),
-                    name: rename.name,
+                    name: call.body.name,
                 })
             },
         ),
@@ -297,7 +325,15 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 ids: &[],
                 rate: RateClass::Write,
             },
-            |_| async { Ok(Reply::empty()) },
+            |call: Call<NoteQuery, Note>| async move {
+                drop((
+                    call.query.user_id,
+                    call.body.text,
+                    call.body.tags,
+                    call.body.owner,
+                ));
+                Ok(Reply::empty())
+            },
         ),
         RouteEntry::new(
             RouteSpec {
@@ -313,11 +349,10 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 ids: &[IdPlace::Path, IdPlace::Body],
                 rate: RateClass::Write,
             },
-            |call: Call| async move {
-                let disable: Disable = call.json()?;
+            |call: Call<NoQuery, Disable>| async move {
                 Reply::json(&Disabled {
                     id: call.param("id")?.to_owned(),
-                    user: disable.user,
+                    user: call.body.user,
                 })
             },
         ),
@@ -328,10 +363,9 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 user(Effect::Reads),
                 BodyRule::None,
             ),
-            |call: Call| async move {
-                let query: PageQuery = call.query()?;
+            |call: Call<PageQuery>| async move {
                 Reply::json(&Listed {
-                    limit: query.limit.map(PageLimit::get),
+                    limit: call.query.limit.map(PageLimit::get),
                 })
             },
         ),
@@ -355,7 +389,7 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
         ),
         RouteEntry::new(
             spec(Method::Get, "/api/v1/test/panic", PUBLIC, BodyRule::None),
-            move |_| {
+            move |_: Call| {
                 let seen = Arc::clone(&index);
                 async move {
                     // A handler that fails mid-transaction in a way nobody
@@ -375,7 +409,7 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 PUBLIC,
                 BodyRule::None,
             ),
-            move |_| {
+            move |_: Call| {
                 let seen = Arc::clone(&text);
                 async move {
                     let _transaction = Transaction::begin(&seen);
@@ -392,7 +426,7 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 PUBLIC,
                 BodyRule::None,
             ),
-            move |_| {
+            move |_: Call| {
                 let seen = Arc::clone(&other);
                 async move {
                     let _transaction = Transaction::begin(&seen);
@@ -402,11 +436,11 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
         ),
         RouteEntry::new(
             spec(Method::Get, "/api/v1/test/missing", PUBLIC, BodyRule::None),
-            |_| async { Err(ApiError::new(ProblemCode::NotFound)) },
+            |_: Call| async { Err(ApiError::new(ProblemCode::NotFound)) },
         ),
         RouteEntry::new(
             spec(Method::Get, "/api/v1/test/slow", PUBLIC, BodyRule::None),
-            |_| async {
+            |_: Call| async {
                 YieldOnce(false).await;
                 Reply::json(&Server { name: "slow" })
             },
