@@ -46,9 +46,13 @@
 //!   holds one. The first is kept, and a later one that disagrees is
 //!   recorded as [`Problem::Disagrees`]. A number above its total is kept,
 //!   as [`TrackPosition`] allows. A total that cannot be read does not cost
-//!   the number written before it.
+//!   the number written before it, after `/` or after `of`.
 //! - An R128 gain is a whole number in Q7.8, so every 16-bit value is a
-//!   gain from −128 dB to just under +128 dB; it has no peak.
+//!   gain from −128 dB to just under +128 dB; it has no peak. A
+//!   `ReplayGain` peak belongs to its gain, so it is not mapped without
+//!   one or beside an R128 gain.
+//! - A release-type comment with words that are not release types is
+//!   recorded once, however many such words it holds.
 //! - Vorbis comments have no established key for a content advisory or for
 //!   encoder trim, so those stay empty.
 //!
@@ -62,6 +66,11 @@
 //! (SEC-MED-006). Dates, numbers, identifiers, gains and peaks are read by
 //! the validators in [`values`](crate::values); a value outside its range is
 //! dropped and recorded as [`Problem::InvalidValue`] (SEC-MED-014).
+//!
+//! Each comment is read for one field only, and gives at most two
+//! problems (a cut and then a full list, for example), so
+//! [`Mapped::problems`] is bounded by the comments the parser kept under
+//! [`LimitKind::TagFields`].
 //!
 //! # Work
 //!
@@ -432,8 +441,12 @@ impl<'a> Mapper<'a> {
             Err(ValueError::AboveTotal { number, total }) => (Some(number), Some(total)),
             Err(error) => {
                 self.problems.push(Problem::InvalidValue { source, error });
-                let number = raw
+                // Split as `NumberOf::parse` does, so that the number before a
+                // total it refused is read on its own.
+                let lower = raw.to_ascii_lowercase();
+                let number = lower
                     .split_once('/')
+                    .or_else(|| lower.split_once(" of "))
                     .and_then(|(number, _)| NumberOf::parse(Untrusted::new(number)).ok())
                     .map(NumberOf::number);
                 (number, None)
@@ -503,9 +516,10 @@ impl<'a> Mapper<'a> {
         let mut release = ReleaseType::default();
         let mut first = None;
         for (source, raw) in self.first(&["RELEASETYPE", "MUSICBRAINZ_ALBUMTYPE"]) {
+            let mut unknown = false;
             for word in raw.split([';', ',']).filter(|word| !word.trim().is_empty()) {
                 let Some(token) = type_token(word) else {
-                    self.problems.push(Problem::Unrecognised { source });
+                    unknown = true;
                     continue;
                 };
                 first.get_or_insert(source);
@@ -518,6 +532,9 @@ impl<'a> Mapper<'a> {
                     }
                     TypeToken::Secondary(_) => {}
                 }
+            }
+            if unknown {
+                self.problems.push(Problem::Unrecognised { source });
             }
         }
         (first.and(Some(release)), first)
@@ -1608,6 +1625,30 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn a_total_written_after_of_that_cannot_be_read_does_not_cost_the_number() {
+        use ValueField::Total;
+        assert_eq!(
+            map(&[("TRACKNUMBER", "3 Of many"), ("DISCNUMBER", "2 of 0")]),
+            Mapped {
+                tags: TrackTags {
+                    position: position(Some(3), None, Some(2), None),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    track: Some(src(0)),
+                    disc: Some(src(1)),
+                    ..Sources::default()
+                },
+                problems: vec![
+                    invalid(0, malformed(Total)),
+                    invalid(1, out_of_range(Total, 0)),
+                ],
+            }
+        );
+    }
+
     #[test]
     fn the_limits_of_a_number_and_a_total_are_kept() {
         assert_eq!(
@@ -1874,6 +1915,23 @@ mod tests {
         assert_eq!(
             map(&[("RELEASETYPE", "bootleg")]),
             only_problems(vec![Problem::Unrecognised { source: src(0) }])
+        );
+    }
+
+    #[test]
+    fn a_release_type_comment_is_recorded_once_however_many_words_are_unknown() {
+        assert_eq!(
+            map(&[
+                ("RELEASETYPE", "bootleg; promo, live;x"),
+                ("RELEASETYPE", "y,y,y"),
+            ]),
+            Mapped {
+                problems: vec![
+                    Problem::Unrecognised { source: src(0) },
+                    Problem::Unrecognised { source: src(1) },
+                ],
+                ..released(None, &[SecondaryType::Live], 0)
+            }
         );
     }
 
@@ -2451,6 +2509,18 @@ mod tests {
         );
     }
 
+    /// The comment `problem` names.
+    fn problem_source(problem: &Problem) -> Source {
+        match *problem {
+            Problem::InvalidValue { source, .. }
+            | Problem::Unrecognised { source }
+            | Problem::Truncated { source, .. }
+            | Problem::ListFull { source }
+            | Problem::Disagrees { source, .. }
+            | Problem::Lyrics { source, .. } => source,
+        }
+    }
+
     /// A key the mapper knows or any other, and any text as its value.
     fn any_field() -> impl Strategy<Value = (String, String)> {
         let known = prop::sample::select(vec![
@@ -2478,6 +2548,7 @@ mod tests {
             any::<String>(),
             "[0-9/ ]{0,6}",
             "\\[0[0-9]:0[0-9]\\][a-z\n]{0,6}",
+            "[a-z ;,]{0,16}",
             Just(String::from(ARTIST_A)),
             Just(String::from("USS1Z9900001")),
         ];
@@ -2486,8 +2557,9 @@ mod tests {
 
     proptest! {
         /// Whatever the fields hold, no list is longer than the tag-field
-        /// limit, no text is longer than its limit, and every source and
-        /// problem names a comment of the block.
+        /// limit, no text is longer than its limit, every source names a
+        /// comment of the block, and no comment gives more than two
+        /// problems.
         #[test]
         fn any_fields_map_within_the_limits(fields in vec(any_field(), 0..12)) {
             let limits = limits(&[
@@ -2537,6 +2609,12 @@ mod tests {
                 sources.lyrics,
             ];
             prop_assert!(named.iter().flatten().all(|source| source.index < fields.len()));
+            let problems = mapped.problems.iter().map(problem_source);
+            prop_assert!(problems.clone().all(|source| source.index < fields.len()));
+            for index in 0..fields.len() {
+                let given = problems.clone().filter(|source| *source == src(index)).count();
+                prop_assert!(given <= 2, "comment {} gave {} problems", index, given);
+            }
         }
     }
 }
