@@ -16,13 +16,9 @@ use crate::client_context::PathClass;
 use crate::id::PublicId;
 
 /// The actions any principal may ask for with no capability: signing out,
-/// and its own data.
-const NEED_NOTHING: [Action; 4] = [
-    Action::SignOut,
-    Action::ReadOwnData,
-    Action::WriteOwnData,
-    Action::ManageOwnCredentials,
-];
+/// and managing its own credentials. Reading and changing its own data
+/// need `own.read` and `own.write`.
+const NEED_NOTHING: [Action; 2] = [Action::SignOut, Action::ManageOwnCredentials];
 
 /// The capabilities nobody but the owner may hold.
 const OWNER_ONLY: [Capability; 6] = [
@@ -166,7 +162,7 @@ fn scope_reaches(scope: &Scope, library: &PublicId) -> bool {
 proptest! {
     /// Verifies: SEC-IAM-068
     #[test]
-    fn a_principal_with_no_grants_may_only_sign_out_and_use_its_own_data(
+    fn a_principal_with_no_grants_may_only_sign_out_and_manage_its_own_credentials(
         mut principal in facts(),
         action in action(),
         resource in resource(),
@@ -286,6 +282,12 @@ proptest! {
         let with_scope = decide(&scoped, action, &resource, &context);
         let without = decide(&holder, action, &resource, &context);
         prop_assert!(!allowed(&with_scope) || allowed(&without));
+        // A scope that names no capability allows nothing but signing out,
+        // the holder's own data included.
+        let mut empty = scoped.clone();
+        empty.scope = Some(Scope { capabilities: CapabilitySet::EMPTY, libraries: scope.libraries.clone() });
+        let with_empty_scope = decide(&empty, action, &resource, &context);
+        prop_assert!(!allowed(&with_empty_scope) || action == Action::SignOut);
         if let (Ok(with_scope), Ok(without)) = (&with_scope, &without) {
             for n in 0..4 {
                 let library = library(n);
