@@ -1,0 +1,12 @@
+# Gunmetal's security contact (RFC 9116). Report vulnerabilities privately
+# through GitHub, as the policy below describes. The owner decided on
+# 2026-10-02 to take reports through GitHub only, with no email alias yet.
+#
+# Renew this file before it expires. `cargo run -p xtask -- site` and the
+# gate's tests refuse it once it has expired or when it is set to expire a
+# year or more ahead (SEC-SUP-008).
+Contact: https://github.com/PremierStudio/gunmetal/security/advisories/new
+Expires: 2027-09-30T00:00:00Z
+Policy: https://github.com/PremierStudio/gunmetal/blob/main/SECURITY.md
+Canonical: https://gunmetal.tv/.well-known/security.txt
+Preferred-Languages: en
