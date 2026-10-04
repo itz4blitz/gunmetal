@@ -350,9 +350,9 @@ include-archives = true
 # probes of the compiler's version and features, and set cfg flags.
 #
 # Added with WP-044's serde_json (D-02), reviewed 2026-10-03:
-# serde_json and zmij only set cfg flags (serde_json from target
-# arch/pointer width; zmij from rustc --version). They fetch nothing
-# and run no other program.
+# serde_json sets a cfg flag from the target's architecture and pointer
+# width. zmij runs rustc --version and sets cfg flags from the answer and
+# from OPT_LEVEL. They fetch nothing and run no other program.
 allow-build-scripts = [
     "cap-primitives",
     "cap-std",
