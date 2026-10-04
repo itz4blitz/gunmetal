@@ -25,9 +25,9 @@ pub fn bounded_capacity(declared: u64, min_item_len: u64, remaining: u64, ceilin
 
 /// An empty vector with room for [`bounded_capacity`] items.
 ///
-/// When the allocator cannot provide that room, the vector comes back empty
-/// and unreserved instead of aborting the process; it still grows one item
-/// at a time.
+/// When that room is more than a vector can hold, or the allocator cannot
+/// provide it, the vector comes back empty and unreserved instead of
+/// aborting the process; it still grows one item at a time.
 #[must_use]
 #[expect(
     clippy::disallowed_methods,
@@ -136,8 +136,10 @@ mod tests {
 
     /// Verifies: SEC-MED-001, SEC-MED-003
     #[test]
-    fn comes_back_empty_instead_of_aborting_when_the_allocator_refuses() {
-        // `usize::MAX` eight-octet items overflow any address space.
+    fn comes_back_empty_instead_of_aborting_when_the_capacity_overflows() {
+        // `usize::MAX` eight-octet items are more octets than `isize::MAX`,
+        // so the reservation is refused as a capacity overflow before the
+        // allocator is asked for anything.
         let items: Vec<u64> = bounded_vec(u64::MAX, 1, u64::MAX, u64::MAX);
         assert_eq!((items.len(), items.capacity()), (0, 0));
     }
