@@ -138,9 +138,23 @@ fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
         .and_then(Ruleset::create)
 }
 
+/// The rules for one allowlist row. A row without checks has no rule,
+/// which is how seccompiler spells "always" (a rule with no condition is
+/// an error there). A row with checks has one rule that needs all of
+/// them, and an error building it is returned, so a guarded row can never
+/// compile to an unconditional one.
+fn rules(conditions: Vec<SeccompCondition>) -> Result<Vec<SeccompRule>, seccompiler::BackendError> {
+    if conditions.is_empty() {
+        Ok(Vec::new())
+    } else {
+        SeccompRule::new(conditions).map(|rule| vec![rule])
+    }
+}
+
 /// The compiled filter for `native`: every call on the allowlist is
 /// allowed when its checks hold, and anything else kills the process.
-/// `None` when there is no native architecture, as on 32-bit ARM.
+/// `None` when there is no native architecture, as on 32-bit ARM, or when
+/// any part of the filter fails to build.
 fn program_for(native: Option<NativeArch>, pid: u32) -> Option<BpfProgram> {
     native.and_then(|(arch, number)| {
         ALLOWLIST
@@ -151,10 +165,8 @@ fn program_for(native: Option<NativeArch>, pid: u32) -> Option<BpfProgram> {
                     .iter()
                     .map(condition)
                     .collect::<Result<Vec<_>, _>>()
-                    // A rule with no condition is an error in seccompiler,
-                    // and no rule at all is how it spells "always".
-                    .map(|conditions| SeccompRule::new(conditions).into_iter().collect())
-                    .map(|rules: Vec<SeccompRule>| (number(&allowed), rules))
+                    .and_then(rules)
+                    .map(|rules| (number(&allowed), rules))
             })
             .collect::<Result<BTreeMap<i64, Vec<SeccompRule>>, _>>()
             .and_then(|rules| {
@@ -227,10 +239,175 @@ impl Kernel for Linux {
 
 #[cfg(test)]
 mod tests {
-    use super::{Kernel, Linux, numbers, program, program_for};
+    use super::{Kernel, Linux, NativeArch, numbers, program, program_for, rules};
+    use seccompiler::{
+        SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompRule, TargetArch, sock_filter,
+    };
+    use std::collections::BTreeSet;
     use std::io::ErrorKind;
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
-    use std::time::Duration;
+
+    /// A row without checks has no rule, which seccompiler reads as
+    /// "always"; a row with checks has one rule that needs all of them.
+    #[test]
+    fn a_row_is_unconditional_only_when_it_has_no_checks() {
+        assert_eq!(rules(Vec::new()), Ok(Vec::new()));
+        let checks = vec![
+            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, 4321).unwrap(),
+            SeccompCondition::new(2, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, 6).unwrap(),
+        ];
+        assert_eq!(
+            rules(checks.clone()),
+            Ok(vec![SeccompRule::new(checks).unwrap()])
+        );
+    }
+
+    /// The verdict that lets a call through.
+    const ALLOW: u32 = 0x7fff_0000;
+    /// The verdict that kills the whole process.
+    const KILL: u32 = 0x8000_0000;
+    /// `AUDIT_ARCH_X86_64` and `AUDIT_ARCH_AARCH64`, the architecture
+    /// values the kernel puts in `seccomp_data`.
+    const X86_64: u32 = 0xc000_003e;
+    const AARCH64: u32 = 0xc000_00b7;
+    /// The worker's process ID in these cases.
+    const PID: u64 = 4321;
+
+    /// The kernel's `struct seccomp_data` for one call, little-endian:
+    /// the call number at 0, the architecture at 4, the instruction
+    /// pointer at 8 (left zero), and six 64-bit arguments from 16.
+    fn seccomp_data(arch: u32, call: u32, args: [u64; 6]) -> [u8; 64] {
+        let mut data = [0_u8; 64];
+        data[0..4].copy_from_slice(&call.to_le_bytes());
+        data[4..8].copy_from_slice(&arch.to_le_bytes());
+        for (index, arg) in args.iter().enumerate() {
+            let at = 16 + 8 * index;
+            data[at..at + 8].copy_from_slice(&arg.to_le_bytes());
+        }
+        data
+    }
+
+    /// Classic BPF as the kernel runs a seccomp filter, for the
+    /// instructions [`run`] knows: load a 32-bit word at an absolute
+    /// offset, `and` with a constant, jump always, jump if equal to a
+    /// constant, and return.
+    const KNOWN: [u16; 5] = [0x05, 0x06, 0x15, 0x20, 0x54];
+
+    /// The filter's verdict on `data`. The caller has checked that the
+    /// program uses only [`KNOWN`] instructions, so anything not matched
+    /// below is a return.
+    fn run(program: &[sock_filter], data: &[u8; 64]) -> u32 {
+        let mut accumulator = 0_u32;
+        let mut next = 0_usize;
+        loop {
+            let instruction = &program[next];
+            next += 1;
+            let k = instruction.k;
+            match instruction.code {
+                0x20 => {
+                    let at = usize::try_from(k).unwrap();
+                    accumulator = u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                }
+                0x54 => accumulator &= k,
+                0x05 => next += usize::try_from(k).unwrap(),
+                0x15 => {
+                    let offset = if accumulator == k {
+                        instruction.jt
+                    } else {
+                        instruction.jf
+                    };
+                    next += usize::from(offset);
+                }
+                _ => return k,
+            }
+        }
+    }
+
+    /// The x86-64 column of the allowlist.
+    const ON_X86_64: NativeArch = (TargetArch::x86_64, |allowed| allowed.x86_64);
+    /// The `AArch64` column of the allowlist.
+    const ON_AARCH64: NativeArch = (TargetArch::aarch64, |allowed| allowed.aarch64);
+
+    /// Runs the compiled filter for `native` over each case and returns
+    /// the verdicts, after checking it uses only instructions [`run`]
+    /// knows.
+    fn verdicts(native: NativeArch, cases: &[(u32, u32, [u64; 6])]) -> Vec<u32> {
+        let program = program_for(Some(native), 4321).unwrap();
+        let used: BTreeSet<u16> = program.iter().map(|instruction| instruction.code).collect();
+        assert_eq!(used, BTreeSet::from(KNOWN));
+        cases
+            .iter()
+            .map(|&(arch, call, args)| run(&program, &seccomp_data(arch, call, args)))
+            .collect()
+    }
+
+    /// The compiled program, not only the table, holds the two argument
+    /// guards: `mmap` only without `PROT_EXEC` (bit 4 of argument 2),
+    /// `tgkill` only as `SIGABRT` (6, argument 2) to the worker's own
+    /// process (argument 0). The guards compare the low 32 bits, as the
+    /// kernel reads these `int` arguments, so junk in the high half of the
+    /// process ID does not change the verdict.
+    ///
+    /// Verifies: SEC-MED-022, SEC-TM-044
+    #[test]
+    fn the_compiled_filter_holds_its_argument_guards_on_x86_64() {
+        let cases = [
+            // mmap(0, 4096, PROT_READ | PROT_WRITE, ...)
+            (X86_64, 9, [0, 4096, 3, 0x22, 0, 0]),
+            // mmap with PROT_EXEC, alone or with read and write.
+            (X86_64, 9, [0, 4096, 4, 0x22, 0, 0]),
+            (X86_64, 9, [0, 4096, 5, 0x22, 0, 0]),
+            (X86_64, 9, [0, 4096, 7, 0x22, 0, 0]),
+            // tgkill(own pid, tid, SIGABRT)
+            (X86_64, 234, [PID, 99, 6, 0, 0, 0]),
+            (X86_64, 234, [PID | 0x1_0000_0000, 99, 6, 0, 0, 0]),
+            // tgkill to another process, or with another signal.
+            (X86_64, 234, [PID + 1, 99, 6, 0, 0, 0]),
+            (X86_64, 234, [1, 1, 6, 0, 0, 0]),
+            (X86_64, 234, [PID, 99, 9, 0, 0, 0]),
+            (X86_64, 234, [PID, 6, 9, 0, 0, 0]),
+            // write(1, ..) is listed without a guard.
+            (X86_64, 1, [1, 0, 16, 0, 0, 0]),
+            // openat and mprotect are not listed.
+            (X86_64, 257, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 10, [0, 4096, 3, 0, 0, 0]),
+            // write's number from a process of another architecture.
+            (AARCH64, 1, [1, 0, 16, 0, 0, 0]),
+        ];
+        assert_eq!(
+            verdicts(ON_X86_64, &cases),
+            [
+                ALLOW, KILL, KILL, KILL, ALLOW, ALLOW, KILL, KILL, KILL, KILL, ALLOW, KILL, KILL,
+                KILL
+            ]
+        );
+    }
+
+    /// The same guards on `AArch64`, where `mmap` is 222, `tgkill` 131,
+    /// `write` 64, `openat` 56 and `mprotect` 226.
+    ///
+    /// Verifies: SEC-MED-022, SEC-TM-044
+    #[test]
+    fn the_compiled_filter_holds_its_argument_guards_on_aarch64() {
+        let cases = [
+            (AARCH64, 222, [0, 4096, 3, 0x22, 0, 0]),
+            (AARCH64, 222, [0, 4096, 4, 0x22, 0, 0]),
+            (AARCH64, 222, [0, 4096, 5, 0x22, 0, 0]),
+            (AARCH64, 222, [0, 4096, 7, 0x22, 0, 0]),
+            (AARCH64, 131, [PID, 99, 6, 0, 0, 0]),
+            (AARCH64, 131, [PID + 1, 99, 6, 0, 0, 0]),
+            (AARCH64, 131, [PID, 99, 9, 0, 0, 0]),
+            (AARCH64, 64, [1, 0, 16, 0, 0, 0]),
+            (AARCH64, 56, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 226, [0, 4096, 3, 0, 0, 0]),
+            (X86_64, 64, [1, 0, 16, 0, 0, 0]),
+        ];
+        assert_eq!(
+            verdicts(ON_AARCH64, &cases),
+            [
+                ALLOW, KILL, KILL, KILL, ALLOW, KILL, KILL, ALLOW, KILL, KILL, KILL
+            ]
+        );
+    }
 
     #[test]
     fn the_running_process_lists_its_threads_and_descriptors() {
@@ -380,6 +557,7 @@ mod tests {
 
     /// The `Seccomp:` line of a thread's status: 0 without a filter, 2
     /// with one.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     fn seccomp_mode(tid: i32) -> Option<String> {
         #[expect(
             clippy::disallowed_methods,
@@ -400,6 +578,9 @@ mod tests {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
     fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
+        use std::time::Duration;
+
         let tid = AtomicI32::new(0);
         // 0: not done yet. 1: no filter. 2: installed.
         let outcome = AtomicU8::new(0);
