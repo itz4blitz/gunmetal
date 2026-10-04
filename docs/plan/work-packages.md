@@ -2028,6 +2028,12 @@ returns the whole expected value.
   constructor, which was a convention rather than a guarantee
   (SEC-API-010).
 - **Not in scope.** Database queries (WP-065).
+- **Open follow-up.** WF-002 added `PathClass::UntrustedProxy` to the
+  core's client context. `Context::is_home` already treats it as
+  non-local, but the tests in `authz/context.rs`, `authz/decide.rs` and
+  `authz/properties.rs` still enumerate four path classes; they must name
+  the fifth, so that a test proves a request from an untrusted proxy is
+  never local (review of pull request #68, finding 5).
 - **Interface sketch.** `pub fn decide(p: &PrincipalFacts, a: Action, r: &ResourceFacts, c: &Context) -> Result<Permit, Denial>`;
   `pub fn may_issue(creator: &PrincipalFacts, requested: &Scope) -> Result<Scope, Denial>`;
   `pub const HOST_EQUIVALENT: &[Action]`.
