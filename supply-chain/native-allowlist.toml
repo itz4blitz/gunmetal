@@ -9,7 +9,9 @@
 # The graph is every workspace member that is not build tooling and every
 # crate one reaches through normal dependencies, on the targets deny.toml
 # names. Build and dev dependencies are not linked into what ships; the
-# build-script allow-list in deny.toml covers them (SEC-SUP-026).
+# build-script allow-list in deny.toml covers them (SEC-SUP-026). Nor is a
+# procedural macro, or a crate only one uses (syn, quote, proc-macro2): the
+# compiler runs those while it builds.
 #
 # `xtask native-code` (crates/xtask/src/native_code.rs) checks this file
 # against `cargo metadata`: an unlisted crate fails, an entry without a
@@ -23,7 +25,10 @@
 #
 # Seeded on 2026-10-03 (WF-003) with the crates wave 0 already ships: sha2's
 # tree in the core (WP-122), and cap-std's, rustix's and rusqlite's in the
-# filesystem door (WP-126). Each reason says what brought the crate in and
+# filesystem door (WP-126); and with the ones wave 1 had added by then:
+# postcard's, serde's and unicode-normalization's in the core (WP-039,
+# WP-036) and the cipher's, the MAC's and getrandom's in the secrets crate
+# (WP-047). Each reason says what brought the crate in and
 # what its native or unsafe code is for. Seeding is not review: the owner's
 # review of the wave's pull request confirms or removes these entries.
 #
@@ -51,6 +56,16 @@ reason = "The directory handles every data-root and library access goes through,
 requirement = "SEC-MED-033, SEC-HIS-016"
 
 [[crate]]
+name = "chacha20"
+reason = "The XChaCha20 stream cipher inside chacha20poly1305, the one AEAD in gunmetal-secrets/src/crypto (WP-047, record 9). Unsafe for its SSE2, AVX2 and NEON backends."
+requirement = "SEC-STD-018, SEC-STD-019"
+
+[[crate]]
+name = "cmov"
+reason = "Constant-time conditional moves for ctutils, which the cipher and MAC crates compare and select secrets with (WP-047). Unsafe for the CPU instructions that do it without a branch, and for casts between integer slices of one layout."
+requirement = "SEC-STD-018, SEC-STD-019"
+
+[[crate]]
 name = "cpufeatures"
 reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02). Unsafe to run `cpuid` and read the auxiliary vector."
 requirement = "SEC-STD-018"
@@ -66,9 +81,19 @@ reason = "Sets file times for cap-primitives (WP-126). Its only unsafe is the `S
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "getrandom"
+reason = "The operating system's CSPRNG, called by the one randomness function in gunmetal-secrets (WP-047). Unsafe for the `getrandom` system call and for the uninitialised buffers it fills."
+requirement = "SEC-STD-022"
+
+[[crate]]
 name = "hybrid-array"
 reason = "Fixed-size arrays for block-buffer and crypto-common, under sha2 (WP-122, D-02). Unsafe casts between arrays and slices of known length."
 requirement = "SEC-STD-018"
+
+[[crate]]
+name = "inout"
+reason = "Buffers that are read and written in place, for aead and cipher under chacha20poly1305 (WP-047). Unsafe raw pointers to the input and output of one buffer."
+requirement = "SEC-STD-018, SEC-STD-019"
 
 [[crate]]
 name = "io-extras"
@@ -101,6 +126,16 @@ reason = "Caches the `/proc` handle rustix-linux-procfs opens, for cap-primitive
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "poly1305"
+reason = "The Poly1305 authenticator inside chacha20poly1305 (WP-047, record 9). Unsafe for its AVX2 backend and the union that picks a backend at run time."
+requirement = "SEC-STD-018, SEC-STD-019"
+
+[[crate]]
+name = "postcard"
+reason = "The compact binary encoding of protocol types inside wire frames, in the core (WP-039, D-02). Unsafe pointer cursors over the slice it reads from or writes to."
+requirement = "SEC-MED-023"
+
+[[crate]]
 name = "rusqlite"
 reason = "The safe interface to SQLite that the one connection opener in gunmetal-fs uses (WP-126, D-02). Unsafe calls into libsqlite3-sys. Its `load_extension` feature stays off (SEC-EXT-018, SEC-HIS-056)."
 requirement = "SEC-PRV-050, SEC-TM-039"
@@ -116,6 +151,16 @@ reason = "Opens `/proc` safely for cap-primitives, which reads a descriptor's pa
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "serde"
+reason = "Protocol types serialise to postcard and JSON, in the core (WP-039, D-02). Unsafe `from_utf8_unchecked` on ASCII it formatted itself, in the copy of serde_core it carries."
+requirement = "SEC-MED-023"
+
+[[crate]]
+name = "serde_core"
+reason = "serde's data model and traits, behind serde (WP-039, D-02). Unsafe `from_utf8_unchecked` on ASCII it formatted itself."
+requirement = "SEC-MED-023"
+
+[[crate]]
 name = "sha2"
 reason = "SHA-256 in the core's src/crypto.rs only: the schema digest and content identity (WP-122, D-02). Unsafe for the CPU's SHA instructions."
 requirement = "SEC-STD-018"
@@ -124,3 +169,13 @@ requirement = "SEC-STD-018"
 name = "smallvec"
 reason = "Small inline vectors inside rusqlite (WP-126). Unsafe managing its inline and heap storage."
 requirement = "SEC-PRV-050"
+
+[[crate]]
+name = "unicode-normalization"
+reason = "Canonical and compatibility decomposition for search folding and natural sort, in the core (WP-036, D-02, MUS-020, DIS-085). No security requirement asks for it; it is in the core under the reviewed allowlist SEC-SUP-025 keeps. Unsafe `char::from_u32_unchecked` on Hangul syllables it composed or decomposed by arithmetic."
+requirement = "SEC-SUP-025"
+
+[[crate]]
+name = "zeroize"
+reason = "Wipes key material from memory in gunmetal-secrets and the cipher, MAC and hash crates under it (WP-047). Unsafe volatile writes and zeroed SIMD registers, so the compiler cannot remove the wipe."
+requirement = "SEC-STD-018, SEC-STD-019"
