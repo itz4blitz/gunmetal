@@ -38,13 +38,15 @@ const SEEDS: [&str; 7] = [
 /// the harness reports `expected` for it.
 fn replay(name: &str, bytes: &[u8], expected: &Result<Vec<Hit>, IndexError>) {
     let file = fs::read(seeds_dir().join(name)).expect("seed file is readable");
-    assert_eq!(file, bytes, "seed {name} holds different bytes");
+    assert_eq!((name, file.as_slice()), (name, bytes));
     assert_eq!(
-        &run(&file),
-        &Outcome {
-            hits: expected.clone()
-        },
-        "seed {name}"
+        (name, run(&file)),
+        (
+            name,
+            Outcome {
+                hits: expected.clone()
+            }
+        )
     );
 }
 
