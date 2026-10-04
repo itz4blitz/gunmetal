@@ -51,6 +51,22 @@ pub enum IdKind {
 }
 
 impl IdKind {
+    /// Every kind, in the order they are declared.
+    pub const ALL: [Self; 12] = [
+        Self::Track,
+        Self::Album,
+        Self::Artist,
+        Self::ReleaseGroup,
+        Self::Playlist,
+        Self::User,
+        Self::Profile,
+        Self::Device,
+        Self::Library,
+        Self::Invite,
+        Self::Share,
+        Self::Token,
+    ];
+
     /// The text an identifier of this kind starts with: three lower-case
     /// letters and an underscore.
     const fn prefix(self) -> &'static str {
@@ -527,6 +543,40 @@ mod tests {
         (IdKind::Share, "shr_"),
         (IdKind::Token, "tok_"),
     ];
+
+    /// The kind declared after `kind`, or `None` after the last. The match
+    /// is exhaustive, so a kind added to the enum does not compile until it
+    /// has an arm here and another arm leads to it; the list the test below
+    /// walks then holds it, and the test fails until `ALL` holds it at the
+    /// same place.
+    const fn after(kind: IdKind) -> Option<IdKind> {
+        match kind {
+            IdKind::Track => Some(IdKind::Album),
+            IdKind::Album => Some(IdKind::Artist),
+            IdKind::Artist => Some(IdKind::ReleaseGroup),
+            IdKind::ReleaseGroup => Some(IdKind::Playlist),
+            IdKind::Playlist => Some(IdKind::User),
+            IdKind::User => Some(IdKind::Profile),
+            IdKind::Profile => Some(IdKind::Device),
+            IdKind::Device => Some(IdKind::Library),
+            IdKind::Library => Some(IdKind::Invite),
+            IdKind::Invite => Some(IdKind::Share),
+            IdKind::Share => Some(IdKind::Token),
+            IdKind::Token => None,
+        }
+    }
+
+    #[test]
+    fn all_holds_every_kind_once_in_the_order_they_are_declared() {
+        let mut walked = Vec::new();
+        let mut next = Some(IdKind::Track);
+        while let Some(kind) = next {
+            walked.push(kind);
+            next = after(kind);
+        }
+        assert_eq!(walked, IdKind::ALL);
+        assert_eq!(KINDS.map(|(kind, _)| kind), IdKind::ALL);
+    }
 
     /// Crockford's base32 symbols in lower case, written out for the
     /// reference codec below.

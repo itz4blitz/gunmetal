@@ -3,22 +3,6 @@
 
 use gunmetal_core::id::{IdError, IdKind, PublicId};
 
-/// Every kind of identifier, in the order the core declares them.
-pub const KINDS: [IdKind; 12] = [
-    IdKind::Track,
-    IdKind::Album,
-    IdKind::Artist,
-    IdKind::ReleaseGroup,
-    IdKind::Playlist,
-    IdKind::User,
-    IdKind::Profile,
-    IdKind::Device,
-    IdKind::Library,
-    IdKind::Invite,
-    IdKind::Share,
-    IdKind::Token,
-];
-
 /// What the identifier parser reported for one input, read as UTF-8 with
 /// each invalid sequence replaced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +12,7 @@ pub struct Outcome {
     pub kind: Option<IdKind>,
 }
 
-/// Feeds `data` to [`PublicId::parse`] once for every kind in [`KINDS`].
+/// Feeds `data` to [`PublicId::parse`] once for every kind in [`IdKind::ALL`].
 ///
 /// # Panics
 ///
@@ -39,19 +23,22 @@ pub struct Outcome {
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(data);
-    let parsed = KINDS.map(|kind| PublicId::parse(&text, kind));
+    let parsed = IdKind::ALL.map(|kind| PublicId::parse(&text, kind));
     assert!(
         parsed.iter().filter(|result| result.is_ok()).count() <= 1
-            && parsed.iter().zip(KINDS).all(|(result, kind)| match result {
-                Ok(id) => id.to_string() == text,
-                Err(error) => *error == IdError { expected: kind },
-            }),
+            && parsed
+                .iter()
+                .zip(IdKind::ALL)
+                .all(|(result, kind)| match result {
+                    Ok(id) => id.to_string() == text,
+                    Err(error) => *error == IdError { expected: kind },
+                }),
         "{text:?} gave {parsed:?}"
     );
     Outcome {
         kind: parsed
             .iter()
-            .zip(KINDS)
+            .zip(IdKind::ALL)
             .find_map(|(result, kind)| result.is_ok().then_some(kind)),
     }
 }
