@@ -20,7 +20,7 @@ mod properties;
 pub use action::{Action, HOST_EQUIVALENT};
 pub use capability::{Capability, CapabilitySet, Role, Tier};
 pub use context::{Context, Network, RemoteAdmin};
-pub use decide::{Denial, Owner, Permit, ResourceFacts, decide, may_issue};
+pub use decide::{Denial, Owner, Permit, ResourceFacts, TargetPerson, decide, may_issue};
 pub use library::{HasLibrary, LibrarySet};
 pub use principal::{
     DeviceClass, Elevation, Epoch, Principal, PrincipalFacts, PrincipalKind, Reach, Scope,
