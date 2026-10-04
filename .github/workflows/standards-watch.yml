@@ -1,0 +1,88 @@
+name: Standards watch
+
+# SEC-STD-003: a monthly job checks for new versions of the pinned
+# standards and opens an issue when one appears. The feeds are fetched here,
+# one edition per line in <standard>.txt, and compared by xtask; the check
+# itself never opens a socket. Every feed has to name the pinned edition as
+# well, so a source that moved or stopped answering fails the job instead of
+# passing for want of news.
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - name: Fetch the release feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          dir=target/standards-feeds
+          mkdir -p "$dir"
+          # Published on GitHub: the tag names.
+          gh api repos/OWASP/ASVS/tags --paginate --jq '.[].name' > "$dir/asvs.txt"
+          gh api repos/OWASP/masvs/tags --paginate --jq '.[].name' > "$dir/masvs.txt"
+          # Named by year: each year from the pinned one to the next whose
+          # edition has a page. YEAR in the address stands for the year.
+          next_year=$(($(date -u +%Y) + 1))
+          editions() {
+            year=$1
+            while [ "$year" -le "$next_year" ]; do
+              address=$(printf '%s' "$2" | sed "s/YEAR/$year/g")
+              if curl --silent --fail --location --max-time 60 --output /dev/null "$address"; then
+                printf '%s\n' "$year"
+              fi
+              year=$((year + 1))
+            done
+          }
+          editions 2025 'https://owasp.org/Top10/YEAR/' > "$dir/top10.txt"
+          editions 2023 'https://owasp.org/API-Security/editions/YEAR/en/0x00-header/' > "$dir/api-top10.txt"
+          editions 2025 'https://cwe.mitre.org/top25/archive/YEAR/YEAR_cwe_top25.html' > "$dir/cwe-top25.txt"
+          # SSDF 1.1 is SP 800-218; 1.2 is its Rev. 1, once that is final.
+          : > "$dir/ssdf.txt"
+          if curl --silent --fail --location --max-time 60 --output /dev/null https://csrc.nist.gov/pubs/sp/800/218/final; then
+            printf '%s\n' 1.1 >> "$dir/ssdf.txt"
+          fi
+          if curl --silent --fail --location --max-time 60 --output /dev/null https://csrc.nist.gov/pubs/sp/800/218/r1/final; then
+            printf '%s\n' 1.2 >> "$dir/ssdf.txt"
+          fi
+      - run: cargo run --locked --quiet -p xtask -- standards-watch target/standards-feeds
+
+  report:
+    needs: watch
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Standards watch found a newer edition or a broken feed
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Still failing: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --body "The monthly standards watch failed (SEC-STD-003): $RUN_URL. Either a standard has a newer final edition than crates/xtask/standards pins, and the coverage file is to be re-baselined within 90 days of that release, or a feed no longer names the pinned edition and the workflow needs its new address."
+          fi
