@@ -333,6 +333,7 @@ mod tests {
     /// Verifies: SEC-MED-024
     #[test]
     fn a_worker_that_does_not_answer_is_reported_as_off() {
+        let _serial = crate::sandbox::descriptors::SERIAL.lock().unwrap();
         assert_eq!(
             self_test(Profile::Scan),
             TierReport {

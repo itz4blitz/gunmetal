@@ -5,6 +5,7 @@
 
 mod args;
 mod confine;
+mod descriptors;
 mod exit;
 mod kernel;
 mod launch;

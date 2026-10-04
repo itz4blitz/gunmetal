@@ -104,9 +104,10 @@ pub(crate) fn confine_with(
         .into_iter()
         .filter(|&descriptor| descriptor > LAST_SOCKET_DESCRIPTOR)
         .collect();
-    // Closing a descriptor by number needs `unsafe`, which this crate
-    // forbids. The launcher marks extras close-on-exec so a worker it
-    // starts has none; one that remains stops the worker here.
+    // The worker does not close extras: that needs `unsafe`, and the
+    // crate's one block is the launcher's (ADR 13), which marks extras
+    // close-on-exec so a worker it starts has none. One that remains
+    // stops the worker here.
     if !strays.is_empty() {
         return Err(ConfineError::StrayDescriptors(strays));
     }

@@ -9,7 +9,9 @@
 //! not even on loopback (SEC-STD-040), and no shell.
 
 use super::args::TypedArgs;
+use super::descriptors::mark_from;
 use super::exit::Exit;
+use super::kernel::{Kernel, Linux};
 use super::programs::Program;
 use std::fmt;
 use std::io;
@@ -134,12 +136,15 @@ pub fn launch(program: Program, args: TypedArgs, fds: Inherited) -> Result<Child
 /// Marks every descriptor numbered 3 and above close-on-exec.
 ///
 /// A child started by the standard library's `Command` still inherits
-/// the descriptors that lack that flag. Closing them by number needs `unsafe`,
-/// which this crate forbids; setting close-on-exec does not, and is
-/// enough that a child started afterwards receives only the descriptors
-/// `Command` is told to pass (SEC-MED-022).
+/// the descriptors that lack that flag. With it set, a child started
+/// afterwards receives only the descriptors `Command` is told to pass
+/// (SEC-MED-022). When `/proc/self/fd` cannot be listed nothing is
+/// marked, and confinement refuses the worker if an extra reached it.
 fn mark_others_close_on_exec() {
-    close_fds::set_fds_cloexec(3, &[]);
+    Linux
+        .descriptors()
+        .iter()
+        .for_each(|open| mark_from(3, open));
 }
 
 /// Starts the executable at `executable`. [`launch`] is the only caller
@@ -174,11 +179,13 @@ fn spawn(executable: &str, args: TypedArgs, fds: Inherited) -> Result<Child, Spa
 mod tests {
     use super::{Inherited, SpawnError, mark_others_close_on_exec, spawn};
     use crate::sandbox::args::{Job, TypedArgs};
+    use crate::sandbox::descriptors::SERIAL;
     use crate::sandbox::limits::Profile;
     use std::io::{self, Read, Write};
 
     #[test]
     fn a_missing_executable_is_a_spawn_error() {
+        let _serial = SERIAL.lock().unwrap();
         let (fds, _ours) = Inherited::pair().unwrap();
         let error = spawn(
             "/no-such-gunmetal-worker-045",
@@ -224,6 +231,7 @@ mod tests {
         use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
         use std::os::unix::net::UnixStream;
 
+        let _serial = SERIAL.lock().unwrap();
         let (probe, _peer) = UnixStream::pair().unwrap();
         fcntl_setfd(&probe, FdFlags::empty()).unwrap();
         mark_others_close_on_exec();

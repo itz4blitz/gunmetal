@@ -4,10 +4,11 @@
 //! decisions and is tested against a recording kernel. [`Linux`] is the
 //! real one: each method is one call with no decision in it.
 //!
-//! No method here needs `unsafe`, and that sets one limit. A process
-//! cannot close a descriptor it has only a number for without `unsafe`.
-//! The launcher marks every extra descriptor close-on-exec before it
-//! starts the worker, so a child started that way has only its socket.
+//! No method here needs `unsafe`, and that sets one limit: the worker
+//! cannot close a descriptor it has only a number for. The launcher marks
+//! every extra descriptor close-on-exec before it starts the worker, in
+//! the crate's one `unsafe` block ([`descriptors`](super::descriptors),
+//! ADR 13), so a child started that way has only its socket.
 //! [`confine_with`](super::confine::confine_with) still refuses if any
 //! extra remains.
 
