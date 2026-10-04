@@ -1,0 +1,17 @@
+version = 1
+
+# Catch-all so every file, including those later packages add, carries
+# machine-readable copyright and licence information (SEC-SUP-030).
+[[annotations]]
+path = ["**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Justin Scroggins"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Binary fuzz seeds. Parser packages add files under this glob without
+# editing this file.
+[[annotations]]
+path = ["fuzz/seeds/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Justin Scroggins"
+SPDX-License-Identifier = "AGPL-3.0-or-later"

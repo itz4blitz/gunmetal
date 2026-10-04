@@ -100,6 +100,26 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "corpus replay reads the committed seeds by path (SEC-MED-028)",
     },
     Exception {
+        path: "crates/gunmetal-secrets/src/crypto/",
+        lint: LINTS[2],
+        reason: "the secrets crate's crypto module: HMAC, HKDF and the AEAD (SEC-STD-018, WP-047)",
+    },
+    Exception {
+        path: "crates/gunmetal-secrets/src/mint.rs",
+        lint: LINTS[1],
+        reason: "the one public-ID minting function (SEC-HIS-012, WP-047)",
+    },
+    Exception {
+        path: "crates/gunmetal-secrets/src/random.rs",
+        lint: LINTS[1],
+        reason: "the one function over the OS CSPRNG (SEC-STD-022, WP-047)",
+    },
+    Exception {
+        path: "crates/gunmetal-secrets/src/secret.rs",
+        lint: LINTS[1],
+        reason: "the test of the one method that exposes a secret (SEC-OPS-013, WP-047)",
+    },
+    Exception {
         path: "crates/gunmetal-testkit/src/tempdir.rs",
         lint: LINTS[1],
         reason: "test scratch directories (owner decision 33, WP-007)",
