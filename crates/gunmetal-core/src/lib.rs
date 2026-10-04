@@ -29,6 +29,7 @@ pub mod queue;
 pub mod ratelimit;
 pub mod retention;
 pub mod schema;
+pub mod search;
 pub mod shuffle;
 pub mod text;
 pub mod time;

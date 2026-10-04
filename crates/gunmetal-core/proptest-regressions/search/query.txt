@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bcd72e4ec7b93eb7d5c33173800256023d77117d4873f3bc294c9c04b562f90b # shrinks to a = "a", b = ""
+cc 24d2d561f3c439279d53a0bccc63349ab57eb1561cd69237b19d564a79575f81 # shrinks to titles = {"a"}, rest = [(Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0), (Artist, "a", "a", 0)], pick = Index(0)
