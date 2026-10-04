@@ -5,8 +5,8 @@
 //! only by internal random IDs, never by path, title or public ID (ADR 3,
 //! section 14). A play or skip holds exactly what SEC-PRV-002 allows: with
 //! the envelope's profile, device and clock, the item, how far it played
-//! and whether it finished. No type here can hold an address, a location, a
-//! user agent or free text.
+//! and whether it finished. A play, skip or position cannot hold an
+//! address, a location, a user agent or free text.
 //!
 //! Every body type has a [`BodyType`]: a tag, the version of that type, and
 //! whether an older binary may skip it (ADR 3, section 9). A body whose type

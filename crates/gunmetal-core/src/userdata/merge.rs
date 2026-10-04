@@ -2,22 +2,23 @@
 //! arrived in ([api-needs.md, "How conflicts resolve"](../../../../docs/plan/api-needs.md);
 //! ADR 3, section 7).
 //!
-//! - **Plays and skips** are a union of every event, one per event ID.
+//! - **Plays and skips** are a union of every event, one per stream and event ID.
 //! - **Loves**, **settings** and **positions** take the latest clock, per
 //!   item, per key and scope, or per item; a tie goes to the larger device ID, then the larger event
 //!   ID, so every replica picks the same event.
-//! - **Document operations and snapshots** are kept, one per event ID; the
+//! - **Document operations and snapshots** are kept, one per stream and event ID; the
 //!   server orders them, and the documents' own modules replay them.
 //! - **Bodies of unknown types** are kept and passed through unchanged.
 //!
-//! An [`EventSet`] holds one event per ID, so [`EventSet::merge`] is a set
-//! union, and therefore commutative, associative and idempotent: two
-//! replicas that hold the same events agree on every value derived from
-//! them, which is what makes merging offline work safe. Two different
-//! events with one ID never come from an honest device, and the writer
-//! refuses the second (ADR 3, section 6); should a set meet both, it keeps
-//! the larger by the order of [`Event`], so the union still does not depend
-//! on order.
+//! An [`EventSet`] holds one event per (stream, event ID), so
+//! [`EventSet::merge`] is a set union, and therefore commutative,
+//! associative and idempotent: two replicas that hold the same events agree
+//! on every value derived from them, which is what makes merging offline
+//! work safe. Two different events with one ID in one stream never come
+//! from an honest device, and the writer refuses the second (ADR 3,
+//! section 6); should a set meet both, it keeps the larger by the order of
+//! [`Event`], so the union still does not depend on order. The same ID in
+//! two streams is two events.
 //!
 //! The derived values read one stream's events, so a profile's counts and
 //! loves never include another profile's.
@@ -31,11 +32,11 @@ use super::event::{
 };
 use super::hlc::Hlc;
 
-/// Events, at most one per event ID.
+/// Events, at most one per stream and event ID.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventSet {
-    /// The events, by ID.
-    events: BTreeMap<EventId, Event>,
+    /// The events, by stream and ID.
+    events: BTreeMap<(Stream, EventId), Event>,
 }
 
 impl EventSet {
@@ -45,10 +46,10 @@ impl EventSet {
         Self::default()
     }
 
-    /// Adds `event`. When the set already holds an event with its ID, it
-    /// keeps the larger of the two by the order of [`Event`].
+    /// Adds `event`. When the set already holds an event with its stream
+    /// and ID, it keeps the larger of the two by the order of [`Event`].
     pub fn insert(&mut self, event: Event) {
-        match self.events.entry(event.id) {
+        match self.events.entry((event.stream, event.id)) {
             Entry::Vacant(slot) => {
                 slot.insert(event);
             }
@@ -73,7 +74,7 @@ impl EventSet {
         self.events.retain(|_, event| keep(event));
     }
 
-    /// The events, in order of their IDs.
+    /// The events, in order of stream, then event ID.
     pub fn iter(&self) -> impl Iterator<Item = &Event> {
         self.events.values()
     }
@@ -263,6 +264,39 @@ mod tests {
         assert_eq!(set.len(), 2);
         assert!(!set.is_empty());
         assert_eq!(set.iter().cloned().collect::<Vec<_>>(), [first, second]);
+    }
+
+    #[test]
+    fn the_same_id_in_two_streams_is_kept_for_each() {
+        let alice = play(1, 10, SONG);
+        let mut bob = play(1, 20, OTHER_SONG);
+        bob.stream = BOB;
+        let set: EventSet = [alice.clone(), bob.clone()].into_iter().collect();
+        assert_eq!(set.len(), 2);
+        let held: Vec<_> = set.iter().cloned().collect();
+        assert_eq!(held, [alice.clone(), bob.clone()]);
+        assert_eq!(
+            derive_counts(&set, ALICE),
+            Counts::from([(
+                SONG,
+                ItemCounts {
+                    plays: 1,
+                    skips: 0,
+                    last_played: Some(Hlc::new(10, 0)),
+                },
+            )])
+        );
+        assert_eq!(
+            derive_counts(&set, BOB),
+            Counts::from([(
+                OTHER_SONG,
+                ItemCounts {
+                    plays: 1,
+                    skips: 0,
+                    last_played: Some(Hlc::new(20, 0)),
+                },
+            )])
+        );
     }
 
     #[test]
@@ -567,13 +601,13 @@ mod tests {
         vec(strategies::event(), 0..8).prop_map(set_of)
     }
 
-    /// One event per ID, keeping the larger of two bodies under one ID,
-    /// written over the raw list so the oracles below do not go through
-    /// [`EventSet`].
+    /// One event per stream and ID, keeping the larger of two bodies under
+    /// one key, written over the raw list so the oracles below do not go
+    /// through [`EventSet`].
     fn unique_by_id(events: &[Event]) -> Vec<Event> {
         let mut by_id = BTreeMap::new();
         for event in events {
-            match by_id.entry(event.id) {
+            match by_id.entry((event.stream, event.id)) {
                 Entry::Vacant(slot) => {
                     slot.insert(event.clone());
                 }
@@ -587,8 +621,9 @@ mod tests {
         by_id.into_values().collect()
     }
 
-    /// Play and skip counts from the raw list: one play or skip per event
-    /// ID, then a saturating count and the latest play clock per item.
+    /// Play and skip counts from the raw list: one play or skip per stream
+    /// and event ID, then a saturating count and the latest play clock per
+    /// item.
     fn counts_from_list(events: &[Event], stream: Stream) -> Counts {
         let mut counts = Counts::new();
         for event in unique_by_id(events) {
@@ -616,8 +651,8 @@ mod tests {
     }
 
     /// Latest-wins over the raw list: the maximum `(clock, device, id)`
-    /// after de-duplicating by ID, among events of `stream` that `pick`
-    /// accepts.
+    /// after de-duplicating by stream and ID, among events of `stream` that
+    /// `pick` accepts.
     fn latest_from_list<T>(
         events: &[Event],
         stream: Stream,
@@ -677,8 +712,9 @@ mod tests {
         }
 
         /// The derived values match an independent oracle over the raw
-        /// list (latest `(clock, device, id)` after de-duplicating by ID),
-        /// so they cannot pass merely because two equal sets agree.
+        /// list (latest `(clock, device, id)` after de-duplicating by
+        /// stream and ID), so they cannot pass merely because two equal
+        /// sets agree.
         #[test]
         fn derived_values_do_not_depend_on_arrival_order(
             events in vec(strategies::event(), 0..12),
