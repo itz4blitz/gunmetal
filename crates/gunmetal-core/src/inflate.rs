@@ -1055,11 +1055,7 @@ mod tests {
         assert_eq!(InflateError::Corrupt { offset: 4 }.offset(), 4);
         assert_eq!(InflateError::ChecksumMismatch { offset: 9 }.offset(), 9);
         assert_eq!(
-            InflateError::UnsupportedAlgo {
-                algo: 1,
-                offset: 0,
-            }
-            .offset(),
+            InflateError::UnsupportedAlgo { algo: 1, offset: 0 }.offset(),
             0
         );
     }
