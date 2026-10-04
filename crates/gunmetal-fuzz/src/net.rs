@@ -24,9 +24,9 @@ pub struct Outcome {
 /// # Panics
 ///
 /// Panics when an accepted network does not read back unchanged from its
-/// written form, or contains its own address exactly when that address is
-/// IPv4-mapped IPv6, which [`IpNet::contains`] reads as IPv4; or when an
-/// IPv4 address and its IPv4-mapped IPv6 form are classified differently.
+/// written form or does not contain its own address, as a network of
+/// IPv4-mapped IPv6 addresses would not; or when an IPv4 address and its
+/// IPv4-mapped IPv6 form are classified differently.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let text = String::from_utf8_lossy(data);
@@ -34,7 +34,7 @@ pub fn run(data: &[u8]) -> Outcome {
     if let Ok(network) = parsed {
         let written = format!("{}/{}", network.addr(), network.prefix());
         assert!(
-            network.contains(network.addr()) == (network.addr().to_canonical() == network.addr())
+            network.contains(network.addr())
                 && IpNet::parse(Untrusted::new(&written)) == Ok(network),
             "{text:?} read as {network:?}"
         );
