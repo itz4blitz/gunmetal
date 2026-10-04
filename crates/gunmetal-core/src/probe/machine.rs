@@ -443,7 +443,9 @@ impl<'b> Probe<'b> {
     /// start, unless it is larger than a tag may be in memory.
     fn tail(&mut self, draft: &mut Draft, window: Window<'_>) {
         match ape::parse_ape(window, &self.limits, &mut self.work) {
-            Err(ApeError::Fault(ParseFault::Truncated { offset, .. })) => {
+            Err(ApeError::Fault(ParseFault::Truncated { offset, .. }))
+                if offset < window.offset =>
+            {
                 let len = window.file_len.saturating_sub(offset);
                 match self.limits.check(LimitKind::Id3v2TagBytes, len, offset) {
                     Ok(()) => {
@@ -470,5 +472,100 @@ impl<'b> Probe<'b> {
             Ok(None) => {}
             Err(error) => draft.problems.push(PartProblem::Id3v1(error)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::{AudioFormat, Codec, Container};
+    use crate::formats::id3v1::Id3v1Error;
+    use crate::probe::SeekIndex;
+
+    fn empty_draft() -> Draft {
+        Draft {
+            format: Format::Mpeg,
+            codec: Some(Codec::Mp3),
+            container: Container::Mpeg,
+            at: 0,
+            audio: AudioFormat {
+                sample_rate: None,
+                bit_depth: None,
+                channels: None,
+                bitrate: None,
+                duration: None,
+            },
+            trim: None,
+            md5: None,
+            window: (0, 200),
+            seek: SeekIndex::None,
+            pictures: vec![],
+            tags: vec![],
+            problems: vec![],
+            jobs: vec![],
+        }
+    }
+
+    /// A retry must extend the tail toward the start of the file. A
+    /// missing read at the same or a later offset cannot make progress.
+    /// The final 128 octets of this file start at 72.
+    ///
+    /// Verifies: SEC-MED-008, SEC-MED-017
+    #[test]
+    fn records_truncated_tail_reads_that_cannot_extend_the_window() {
+        for offset in [40, 72] {
+            let mut budget = Budget::for_input(0, 0, 0);
+            let mut probe = probe(None, Limits::DEFAULT, &mut budget);
+            let mut draft = empty_draft();
+            probe.tail(
+                &mut draft,
+                Window {
+                    offset,
+                    bytes: &[],
+                    file_len: 200,
+                },
+            );
+            assert_eq!(draft.jobs, []);
+            assert_eq!(draft.tags, []);
+            assert_eq!(draft.window, (0, 200));
+            assert_eq!(
+                draft.problems,
+                [
+                    PartProblem::Ape(ApeError::Fault(ParseFault::Truncated {
+                        offset: 72,
+                        needed: 128,
+                        available: 0,
+                    })),
+                    PartProblem::Id3v1(Id3v1Error::Fault(ParseFault::Truncated {
+                        offset: 72,
+                        needed: 128,
+                        available: 0,
+                    })),
+                ]
+            );
+        }
+    }
+
+    /// A tail starting at 100 lacks the start of the final 128 octets.
+    /// Retrying from 72 extends it, so the missing data can be supplied.
+    ///
+    /// Verifies: SEC-MED-008, SEC-MED-017
+    #[test]
+    fn retries_a_truncated_tail_only_from_an_earlier_offset() {
+        let mut budget = Budget::for_input(0, 0, 0);
+        let mut probe = probe(None, Limits::DEFAULT, &mut budget);
+        let mut draft = empty_draft();
+        probe.tail(
+            &mut draft,
+            Window {
+                offset: 100,
+                bytes: &[],
+                file_len: 200,
+            },
+        );
+        assert_eq!(draft.jobs, [(Job::Tail, Gather::new(72, 200))]);
+        assert_eq!(draft.tags, []);
+        assert_eq!(draft.window, (0, 200));
+        assert_eq!(draft.problems, []);
     }
 }
