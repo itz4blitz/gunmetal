@@ -55,7 +55,9 @@ const SHARED_TITLE: &str = "Greatest Hits";
 const VARIOUS_ARTISTS: &str = "Various Artists";
 
 /// How many octets of a file its cut-short copy keeps: enough to name the
-/// format, too few to hold what the format's header declares.
+/// container, too few to hold what the format's header declares. The Opus
+/// and Vorbis copies keep only the start of an Ogg page, so they are the
+/// same octets and only their extensions tell them apart.
 const CUT: usize = 12;
 
 /// What a library holds.
@@ -166,18 +168,25 @@ impl Format {
 }
 
 /// What is odd about a track's tags.
+///
+/// Each oddity takes effect only in the formats its variant names;
+/// [`Track::encode`] ignores it in any other format, so the file then
+/// carries the track's tags as an ordinary track of that format would.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Oddity {
-    /// An MP3 file whose `ID3v1` tag names the title "Agreeable" and the
-    /// artist "Someone Else", against its `ID3v2` tag. The [`Track`] holds
+    /// MP3 only: an `ID3v1` tag that names the title "Agreeable" and the
+    /// artist "Someone Else", against the `ID3v2` tag. The [`Track`] holds
     /// what the `ID3v2` tag says.
     Id3v1Disagrees,
-    /// A FLAC file whose comment names are in lower case, and whose track
-    /// and disc numbers carry their totals after a slash (`2/3`) in place
-    /// of `TRACKTOTAL` and `DISCTOTAL` comments.
+    /// FLAC, Opus and Vorbis only, the formats tagged with Vorbis comments:
+    /// the comment names are in lower case, and the track and disc numbers
+    /// carry their totals after a slash (`2/3`) in place of `TRACKTOTAL`
+    /// and `DISCTOTAL` comments. No `COMPILATION` comment is written, so
+    /// [`Track::compilation`] is lost; the generator gives this oddity only
+    /// to a track that is not part of a compilation.
     SlashedNumbers,
-    /// A WAV file with no tag at all. Every text of its [`Track`] is empty
-    /// and every number zero.
+    /// WAV only: no tag at all. Every text of its [`Track`] is empty and
+    /// every number zero.
     Untagged,
 }
 
@@ -226,8 +235,11 @@ pub enum Yield {
     },
     /// Synchronised lyrics: each line's start in milliseconds and its text.
     Lyrics(Vec<(u32, String)>),
-    /// Nothing but a problem: the file starts as this format does and is
-    /// cut short inside its header.
+    /// Nothing but a problem: the file starts as this format's container
+    /// does and is cut short inside its header. The format is the one the
+    /// file's extension names: the cut Opus and Vorbis files hold the same
+    /// octets, the start of an Ogg page, and nothing in them names the
+    /// codec.
     Damaged(Format),
 }
 
@@ -293,6 +305,10 @@ impl Library {
 impl Track {
     /// The file that carries these tags: the format's audio, tagged the
     /// way the format is usually tagged.
+    ///
+    /// An [`Oddity`] changes the file only in the formats its variant
+    /// names and is ignored in any other, so a caller who pairs one with
+    /// another format gets an ordinary file of that format.
     ///
     /// # Panics
     ///
