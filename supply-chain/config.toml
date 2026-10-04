@@ -88,11 +88,6 @@ version = "0.5.2"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
-[[exemptions.close_fds]]
-version = "0.3.2"
-criteria = "safe-to-deploy"
-notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker (first use; launcher marks extras close-on-exec). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
-
 [[exemptions.cmov]]
 version = "0.5.4"
 criteria = "safe-to-deploy"

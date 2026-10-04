@@ -61,11 +61,6 @@ reason = "The XChaCha20 stream cipher inside chacha20poly1305, the one AEAD in g
 requirement = "SEC-STD-018, SEC-STD-019"
 
 [[crate]]
-name = "close_fds"
-reason = "Marks every descriptor above 2 close-on-exec in the worker sandbox launcher before it starts a worker, so the worker inherits only its socket (WP-045). Unsafe calls into libc: the `close_range` system call with `CLOSE_RANGE_CLOEXEC`, and on kernels without it `fcntl` on each descriptor it lists from `/proc/self/fd` with `getdents64`. One publisher, last release 2021: kept only until the owner answers WP-045's dependency request."
-requirement = "SEC-MED-022"
-
-[[crate]]
 name = "cmov"
 reason = "Constant-time conditional moves for ctutils, which the cipher and MAC crates compare and select secrets with (WP-047). Unsafe for the CPU instructions that do it without a branch, and for casts between integer slices of one layout."
 requirement = "SEC-STD-018, SEC-STD-019"
@@ -94,6 +89,11 @@ requirement = "SEC-MED-033"
 name = "getrandom"
 reason = "The operating system's CSPRNG, called by the one randomness function in gunmetal-secrets (WP-047). Unsafe for the `getrandom` system call and for the uninitialised buffers it fills."
 requirement = "SEC-STD-022"
+
+[[crate]]
+name = "gunmetal-worker"
+reason = "Gunmetal's own worker crate holds the one `unsafe` block in Gunmetal's crates (ADR 13, WP-045): in src/sandbox/descriptors.rs, `BorrowedFd::borrow_raw` on a descriptor number this process listed from `/proc/self/fd`, for one `fcntl(F_SETFD, FD_CLOEXEC)` call, so a launched worker inherits only its socket. The owner chose this over the single-publisher close_fds on 2026-10-04. `xtask lint-exceptions` keeps it to that one statement."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "hybrid-array"
