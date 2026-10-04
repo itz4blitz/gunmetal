@@ -2,18 +2,27 @@
 //! test or a dated review record (SEC-STD-004), and every live SEC-HIS
 //! incident has a rival-replay test (SEC-HIS-066).
 //!
-//! A test proves a requirement when a `Verifies:` line names its ID. A
-//! review record is a file under [`REVIEWS`] whose name or body names the
-//! ID and a `YYYY-MM-DD` date. Point releases are releases: an R1.1
+//! A test proves a requirement when a comment line that starts with
+//! `Verifies:` names its ID, in a Rust or TypeScript source. A review
+//! record is a file under [`REVIEWS`] that holds a `YYYY-MM-DD` date and
+//! names the ID, in its file name or its text. Point releases are releases: an R1.1
 //! requirement with no evidence fails `trace R1.1` and not `trace R1`.
 
 use std::collections::BTreeSet;
 
-use crate::docs_lint::{RELEASES, Requirement, rest_from};
-use crate::tree::{Tree, is_rust};
+use crate::docs_lint::{RELEASES, Requirement, cited_sec};
+use crate::standards::date_seconds;
+use crate::tree::Tree;
 
 /// Dated review records.
 pub const REVIEWS: &str = "docs/security/reviews";
+
+/// The file name endings of sources whose tests carry `Verifies:` lines:
+/// Rust, and the web client's TypeScript.
+pub const SOURCES: [&str; 3] = [".rs", ".ts", ".tsx"];
+
+/// Directories whose files are not this repository's sources.
+pub const OUTSIDE: [&str; 2] = ["node_modules", "target"];
 
 /// Something the traceability check found wrong.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,147 +102,59 @@ fn release_index(release: &str) -> usize {
         .unwrap_or(RELEASES.len())
 }
 
-/// Requirement IDs named on `Verifies:` lines in Rust sources.
+/// Requirement IDs named on `Verifies:` lines in the repository's sources.
 fn verified_ids(tree: &dyn Tree) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for name in tree.files("") {
-        if !is_rust(&name) {
+        if !is_source(&name) {
             continue;
         }
-        let Some(text) = tree.read(&name) else {
-            continue;
-        };
+        let text = tree.read(&name).unwrap_or_default();
         for line in text.lines() {
-            let Some(listed) = verifies_list(line) else {
-                continue;
-            };
-            for id in listed {
-                ids.insert(id);
-            }
+            ids.extend(verifies(line));
         }
     }
     ids
 }
 
-/// IDs after `Verifies:` on `line`.
-fn verifies_list(line: &str) -> Option<Vec<String>> {
-    let after = line.split("Verifies:").nth(1)?;
-    let mut ids = Vec::new();
-    let mut rest = after;
-    for _ in 0..after.len() {
-        let Some(at) = rest.find("SEC-") else {
-            break;
-        };
-        let token = rest_from(rest, at);
-        let id: String = token
-            .chars()
-            .take_while(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || *ch == '-')
-            .collect();
-        if is_sec(&id) {
-            ids.push(id);
-        }
-        rest = rest_from(rest, at.saturating_add(4));
-    }
-    Some(ids)
+/// Whether `path` is a Rust or TypeScript source of this repository: not
+/// build output, an installed package or anything under a hidden directory,
+/// where another checkout's tests could stand in for this one's.
+fn is_source(path: &str) -> bool {
+    path.split('/')
+        .all(|part| !part.starts_with('.') && !OUTSIDE.contains(&part))
+        && SOURCES.iter().any(|extension| path.ends_with(extension))
 }
 
-/// IDs named by dated review records.
+/// The IDs `line` names, when it is a comment that starts with `Verifies:`.
+/// Text inside a string, as in this crate's own fixtures, proves nothing.
+fn verifies(line: &str) -> Vec<String> {
+    line.trim_start()
+        .strip_prefix("//")
+        .map(|comment| comment.trim_start_matches('/').trim_start())
+        .and_then(|comment| comment.strip_prefix("Verifies:"))
+        .map(cited_sec)
+        .unwrap_or_default()
+}
+
+/// IDs named by dated review records: by the file's name or in its text.
 fn review_ids(tree: &dyn Tree) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for name in tree.files(REVIEWS) {
-        let path = format!("{REVIEWS}/{name}");
-        let Some(text) = tree.read(&path) else {
-            continue;
-        };
+        let text = tree.read(&format!("{REVIEWS}/{name}")).unwrap_or_default();
         if !has_date(&text) {
             continue;
         }
-        if let Some(stem) = name.strip_suffix(".md")
-            && is_sec(stem)
-        {
-            ids.insert(stem.to_owned());
-        }
-        for id in sec_ids(&text) {
-            ids.insert(id);
-        }
+        ids.extend(cited_sec(&name));
+        ids.extend(cited_sec(&text));
     }
     ids
 }
 
-/// `YYYY-MM-DD` in `text`.
+/// Whether `text` holds a calendar date written `YYYY-MM-DD`.
 fn has_date(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut i: usize = 0;
-    while i.saturating_add(10) <= bytes.len() {
-        let slice = text.get(i..i.saturating_add(10)).map_or("", |s| s);
-        if is_date(slice) {
-            return true;
-        }
-        i = i.saturating_add(1);
-    }
-    false
-}
-
-/// A calendar date `YYYY-MM-DD`.
-fn is_date(token: &str) -> bool {
-    let mut chars = token.chars();
-    for _ in 0..4 {
-        if !chars.next().is_some_and(|ch| ch.is_ascii_digit()) {
-            return false;
-        }
-    }
-    if chars.next() != Some('-') {
-        return false;
-    }
-    for _ in 0..2 {
-        if !chars.next().is_some_and(|ch| ch.is_ascii_digit()) {
-            return false;
-        }
-    }
-    if chars.next() != Some('-') {
-        return false;
-    }
-    for _ in 0..2 {
-        if !chars.next().is_some_and(|ch| ch.is_ascii_digit()) {
-            return false;
-        }
-    }
-    true
-}
-
-/// SEC IDs in `text`.
-fn sec_ids(text: &str) -> Vec<String> {
-    let mut ids = Vec::new();
-    let mut rest = text;
-    for _ in 0..text.len() {
-        let Some(at) = rest.find("SEC-") else {
-            break;
-        };
-        let token = rest_from(rest, at);
-        let id: String = token
-            .chars()
-            .take_while(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || *ch == '-')
-            .collect();
-        if is_sec(&id) {
-            ids.push(id);
-        }
-        rest = rest_from(rest, at.saturating_add(4));
-    }
-    ids
-}
-
-/// A `SEC-AREA-number` ID.
-fn is_sec(id: &str) -> bool {
-    let Some(rest) = id.strip_prefix("SEC-") else {
-        return false;
-    };
-    let Some((area, number)) = rest.split_once('-') else {
-        return false;
-    };
-    !area.is_empty()
-        && area.chars().all(|ch| ch.is_ascii_uppercase())
-        && !number.is_empty()
-        && number.chars().all(|ch| ch.is_ascii_digit())
+    text.split(|ch: char| !ch.is_ascii_digit() && ch != '-')
+        .any(|token| date_seconds(token).is_some())
 }
 
 #[cfg(test)]
@@ -351,66 +272,128 @@ mod tests {
         );
     }
 
+    /// The two findings of a tree with no evidence at all.
+    fn nothing_proven() -> [Finding; 2] {
+        [
+            Finding::Unproven {
+                id: "SEC-AA-001".to_owned(),
+                release: "R1".to_owned(),
+            },
+            Finding::NoReplay {
+                id: "SEC-HIS-001".to_owned(),
+            },
+        ]
+    }
+
+    /// Verifies: SEC-STD-004
     #[test]
-    fn unreadable_sources_and_undated_reviews_are_skipped() {
+    fn only_a_comment_line_that_starts_with_verifies_counts() {
+        let quoted = tree(&[(
+            "src/lib.rs",
+            "let fixture = \"/// Verifies: SEC-AA-001, SEC-HIS-001\";\n//! Verifies: SEC-AA-001, SEC-HIS-001\n/// It verifies: SEC-AA-001, SEC-HIS-001\nVerifies: SEC-AA-001, SEC-HIS-001\n",
+        )]);
+        assert_eq!(check(&quoted, "R1"), nothing_proven());
+        let indented = tree(&[(
+            "src/lib.rs",
+            "    /// Verifies: SEC-AA-001\n    #[test]\n\t//Verifies: SEC-HIS-001\n",
+        )]);
+        assert_eq!(check(&indented, "R1"), []);
+    }
+
+    /// Verifies: SEC-STD-004
+    #[test]
+    fn typescript_tests_prove_requirements_too() {
+        let typescript = tree(&[
+            (
+                "apps/web/src/title.test.ts",
+                "  // Verifies: SEC-AA-001\n  test(\"a title is shown as text\", () => {});\n",
+            ),
+            (
+                "apps/web/src/replay.test.tsx",
+                "// Verifies: SEC-HIS-001\ntest(\"the incident is replayed\", () => {});\n",
+            ),
+        ]);
+        assert_eq!(check(&typescript, "R1"), []);
+        let other = tree(&[
+            ("apps/web/src/title.test.js", "// Verifies: SEC-AA-001\n"),
+            ("docs/notes.md", "// Verifies: SEC-HIS-001\n"),
+            ("src/rs", "// Verifies: SEC-AA-001\n"),
+            ("src/libxrs", "// Verifies: SEC-HIS-001\n"),
+        ]);
+        assert_eq!(check(&other, "R1"), nothing_proven());
+    }
+
+    /// Verifies: SEC-STD-004
+    #[test]
+    fn build_output_installed_packages_and_hidden_directories_prove_nothing() {
+        let line = "/// Verifies: SEC-AA-001, SEC-HIS-001\n";
+        for path in [
+            "target/package/src/lib.rs",
+            "apps/web/node_modules/pkg/index.ts",
+            ".claude/worktrees/other/crates/core/src/lib.rs",
+            "crates/core/.cache/lib.rs",
+        ] {
+            assert_eq!(check(&tree(&[(path, line)]), "R1"), nothing_proven());
+        }
+        for path in ["crates/target.rs", "crates/targets/src/lib.rs"] {
+            assert_eq!(check(&tree(&[(path, line)]), "R1"), []);
+        }
+    }
+
+    /// Verifies: SEC-STD-004
+    #[test]
+    fn a_review_record_needs_a_date_and_the_requirement_id() {
+        let proven = [Finding::NoReplay {
+            id: "SEC-HIS-001".to_owned(),
+        }];
+        let named_by_file = tree(&[(
+            "docs/security/reviews/SEC-AA-001.md",
+            "Reviewed on 2026-10-02.\n",
+        )]);
+        assert_eq!(check(&named_by_file, "R1"), proven);
+        let named_in_text = tree(&[(
+            "docs/security/reviews/2026-10-crypto.md",
+            "Date: 2026-10-02\n\nCovers SEC-AA-001.\n",
+        )]);
+        assert_eq!(check(&named_in_text, "R1"), proven);
+        for undated in [
+            "Reviewed SEC-AA-001.\n",
+            "Reviewed SEC-AA-001 on 2026/10/02.\n",
+            "Reviewed SEC-AA-001 on 2026-13-02.\n",
+            "Reviewed SEC-AA-001 in 2026-10.\n",
+        ] {
+            let record = tree(&[("docs/security/reviews/SEC-AA-001.md", undated)]);
+            assert_eq!(check(&record, "R1"), nothing_proven());
+        }
+        let elsewhere = tree(&[(
+            "docs/security/SEC-AA-001.md",
+            "Reviewed SEC-AA-001 on 2026-10-02.\n",
+        )]);
+        assert_eq!(check(&elsewhere, "R1"), nothing_proven());
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_proves_nothing() {
         let hidden = crate::docs_lint::tests::Hide {
             inner: tree(&[
                 ("src/lib.rs", "/// Verifies: SEC-AA-001, SEC-HIS-001\n"),
-                ("src/notes.md", "/// Verifies: SEC-AA-002\n"),
                 (
-                    "docs/security/reviews/notes.md",
-                    "No date here SEC-AA-002.\n",
-                ),
-                (
-                    "docs/security/reviews/other.md",
-                    "2026/10/02 202X-10-02 2026-1X-02 2026-10-0X 2026-10X02 SEC-AA SEC-aa-001 NOT-AA-001\n",
-                ),
-                (
-                    "docs/security/reviews/ghost.md",
-                    "Reviewed SEC-AA-002 on 2026-10-02.\n",
-                ),
-                (
-                    "docs/security/reviews/plain",
-                    "Reviewed nothing on 2026-10-02.\n",
-                ),
-                (
-                    "docs/security/reviews/tokens.md",
-                    "2026-10-02 SEC-AA SEC-\n",
+                    "docs/security/reviews/SEC-AA-001.md",
+                    "Reviewed SEC-AA-001 on 2026-10-02.\n",
                 ),
             ]),
-            hidden: vec!["src/lib.rs", "docs/security/reviews/ghost.md"],
+            hidden: vec!["src/lib.rs", "docs/security/reviews/SEC-AA-001.md"],
         };
+        assert_eq!(check(&hidden, "R1"), nothing_proven());
+    }
+
+    #[test]
+    fn an_unknown_release_is_after_every_known_one() {
+        let tested = tree(&[("src/lib.rs", "/// Verifies: SEC-HIS-001\n")]);
         assert_eq!(
-            check(&hidden, "R1"),
-            [
-                Finding::Unproven {
-                    id: "SEC-AA-001".to_owned(),
-                    release: "R1".to_owned(),
-                },
-                Finding::NoReplay {
-                    id: "SEC-HIS-001".to_owned(),
-                },
-            ]
+            report(&tested, "R9"),
+            "# Traceability R9\nSEC-AA-001 R1 missing\nSEC-AA-002 R1.1 missing\nSEC-HIS-001 R1 test\n"
         );
-        assert!(!super::is_sec("NOT-AA-001"));
-        assert!(!super::is_sec("SEC-AA"));
-        assert_eq!(
-            super::release_index("R99"),
-            crate::docs_lint::RELEASES.len()
-        );
-        assert_eq!(super::verifies_list("/// Verifies:"), Some(Vec::new()));
-        assert_eq!(
-            super::verifies_list("/// Verifies: SEC-AA, SEC-"),
-            Some(Vec::new())
-        );
-        assert_eq!(super::sec_ids("SEC-AA-001"), ["SEC-AA-001"]);
-        assert_eq!(super::sec_ids("nope"), Vec::<String>::new());
-        assert!(super::has_date("Reviewed on 2026-10-02."));
-        assert!(!super::has_date("no date"));
-        assert_eq!(super::verifies_list("nope"), None);
-        assert!(!super::has_date("short"));
-        assert!(!super::is_date("2026-10"));
-        assert!(!super::is_sec("SEC--001"));
     }
 
     #[test]
@@ -431,8 +414,15 @@ mod tests {
             Err(Failure::Findings(vec!["MissingCoverage".to_owned()]))
         );
         assert_eq!(
-            run(&["standards-watch", "missing-feeds"]),
-            (Ok(()), String::new())
+            run(&["standards-watch", "missing-feeds"]).0,
+            Err(Failure::Findings(vec![
+                "NoFeed { standard: \"asvs\", pinned: \"5.0.0\" }".to_owned(),
+                "NoFeed { standard: \"top10\", pinned: \"2025\" }".to_owned(),
+                "NoFeed { standard: \"api-top10\", pinned: \"2023\" }".to_owned(),
+                "NoFeed { standard: \"masvs\", pinned: \"2.1.0\" }".to_owned(),
+                "NoFeed { standard: \"cwe-top25\", pinned: \"2025\" }".to_owned(),
+                "NoFeed { standard: \"ssdf\", pinned: \"1.1\" }".to_owned(),
+            ]))
         );
     }
 }

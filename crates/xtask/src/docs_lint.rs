@@ -21,7 +21,8 @@
 //!   security-parameters table, a directive of the Content Security
 //!   Policy's owning row, or an egress-inventory default, with a
 //!   different value;
-//! - a feature file or a work package names no TB or no TM-T (SEC-TM-001);
+//! - a feature file, or a work package in either plan of [`PLANS`], names
+//!   no TB or no TM-T (SEC-TM-001);
 //! - SEC-IAM-025 (no passwords) is live while SEC-TM-013, or the password
 //!   and two-factor feature rows ACC-052 and ACC-053, are live
 //!   (SEC-STD-006);
@@ -51,6 +52,12 @@ pub const THREAT_MODEL: &str = "docs/security/threat-model.md";
 /// The work packages.
 pub const WORK_PACKAGES: &str = "docs/plan/work-packages.md";
 
+/// The web client's work packages.
+pub const CLIENT_PACKAGES: &str = "docs/plan/client-packages.md";
+
+/// The plans, each with the prefix of its package IDs.
+pub const PLANS: [(&str, &str); 2] = [(WORK_PACKAGES, "WP-"), (CLIENT_PACKAGES, "CP-")];
+
 /// The documents at the top of the repository that cite requirements.
 pub const ROOT_DOCS: [&str; 4] = ["AGENTS.md", "CONTRIBUTING.md", "README.md", "SECURITY.md"];
 
@@ -70,6 +77,9 @@ pub const NO_PASSWORDS: &str = "SEC-IAM-025";
 /// password fallback and two-factor features, and the requirement that
 /// allowed passwords.
 pub const PASSWORD_ROWS: [&str; 3] = ["ACC-052", "ACC-053", "SEC-TM-013"];
+
+/// The heading of the control-ownership table in the threat model.
+pub const OWNERSHIP: &str = "### Control ownership";
 
 /// The control-ownership row whose owner states the policy.
 pub const CSP: &str = "Content Security Policy";
@@ -513,7 +523,7 @@ fn control_ownership(tree: &dyn Tree, reqs: &[Requirement]) -> Vec<Finding> {
     let by_id: std::collections::BTreeMap<&str, &Requirement> =
         reqs.iter().map(|req| (req.id.as_str(), req)).collect();
     let mut findings = Vec::new();
-    for line in ownership_rows(&text) {
+    for line in section(&text, OWNERSHIP) {
         let Some(cells) = cells(line) else {
             continue;
         };
@@ -547,12 +557,13 @@ fn control_ownership(tree: &dyn Tree, reqs: &[Requirement]) -> Vec<Finding> {
     findings
 }
 
-/// Rows of the control-ownership table.
-fn ownership_rows(text: &str) -> Vec<&str> {
+/// The lines of `text` under the heading that starts with `heading`, up to
+/// the next heading of that depth.
+pub(crate) fn section<'a>(text: &'a str, heading: &str) -> Vec<&'a str> {
     let mut in_table = false;
     let mut rows = Vec::new();
     for line in text.lines() {
-        if line.starts_with("### Control ownership") {
+        if line.starts_with(heading) {
             in_table = true;
             continue;
         }
@@ -652,7 +663,7 @@ fn parameters(model: &str) -> Vec<(String, String)> {
 
 /// The owning requirement of the Content Security Policy, if it is an ID.
 fn csp_owner(model: &str) -> Option<String> {
-    for line in ownership_rows(model) {
+    for line in section(model, OWNERSHIP) {
         let Some(cells) = cells(line) else {
             continue;
         };
@@ -895,18 +906,19 @@ fn restated_default(text: &str) -> Option<(String, bool)> {
 /// Feature files and work packages that name no TB or no TM-T.
 fn unmodelled(tree: &dyn Tree) -> Vec<Finding> {
     let mut findings = Vec::new();
-    if let Some(text) = tree.read(WORK_PACKAGES) {
-        for (entry, body) in work_packages(&text) {
+    for (path, prefix) in PLANS {
+        let text = tree.read(path).unwrap_or_default();
+        for (entry, body) in work_packages(&text, prefix) {
             if !has_tb(&body) {
                 findings.push(Finding::Unmodelled {
-                    path: WORK_PACKAGES.to_owned(),
+                    path: path.to_owned(),
                     entry: entry.clone(),
                     missing: "TB",
                 });
             }
             if !has_tmt(&body) {
                 findings.push(Finding::Unmodelled {
-                    path: WORK_PACKAGES.to_owned(),
+                    path: path.to_owned(),
                     entry,
                     missing: "TM-T",
                 });
@@ -937,8 +949,9 @@ fn unmodelled(tree: &dyn Tree) -> Vec<Finding> {
     findings
 }
 
-/// Work-package headings and the text until the next heading.
-fn work_packages(text: &str) -> Vec<(String, String)> {
+/// The headings that start with a `prefix` package ID, each with the text
+/// until the next heading.
+fn work_packages(text: &str, prefix: &str) -> Vec<(String, String)> {
     let mut current: Option<(String, String)> = None;
     let mut out = Vec::new();
     for line in text.lines() {
@@ -946,7 +959,7 @@ fn work_packages(text: &str) -> Vec<(String, String)> {
             if let Some(prev) = current.take() {
                 out.push(prev);
             }
-            if let Some(id) = wp_id(title) {
+            if let Some(id) = wp_id(title, prefix) {
                 current = Some((id, String::new()));
             }
             continue;
@@ -970,10 +983,10 @@ fn heading_title(line: &str) -> Option<&str> {
     Some(title.trim())
 }
 
-/// `WP-` plus digits at the start of a heading title.
-fn wp_id(title: &str) -> Option<String> {
+/// `prefix` plus digits at the start of a heading title.
+fn wp_id(title: &str, prefix: &str) -> Option<String> {
     let id = title.split_whitespace().next()?;
-    let digits = id.strip_prefix("WP-")?;
+    let digits = id.strip_prefix(prefix)?;
     if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
         None
     } else {
@@ -1040,7 +1053,7 @@ fn is_token_edge(ch: char) -> bool {
 }
 
 /// Markdown table cells on `line`.
-fn cells(line: &str) -> Option<Vec<String>> {
+pub(crate) fn cells(line: &str) -> Option<Vec<String>> {
     let body = line.trim().strip_prefix('|')?;
     let body = body.strip_suffix('|').unwrap_or(body);
     let parts: Vec<String> = body.split('|').map(str::trim).map(str::to_owned).collect();
@@ -1108,7 +1121,7 @@ fn has_tmt(text: &str) -> bool {
 }
 
 /// SEC IDs cited in `text`, in order.
-fn cited_sec(text: &str) -> Vec<String> {
+pub(crate) fn cited_sec(text: &str) -> Vec<String> {
     cited_ids(text)
         .into_iter()
         .filter(|id| is_sec_id(id))
@@ -1202,10 +1215,6 @@ pub mod tests {
         pub inner: Memory,
         /// Paths `read` hides.
         pub hidden: Vec<&'static str>,
-    }
-
-    fn names_work_packages(finding: &Finding) -> bool {
-        matches!(finding, Finding::Unmodelled { path, .. } if path == super::WORK_PACKAGES)
     }
 
     impl Tree for Hide {
@@ -1818,6 +1827,14 @@ Crosses TB1; threat TM-T01.
                 unmodelled("docs/plan/work-packages.md", "WP-003", "TM-T"),
             ]
         );
+        let client = repo().with(
+            "docs/plan/client-packages.md",
+            "### CP-001 Workspace\n\n- **Security.** Boundaries TB1.\n\n### CP-002 Gate\n\nBoundaries TB1; threats TM-T01.\n\n### WP-900 Not a client package\n\n### CP-x Not a package\n",
+        );
+        assert_eq!(
+            check(&client),
+            [unmodelled("docs/plan/client-packages.md", "CP-001", "TM-T")]
+        );
         let feature = edited(
             "docs/features/accounts.md",
             "Crosses TB1; threat TM-T01.",
@@ -1936,8 +1953,7 @@ Crosses TB1; threat TM-T01.
                 [Finding::NotReviewed {
                     tag: tag.to_owned(),
                     line: Some(line.to_owned()),
-                }],
-                "{tag}"
+                }]
             );
         }
         let last = edited(
@@ -1962,55 +1978,71 @@ Crosses TB1; threat TM-T01.
 
     #[test]
     fn unreadable_markdown_and_odd_ids_are_skipped() {
-        let hidden = Hide {
-            inner: repo()
+        let extra = || {
+            repo()
                 .with("docs/security/ghost.md", "| SEC-API-001 | a | b | R1 | c |\n")
                 .with(
                     "docs/features/notes.MD",
                     "| ACC-099 | X | X | X | X | R1 | X | X | X | SEC-IAM-025 |\nCrosses TB1; threat TM-T01.\n",
                 )
-                .with("docs/features/nested/README.md", "index\n"),
-            hidden: vec![
-                "docs/security/ghost.md",
-                "docs/security/threat-model.md",
-                "docs/features/notes.MD",
-            ],
+                .with("docs/features/nested/README.md", "index\n")
         };
-        let found = requirements(&hidden);
-        assert!(
-            found.iter().all(|req| !req.path.contains("ghost")),
-            "{found:?}"
-        );
-        assert!(
-            found.iter().all(|req| req.path != super::THREAT_MODEL),
-            "{found:?}"
-        );
-        let findings = check(&hidden);
-        assert!(
-            findings
+        let unmodelled = |missing| Finding::Unmodelled {
+            path: "docs/features/notes.MD".to_owned(),
+            entry: "docs/features/notes.MD".to_owned(),
+            missing,
+        };
+        let hidden = Hide {
+            inner: extra(),
+            hidden: vec!["docs/security/ghost.md", "docs/features/notes.MD"],
+        };
+        assert_eq!(requirements(&hidden), requirements(&repo()));
+        assert_eq!(check(&hidden), [unmodelled("TB"), unmodelled("TM-T")]);
+        let no_model = Hide {
+            inner: repo(),
+            hidden: vec!["docs/security/threat-model.md"],
+        };
+        assert_eq!(
+            requirements(&no_model)
                 .iter()
-                .any(|finding| matches!(finding, Finding::UnknownId { id, .. } if id == "TB1")),
-            "{findings:?}"
+                .map(|req| req.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "SEC-IAM-025",
+                "SEC-IAM-026",
+                "SEC-IAM-041",
+                "SEC-API-001",
+                "SEC-API-032",
+                "SEC-API-044",
+                "SEC-API-097",
+                "SEC-API-023",
+            ]
+        );
+        let unknown = |path: &str, line, id: &str| Finding::UnknownId {
+            path: path.to_owned(),
+            line,
+            id: id.to_owned(),
+        };
+        assert_eq!(
+            check(&no_model),
+            [
+                unknown("docs/features/README.md", 3, "SEC-TM-001"),
+                unknown("docs/features/accounts.md", 6, "SEC-TM-013"),
+                unknown("docs/features/accounts.md", 11, "TB1"),
+                unknown("docs/features/accounts.md", 11, "TM-T01"),
+                unknown("docs/plan/work-packages.md", 5, "TB1"),
+                unknown("docs/plan/work-packages.md", 5, "TM-T01"),
+                unknown("docs/plan/work-packages.md", 5, "SEC-TM-001"),
+                unknown("docs/plan/work-packages.md", 9, "TB1"),
+                unknown("docs/plan/work-packages.md", 9, "TM-T01"),
+                unknown("CONTRIBUTING.md", 1, "SEC-TM-001"),
+            ]
         );
         let no_plan = Hide {
             inner: repo(),
             hidden: vec!["docs/plan/work-packages.md"],
         };
-        let no_plan_findings = check(&no_plan);
-        assert!(!names_work_packages(&Finding::Unmodelled {
-            path: String::from("docs/features/x.md"),
-            entry: String::from("X"),
-            missing: "TB",
-        }));
-        assert!(names_work_packages(&Finding::Unmodelled {
-            path: super::WORK_PACKAGES.to_owned(),
-            entry: String::from("WP-1"),
-            missing: "TB",
-        }));
-        assert!(
-            !no_plan_findings.iter().any(names_work_packages),
-            "{no_plan_findings:?}"
-        );
+        assert_eq!(check(&no_plan), []);
         let skipped = Memory::default().with(
             "docs/security/a.md",
             "| SEC-TM | a | b | R1 | c |\n| SEC-API-001 | a | b | R1 | c |\n",
@@ -2120,9 +2152,9 @@ Crosses TB1; threat TM-T01.
         assert_eq!(super::default_on("123"), None);
         assert_eq!(super::heading_title("###WP-001"), None);
         assert_eq!(super::heading_title("not-a-heading"), None);
-        assert_eq!(super::wp_id(""), None);
-        assert_eq!(super::wp_id("WP-"), None);
-        assert_eq!(super::wp_id("WP-x"), None);
+        assert_eq!(super::wp_id("", "WP-"), None);
+        assert_eq!(super::wp_id("WP-", "WP-"), None);
+        assert_eq!(super::wp_id("WP-x", "WP-"), None);
         assert_eq!(super::rest_from("ab", 5), "");
         assert_eq!(super::rest_from("", 0), "");
         assert_eq!(super::rest_after("", usize::MAX, 4), "");

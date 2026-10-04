@@ -3,17 +3,17 @@
 //! [`citations`] fails when a requirement names an ID the pinned copy does
 //! not have, or names a superseded edition (SEC-STD-001). [`coverage`] fails
 //! when an ASVS item at or below its chapter target has neither a citing
-//! requirement nor a complete register row, or when a review date has
-//! expired (SEC-STD-002). [`watch`] compares recorded release feeds with the
-//! pinned editions (SEC-STD-003).
+//! requirement nor a register row that gives a reason, a compensating
+//! control, an owner and a review date, or when that date has passed
+//! (SEC-STD-002). [`watch`] compares recorded release feeds with the pinned
+//! editions, and fails when a feed no longer names the pinned edition,
+//! because such a feed could not show a newer one either (SEC-STD-003).
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::docs_lint::{Requirement, rest_from};
+use crate::docs_lint::{Requirement, cells, rest_from, section};
 use crate::tree::Tree;
-
-/// Directory of the vendored ID lists.
-pub const DIR: &str = "crates/xtask/standards";
 
 /// The coverage file SEC-STD-002 regenerates against.
 pub const COVERAGE: &str = "docs/security/standards-coverage.md";
@@ -36,7 +36,21 @@ pub const MASVS: &str = "crates/xtask/standards/masvs-2.1.0.txt";
 /// The pinned SSDF list.
 pub const SSDF: &str = "crates/xtask/standards/ssdf-1.1.txt";
 
-/// The pinned editions [`watch`] compares feeds against.
+/// The heading of the chapter target table in [`COVERAGE`].
+pub const TARGETS: &str = "### Target level per chapter";
+
+/// The heading of the register of deviations and not-applicable items in
+/// [`COVERAGE`].
+pub const REGISTER: &str = "### Recorded deviations";
+
+/// Seconds in a day.
+const DAY: u64 = 86_400;
+
+/// The day number of 1970-01-01, counting 0000-03-01 as day 1.
+const EPOCH_DAY: u64 = 719_469;
+
+/// The pinned editions [`watch`] compares feeds against. The feed of each
+/// is the file `<key>.txt`.
 pub const PINNED: &[(&str, &str)] = &[
     ("asvs", "5.0.0"),
     ("top10", "2025"),
@@ -70,8 +84,6 @@ pub enum Finding {
         id: String,
         /// The citation.
         citation: String,
-        /// The pinned edition.
-        pinned: String,
     },
     /// The coverage file is missing.
     MissingCoverage,
@@ -82,17 +94,26 @@ pub enum Finding {
         /// The chapter target level.
         target: u8,
     },
-    /// A register row is missing a required field.
+    /// A register row lacks a reason, a compensating control, an owner or
+    /// a review date.
     IncompleteRegister {
         /// The ASVS ID.
         asvs: String,
     },
-    /// A register review date is older than one year before `now`.
+    /// The day a register row was due for review has ended.
     ExpiredReview {
         /// The ASVS ID.
         asvs: String,
         /// The recorded date, `YYYY-MM-DD`.
         date: String,
+    },
+    /// A feed is missing or does not name the pinned edition, so it cannot
+    /// be trusted to show a newer one.
+    NoFeed {
+        /// The standard key.
+        standard: String,
+        /// The pinned edition.
+        pinned: String,
     },
     /// A feed names a newer final edition than the pin.
     Newer {
@@ -115,24 +136,31 @@ pub fn citations(tree: &dyn Tree, requirements: &[Requirement]) -> Vec<Finding> 
                 Status::Ok => {}
                 Status::Unknown
                     if matches!(citation.kind, Kind::Ssdf)
-                        && req.standards.to_ascii_lowercase().contains("draft") => {}
+                        && after_draft(&req.standards, &citation.id) => {}
                 Status::Unknown => findings.push(Finding::Unknown {
                     path: req.path.clone(),
                     line: req.line,
                     id: req.id.clone(),
                     citation: citation.display(),
                 }),
-                Status::Superseded(pinned) => findings.push(Finding::Superseded {
+                Status::Superseded => findings.push(Finding::Superseded {
                     path: req.path.clone(),
                     line: req.line,
                     id: req.id.clone(),
                     citation: citation.display(),
-                    pinned,
                 }),
             }
         }
     }
     findings
+}
+
+/// Whether the Standards column names `id` after the word `draft`: a task
+/// of the SSDF draft that the pinned edition does not have yet.
+fn after_draft(standards: &str, id: &str) -> bool {
+    standards
+        .split_once("draft")
+        .is_some_and(|(_, after)| after.contains(id))
 }
 
 /// Coverage of ASVS items at or below each chapter target, at time `now`.
@@ -156,50 +184,50 @@ pub fn coverage(tree: &dyn Tree, now: u64) -> Vec<Finding> {
         if cited.contains(id) {
             continue;
         }
-        if let Some(row) = register.get(id) {
-            if !row.complete() {
-                findings.push(Finding::IncompleteRegister { asvs: id.clone() });
-            }
-            if let Some(date) = &row.review
-                && expired(date, now)
-            {
-                findings.push(Finding::ExpiredReview {
-                    asvs: id.clone(),
-                    date: date.clone(),
-                });
-            }
+        let Some(row) = register.get(id) else {
+            findings.push(Finding::Uncovered {
+                asvs: id.clone(),
+                target,
+            });
             continue;
+        };
+        match date_seconds(&row.review).filter(|_| row.complete) {
+            None => findings.push(Finding::IncompleteRegister { asvs: id.clone() }),
+            Some(due) if now >= due + DAY => findings.push(Finding::ExpiredReview {
+                asvs: id.clone(),
+                date: row.review.clone(),
+            }),
+            Some(_) => {}
         }
-        findings.push(Finding::Uncovered {
-            asvs: id.clone(),
-            target,
-        });
     }
     findings
 }
 
-/// Newer final editions in the recorded feeds under `feeds`.
+/// Newer final editions in the recorded feeds under `feeds`, and feeds that
+/// do not name the pinned edition.
 pub fn watch(tree: &dyn Tree, feeds: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for name in tree.files(feeds) {
-        let path = format!("{feeds}/{name}");
-        let Some(text) = tree.read(&path) else {
-            continue;
-        };
-        let Some((standard, pinned)) = standard_key(&name) else {
-            continue;
-        };
-        for found in feed_versions(&text) {
-            if is_draft(&found) {
-                continue;
-            }
-            if newer(&found, pinned) {
-                findings.push(Finding::Newer {
+    for &(standard, pinned) in PINNED {
+        let text = tree
+            .read(&format!("{feeds}/{standard}.txt"))
+            .unwrap_or_default();
+        let mut live = false;
+        for found in feed_editions(&text) {
+            match compare_version(found, pinned) {
+                Ordering::Less => {}
+                Ordering::Equal => live = true,
+                Ordering::Greater => findings.push(Finding::Newer {
                     standard: standard.to_owned(),
                     pinned: pinned.to_owned(),
-                    found,
-                });
+                    found: found.to_owned(),
+                }),
             }
+        }
+        if !live {
+            findings.push(Finding::NoFeed {
+                standard: standard.to_owned(),
+                pinned: pinned.to_owned(),
+            });
         }
     }
     findings
@@ -218,7 +246,6 @@ struct Catalog {
 
 impl Catalog {
     fn load(tree: &dyn Tree) -> Self {
-        debug_assert_eq!(ASVS, format!("{DIR}/asvs-5.0.0.txt"));
         let (asvs, asvs_levels) = load_asvs(tree);
         Self {
             asvs,
@@ -232,8 +259,8 @@ impl Catalog {
     }
 
     fn status(&self, citation: &Citation) -> Status {
-        if let Some(edition) = &citation.superseded {
-            return Status::Superseded(edition.clone());
+        if citation.superseded.is_some() {
+            return Status::Superseded;
         }
         let known = match citation.kind {
             Kind::Asvs => self.asvs.contains(&citation.id),
@@ -251,7 +278,7 @@ impl Catalog {
 enum Status {
     Ok,
     Unknown,
-    Superseded(String),
+    Superseded,
 }
 
 /// One citation of a pinned standard.
@@ -290,16 +317,10 @@ enum Kind {
 
 /// A deviation or not-applicable register row.
 struct Register {
-    reason: bool,
-    compensating: bool,
-    owner: bool,
-    review: Option<String>,
-}
-
-impl Register {
-    fn complete(&self) -> bool {
-        self.reason && self.compensating && self.owner
-    }
+    /// Whether it gives a reason, a compensating control and an owner.
+    complete: bool,
+    /// Its Review date cell: the day it is due for review.
+    review: String,
 }
 
 /// The first whitespace token of `line`, or the whole line.
@@ -310,11 +331,6 @@ fn first_token(line: &str) -> &str {
 /// `token` if present, otherwise `line`.
 fn first_token_from<'a>(token: Option<&'a str>, line: &'a str) -> &'a str {
     token.unwrap_or(line)
-}
-
-/// The first table cell, or an empty string.
-fn first_cell(cells: &[String]) -> &str {
-    cells.first().map_or("", String::as_str)
 }
 
 /// ASVS IDs and their levels.
@@ -548,32 +564,20 @@ fn api_citations(standards: &str) -> Vec<Citation> {
     found
 }
 
-/// MASVS control IDs.
+/// MASVS control IDs, and the first edition named as one.
 fn masvs_citations(standards: &str) -> Vec<Citation> {
     let mut found = Vec::new();
     let mut rest = standards;
     while let Some(at) = rest.find("MASVS-") {
         let token: String = rest_from(rest, at)
             .chars()
-            .take_while(|ch| {
-                ch.is_ascii_uppercase() || ch.is_ascii_digit() || *ch == '-' || *ch == '.'
-            })
+            .take_while(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || *ch == '-')
             .collect();
-        if token != "MASVS-" {
-            if token.contains("1.") || token.ends_with("-1.0") {
-                found.push(Citation {
-                    kind: Kind::Masvs,
-                    id: token.clone(),
-                    superseded: Some(token),
-                });
-            } else {
-                found.push(Citation {
-                    kind: Kind::Masvs,
-                    id: token,
-                    superseded: None,
-                });
-            }
-        }
+        found.push(Citation {
+            kind: Kind::Masvs,
+            id: token,
+            superseded: None,
+        });
         rest = rest_from(rest, at.saturating_add(6));
     }
     if standards.contains("MASVS 1") || standards.contains("MASVS v1") {
@@ -681,10 +685,13 @@ fn year_token(text: &str) -> Option<String> {
     }
 }
 
-/// ASVS IDs cited by any requirement.
+/// ASVS IDs cited by a live requirement.
 fn cited_asvs(tree: &dyn Tree) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
-    for req in crate::docs_lint::requirements(tree) {
+    for req in crate::docs_lint::requirements(tree)
+        .iter()
+        .filter(|req| req.is_live())
+    {
         for citation in parse_citations(&req.standards) {
             if matches!(citation.kind, Kind::Asvs) && citation.superseded.is_none() {
                 ids.insert(citation.id);
@@ -694,126 +701,59 @@ fn cited_asvs(tree: &dyn Tree) -> BTreeSet<String> {
     ids
 }
 
-/// Chapter target levels from the coverage file.
+/// Chapter target levels from the table under [`TARGETS`].
 fn chapter_targets(text: &str) -> BTreeMap<u8, u8> {
     let mut targets = BTreeMap::new();
-    for line in text.lines() {
-        let Some(cells) = table_cells(line) else {
-            continue;
-        };
-        let Some(chapter) = cells
+    for row in section(text, TARGETS).into_iter().filter_map(cells) {
+        let chapter = row
             .first()
-            .and_then(|c| c.strip_prefix('V'))
-            .and_then(|n| n.split_whitespace().next())
-        else {
-            continue;
-        };
-        let Ok(number) = chapter.parse::<u8>() else {
-            continue;
-        };
-        let Some(target_cell) = cells.get(2) else {
-            continue;
-        };
-        if target_cell.contains("N/A") {
-            continue;
-        }
-        if let Some(level) = target_level(target_cell) {
-            targets.insert(number, level);
+            .and_then(|cell| cell.strip_prefix('V'))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|number| number.parse::<u8>().ok());
+        let level = row.get(2).and_then(|cell| target_level(cell));
+        if let (Some(chapter), Some(level)) = (chapter, level) {
+            targets.insert(chapter, level);
         }
     }
     targets
 }
 
-/// `L1`, `L2` or `L3` in a target cell.
+/// The level a Target cell starts with. A chapter that is not applicable
+/// has none.
 fn target_level(cell: &str) -> Option<u8> {
-    if cell.contains("L3") {
-        Some(3)
-    } else if cell.contains("L2") {
-        Some(2)
-    } else if cell.contains("L1") {
-        Some(1)
-    } else {
-        None
-    }
+    ["**L1**", "**L2**", "**L3**"]
+        .iter()
+        .zip(1..)
+        .find(|(mark, _)| cell.starts_with(**mark))
+        .map(|(_, level)| level)
 }
 
-/// Register rows under "Recorded deviations" or a fixture table with those columns.
+/// The rows of the register under [`REGISTER`], by ASVS number. The first
+/// row of the table names the columns.
 fn register_rows(text: &str) -> BTreeMap<String, Register> {
-    let mut in_table = false;
     let mut rows = BTreeMap::new();
     let mut headers: Vec<String> = Vec::new();
-    for line in text.lines() {
-        if line.contains("Recorded deviations") || line.contains("### Register") {
-            in_table = true;
-            headers.clear();
-            continue;
-        }
-        if in_table
-            && line.starts_with("### ")
-            && !line.contains("Register")
-            && !line.contains("Recorded")
-        {
-            break;
-        }
-        let Some(cells) = table_cells(line) else {
-            continue;
-        };
-        if !in_table {
-            continue;
-        }
+    for row in section(text, REGISTER).into_iter().filter_map(cells) {
         if headers.is_empty() {
-            headers = cells;
+            headers = row;
             continue;
         }
-        let asvs = first_cell(&cells).to_owned();
-        if !is_asvs_id(&asvs) {
-            continue;
-        }
-        let reason = cell_named(&headers, &cells, "Deviation").is_some_and(|c| !c.is_empty())
-            || cell_named(&headers, &cells, "Reason").is_some_and(|c| !c.is_empty());
-        let compensating =
-            cell_named(&headers, &cells, "Compensating control").is_some_and(|c| !c.is_empty());
-        let owner = cell_named(&headers, &cells, "Argued in").is_some_and(|c| !c.is_empty())
-            || cell_named(&headers, &cells, "Owner").is_some_and(|c| !c.is_empty());
-        let review = cell_named(&headers, &cells, "Review date")
-            .or_else(|| cell_named(&headers, &cells, "Reviewed"))
-            .filter(|c| !c.is_empty())
-            .map(str::to_owned);
-        rows.insert(
-            asvs,
-            Register {
-                reason,
-                compensating,
-                owner,
-                review,
-            },
-        );
+        let cell = |name: &str| {
+            headers
+                .iter()
+                .position(|header| header == name)
+                .and_then(|at| row.get(at))
+                .map_or("", String::as_str)
+        };
+        let register = Register {
+            complete: !cell("Deviation").is_empty()
+                && !cell("Compensating control").is_empty()
+                && !cell("Owner").is_empty(),
+            review: cell("Review date").to_owned(),
+        };
+        rows.insert(cell("ASVS").to_owned(), register);
     }
     rows
-}
-
-/// The cell of `headers` named `name`.
-fn cell_named<'a>(headers: &[String], cells: &'a [String], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .position(|header| header == name)
-        .and_then(|i| cells.get(i).map(String::as_str))
-}
-
-/// Markdown table cells.
-fn table_cells(line: &str) -> Option<Vec<String>> {
-    let body = line.trim().strip_prefix('|')?;
-    let body = body.strip_suffix('|').unwrap_or(body);
-    let parts: Vec<String> = body.split('|').map(str::trim).map(str::to_owned).collect();
-    if parts.is_empty()
-        || parts
-            .iter()
-            .all(|cell| !cell.is_empty() && cell.chars().all(|ch| matches!(ch, '-' | ':')))
-    {
-        None
-    } else {
-        Some(parts)
-    }
 }
 
 /// The chapter number of an ASVS ID.
@@ -824,107 +764,34 @@ fn chapter_of(id: &str) -> u8 {
         .unwrap_or(0)
 }
 
-/// Whether `date` is more than 365 days before `now`.
-fn expired(date: &str, now: u64) -> bool {
-    let Some(stamp) = date_seconds(date) else {
-        return false;
+/// Midnight UTC at the start of `YYYY-MM-DD`, in seconds since the epoch,
+/// for the years 1970 to 9999. A day number up to 31 is accepted in every
+/// month and counts on into the next one.
+pub(crate) fn date_seconds(date: &str) -> Option<u64> {
+    let parts: Vec<Option<u64>> = date.split('-').map(|part| part.parse().ok()).collect();
+    let [Some(year), Some(month), Some(day)] = *parts.as_slice() else {
+        return None;
     };
-    now.saturating_sub(stamp) > 31_536_000
-}
-
-/// Midnight UTC of `YYYY-MM-DD`, in seconds.
-fn parse_u64(part: Option<&str>) -> Option<u64> {
-    part?.parse().ok()
-}
-
-fn date_seconds(date: &str) -> Option<u64> {
-    let mut parts = date.split('-');
-    let year: u64 = parse_u64(parts.next())?;
-    let month: u64 = parse_u64(parts.next())?;
-    let day: u64 = parse_u64(parts.next())?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || year < 1970 {
+    if !(1970..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-    Some(
-        year.saturating_sub(1970)
-            .saturating_mul(31_536_000)
-            .saturating_add(month.saturating_sub(1).saturating_mul(2_628_000))
-            .saturating_add(day.saturating_sub(1).saturating_mul(86_400)),
-    )
+    // Count years from March, so a leap day is the last day of its year.
+    let (y, m) = if month > 2 {
+        (year, month - 3)
+    } else {
+        (year - 1, month + 9)
+    };
+    let days = y * 365 + y / 4 - y / 100 + y / 400 + (153 * m + 2) / 5 + day;
+    Some((days - EPOCH_DAY) * DAY)
 }
 
-/// The pinned standard encoded in a feed file name, with its edition.
-fn standard_key(name: &str) -> Option<(&'static str, &'static str)> {
-    PINNED
-        .iter()
-        .copied()
-        .find(|(key, _)| name.starts_with(key))
-}
-
-/// Versions listed in a feed file.
-fn feed_versions(text: &str) -> Vec<String> {
-    let trimmed = text.trim_start();
-    if trimmed.starts_with('[') {
-        return json_tag_names(trimmed);
-    }
-    let mut versions = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        let Some(first) = line.chars().next() else {
-            continue;
-        };
-        if first == '#' {
-            continue;
-        }
-        if line.starts_with('{') {
-            versions.extend(json_tag_names(line));
-            continue;
-        }
-        let token = line.trim_start_matches('v');
-        if token.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
-            versions.push(token.to_owned());
-        }
-    }
-    versions
-}
-
-/// `tag_name` values from a GitHub releases JSON array.
-fn json_tag_names(text: &str) -> Vec<String> {
-    let mut versions = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("\"tag_name\"") {
-        let after = rest_from(rest, at.saturating_add(10));
-        let Some(colon) = after.find(':') else {
-            rest = after;
-            continue;
-        };
-        let after = rest_from(after, colon.saturating_add(1)).trim_start();
-        if let Some(value) = json_string(after) {
-            versions.push(value.trim_start_matches('v').to_owned());
-        }
-        rest = after;
-    }
-    versions
-}
-
-/// A JSON string at the start of `text`.
-fn json_string(text: &str) -> Option<String> {
-    let rest = text.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = rest.chars();
-    while let Some(ch) = chars.next() {
-        if ch == '"' {
-            return Some(out);
-        }
-        if ch == '\\' {
-            if let Some(escaped) = chars.next() {
-                out.push(escaped);
-            }
-            continue;
-        }
-        out.push(ch);
-    }
-    None
+/// The editions a recorded feed names: one per line, with any leading `v`
+/// removed, drafts left out.
+fn feed_editions(text: &str) -> Vec<&str> {
+    text.lines()
+        .map(|line| line.trim().trim_start_matches('v'))
+        .filter(|edition| !is_draft(edition))
+        .collect()
 }
 
 /// A pre-release marker.
@@ -933,13 +800,8 @@ fn is_draft(version: &str) -> bool {
     lower.contains("draft") || lower.contains("rc") || lower.contains("beta")
 }
 
-/// Whether `found` is a newer edition than `pinned`.
-fn newer(found: &str, pinned: &str) -> bool {
-    compare_version(found, pinned) == std::cmp::Ordering::Greater
-}
-
 /// Numeric edition comparison, component by component.
-fn compare_version(left: &str, right: &str) -> std::cmp::Ordering {
+fn compare_version(left: &str, right: &str) -> Ordering {
     let left_parts = version_parts(left);
     let right_parts = version_parts(right);
     let n = left_parts.len().max(right_parts.len());
@@ -947,11 +809,11 @@ fn compare_version(left: &str, right: &str) -> std::cmp::Ordering {
         let l = left_parts.get(i).copied().unwrap_or(0);
         let r = right_parts.get(i).copied().unwrap_or(0);
         match l.cmp(&r) {
-            std::cmp::Ordering::Equal => {}
+            Ordering::Equal => {}
             other => return other,
         }
     }
-    std::cmp::Ordering::Equal
+    Ordering::Equal
 }
 
 /// Numeric components of an edition string.
@@ -978,277 +840,393 @@ fn version_parts(version: &str) -> Vec<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Finding, PINNED, citations, coverage, watch};
+    use std::cmp::Ordering;
+
+    use super::{Finding, citations, coverage, watch};
     use crate::docs_lint::tests::{IDENTITY, edited, repo};
     use crate::tree::memory::Memory;
 
-    /// The citation string a finding names, when it has one.
-    fn citation_text(finding: &Finding) -> Option<&str> {
-        match finding {
-            Finding::Unknown { citation, .. } | Finding::Superseded { citation, .. } => {
-                Some(citation)
-            }
-            Finding::MissingCoverage
-            | Finding::Uncovered { .. }
-            | Finding::IncompleteRegister { .. }
-            | Finding::ExpiredReview { .. }
-            | Finding::Newer { .. } => None,
+    /// The fixture repository with `standards` as the Standards column of
+    /// SEC-IAM-026, on line 6 of the identity file.
+    fn citing(standards: &str) -> Memory {
+        edited(
+            "docs/security/identity-and-access.md",
+            "| ASVS 10.2.1 |",
+            &format!("| {standards} |"),
+        )
+    }
+
+    /// What `citations` finds in `tree`.
+    fn cited(tree: &Memory) -> Vec<Finding> {
+        citations(tree, &crate::docs_lint::requirements(tree))
+    }
+
+    /// An unknown-ID finding on SEC-IAM-026.
+    fn unknown(citation: &str) -> Finding {
+        Finding::Unknown {
+            path: "docs/security/identity-and-access.md".to_owned(),
+            line: 6,
+            id: "SEC-IAM-026".to_owned(),
+            citation: citation.to_owned(),
+        }
+    }
+
+    /// A superseded-edition finding on SEC-IAM-026.
+    fn superseded(citation: &str) -> Finding {
+        Finding::Superseded {
+            path: "docs/security/identity-and-access.md".to_owned(),
+            line: 6,
+            id: "SEC-IAM-026".to_owned(),
+            citation: citation.to_owned(),
         }
     }
 
     /// Verifies: SEC-STD-001
     #[test]
     fn an_unknown_asvs_number_fails() {
-        let tree = edited(
-            "docs/security/identity-and-access.md",
-            "| ASVS 10.2.1 |",
-            "| ASVS 10.2.9 |",
+        assert_eq!(cited(&citing("ASVS 10.2.9")), [unknown("ASVS 10.2.9")]);
+    }
+
+    /// Verifies: SEC-STD-001
+    #[test]
+    fn an_id_the_pinned_list_does_not_have_fails_for_every_standard() {
+        let tree = citing(
+            "ASVS 10.2.9, 10.2.1; CWE-999; CWE-521; A99; A07:2025; API9:2023; API1:2023; MASVS-AUTH-1; MASVS-NETWORK-1; SSDF PO.9.9, PW.1.1",
         );
-        let reqs = crate::docs_lint::requirements(&tree);
         assert_eq!(
-            citations(&tree, &reqs),
-            [Finding::Unknown {
-                path: "docs/security/identity-and-access.md".to_owned(),
-                line: 6,
-                id: "SEC-IAM-026".to_owned(),
-                citation: "ASVS 10.2.9".to_owned(),
-            }]
+            cited(&tree),
+            [
+                unknown("ASVS 10.2.9"),
+                unknown("CWE-999"),
+                unknown("A99"),
+                unknown("API9"),
+                unknown("MASVS-AUTH-1"),
+                unknown("SSDF PO.9.9"),
+            ]
         );
     }
 
     /// Verifies: SEC-STD-001
     #[test]
-    fn a_superseded_edition_fails() {
-        let tree = edited(
-            "docs/security/identity-and-access.md",
-            "| ASVS 10.2.1 |",
-            "| ASVS 4.0 10.2.1 |",
+    fn a_superseded_edition_fails_for_every_standard() {
+        let tree = citing(
+            "ASVS 4.0.3 10.2.1; Top 10:2021 A01; A07:2021; API1:2019; MASVS 1; SSDF 1.0 PW.1.1; ASVS v5.0.0 10.2.1",
         );
-        let reqs = crate::docs_lint::requirements(&tree);
         assert_eq!(
-            citations(&tree, &reqs),
-            [Finding::Superseded {
-                path: "docs/security/identity-and-access.md".to_owned(),
-                line: 6,
-                id: "SEC-IAM-026".to_owned(),
-                citation: "ASVS 4.0".to_owned(),
-                pinned: "ASVS 4.0".to_owned(),
-            }]
-        );
-        let year = edited(
-            "docs/security/identity-and-access.md",
-            "A07:2025",
-            "A07:2021",
-        );
-        let reqs = crate::docs_lint::requirements(&year);
-        let year_findings = citations(&year, &reqs);
-        assert!(
-            year_findings.iter().any(|finding| matches!(
-                finding,
-                Finding::Superseded { citation, .. } if citation.contains("2021")
-            )),
-            "{year_findings:?}"
+            cited(&tree),
+            [
+                superseded("ASVS 4.0.3"),
+                superseded("Top 10:2021"),
+                superseded("A07:2021"),
+                superseded("API1:2019"),
+                superseded("MASVS 1"),
+                superseded("SSDF 1.0"),
+            ]
         );
     }
 
     /// Verifies: SEC-STD-001
     #[test]
     fn the_fixture_standards_columns_are_known() {
-        let tree = repo();
-        assert_eq!(citations(&tree, &crate::docs_lint::requirements(&tree)), []);
+        assert_eq!(cited(&repo()), []);
         assert!(IDENTITY.contains("ASVS 6.1.3"));
     }
 
+    #[test]
+    fn only_a_task_named_after_the_word_draft_may_be_missing_from_the_pinned_ssdf() {
+        assert_eq!(
+            cited(&citing("SSDF PW.1.1; SSDF 1.2 draft PO.6.1, PO.6.2")),
+            []
+        );
+        assert_eq!(
+            cited(&citing("SSDF RV.9.9; SSDF 1.2 draft PO.6.1")),
+            [unknown("SSDF RV.9.9")]
+        );
+    }
+
+    /// A coverage file whose register is `register`.
+    fn coverage_file(register: &str) -> String {
+        format!(
+            "\
+# Coverage
+
+### Target level per chapter
+
+| Chapter | Items (L1/L2/L3) | Target | Why |
+|---|---|---|---|
+| V6 Authentication | 1/0/0 | **L1** | sign-in |
+| V13 Configuration | 0/1/1 | **L2** | configuration |
+| V14 Data Protection | 1/1/0 | **L1** | little is stored |
+| V15 Secure Coding | 0/1/2 | **L3** with deviations | the host |
+| V16 Logging | 1/0/0 | **N/A** | none |
+| Vx Odd | 0 | **L3** | none |
+| V18 |
+
+### Recorded deviations
+
+Each is argued elsewhere.
+
+{register}
+### Section by section
+
+| V13 Decoy | 0 | **L3** | not the target table |
+| 15.1.6 | L3 | why | how | docs | 2026-10-02 |
+"
+        )
+    }
+
+    /// The fixture repository with a pinned ASVS list of `asvs`, a coverage
+    /// file whose register is `register`, and the withdrawn SEC-TM-013
+    /// citing ASVS 6.9.9.
+    fn covering(asvs: &str, register: &str) -> Memory {
+        edited(
+            "docs/security/threat-model.md",
+            "| ASVS 6.1.3 | Withdrawn |",
+            "| ASVS 6.9.9 | Withdrawn |",
+        )
+        .with(super::ASVS, asvs)
+        .with(super::COVERAGE, &coverage_file(register))
+    }
+
+    /// An uncovered-item finding.
+    fn uncovered(asvs: &str, target: u8) -> Finding {
+        Finding::Uncovered {
+            asvs: asvs.to_owned(),
+            target,
+        }
+    }
+
     /// Verifies: SEC-STD-002
     #[test]
-    fn coverage_fails_without_the_file_or_an_uncovered_item() {
+    fn an_item_at_or_below_its_target_needs_a_citation_or_a_register_row() {
         assert_eq!(coverage(&repo(), 0), [Finding::MissingCoverage]);
-        let tree = repo()
-            .with(super::ASVS, "# ASVS\n15.1.5 3\n15.1.6 3\n15.1.1 2\n")
-            .with(
-                super::COVERAGE,
-                "\
-### Levels
-
-| Chapter | Items (L1/L2/L3) | Target | Why | Uncited | After |
-|---|---|---|---|---|---|
-| V15 Encoding | 0/0/1 | **L3** | Host | 0 | |
-
-### Register
-
+        let tree = covering(
+            "# ASVS 5.0.0\n\n13.1.1 2\n13.1.2 3\n14.1.1 2\n14.1.2 1\n15.1.1 2\n15.1.5 3\n15.1.6 3\n16.1.1 1\n17.1.1 1\n6.1.3 1\n6.9.9 1\nx 1\nunlevelled\n",
+            "\
 | ASVS | Level | Deviation | Compensating control | Owner | Review date |
 |---|---|---|---|---|---|
-| 15.1.1 | L2 | none | none | docs | 2020-01-01 |
+| 15.1.1 | L2 | why | how | docs | 2026-10-02 |
 ",
-            );
-        let findings = coverage(&tree, 1_800_000_000);
-        assert!(
-            findings.iter().any(|finding| matches!(
-                finding,
-                Finding::Uncovered { asvs, target: 3 } if asvs == "15.1.6"
-            )),
-            "{findings:?}"
         );
-        assert!(
-            findings.iter().any(|finding| matches!(
-                finding,
-                Finding::ExpiredReview { asvs, date } if asvs == "15.1.1" && date == "2020-01-01"
-            )),
-            "{findings:?}"
+        // The last second of 2026-10-02, the day the register row is due.
+        assert_eq!(
+            coverage(&tree, 1_790_985_599),
+            [
+                uncovered("13.1.1", 2),
+                uncovered("14.1.2", 1),
+                uncovered("15.1.6", 3),
+                uncovered("6.9.9", 1),
+            ]
         );
     }
 
     /// Verifies: SEC-STD-002
     #[test]
-    fn a_complete_register_row_covers_an_uncited_item() {
-        let tree = repo().with(super::ASVS, "# ASVS\n15.1.6 3\n").with(
-            super::COVERAGE,
+    fn a_register_row_whose_review_day_has_ended_fails() {
+        let tree = covering(
+            "15.1.1 2\n",
             "\
-| Chapter | Items | Target |
-|---|---|---|
-| V15 Encoding | 0 | **L3** |
+| ASVS | Level | Deviation | Compensating control | Owner | Review date |
+|---|---|---|---|---|---|
+| 15.1.1 | L2 | why | how | docs | 2026-10-02 |
+",
+        );
+        assert_eq!(coverage(&tree, 1_790_985_599), []);
+        // Midnight at the start of 2026-10-03.
+        assert_eq!(
+            coverage(&tree, 1_790_985_600),
+            [Finding::ExpiredReview {
+                asvs: "15.1.1".to_owned(),
+                date: "2026-10-02".to_owned(),
+            }]
+        );
+    }
 
-### Register
+    /// An incomplete-register finding.
+    fn incomplete(asvs: &str) -> Finding {
+        Finding::IncompleteRegister {
+            asvs: asvs.to_owned(),
+        }
+    }
 
-| ASVS | Deviation | Compensating control | Owner | Review date |
+    /// Verifies: SEC-STD-002
+    #[test]
+    fn a_register_row_needs_a_reason_a_control_an_owner_and_a_review_date() {
+        let asvs = "15.1.1 2\n15.1.2 2\n15.1.3 2\n15.1.4 2\n15.1.7 2\n15.1.8 2\n";
+        let tree = covering(
+            asvs,
+            "\
+| ASVS | Level | Deviation | Compensating control | Owner | Review date |
+|---|---|---|---|---|---|
+| 15.1.1 | L2 |  | how | docs | 2026-10-02 |
+| 15.1.2 | L2 | why |  | docs | 2026-10-02 |
+| 15.1.3 | L2 | why | how |  | 2026-10-02 |
+| 15.1.4 | L2 | why | how | docs |  |
+| 15.1.7 | L2 | why | how | docs | soon |
+| 15.1.8 | L2 | why | how | docs | 2026-10-02 |
+",
+        );
+        assert_eq!(
+            coverage(&tree, 0),
+            [
+                incomplete("15.1.1"),
+                incomplete("15.1.2"),
+                incomplete("15.1.3"),
+                incomplete("15.1.4"),
+                incomplete("15.1.7"),
+            ]
+        );
+        // A register with no Owner and no Review date column.
+        let unowned = covering(
+            "15.1.8 2\n",
+            "\
+| ASVS | Level | Deviation | Compensating control | Argued in |
 |---|---|---|---|---|
-| 15.1.6 | N/A | none needed | docs | 2026-10-01 |
+| 15.1.8 | L2 | why | how | this file |
 ",
         );
-        let findings = coverage(&tree, 1_790_000_000);
-        assert_eq!(findings, []);
+        assert_eq!(coverage(&unowned, 0), [incomplete("15.1.8")]);
     }
 
-    /// Verifies: SEC-STD-002
     #[test]
-    fn an_incomplete_register_row_fails() {
-        let tree = repo().with(super::ASVS, "# ASVS\n15.1.6 3\n").with(
-            super::COVERAGE,
-            "\
-| Chapter | Items | Target |
-|---|---|---|
-| V15 Encoding | 0 | **L3** |
+    fn dates_are_midnight_utc_in_seconds_since_the_epoch() {
+        // Each stamp is what `date -u -d <date> +%s` prints.
+        for (date, stamp) in [
+            ("1970-01-01", 0),
+            ("1971-01-01", 31_536_000),
+            ("1972-02-29", 68_169_600),
+            ("1972-03-01", 68_256_000),
+            ("1999-12-31", 946_598_400),
+            ("2000-02-29", 951_782_400),
+            ("2000-03-01", 951_868_800),
+            ("2024-02-29", 1_709_164_800),
+            ("2026-01-31", 1_769_817_600),
+            ("2026-10-01", 1_790_812_800),
+            ("2026-10-02", 1_790_899_200),
+            ("2100-02-28", 4_107_456_000),
+            ("2100-03-01", 4_107_542_400),
+            ("2400-02-29", 13_574_563_200),
+            ("9999-12-31", 253_402_214_400),
+        ] {
+            assert_eq!(super::date_seconds(date), Some(stamp));
+        }
+        for not_a_date in [
+            "",
+            "2026",
+            "2026-10",
+            "2026-10-01-01",
+            "xx-01-01",
+            "2026-aa-01",
+            "2026-10-aa",
+            "1969-12-31",
+            "10000-01-01",
+            "2026-00-01",
+            "2026-13-01",
+            "2026-10-00",
+            "2026-10-32",
+        ] {
+            assert_eq!(super::date_seconds(not_a_date), None);
+        }
+    }
 
-### Register
+    /// A newer-edition finding.
+    fn newer(standard: &str, pinned: &str, found: &str) -> Finding {
+        Finding::Newer {
+            standard: standard.to_owned(),
+            pinned: pinned.to_owned(),
+            found: found.to_owned(),
+        }
+    }
 
-| ASVS | Deviation | Compensating control | Owner |
-|---|---|---|---|
-| 15.1.6 |   |   |   |
-",
-        );
-        let incomplete = coverage(&tree, 0);
-        assert!(
-            incomplete.iter().any(|finding| matches!(
-                finding,
-                Finding::IncompleteRegister { asvs } if asvs == "15.1.6"
-            )),
-            "{incomplete:?}"
-        );
+    /// A finding that a feed does not name the pinned edition.
+    fn no_feed(standard: &str, pinned: &str) -> Finding {
+        Finding::NoFeed {
+            standard: standard.to_owned(),
+            pinned: pinned.to_owned(),
+        }
+    }
+
+    /// Verifies: SEC-STD-003
+    #[test]
+    fn the_pinned_editions_are_not_newer_than_themselves() {
+        let tree = Memory::default()
+            .with("feeds/asvs.txt", "latest\nv5.0.0_release\nv4.0.3_release\n")
+            .with("feeds/top10.txt", "2021\n2025\n")
+            .with("feeds/api-top10.txt", "2023\n")
+            .with("feeds/masvs.txt", "v2.1.0\nv2.0.0\n")
+            .with("feeds/cwe-top25.txt", "2025\n")
+            .with("feeds/ssdf.txt", "1.1\n");
+        assert_eq!(watch(&tree, "feeds"), []);
     }
 
     /// Verifies: SEC-STD-003
     #[test]
     fn a_newer_final_edition_fails_and_a_draft_does_not() {
         let tree = Memory::default()
-            .with("feeds/asvs.txt", "5.0.0\n5.1.0\n")
-            .with("feeds/ssdf.txt", "1.1\n1.2-draft\n")
             .with(
-                "feeds/top10.json",
-                r#"[{"tag_name":"2025"},{"tag_name":"2026"}]"#,
-            );
-        let findings = watch(&tree, "feeds");
-        assert!(
-            findings.contains(&Finding::Newer {
-                standard: "asvs".to_owned(),
-                pinned: "5.0.0".to_owned(),
-                found: "5.1.0".to_owned(),
-            }),
-            "{findings:?}"
+                "feeds/asvs.txt",
+                "v5.0.0_release\nv5.1.0_release\nv6.0.0-rc1\nv5.2.0-beta\n",
+            )
+            .with("feeds/top10.txt", "2025\n2026\n")
+            .with("feeds/api-top10.txt", "2023\n")
+            .with("feeds/masvs.txt", "v2.1.0\n")
+            .with("feeds/cwe-top25.txt", "2025\n")
+            .with("feeds/ssdf.txt", "1.1\n1.2-draft\n");
+        assert_eq!(
+            watch(&tree, "feeds"),
+            [
+                newer("asvs", "5.0.0", "5.1.0_release"),
+                newer("top10", "2025", "2026"),
+            ]
         );
-        assert!(
-            findings.contains(&Finding::Newer {
-                standard: "top10".to_owned(),
-                pinned: "2025".to_owned(),
-                found: "2026".to_owned(),
-            }),
-            "{findings:?}"
-        );
-        assert_eq!(findings.len(), 2);
-        assert_eq!(PINNED.len(), 6);
-        assert!(super::DIR.ends_with("standards"));
     }
 
-    /// Verifies: SEC-STD-001
+    /// Verifies: SEC-STD-003
     #[test]
-    fn every_citation_kind_is_reported() {
-        let kinds = repo().with(
-            "docs/security/identity-and-access.md",
-            &IDENTITY
-                .replace(
-                    "| ASVS 10.2.1 |",
-                    "| CWE-999; A99; API9:2023; MASVS-; MASVS-AUTH-1; MASVS-STORAGE-1.0; MASVS 1; SSDF 1.0; PO.9.9; ASVS 4.0.3; Top 10:2021; A07:20 |",
-                )
-                .replace(
-                    "| ASVS 6.1.3; A07:2025; CWE-521 |",
-                    "| ASVS 6.1.3; A07:2025; CWE-521; draft SSDF ZZ.1 |",
-                ),
-        );
-        let reqs = crate::docs_lint::requirements(&kinds);
-        let findings = citations(&kinds, &reqs);
-        for needle in [
-            "CWE-999",
-            "A99",
-            "API9",
-            "MASVS-AUTH-1",
-            "MASVS-STORAGE-1.0",
-            "MASVS 1",
-            "SSDF 1.0",
-            "SSDF PO.9.9",
-            "ASVS 4.0.3",
-            "Top 10:2021",
-        ] {
-            assert!(
-                findings.iter().any(|finding| citation_text(finding)
-                    .is_some_and(|citation| citation.contains(needle))),
-                "{needle} in {findings:?}"
-            );
-        }
-        assert!(
-            !findings
-                .iter()
-                .any(|finding| citation_text(finding)
-                    .is_some_and(|citation| citation.contains("ZZ.1"))),
-            "{findings:?}"
-        );
-        assert_eq!(citation_text(&Finding::MissingCoverage), None);
+    fn a_feed_that_does_not_name_the_pinned_edition_fails() {
         assert_eq!(
-            citation_text(&Finding::Uncovered {
-                asvs: "1.1.1".to_owned(),
-                target: 1,
-            }),
-            None
+            watch(&Memory::default(), "feeds"),
+            [
+                no_feed("asvs", "5.0.0"),
+                no_feed("top10", "2025"),
+                no_feed("api-top10", "2023"),
+                no_feed("masvs", "2.1.0"),
+                no_feed("cwe-top25", "2025"),
+                no_feed("ssdf", "1.1"),
+            ]
         );
+        let tree = Memory::default()
+            .with("feeds/asvs.txt", "v5.0.0_release\n")
+            .with("feeds/top10.txt", "2025\n")
+            .with("feeds/api-top10.txt", "2019\n")
+            .with("feeds/masvs.json", "v2.1.0\n")
+            .with("feeds/cwe-top25.txt", "2026\n")
+            .with("feeds/ssdf.txt", "\n");
         assert_eq!(
-            citation_text(&Finding::IncompleteRegister {
-                asvs: "1.1.1".to_owned(),
-            }),
-            None
+            watch(&tree, "feeds"),
+            [
+                no_feed("api-top10", "2023"),
+                no_feed("masvs", "2.1.0"),
+                newer("cwe-top25", "2025", "2026"),
+                no_feed("cwe-top25", "2025"),
+                no_feed("ssdf", "1.1"),
+            ]
         );
-        assert_eq!(
-            citation_text(&Finding::ExpiredReview {
-                asvs: "1.1.1".to_owned(),
-                date: "2020-01-01".to_owned(),
-            }),
-            None
-        );
-        assert_eq!(
-            citation_text(&Finding::Newer {
-                standard: "asvs".to_owned(),
-                pinned: "5.0.0".to_owned(),
-                found: "5.1.0".to_owned(),
-            }),
-            None
-        );
+    }
+
+    #[test]
+    fn editions_compare_number_by_number() {
+        assert_eq!(super::compare_version("5.0", "5.0.0"), Ordering::Equal);
+        assert_eq!(super::compare_version("5.0.1", "5.0"), Ordering::Greater);
+        assert_eq!(super::compare_version("4.9", "5"), Ordering::Less);
+        assert_eq!(super::compare_version("10", "9"), Ordering::Greater);
+        assert_eq!(super::version_parts("99999999999x"), Vec::<u32>::new());
+        assert_eq!(super::version_parts("1.99999999999"), vec![1]);
+        assert_eq!(super::version_parts("1.x2"), vec![1, 2]);
+        assert!(super::is_draft("1.2-rc1"));
+        assert!(super::is_draft("1.2 Draft"));
+        assert!(super::is_draft("1.2-BETA"));
+        assert!(!super::is_draft("1.2"));
     }
 
     #[test]
@@ -1256,51 +1234,16 @@ mod tests {
         assert!(!super::is_asvs_edition(""));
         assert!(!super::is_asvs_id(""));
         assert_eq!(super::chapter_of("x"), 0);
+        assert_eq!(super::chapter_of("15.1.1"), 15);
         assert_eq!(super::first_token(""), "");
         assert_eq!(super::first_token("  id 2"), "id");
         assert_eq!(super::first_token_from(None, "id"), "id");
-        assert_eq!(super::first_cell(&[]), "");
-        assert_eq!(super::first_cell(&[String::from("15.1.1")]), "15.1.1");
         let api = super::api_citations("API1:2024 API2:2023 API");
         assert_eq!(api.len(), 2);
         assert_eq!(api[0].superseded.as_deref(), Some("API1:2024"));
         assert_eq!(api[1].superseded, None);
-        let rows = super::register_rows(
-            "\
-Recorded deviations
-
-| ASVS | Reason | Compensating control | Argued in | Reviewed |
-|---|---|---|---|---|
-| 15.1.6 | why | how | docs |  |
-| 15.1.1 | why | how | docs | 2026-10-01 |
-
-### Later
-",
-        );
-        let empty_review = rows.get("15.1.6").expect("15.1.6 is a register row");
-        assert!(empty_review.reason && empty_review.compensating && empty_review.owner);
-        assert_eq!(empty_review.review.as_deref(), None);
-        assert_eq!(
-            rows.get("15.1.1")
-                .expect("15.1.1 is a register row")
-                .review
-                .as_deref(),
-            Some("2026-10-01")
-        );
         assert!(super::cwe_citations("CWE-").is_empty());
         assert!(super::ssdf_citations("PO.").is_empty());
-        assert_eq!(super::parse_u64(None), None);
-        assert_eq!(super::date_seconds(""), None);
-        assert_eq!(super::date_seconds("2026"), None);
-        assert_eq!(super::date_seconds("2026-10"), None);
-        assert_eq!(super::date_seconds("xx-01-01"), None);
-        assert_eq!(super::date_seconds("2026-aa-01"), None);
-        assert_eq!(super::date_seconds("2026-10-aa"), None);
-        assert_eq!(super::date_seconds("1969-10-01"), None);
-        assert_eq!(super::feed_versions("nope\nv\n"), Vec::<String>::new());
-        assert_eq!(super::json_string("\"abc\\"), None);
-        assert_eq!(super::version_parts("99999999999x"), Vec::<u32>::new());
-        assert_eq!(super::version_parts("1.x2"), vec![1, 2]);
         assert!(!super::is_asvs_edition("4.0."));
         assert!(!super::is_asvs_edition("4.0.x"));
         assert!(super::is_asvs_edition("4.0.3"));
@@ -1312,32 +1255,17 @@ Recorded deviations
         assert!(!super::is_asvs_id("1.b.1"));
         assert!(!super::is_asvs_id("1.1.c"));
         assert!(!super::is_asvs_id("5.0.0"));
+        assert_eq!(super::target_level("**L1**"), Some(1));
+        assert_eq!(super::target_level("**L2** in R1"), Some(2));
+        assert_eq!(super::target_level("**L3**"), Some(3));
+        assert_eq!(super::target_level("**N/A**"), None);
+        assert_eq!(super::target_level("see **L3**"), None);
     }
 
     #[test]
     fn parse_edges_are_named() {
         assert_eq!(super::year_token("20x6"), None);
         assert_eq!(super::year_token("2026"), Some(String::from("2026")));
-        assert!(super::is_draft("1.2-rc1"));
-        assert!(!super::is_draft("1.2"));
-        let stamp = super::date_seconds("2026-10-01").expect("2026-10-01 is a date");
-        assert!(!super::expired("2026-10-01", stamp));
-        assert!(!super::expired(
-            "2026-10-01",
-            stamp.saturating_add(31_536_000)
-        ));
-        assert!(super::expired(
-            "2026-10-01",
-            stamp.saturating_add(31_536_001)
-        ));
-        assert!(super::date_seconds("1970-01-01").is_some());
-        assert_eq!(super::date_seconds("2026-13-01"), None);
-        assert_eq!(super::date_seconds("2026-10-32"), None);
-        assert_eq!(super::table_cells("|---|---|"), None);
-        assert_eq!(
-            super::table_cells("| a | b |").as_deref(),
-            Some([String::from("a"), String::from("b")].as_slice())
-        );
         let comments = Memory::default()
             .with(super::ASVS, "# note\n\n15.1.1 1\n")
             .with(super::CWE, "# note\n\n79\n");
@@ -1356,136 +1284,36 @@ Recorded deviations
                 .collect::<Vec<_>>(),
             ["ASVS 4.0"]
         );
-        assert!(
-            super::masvs_citations("MASVS-AUTH-1.2")
+        assert_eq!(
+            super::masvs_citations("MASVS-AUTH-1.2; MASVS-; MASVS v1")
                 .iter()
-                .any(|c| c.superseded.is_some())
+                .map(|c| (c.id.as_str(), c.superseded.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("MASVS-AUTH-1", None),
+                ("MASVS-", None),
+                ("MASVS 1", Some("MASVS 1")),
+            ]
         );
-        let partial = super::register_rows(
-            "\
-### Register
-
-| ASVS | Deviation | Compensating control | Owner | Review date |
-|---|---|---|---|---|
-| 15.1.6 | why |  | docs | 2026-10-01 |
-",
-        );
-        assert!(!partial.get("15.1.6").expect("row").complete());
-        let kept = super::register_rows(
-            "\
-Recorded deviations
-
-| ASVS | Deviation | Compensating control | Owner | Review date |
-|---|---|---|---|---|
-| 15.1.6 | why | how | docs | 2026-10-01 |
-### The Register
-| 15.1.1 | why | how | docs | 2026-10-01 |
-### The Recorded
-| 15.2.1 | why | how | docs | 2026-10-01 |
-",
-        );
-        assert!(kept.contains_key("15.1.1"));
-        assert!(kept.contains_key("15.2.1"));
+        assert!(!super::after_draft("SSDF PO.6.1", "PO.6.1"));
+        assert!(!super::after_draft("PO.6.1 draft", "PO.6.1"));
     }
 
     #[test]
-    fn a_cited_asvs_item_covers_the_chapter() {
-        let tree = repo().with(super::ASVS, "10.2.1 1\n").with(
-            super::COVERAGE,
-            "\
-| Chapter | Items | Target |
-|---|---|---|
-| V10 Encoding | 0 | **L1** |
-",
+    fn a_cited_asvs_item_covers_it_unless_the_citing_row_is_withdrawn() {
+        let tree = covering("6.1.3 1\n6.9.9 1\n", "");
+        assert_eq!(
+            super::cited_asvs(&tree),
+            [
+                "10.2.1", "15.1.5", "3.3.1", "3.4.3", "6.1.3", "7.3.1", "8.2.2"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect()
         );
-        assert_eq!(coverage(&tree, 0), []);
-        assert!(super::cited_asvs(&tree).contains("10.2.1"));
-        let superseded = edited(
-            "docs/security/identity-and-access.md",
-            "| ASVS 10.2.1 |",
-            "| ASVS 4.0 10.2.1 |",
-        );
-        assert!(!super::cited_asvs(&superseded).contains("4.0"));
-        assert!(super::cited_asvs(&superseded).contains("10.2.1"));
-    }
-
-    /// Verifies: SEC-STD-002, SEC-STD-003
-    #[test]
-    fn coverage_rows_and_feeds_cover_the_edges() {
-        let tree = repo()
-            .with(
-                super::ASVS,
-                "# ASVS\n\n15.2.1 2\n15.1.6 1\n14.1.1 2\n16.1.1 1\nnot-an-id\n",
-            )
-            .with(
-                super::COVERAGE,
-                "\
-# Coverage
-
-| Skip | This | Row |
-|---|---|---|
-| Intro | text | here |
-
-| Chapter | Items | Target |
-|---|---|---|
-| Overview | 0 | **L3** |
-| Vxx | 0 | **L3** |
-| V1 Encoding | 0 | N/A |
-| V2 Encoding | 0 | **L2** |
-| V3 Encoding | 0 | **L1** |
-| V4 Encoding | 0 | none |
-| V5 | only-two |
-| V14 Encoding | 0 | **L1** |
-| V15 Encoding | 0 | **L3** |
-
-### Register
-
-| ASVS | Deviation | Compensating control | Owner | Review date |
-|---|---|---|---|---|
-| 15.1.6 | why | how | docs | 2026-13-01 |
-| not-an-id | why | how | docs | 2026-10-01 |
-
-### After
-",
-            );
-        let findings = coverage(&tree, 0);
-        assert!(
-            findings.iter().any(|finding| matches!(
-                finding,
-                Finding::Uncovered { asvs, target: 3 } if asvs == "15.2.1"
-            )),
-            "{findings:?}"
-        );
-        let hidden = crate::docs_lint::tests::Hide {
-            inner: Memory::default()
-                .with("feeds/asvs.txt", "5.0.0\n")
-                .with("feeds/notes.txt", "ignore\n")
-                .with(
-                    "feeds/masvs.txt",
-                    "# comment\n\nv2.2.0\n{\"tag_name\" no-colon}\n{\"tag_name\":2026}\n{\"tag_name\": \"2\\\"x\"}\n{\"tag_name\": \"unterminated\n",
-                ),
-            hidden: vec!["feeds/asvs.txt"],
-        };
-        let watched = watch(&hidden, "feeds");
-        assert!(
-            watched.iter().any(|finding| matches!(
-                finding,
-                Finding::Newer { standard, found, .. } if *standard == "masvs" && found == "2.2.0"
-            )),
-            "{watched:?}"
-        );
-    }
-
-    /// Verifies: SEC-STD-003
-    #[test]
-    fn the_pinned_editions_are_not_newer_than_themselves() {
-        let tree = Memory::default()
-            .with("feeds/asvs.txt", "5.0.0\n")
-            .with("feeds/top10.txt", "2025\n")
-            .with("feeds/api-top10.txt", "2023\n")
-            .with("feeds/masvs.txt", "2.1.0\n")
-            .with("feeds/cwe-top25.txt", "2025\n")
-            .with("feeds/ssdf.txt", "1.1\n");
-        assert_eq!(watch(&tree, "feeds"), []);
+        assert_eq!(coverage(&tree, 0), [uncovered("6.9.9", 1)]);
+        let old_edition = citing("ASVS 4.0 10.2.1");
+        assert!(!super::cited_asvs(&old_edition).contains("4.0"));
+        assert!(super::cited_asvs(&old_edition).contains("10.2.1"));
     }
 }
