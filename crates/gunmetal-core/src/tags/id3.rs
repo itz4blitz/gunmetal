@@ -582,13 +582,14 @@ impl<'a> Mapper<'a> {
     }
 
     fn position(&mut self, value: &str, source: FieldSource, track: bool) {
-        let parsed = match parse_number_total(value) {
+        let (number, total) = match parse_number_total(value) {
             Ok(parsed) => parsed,
             Err(error) => {
                 self.report(TagProblem::InvalidValue { source, error });
                 return;
             }
         };
+        let parsed = (number, self.checked_total(total, source, track));
         let current = self.tags.position;
         let (track_n, track_total, disc_n, disc_total) = if track {
             (
@@ -622,6 +623,30 @@ impl<'a> Mapper<'a> {
             }
             Err(error) => {
                 self.report(TagProblem::Catalog { source, error });
+            }
+        }
+    }
+
+    /// `total` when the catalogue accepts it as a track or disc total.
+    /// Otherwise the reason is recorded, and the number it came with is
+    /// kept without a total (SEC-MED-014).
+    fn checked_total(
+        &mut self,
+        total: Option<u16>,
+        source: FieldSource,
+        track: bool,
+    ) -> Option<u16> {
+        let total = total?;
+        let alone = if track {
+            TrackPosition::new(None, Some(total), None, None)
+        } else {
+            TrackPosition::new(None, None, None, Some(total))
+        };
+        match alone {
+            Ok(_) => Some(total),
+            Err(error) => {
+                self.report(TagProblem::Catalog { source, error });
+                None
             }
         }
     }
@@ -862,9 +887,15 @@ impl<'a> Mapper<'a> {
     }
 
     /// Reads every identifier of the frame, until the identifiers or the
-    /// problems are full.
+    /// problems are full. A 2.3 tag holds one value per frame, and Picard
+    /// joins several identifiers in it with `/`; an identifier holds
+    /// neither `/` nor `;`, so the values are split on both.
     fn many_mbids(&mut self, values: &[Text], source: FieldSource, album: bool) {
-        for value in present(values) {
+        let ids = present(values)
+            .flat_map(|value| value.split(['/', ';']))
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        for value in ids {
             let room = match Mbid::parse(Untrusted::new(value)) {
                 Ok(mbid) => {
                     let (list, origin) = if album {
@@ -1411,25 +1442,25 @@ fn parse_count(text: &str, field: Field) -> Result<u16, ValueError> {
     u16::try_from(value).map_err(|_| ValueError::OutOfRange { field, value })
 }
 
-/// `ID3v2.3` `TDAT`: day then month, four digits.
+/// `ID3v2.3` `TDAT`: day then month, four ASCII digits.
 fn parse_tdat(text: &str) -> Result<(u8, u8), ValueError> {
-    let text = text.trim();
-    if text.len() != 4 {
+    let &[day_tens, day_ones, month_tens, month_ones] = text.trim().as_bytes() else {
         return Err(ValueError::Malformed { field: Field::Day });
-    }
-    let day = parse_two(text.get(..2), Field::Day)?;
-    let month = parse_two(text.get(2..), Field::Month)?;
+    };
+    let day = two_digits(day_tens, day_ones, Field::Day)?;
+    let month = two_digits(month_tens, month_ones, Field::Month)?;
     Ok((month, day))
 }
 
-/// Two ASCII digits as a number.
-fn parse_two(text: Option<&str>, field: Field) -> Result<u8, ValueError> {
-    let text = text.ok_or(ValueError::Malformed { field })?;
-    let value = parse_count(text, field)?;
-    u8::try_from(value).map_err(|_| ValueError::OutOfRange {
-        field,
-        value: u64::from(value),
-    })
+/// Two ASCII digits as a number from 0 to 99.
+fn two_digits(tens: u8, ones: u8, field: Field) -> Result<u8, ValueError> {
+    let digit = |octet: u8| {
+        octet
+            .is_ascii_digit()
+            .then_some(octet.saturating_sub(b'0'))
+            .ok_or(ValueError::Malformed { field })
+    };
+    Ok(digit(tens)?.saturating_mul(10).saturating_add(digit(ones)?))
 }
 
 /// The Winamp name for genre octet `id`.
@@ -1450,12 +1481,10 @@ fn parse_decimal_genre(text: &str) -> Option<&'static str> {
     u8::try_from(value).ok().and_then(genre_name)
 }
 
-/// Expands `(nn)` references, `RX`/`CR`, and leftover genre text.
+/// Expands `(nn)` references, `RX`/`CR`, and leftover genre text from a
+/// value that is not blank.
 fn expand_genre(value: &str) -> Vec<String> {
     let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
     if trimmed.bytes().all(|octet| octet.is_ascii_digit()) {
         return parse_decimal_genre(trimmed)
             .map(|name| vec![name.to_owned()])
@@ -1618,7 +1647,7 @@ mod tests {
     use crate::catalog::{GainTags, LyricsOrigin, LyricsTiming};
     use crate::formats::id3v2::Header;
 
-    use super::{Kind, add_release_tokens, expand_genre, kind, parse_decimal_genre, parse_two};
+    use super::{Kind, add_release_tokens, kind, parse_decimal_genre};
 
     fn text(value: &str) -> Text {
         Text {
@@ -3126,6 +3155,114 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn keeps_a_number_whose_total_is_out_of_range() {
+        let mapped = map_frames(
+            4,
+            spaced(vec![
+                text_frame(b"TRCK", &["3/0"]),
+                text_frame(b"TPOS", &["2/10000"]),
+            ]),
+        );
+        assert_eq!(
+            mapped.tags.position,
+            TrackPosition::new(Some(3), None, Some(2), None).unwrap()
+        );
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                track: Some(v2_at(b"TRCK", 10)),
+                disc: Some(v2_at(b"TPOS", 30)),
+                ..FieldSources::default()
+            }
+        );
+        assert_eq!(
+            mapped.problems,
+            [
+                TagProblem::Catalog {
+                    source: v2_at(b"TRCK", 10),
+                    error: CatalogError::OutOfRange {
+                        part: crate::catalog::PositionPart::TrackTotal,
+                        value: 0,
+                    },
+                },
+                TagProblem::Catalog {
+                    source: v2_at(b"TPOS", 30),
+                    error: CatalogError::OutOfRange {
+                        part: crate::catalog::PositionPart::DiscTotal,
+                        value: 10_000,
+                    },
+                },
+            ]
+        );
+    }
+
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn reports_a_number_and_a_total_that_are_both_zero() {
+        let mapped = map_text(4, b"TRCK", "0/0");
+        assert_eq!(mapped.tags.position, TrackPosition::default());
+        assert_eq!(mapped.sources, FieldSources::default());
+        assert_eq!(
+            mapped.problems,
+            [
+                TagProblem::Catalog {
+                    source: v2_source(b"TRCK"),
+                    error: CatalogError::OutOfRange {
+                        part: crate::catalog::PositionPart::TrackTotal,
+                        value: 0,
+                    },
+                },
+                TagProblem::Catalog {
+                    source: v2_source(b"TRCK"),
+                    error: CatalogError::OutOfRange {
+                        part: crate::catalog::PositionPart::Track,
+                        value: 0,
+                    },
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn splits_artist_mbids_joined_in_one_v2_3_value() {
+        let first = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+        let second = "5b11f54e-8a37-11df-8f36-0025905a5714";
+        let mapped = map_frames(
+            3,
+            spaced(vec![
+                user_text(
+                    b"TXXX",
+                    "MusicBrainz Artist Id",
+                    &[&format!("{first}/{second}; ")],
+                ),
+                user_text(
+                    b"TXXX",
+                    "MusicBrainz Album Artist Id",
+                    &[&format!("{second};{first}")],
+                ),
+            ]),
+        );
+        assert_eq!(
+            mapped.tags.musicbrainz,
+            MbIds {
+                artists: vec![mbid(first), mbid(second)],
+                album_artists: vec![mbid(second), mbid(first)],
+                ..MbIds::default()
+            }
+        );
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                artist_mbids: Some(v2_at(b"TXXX", 10)),
+                album_artist_mbids: Some(v2_at(b"TXXX", 30)),
+                ..FieldSources::default()
+            }
+        );
+        assert_eq!(mapped.problems, []);
+    }
+
     #[test]
     fn first_text_frame_wins_for_a_single_value() {
         let mapped = map_frames(
@@ -3960,19 +4097,20 @@ mod tests {
     }
 
     #[test]
+    fn drops_a_date_part_whose_day_is_not_digits() {
+        // Four octets, the second and third of them one character.
+        let mapped = map_text(3, b"TDAT", "1\u{e9}2");
+        assert_eq!(
+            mapped.problems,
+            [TagProblem::InvalidValue {
+                source: v2_source(b"TDAT"),
+                error: ValueError::Malformed { field: Field::Day },
+            }]
+        );
+    }
+
+    #[test]
     fn helper_edges_are_pinned() {
-        assert_eq!(expand_genre("  "), [] as [String; 0]);
-        assert_eq!(
-            parse_two(None, Field::Day),
-            Err(ValueError::Malformed { field: Field::Day })
-        );
-        assert_eq!(
-            parse_two(Some("256"), Field::Day),
-            Err(ValueError::OutOfRange {
-                field: Field::Day,
-                value: 256,
-            })
-        );
         assert_eq!(parse_decimal_genre(""), None);
         assert_eq!(parse_decimal_genre("17a"), None);
         assert_eq!(kind(FrameId::Three(*b"XXX")), Kind::Ignore);
