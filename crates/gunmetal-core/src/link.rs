@@ -476,8 +476,6 @@ mod tests {
     /// every URL parser and cannot end an attribute or a quoted string it
     /// is placed in: a space, a quote, an angle bracket, a control or
     /// anything outside ASCII becomes a percent escape.
-    ///
-    /// Verifies: SEC-API-047
     #[test]
     fn percent_encodes_what_follows_the_host() {
         let cases = [
@@ -523,8 +521,6 @@ mod tests {
     /// query and the fragment. Letters, digits and the characters RFC 3986
     /// allows there stay, an apostrophe aside; `%` stays so that an escape
     /// already written is not escaped twice.
-    ///
-    /// Verifies: SEC-API-047
     #[test]
     fn keeps_only_url_characters_after_the_host() {
         let punctuation = " !\"$%&'()*+,-./:;<=>@[]^_`{|}~";
@@ -545,8 +541,6 @@ mod tests {
     /// A browser reads a backslash in the path of an https URL as a slash,
     /// so it is written as one. In the query and the fragment it is only a
     /// character, and is escaped.
-    ///
-    /// Verifies: SEC-API-047
     #[test]
     fn writes_a_backslash_as_a_slash_in_the_path_only() {
         let cases = [
@@ -582,8 +576,6 @@ mod tests {
 
     /// An escape already in the URL is kept as written, valid or not, so
     /// the link reads back unchanged and nothing is decoded.
-    ///
-    /// Verifies: SEC-API-047
     #[test]
     fn keeps_percent_escapes_after_the_host_as_written() {
         for tail in ["%41%2f%2F%5c", "%", "%zz%4", "%25%2525", "?%20#%20"] {

@@ -173,7 +173,7 @@ fn replays_a_scheme_relative_target() {
 /// quote, a backslash in the query and a letter outside ASCII are written
 /// as percent escapes, so the link cannot end an attribute it is placed in.
 ///
-/// Verifies: SEC-MED-028, SEC-API-047
+/// Verifies: SEC-MED-028
 #[test]
 fn replays_a_tail_with_a_quote_and_a_backslash() {
     replay(
