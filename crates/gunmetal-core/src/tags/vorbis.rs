@@ -2509,6 +2509,86 @@ mod tests {
         );
     }
 
+    /// Verifies: SEC-MED-006, SEC-MED-014
+    #[test]
+    fn mixed_problems_keep_their_comment_and_a_cut_lyric_reports_both_limits() {
+        let limits = limits(&[
+            (LimitKind::TagFields, 2),
+            (LimitKind::ShortText, 6),
+            (LimitKind::LongText, 12),
+            (LimitKind::LyricsBytes, 7),
+        ]);
+        let mapped = from_vorbis(
+            &block(&[
+                ("TITLE", "Long title"),
+                ("GENRE", "Jazz"),
+                ("GENRE", "Blues"),
+                ("GENRE", "Rock"),
+                ("TRACKNUMBER", "1"),
+                ("TRACKNUMBER", "2"),
+                ("COMPILATION", "unknown"),
+                ("ISRC", "invalid"),
+                ("LYRICS", "thirteenwords"),
+            ]),
+            &limits,
+        );
+        assert_eq!(
+            mapped,
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Long t")),
+                    genres: strings(&["Jazz", "Blues"]),
+                    position: position(Some(1), None, None, None),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    title: Some(src(0)),
+                    genres: Some(src(1)),
+                    track: Some(src(4)),
+                    ..Sources::default()
+                },
+                problems: vec![
+                    Problem::Truncated {
+                        source: src(0),
+                        limit: LimitKind::ShortText,
+                    },
+                    Problem::ListFull { source: src(3) },
+                    Problem::Disagrees {
+                        source: src(5),
+                        part: PositionPart::Track,
+                        kept: 1,
+                        dropped: 2,
+                    },
+                    Problem::Unrecognised { source: src(6) },
+                    invalid(7, malformed(ValueField::Isrc)),
+                    Problem::Truncated {
+                        source: src(8),
+                        limit: LimitKind::LongText,
+                    },
+                    Problem::Lyrics {
+                        source: src(8),
+                        fault: ParseFault::LimitExceeded {
+                            limit: LimitKind::LyricsBytes,
+                            value: 12,
+                            max: 7,
+                            offset: 0,
+                        },
+                    },
+                ],
+            }
+        );
+        // The property test's attribution includes both problems from one
+        // comment, even when the lyrics parser refuses the cleaned text.
+        assert_eq!(
+            mapped
+                .problems
+                .iter()
+                .map(problem_source)
+                .collect::<Vec<_>>(),
+            vec![src(0), src(3), src(5), src(6), src(7), src(8), src(8)]
+        );
+    }
+
     /// The comment `problem` names.
     fn problem_source(problem: &Problem) -> Source {
         match *problem {
