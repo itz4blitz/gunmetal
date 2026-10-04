@@ -60,6 +60,7 @@ harnesses! {
     flac_structure,
     http_forwarded,
     http_range,
+    id,
     id3_structure,
     id3v1,
     id3v2_tag,
@@ -84,5 +85,9 @@ harnesses! {
     values,
     vorbis,
     vorbis_comment,
+    webauthn_attestation,
+    webauthn_authdata,
+    webauthn_cbor,
+    webauthn_cose,
     wire,
 }

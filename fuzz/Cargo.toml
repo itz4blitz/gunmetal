@@ -130,6 +130,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "id"
+path = "fuzz_targets/id.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "id3_structure"
 path = "fuzz_targets/id3_structure.rs"
 test = false
@@ -293,6 +300,34 @@ bench = false
 [[bin]]
 name = "vorbis_comment"
 path = "fuzz_targets/vorbis_comment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_attestation"
+path = "fuzz_targets/webauthn_attestation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_authdata"
+path = "fuzz_targets/webauthn_authdata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cbor"
+path = "fuzz_targets/webauthn_cbor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cose"
+path = "fuzz_targets/webauthn_cose.rs"
 test = false
 doc = false
 bench = false
