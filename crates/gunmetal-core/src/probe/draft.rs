@@ -106,7 +106,8 @@ pub(super) struct Draft {
     pub(super) codec: Option<Codec>,
     /// The container.
     pub(super) container: Container,
-    /// Where the part that names the codec starts.
+    /// Where the audio starts, or the part of the file that describes it:
+    /// what an error about the codec points at.
     pub(super) at: u64,
     /// The audio format. The bitrate is the one the headers state, if
     /// they state one.

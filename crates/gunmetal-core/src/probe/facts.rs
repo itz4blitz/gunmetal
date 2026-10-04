@@ -217,7 +217,8 @@ pub enum ProbeError {
     Unsupported {
         /// The container.
         format: Format,
-        /// Where the part that names the codec starts.
+        /// Where the audio in that codec starts: the samples of a WAV or
+        /// AIFF file, or the audio track of an MP4 file.
         offset: u64,
     },
     /// The step budget was spent (SEC-MED-007).
