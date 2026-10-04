@@ -21,7 +21,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::parse::{Budget, Cursor, Depth, LimitKind, Limits, ParseFault, bounded_capacity};
+use crate::parse::{Budget, Cursor, Depth, LimitKind, Limits, ParseFault};
 use crate::problem::{Arg, Describe, Problem, ProblemCode};
 
 /// A decoded CBOR data item that borrows strings and byte strings from
@@ -368,7 +368,7 @@ fn read_array<'a>(
     limits.check(LimitKind::Children, count, offset)?;
     let nested = depth.descend(limits, offset)?;
     let mut items = Vec::new();
-    for _ in 0..bounded_capacity(count, 1, u64::MAX, count) {
+    for _ in 0..count {
         items.push(decode_from(cursor, limits, budget, nested)?);
     }
     Ok(Cbor::Array(items))
@@ -411,7 +411,7 @@ fn read_map<'a>(
     let nested = depth.descend(limits, offset)?;
     let mut entries = Vec::new();
     let mut seen = BTreeSet::new();
-    for _ in 0..bounded_capacity(count, 1, u64::MAX, count) {
+    for _ in 0..count {
         let key_at = cursor.offset();
         let key = decode_from(cursor, limits, budget, nested)?;
         if !seen.insert(MapKey::of(&key, key_at)?) {
@@ -1424,9 +1424,8 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-MED-003
     #[test]
-    fn nested_declared_counts_do_not_pre_size_from_the_rest_of_the_input() {
+    fn nested_declared_counts_stop_at_the_first_fault_in_the_input() {
         // Thirty-two maps, each declaring 65_536 pairs (`BA 00 01 00 00`)
         // plus a one-octet unsigned-0 key, then 131_072 filler zeros. The
         // innermost map's first pair is (0, 0); the next key is also 0.
