@@ -1598,7 +1598,10 @@ mod tests {
         prop_oneof![
             4 => (key(), value()).prop_map(|(key, value)| Generated::Text(key, value)),
             1 => picture().prop_map(Generated::Picture),
-            1 => vec(any::<u8>(), 0..12).prop_map(Generated::Raw),
+            // One octet in four is a separator, so every run writes raw
+            // comments with a name before it: uniform octets left that case
+            // out of about one run in twenty.
+            1 => vec(prop_oneof![1 => Just(b'='), 3 => any::<u8>()], 0..12).prop_map(Generated::Raw),
         ]
     }
 
@@ -1664,7 +1667,7 @@ mod tests {
             let len = bytes.len() as u64;
             let copy = bytes.clone();
             let (result, steps) = on_small_stack(move || read_at(&copy, at, &Limits::DEFAULT));
-            prop_assert!(steps <= 2 * len, "{} steps for {} octets", steps, len);
+            prop_assert!(steps <= 2 * len);
             match result {
                 Ok(comments) => {
                     let vendor = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
@@ -1681,7 +1684,7 @@ mod tests {
                         prop_assert!(picture.offset + picture.len <= comments.end);
                     }
                 }
-                Err(fault) => prop_assert!(fault.offset() <= at + len, "{:?}", fault),
+                Err(fault) => prop_assert!(fault.offset() <= at + len),
             }
         }
 
@@ -1763,8 +1766,12 @@ mod tests {
             let cut = cut_seed % bytes.len();
             let lens: Vec<u64> = charges(&comments).into_iter().map(|(len, _)| len).collect();
             let expected = truncation(vendor.len() as u64, &lens, cut as u64, at);
-            prop_assert!(expected.is_some());
-            prop_assert_eq!(read_at(&bytes[..cut], at, &Limits::DEFAULT).0, Err(expected.unwrap()));
+            // Every cut is an error with a named part: a parse that succeeds,
+            // or a cut the oracle has no answer for, is unequal here.
+            prop_assert_eq!(
+                read_at(&bytes[..cut], at, &Limits::DEFAULT).0.map_err(Some),
+                Err(expected)
+            );
         }
 
         /// A parse succeeds exactly when the budget covers every charge, and
