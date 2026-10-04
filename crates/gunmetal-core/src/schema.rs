@@ -453,6 +453,25 @@ mod tests {
         );
     }
 
+    /// Where each class stands in [`DataClass::ALL`]. The match is
+    /// exhaustive, so a class added to the enum does not compile until it
+    /// has a place here, and the test below fails until `ALL` holds it
+    /// there.
+    const fn place(class: DataClass) -> usize {
+        match class {
+            DataClass::Public => 0,
+            DataClass::Library => 1,
+            DataClass::Activity => 2,
+            DataClass::Identity => 3,
+            DataClass::Secret => 4,
+        }
+    }
+
+    #[test]
+    fn all_holds_every_class_once_in_the_order_of_the_privacy_baseline() {
+        assert_eq!(DataClass::ALL.map(place), [0, 1, 2, 3, 4]);
+    }
+
     #[test]
     fn refuses_two_parts_with_the_same_name() {
         assert_eq!(
