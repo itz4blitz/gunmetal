@@ -58,12 +58,7 @@ fn run_one(data: &[u8], framing: Framing, target: Target) -> Inflated {
     let result = inflate::inflate(data, framing, &mut budget, &mut out);
     let taken = match result {
         Ok(read) => read,
-        Err(InflateError::Fault(fault)) => fault.offset(),
-        Err(
-            InflateError::LongerThanDeclared { offset, .. }
-            | InflateError::Corrupt { offset }
-            | InflateError::ChecksumMismatch { offset },
-        ) => offset,
+        Err(error) => error.offset(),
     };
     assert!(taken <= octets);
     assert!(!matches!(

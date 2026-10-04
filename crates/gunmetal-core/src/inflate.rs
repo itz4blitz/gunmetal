@@ -7,6 +7,8 @@
 //! a [`BoundedBuf`] and stops as soon as the output would pass the lower of
 //! the context's cap from [`Limits`] and the size the container declared, so
 //! a kilobyte that expands to a gigabyte costs no more than the cap.
+//! Matroska `ContentCompAlgo` 1 (bzlib) and 2 (lzo1x) are refused here
+//! ([`Framing::from_content_comp_algo`]); they never reach the inflater.
 //!
 //! The inflating itself is `miniz_oxide`'s pure-Rust decompressor, run on a
 //! 32 KiB window, so the memory one call holds is the buffer's reservation
@@ -16,10 +18,6 @@
 //! input octet it reads and one for every octet it writes. The buffer never
 //! holds more than its cap, so a call spends at most `1` × input octets +
 //! the cap: a budget of `Budget::for_input(len, 1, cap)` is always enough.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the one streaming decompression helper: miniz_oxide runs only here (SEC-MED-009)"
-)]
 
 use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
@@ -58,6 +56,22 @@ impl Target {
             Self::Picture => LimitKind::InflatedPicture,
             Self::CodecPrivate => LimitKind::InflatedCodecPrivate,
             Self::Header => LimitKind::InflatedHeader,
+        }
+    }
+}
+
+impl Framing {
+    /// RFC 9559 `ContentCompAlgo`: 0 is zlib, which this helper inflates.
+    /// 1 (bzlib) and 2 (lzo1x) are refused here, as is every other value
+    /// including 3 (header stripping), which is not inflate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InflateError::UnsupportedAlgo`] for every algo other than 0.
+    pub const fn from_content_comp_algo(algo: u64) -> Result<Self, InflateError> {
+        match algo {
+            0 => Ok(Self::Zlib),
+            algo => Err(InflateError::UnsupportedAlgo { algo, offset: 0 }),
         }
     }
 }
@@ -187,6 +201,29 @@ pub enum InflateError {
         /// The input octets read, up to the end of the checksum.
         offset: u64,
     },
+    /// A Matroska `ContentCompAlgo` this helper does not inflate: RFC 9559
+    /// value 1 (bzlib), 2 (lzo1x), or any other value that is not 0 (zlib).
+    UnsupportedAlgo {
+        /// The `ContentCompAlgo` value.
+        algo: u64,
+        /// The stream's first octet: the algorithm applies to the whole
+        /// stream.
+        offset: u64,
+    },
+}
+
+impl InflateError {
+    /// The input offset this error names.
+    #[must_use]
+    pub const fn offset(self) -> u64 {
+        match self {
+            Self::Fault(fault) => fault.offset(),
+            Self::LongerThanDeclared { offset, .. }
+            | Self::Corrupt { offset }
+            | Self::ChecksumMismatch { offset }
+            | Self::UnsupportedAlgo { offset, .. } => offset,
+        }
+    }
 }
 
 /// Inflates `input`, framed as `framing`, into `out`, charging `budget`.
@@ -230,6 +267,7 @@ pub fn inflate(
     let size = widen(WINDOW);
     let mut window = bounded_vec(size, 1, size, size);
     window.extend_from_slice(&ZEROS);
+    note_heap(out.bytes.capacity(), window.capacity());
     let mut rest = input;
     let mut read: u64 = 0;
     let mut at = 0;
@@ -238,8 +276,13 @@ pub fn inflate(
         // that passes the cap is caught after exactly one octet too many.
         let room = cap_len.saturating_sub(out.bytes.len());
         let ask = room.saturating_add(1);
-        let (status, used, made) =
-            decompress_with_limit(&mut state, rest, &mut window, at, ask, flags);
+        let (status, used, made) = {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the one streaming decompression helper: miniz_oxide runs only here (SEC-MED-009)"
+            )]
+            decompress_with_limit(&mut state, rest, &mut window, at, ask, flags)
+        };
         rest = rest.get(used..).unwrap_or_default();
         read = read.saturating_add(widen(used));
         let keep = made.min(room);
@@ -247,6 +290,7 @@ pub fn inflate(
             .charge(widen(used).saturating_add(widen(keep)), read)
             .map_err(InflateError::Fault)?;
         out.bytes.extend(window.iter().skip(at).take(keep));
+        note_heap(out.bytes.capacity(), window.capacity());
         if made > keep || (matches!(status, TINFLStatus::HasMoreOutput) && room == 0) {
             return Err(out.overflow());
         }
@@ -278,6 +322,42 @@ pub fn inflate(
 /// wider.
 fn widen(count: usize) -> u64 {
     u64::try_from(count).unwrap_or(u64::MAX)
+}
+
+/// Records the helper's live heap (output reservation plus window) for the
+/// bomb tests' counting-allocator measurement (SEC-MED-009). A process-wide
+/// `GlobalAlloc` is forbidden even in tests, so this meter counts the two
+/// vectors `inflate` owns.
+fn note_heap(output: usize, window: usize) {
+    let _ = (output, window);
+    #[cfg(test)]
+    heap_meter::set(output.saturating_add(window));
+}
+
+#[cfg(test)]
+mod heap_meter {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static PEAK: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub fn start() {
+        PEAK.set(0);
+        ON.set(true);
+    }
+
+    pub fn stop() -> usize {
+        ON.set(false);
+        PEAK.get()
+    }
+
+    pub fn set(bytes: usize) {
+        if ON.get() {
+            PEAK.set(PEAK.get().max(bytes));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -534,6 +614,14 @@ mod tests {
             .unwrap()
             .join()
             .unwrap()
+    }
+
+    /// Peak heap octets the helper reserved while `work` ran: the output
+    /// buffer plus the 32 KiB window, counted at each reservation and grow.
+    fn peak_during<T>(work: impl FnOnce() -> T) -> (T, usize) {
+        super::heap_meter::start();
+        let value = work();
+        (value, super::heap_meter::stop())
     }
 
     const KIB: u64 = 1 << 10;
@@ -846,7 +934,8 @@ mod tests {
     }
 
     /// A 1 KiB zlib bomb inflates to about a mebibyte; with the picture
-    /// limit at 64 KiB it stops there, holding no more than the limit.
+    /// limit at 64 KiB it stops there. Peak heap (output reservation plus
+    /// the 32 KiB window) stays within 64 KiB of the cap.
     ///
     /// Verifies: SEC-MED-009
     #[test]
@@ -854,31 +943,31 @@ mod tests {
         let matches = 4_016;
         let input = zlib(&bomb(matches), adler32_of_zeros(1 + 258 * matches));
         assert_eq!(input.len(), 1_024);
-        let limits = capped(Target::Picture, 64 * KIB);
-        let mut out = BoundedBuf::new(&limits, Target::Picture, None);
-        let result = inflate(
-            &input,
-            Framing::Zlib,
-            &mut ample(&input, 64 * KIB),
-            &mut out,
-        );
+        let cap = 64 * KIB;
+        let limits = capped(Target::Picture, cap);
+        let ((result, out), peak) = peak_during(|| {
+            let mut out = BoundedBuf::new(&limits, Target::Picture, None);
+            let result = inflate(&input, Framing::Zlib, &mut ample(&input, cap), &mut out);
+            (result, out)
+        });
         assert_eq!(
             result,
             Err(InflateError::Fault(ParseFault::LimitExceeded {
                 limit: LimitKind::InflatedPicture,
-                value: 64 * KIB + 1,
-                max: 64 * KIB,
+                value: cap + 1,
+                max: cap,
                 offset: 0,
             }))
         );
         assert_eq!(out.as_slice(), filled(0, 65_536));
         assert_eq!(out.capacity(), 65_536);
-        assert!(out.capacity() + WORKING_OCTETS <= 65_536 + 65_536);
+        assert!(peak >= 65_536 + WINDOW);
+        assert!(peak <= 65_536 + 65_536);
     }
 
-    /// A bomb that expands to a gibibyte, refused with the picture limit at
-    /// its default of 32 MiB and at 1 MiB, holding no more than the cap
-    /// plus the fixed working memory.
+    /// A bomb that expands to a gibibyte, refused at 1 MiB and at the
+    /// default 32 MiB picture limit. Peak heap stays within 64 KiB of the
+    /// cap.
     ///
     /// Verifies: SEC-MED-009
     #[test]
@@ -887,22 +976,92 @@ mod tests {
         let input = zlib(&bomb(matches), adler32_of_zeros(1 + 258 * matches));
         // 6 zlib octets and (109 + 2 × 4,161,791) bits of deflate data.
         assert_eq!(input.len(), 1_040_468);
-        let limits = capped(Target::Picture, MIB);
-        let mut out = BoundedBuf::new(&limits, Target::Picture, None);
-        let result = inflate(&input, Framing::Zlib, &mut ample(&input, MIB), &mut out);
+        let cases = [
+            (capped(Target::Picture, MIB), MIB),
+            (Limits::DEFAULT, 33_554_432),
+        ];
+        for (limits, cap) in cases {
+            let input = input.clone();
+            let ((result, out), peak) = peak_during(move || {
+                let mut out = BoundedBuf::new(&limits, Target::Picture, None);
+                let result = inflate(&input, Framing::Zlib, &mut ample(&input, cap), &mut out);
+                (result, out)
+            });
+            assert_eq!(
+                result,
+                Err(InflateError::Fault(ParseFault::LimitExceeded {
+                    limit: LimitKind::InflatedPicture,
+                    value: cap + 1,
+                    max: cap,
+                    offset: 0,
+                }))
+            );
+            let cap_len = usize::try_from(cap).unwrap();
+            assert_eq!(out.as_slice().len(), cap_len);
+            assert!(out.as_slice().iter().all(|&b| b == 0));
+            assert_eq!(out.capacity(), cap_len);
+            assert!(peak >= cap_len + WINDOW);
+            assert!(peak <= cap_len + 65_536);
+        }
+    }
+
+    /// RFC 9559 ContentCompAlgo 0 is zlib; 1 (bzlib) and 2 (lzo1x) are
+    /// refused on this door, as is every other value.
+    ///
+    /// Verifies: SEC-MED-009
+    #[test]
+    fn matroska_bzlib_and_lzo1x_are_refused() {
+        assert_eq!(Framing::from_content_comp_algo(0), Ok(Framing::Zlib));
         assert_eq!(
-            result,
-            Err(InflateError::Fault(ParseFault::LimitExceeded {
-                limit: LimitKind::InflatedPicture,
-                value: MIB + 1,
-                max: MIB,
-                offset: 0,
-            }))
+            Framing::from_content_comp_algo(1),
+            Err(InflateError::UnsupportedAlgo { algo: 1, offset: 0 })
         );
-        assert_eq!(out.as_slice().len(), 1_048_576);
-        assert!(out.as_slice().iter().all(|&b| b == 0));
-        assert_eq!(out.capacity(), 1_048_576);
-        assert!(out.capacity() + WORKING_OCTETS <= 1_048_576 + 65_536);
+        assert_eq!(
+            Framing::from_content_comp_algo(2),
+            Err(InflateError::UnsupportedAlgo { algo: 2, offset: 0 })
+        );
+        assert_eq!(
+            Framing::from_content_comp_algo(3),
+            Err(InflateError::UnsupportedAlgo { algo: 3, offset: 0 })
+        );
+        assert_eq!(
+            Framing::from_content_comp_algo(u64::MAX),
+            Err(InflateError::UnsupportedAlgo {
+                algo: u64::MAX,
+                offset: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn every_error_names_its_offset() {
+        assert_eq!(
+            InflateError::Fault(ParseFault::Truncated {
+                offset: 7,
+                needed: 1,
+                available: 0,
+            })
+            .offset(),
+            7
+        );
+        assert_eq!(
+            InflateError::LongerThanDeclared {
+                declared: 3,
+                offset: 11,
+            }
+            .offset(),
+            11
+        );
+        assert_eq!(InflateError::Corrupt { offset: 4 }.offset(), 4);
+        assert_eq!(InflateError::ChecksumMismatch { offset: 9 }.offset(), 9);
+        assert_eq!(
+            InflateError::UnsupportedAlgo {
+                algo: 1,
+                offset: 0,
+            }
+            .offset(),
+            0
+        );
     }
 
     /// The reservation follows the input's octets, not the cap: a stream
