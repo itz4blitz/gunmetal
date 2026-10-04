@@ -34,16 +34,24 @@ use crate::tree::{Tree, is_rust};
 const CORE: &str = "crates/gunmetal-core/src";
 
 /// Core modules outside the parser directories that parse untrusted input:
-/// the list in work package WP-008, plus `ebml.rs`, which stays where it is
-/// until the Matroska work moves it below `formats/`.
+/// the list in work package WP-008; `ebml.rs`, which stays where it is
+/// until the Matroska work moves it below `formats/`; and the validators
+/// that turn untrusted text and octets into typed values (`base64.rs`,
+/// `link.rs`, `net.rs`, `text.rs`, `time.rs` and `values.rs`).
 pub const PARSER_FILES: &[&str] = &[
+    "base64.rs",
     "deeplink.rs",
     "ebml.rs",
     "inflate.rs",
+    "link.rs",
     "logframe.rs",
     "lyrics.rs",
     "m3u.rs",
+    "net.rs",
     "path.rs",
+    "text.rs",
+    "time.rs",
+    "values.rs",
     "wire.rs",
 ];
 
@@ -546,6 +554,32 @@ pub fn elements(input: &[u8]) -> Elements<'_> {
                 unregistered("provider/musicbrainz.rs", "provider_musicbrainz"),
                 unregistered("webauthn/client_data.rs", "webauthn_client_data"),
             ]
+        );
+    }
+
+    /// The validators that turn untrusted text and octets into the core's
+    /// typed values are parser modules too: links, base64, times, networks,
+    /// typed values and text.
+    ///
+    /// Verifies: SEC-MED-027
+    #[test]
+    fn the_untrusted_input_validators_need_harnesses() {
+        let entry = "pub fn parse(input: &[u8]) {}\n";
+        let tree = Memory::default()
+            .with(&core("base64.rs"), entry)
+            .with(&core("link.rs"), entry)
+            .with(&core("net.rs"), entry)
+            .with(&core("text.rs"), entry)
+            .with(&core("time.rs"), entry)
+            .with(&core("values.rs"), entry)
+            .with("fuzz/Cargo.toml", &manifest(&[]));
+        let unregistered = |module: &str| Finding::Unregistered {
+            module: core(&format!("{module}.rs")),
+            harness: module.to_owned(),
+        };
+        assert_eq!(
+            check(&tree, &[]),
+            ["base64", "link", "net", "text", "time", "values"].map(unregistered)
         );
     }
 
