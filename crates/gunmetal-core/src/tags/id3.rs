@@ -454,6 +454,11 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// Records `problem`, and returns whether there was room for it.
+    fn report(&mut self, problem: TagProblem) -> bool {
+        report(&mut self.problems, self.limits, problem)
+    }
+
     fn frame(&mut self, frame: &Frame) {
         let source = FieldSource::Id3v2 {
             id: frame.id,
@@ -580,8 +585,7 @@ impl<'a> Mapper<'a> {
         let parsed = match parse_number_total(value) {
             Ok(parsed) => parsed,
             Err(error) => {
-                self.problems
-                    .push(TagProblem::InvalidValue { source, error });
+                self.report(TagProblem::InvalidValue { source, error });
                 return;
             }
         };
@@ -616,7 +620,9 @@ impl<'a> Mapper<'a> {
                     }
                 }
             }
-            Err(error) => self.problems.push(TagProblem::Catalog { source, error }),
+            Err(error) => {
+                self.report(TagProblem::Catalog { source, error });
+            }
         }
     }
 
@@ -640,9 +646,9 @@ impl<'a> Mapper<'a> {
                 *slot = Some(date);
                 *origin = Some(source);
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -660,9 +666,9 @@ impl<'a> Mapper<'a> {
                     self.year = Some((date, source));
                 }
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -675,9 +681,9 @@ impl<'a> Mapper<'a> {
         };
         match parse_tdat(value) {
             Ok((month, day)) => self.date_part = Some((month, day, source)),
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -690,8 +696,7 @@ impl<'a> Mapper<'a> {
                 let date = match combined {
                     Some(Ok(date)) => date,
                     Some(Err(error)) => {
-                        self.problems
-                            .push(TagProblem::InvalidValue { source, error });
+                        self.report(TagProblem::InvalidValue { source, error });
                         written
                     }
                     None => written,
@@ -789,20 +794,22 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// Reads every code of the frame, until the codes or the problems are
+    /// full.
     fn isrcs(&mut self, values: &[Text], source: FieldSource) {
         for value in present(values) {
-            match Isrc::parse(Untrusted::new(value)) {
+            let room = match Isrc::parse(Untrusted::new(value)) {
                 Ok(isrc) => {
-                    if !push(&mut self.tags.isrc, isrc, self.limits, &mut self.problems) {
-                        break;
+                    let room = push(&mut self.tags.isrc, isrc, self.limits, &mut self.problems);
+                    if room {
+                        remember(&mut self.sources.isrc, source);
                     }
-                    if self.sources.isrc.is_none() {
-                        self.sources.isrc = Some(source);
-                    }
+                    room
                 }
-                Err(error) => self
-                    .problems
-                    .push(TagProblem::InvalidValue { source, error }),
+                Err(error) => self.report(TagProblem::InvalidValue { source, error }),
+            };
+            if !room {
+                break;
             }
         }
     }
@@ -848,15 +855,17 @@ impl<'a> Mapper<'a> {
                 *mbid_slot_mut(&mut self.tags.musicbrainz, slot) = Some(mbid);
                 *mbid_source_mut(&mut self.sources, slot) = Some(source);
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
+    /// Reads every identifier of the frame, until the identifiers or the
+    /// problems are full.
     fn many_mbids(&mut self, values: &[Text], source: FieldSource, album: bool) {
         for value in present(values) {
-            match Mbid::parse(Untrusted::new(value)) {
+            let room = match Mbid::parse(Untrusted::new(value)) {
                 Ok(mbid) => {
                     let (list, origin) = if album {
                         (
@@ -869,16 +878,16 @@ impl<'a> Mapper<'a> {
                             &mut self.sources.artist_mbids,
                         )
                     };
-                    if !push(list, mbid, self.limits, &mut self.problems) {
-                        break;
+                    let room = push(list, mbid, self.limits, &mut self.problems);
+                    if room {
+                        remember(origin, source);
                     }
-                    if origin.is_none() {
-                        *origin = Some(source);
-                    }
+                    room
                 }
-                Err(error) => self
-                    .problems
-                    .push(TagProblem::InvalidValue { source, error }),
+                Err(error) => self.report(TagProblem::InvalidValue { source, error }),
+            };
+            if !room {
+                break;
             }
         }
     }
@@ -888,7 +897,7 @@ impl<'a> Mapper<'a> {
             return;
         }
         let Some(text) = core::str::from_utf8(id).ok() else {
-            self.problems.push(TagProblem::InvalidValue {
+            self.report(TagProblem::InvalidValue {
                 source,
                 error: ValueError::Malformed { field: Field::Mbid },
             });
@@ -900,9 +909,9 @@ impl<'a> Mapper<'a> {
                 self.tags.musicbrainz.recording = Some(mbid);
                 self.sources.recording_mbid = Some(source);
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -936,9 +945,9 @@ impl<'a> Mapper<'a> {
                     self.sources.album_gain = Some(source);
                 }
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -965,9 +974,9 @@ impl<'a> Mapper<'a> {
                     self.pending_album_peak = Some(peak);
                 }
             }
-            Err(error) => self
-                .problems
-                .push(TagProblem::InvalidValue { source, error }),
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+            }
         }
     }
 
@@ -1095,9 +1104,9 @@ impl<'a> Mapper<'a> {
                     self.tags.date = Some(date);
                     self.sources.date = Some(source);
                 }
-                Err(error) => self
-                    .problems
-                    .push(TagProblem::InvalidValue { source, error }),
+                Err(error) => {
+                    self.report(TagProblem::InvalidValue { source, error });
+                }
             }
         }
         if self.tags.position.track().is_none() {
@@ -1177,14 +1186,39 @@ fn push<T>(list: &mut Vec<T>, item: T, limits: &Limits, problems: &mut Vec<TagPr
         .unwrap_or(u64::MAX)
         .saturating_add(1);
     if limits.check(LimitKind::TagFields, count, 0).is_err() {
-        problems.push(TagProblem::LimitExceeded {
-            limit: LimitKind::TagFields,
-            count,
-        });
+        report(
+            problems,
+            limits,
+            TagProblem::LimitExceeded {
+                limit: LimitKind::TagFields,
+                count,
+            },
+        );
         return false;
     }
     list.push(item);
     true
+}
+
+/// Records `problem` while `problems` is under the tag-field limit, and
+/// returns whether it was. A full list keeps its length; its last entry
+/// becomes a [`TagProblem::LimitExceeded`] that says the list was cut
+/// (SEC-MED-006).
+fn report(problems: &mut Vec<TagProblem>, limits: &Limits, problem: TagProblem) -> bool {
+    let count = u64::try_from(problems.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    if limits.check(LimitKind::TagFields, count, 0).is_ok() {
+        problems.push(problem);
+        return true;
+    }
+    if let Some(last) = problems.last_mut() {
+        *last = TagProblem::LimitExceeded {
+            limit: LimitKind::TagFields,
+            count,
+        };
+    }
+    false
 }
 
 /// Which single `MusicBrainz` identifier a `TXXX` frame fills.
@@ -2781,33 +2815,103 @@ mod tests {
     #[test]
     fn caps_every_list_at_the_tag_field_limit() {
         let limits = Limits::DEFAULT
-            .with_override(LimitKind::TagFields, 2)
+            .with_override(LimitKind::TagFields, 3)
             .unwrap();
         let v2 = tag(
             4,
             vec![
-                text_frame(b"TPE1", &["A", "B", "C"]),
-                text_frame(b"TCON", &["J", "K", "L"]),
-                text_frame(b"TCOM", &["P", "Q", "R"]),
+                text_frame(b"TPE1", &["A", "B", "C", "D"]),
+                text_frame(b"TCON", &["J", "K", "L", "M"]),
+                text_frame(b"TCOM", &["P", "Q", "R", "S"]),
             ],
         );
         let mapped = from_id3(Some(&v2), None, &limits);
-        assert_eq!(mapped.tags.artist, ["A", "B"]);
-        assert_eq!(mapped.tags.genres, ["J", "K"]);
+        assert_eq!(mapped.tags.artist, ["A", "B", "C"]);
+        assert_eq!(mapped.tags.genres, ["J", "K", "L"]);
         assert_eq!(
             mapped.tags.credits,
-            [credit("P", Role::Composer), credit("Q", Role::Composer)]
+            [
+                credit("P", Role::Composer),
+                credit("Q", Role::Composer),
+                credit("R", Role::Composer)
+            ]
+        );
+        let past_the_limit = TagProblem::LimitExceeded {
+            limit: LimitKind::TagFields,
+            count: 4,
+        };
+        assert_eq!(
+            mapped.problems,
+            [
+                past_the_limit.clone(),
+                past_the_limit.clone(),
+                past_the_limit
+            ]
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_every_problem_up_to_the_tag_field_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::TagFields, 2)
+            .unwrap();
+        let artist = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+        let v2 = tag(
+            4,
+            spaced(vec![
+                text_frame(b"TSRC", &["a", "USS1Z9900001"]),
+                user_text(b"TXXX", "MusicBrainz Artist Id", &["x", artist]),
+            ]),
+        );
+        let mapped = from_id3(Some(&v2), None, &limits);
+        assert_eq!(mapped.tags.isrc, [isrc("USS1Z9900001")]);
+        assert_eq!(mapped.tags.musicbrainz.artists, [mbid(artist)]);
+        assert_eq!(
+            mapped.problems,
+            [
+                TagProblem::InvalidValue {
+                    source: v2_at(b"TSRC", 10),
+                    error: ValueError::Malformed { field: Field::Isrc },
+                },
+                TagProblem::InvalidValue {
+                    source: v2_at(b"TXXX", 30),
+                    error: ValueError::Malformed { field: Field::Mbid },
+                },
+            ]
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn caps_the_problems_at_the_tag_field_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::TagFields, 2)
+            .unwrap();
+        let artist = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+        let v2 = tag(
+            4,
+            spaced(vec![
+                text_frame(b"TSRC", &["a", "b", "c", "USS1Z9900001"]),
+                user_text(b"TXXX", "MusicBrainz Artist Id", &["x", artist]),
+                text_frame(b"TRCK", &["0"]),
+                text_frame(b"TIT2", &["Still mapped"]),
+            ]),
+        );
+        let mapped = from_id3(Some(&v2), None, &limits);
+        assert_eq!(
+            mapped.tags,
+            TrackTags {
+                title: Some(String::from("Still mapped")),
+                ..TrackTags::default()
+            }
         );
         assert_eq!(
             mapped.problems,
             [
-                TagProblem::LimitExceeded {
-                    limit: LimitKind::TagFields,
-                    count: 3,
-                },
-                TagProblem::LimitExceeded {
-                    limit: LimitKind::TagFields,
-                    count: 3,
+                TagProblem::InvalidValue {
+                    source: v2_at(b"TSRC", 10),
+                    error: ValueError::Malformed { field: Field::Isrc },
                 },
                 TagProblem::LimitExceeded {
                     limit: LimitKind::TagFields,
@@ -3420,51 +3524,64 @@ mod tests {
     #[test]
     fn caps_isrcs_mbids_lyrics_and_people() {
         let limits = Limits::DEFAULT
-            .with_override(LimitKind::TagFields, 1)
+            .with_override(LimitKind::TagFields, 5)
             .unwrap();
-        let id_a = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
-        let id_b = "5b11f54e-8a37-11df-8f36-0025905a5714";
-        let v2 = tag(
-            4,
-            vec![
-                text_frame(b"TSRC", &["USS1Z9900001", "GBUM71029604"]),
-                user_text(b"TXXX", "MusicBrainz Artist Id", &[id_a, id_b]),
-                user_text(b"TXXX", "MusicBrainz Album Artist Id", &[id_a, id_b]),
-                people_frame(b"TIPL", &[("producer", "A"), ("mix", "B")]),
-                frame(
-                    b"USLT",
-                    FrameBody::Lyrics(LanguageText {
-                        language: *b"eng",
-                        description: text(""),
-                        text: text("one"),
-                    }),
-                ),
-                frame(
-                    b"USLT",
-                    FrameBody::Lyrics(LanguageText {
-                        language: *b"eng",
-                        description: text(""),
-                        text: text("two"),
-                    }),
-                ),
-            ],
+        let isrcs: Vec<String> = (1..=6).map(|n| format!("USS1Z990000{n}")).collect();
+        let isrc_refs: Vec<&str> = isrcs.iter().map(String::as_str).collect();
+        let ids: Vec<String> = (1..=6)
+            .map(|n| format!("{n}b11f54e-8a37-11df-8f36-0025905a5714"))
+            .collect();
+        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let names = ["A", "B", "C", "D", "E", "F"];
+        let people: Vec<(&str, &str)> = names.iter().map(|name| ("producer", *name)).collect();
+        let verses: Vec<String> = (1..=6).map(|n| format!("verse {n}")).collect();
+        let mut frames = vec![
+            text_frame(b"TSRC", &isrc_refs),
+            user_text(b"TXXX", "MusicBrainz Artist Id", &id_refs),
+            user_text(b"TXXX", "MusicBrainz Album Artist Id", &id_refs),
+            people_frame(b"TIPL", &people),
+        ];
+        frames.extend(verses.iter().map(|verse| {
+            frame(
+                b"USLT",
+                FrameBody::Lyrics(LanguageText {
+                    language: *b"eng",
+                    description: text(""),
+                    text: text(verse),
+                }),
+            )
+        }));
+        let mapped = from_id3(Some(&tag(4, frames)), None, &limits);
+        let first_five = |values: &[String]| values.get(..5).unwrap().to_vec();
+        assert_eq!(
+            mapped.tags.isrc,
+            first_five(&isrcs)
+                .iter()
+                .map(|code| isrc(code))
+                .collect::<Vec<_>>()
         );
-        let mapped = from_id3(Some(&v2), None, &limits);
-        assert_eq!(mapped.tags.isrc, [isrc("USS1Z9900001")]);
-        assert_eq!(mapped.tags.musicbrainz.artists, [mbid(id_a)]);
-        assert_eq!(mapped.tags.musicbrainz.album_artists, [mbid(id_a)]);
-        assert_eq!(mapped.tags.credits, [credit("A", Role::Producer)]);
+        let mbids: Vec<Mbid> = first_five(&ids).iter().map(|id| mbid(id)).collect();
+        assert_eq!(mapped.tags.musicbrainz.artists, mbids);
+        assert_eq!(mapped.tags.musicbrainz.album_artists, mbids);
+        assert_eq!(
+            mapped.tags.credits,
+            names
+                .get(..5)
+                .unwrap()
+                .iter()
+                .map(|name| credit(name, Role::Producer))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(
             mapped.tags.lyrics,
-            [lyrics(
-                LyricsOrigin::Id3Unsynced,
-                LyricsTiming::Plain,
-                "one"
-            )]
+            first_five(&verses)
+                .iter()
+                .map(|verse| lyrics(LyricsOrigin::Id3Unsynced, LyricsTiming::Plain, verse))
+                .collect::<Vec<_>>()
         );
         let past_the_limit = TagProblem::LimitExceeded {
             limit: LimitKind::TagFields,
-            count: 2,
+            count: 6,
         };
         assert_eq!(
             mapped.problems,
