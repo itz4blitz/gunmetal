@@ -5,7 +5,14 @@
       "version": "0.0.0",
       "id": "gunmetal-server@0.0.0",
       "links": null,
-      "manifest_path": "crates/server/Cargo.toml"
+      "manifest_path": "crates/server/Cargo.toml",
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ]
+        }
+      ]
     }
   ],
   "workspace_members": [

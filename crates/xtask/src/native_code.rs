@@ -16,15 +16,18 @@
 //! dependencies, for the targets Gunmetal builds. A new workspace member
 //! ships unless it is added to [`TOOLING`], so the check fails closed. Build
 //! and dev dependencies are not linked into what ships and are left to the
-//! build-script allow-list (SEC-SUP-026). The gate runs:
+//! build-script allow-list (SEC-SUP-026). Nor is a procedural macro, or a
+//! crate that only one reaches: the compiler runs the macro while it builds,
+//! and what ships is the code the macro wrote, in the crate that used it.
+//! The gate runs:
 //!
 //! ```text
-//! cargo metadata --locked --format-version 1 --all-features \
+//! cargo metadata "$locked" --format-version 1 --all-features \
 //!   --filter-platform x86_64-unknown-linux-gnu \
 //!   --filter-platform aarch64-unknown-linux-gnu \
 //!   --filter-platform i686-unknown-linux-gnu \
-//!   --filter-platform wasm32-unknown-unknown > target/native-code.json
-//! cargo run --locked -q -p xtask -- native-code target/native-code.json
+//!   --filter-platform wasm32-unknown-unknown >target/native-code.json
+//! cargo run "$locked" -q -p xtask -- native-code target/native-code.json
 //! ```
 //!
 //! The targets are the ones `deny.toml` names. `--all-features` matters for
@@ -254,10 +257,13 @@ fn shipped(metadata: &Value) -> Option<Vec<Package<'_>>> {
     let mut found = Vec::new();
     while let Some(id) = queue.pop() {
         if seen.insert(id) {
-            found.push(package(packages.get(id)?)?);
-            for dep in nodes.get(id)?.get("deps")?.as_array()? {
-                if is_normal(dep)? {
-                    queue.push(text(dep, "pkg")?);
+            let described = packages.get(id)?;
+            if !is_macro(described)? {
+                found.push(package(described)?);
+                for dep in nodes.get(id)?.get("deps")?.as_array()? {
+                    if is_normal(dep)? {
+                        queue.push(text(dep, "pkg")?);
+                    }
                 }
             }
         }
@@ -277,6 +283,19 @@ fn by_id(list: &Value) -> Option<BTreeMap<&str, &Value>> {
 /// The string member `key` of `object`.
 fn text<'a>(object: &'a Value, key: &str) -> Option<&'a str> {
     object.get(key)?.as_str()
+}
+
+/// Whether the package `described` is a procedural macro: one of its
+/// targets has the kind `proc-macro`.
+fn is_macro(described: &Value) -> Option<bool> {
+    let kinds: Option<Vec<&[Value]>> = described
+        .get("targets")?
+        .as_array()?
+        .iter()
+        .map(|target| target.get("kind")?.as_array())
+        .collect();
+    let marker = Value::String("proc-macro".to_owned());
+    Some(kinds?.iter().any(|kinds| kinds.contains(&marker)))
 }
 
 /// What the check reads of one entry of `packages`.
@@ -450,6 +469,8 @@ mod tests {
         links: &'static str,
         /// Its dependencies: the package ID and the JSON `dep_kinds` array.
         deps: &'static [(&'static str, &'static str)],
+        /// The kind of its one target: `lib`, `bin` or `proc-macro`.
+        kind: &'static str,
     }
 
     /// A pure package with no dependencies.
@@ -459,6 +480,7 @@ mod tests {
             version,
             links: "null",
             deps: &[],
+            kind: "lib",
         }
     }
 
@@ -477,8 +499,8 @@ mod tests {
             .iter()
             .map(|package| {
                 format!(
-                    r#"{{"name":"{0}","version":"{1}","id":"{0}@{1}","links":{2},"manifest_path":"/src/{0}-{1}/Cargo.toml"}}"#,
-                    package.name, package.version, package.links
+                    r#"{{"name":"{0}","version":"{1}","id":"{0}@{1}","links":{2},"manifest_path":"/src/{0}-{1}/Cargo.toml","targets":[{{"kind":["{3}"]}}]}}"#,
+                    package.name, package.version, package.links, package.kind
                 )
             })
             .collect();
@@ -758,6 +780,104 @@ mod tests {
                 unlisted("through", false, None, Some("src/lib.rs")),
             ]
         );
+    }
+
+    /// A graph for the tests of procedural macros. The server depends on
+    /// `data`, which depends on the macro `derive`. The macro depends on
+    /// `parser` and `shared`, and the server reaches `shared` through `data`
+    /// as well.
+    fn macro_graph() -> String {
+        metadata(
+            &["gunmetal-server@0.0.0"],
+            &[
+                Package {
+                    deps: &[("data@1.0.0", NORMAL)],
+                    ..package("gunmetal-server", "0.0.0")
+                },
+                Package {
+                    deps: &[("derive@1.0.0", NORMAL), ("shared@1.0.0", NORMAL)],
+                    ..package("data", "1.0.0")
+                },
+                Package {
+                    deps: &[("parser@1.0.0", NORMAL), ("shared@1.0.0", NORMAL)],
+                    kind: "proc-macro",
+                    ..package("derive", "1.0.0")
+                },
+                package("parser", "1.0.0"),
+                package("shared", "1.0.0"),
+            ],
+        )
+    }
+
+    /// Sources for [`macro_graph`]: every crate but the server uses
+    /// `unsafe`.
+    fn macro_sources() -> Memory {
+        let mut tree = server_sources();
+        for name in ["data", "derive", "parser", "shared"] {
+            tree = tree.with(
+                &format!("/src/{name}-1.0.0/src/lib.rs"),
+                "unsafe fn f() {}\n",
+            );
+        }
+        tree
+    }
+
+    #[test]
+    fn a_procedural_macro_and_what_only_it_reaches_are_not_linked_into_what_ships() {
+        // The compiler runs a procedural macro while it builds; neither the
+        // macro nor the crates only it uses are linked into the result.
+        assert_eq!(
+            check(&macro_sources(), &macro_graph(), ""),
+            [
+                unlisted("data", false, None, Some("src/lib.rs")),
+                unlisted("shared", false, None, Some("src/lib.rs")),
+            ]
+        );
+        let allowlist = [
+            entry("data"),
+            entry("derive"),
+            entry("parser"),
+            entry("shared"),
+        ]
+        .concat();
+        assert_eq!(
+            check(&macro_sources(), &macro_graph(), &allowlist),
+            [
+                Finding::Unused {
+                    name: "derive".to_owned(),
+                },
+                Finding::Unused {
+                    name: "parser".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_package_is_a_macro_when_any_of_its_targets_is_one() {
+        // A library with a build script, or with any other target that is
+        // not exactly a procedural macro, is linked.
+        let graph = server_with("fast", "null");
+        let tree = server_sources().with("/src/fast-1.0.0/src/lib.rs", "unsafe fn f() {}\n");
+        let found = [unlisted("fast", false, None, Some("src/lib.rs"))];
+        // The last package in the graph is `fast`.
+        let (before, after) = graph
+            .rsplit_once(r#"[{"kind":["lib"]}]"#)
+            .expect("the graph has library targets");
+        for (targets, expected) in [
+            (
+                r#"[{"kind":["lib"]},{"kind":["custom-build"]}]"#,
+                &found[..],
+            ),
+            (r#"[{"kind":["cdylib","rlib"]},{"kind":["bench"]}]"#, &found),
+            (r#"[{"kind":["proc-macros"]},{"kind":[7]}]"#, &found),
+            ("[]", &found),
+            (r#"[{"kind":["test"]},{"kind":["proc-macro"]}]"#, &[]),
+            (r#"[{"kind":["lib","proc-macro"]}]"#, &[]),
+        ] {
+            let changed = format!("{before}{targets}{after}");
+            assert_eq!(check(&tree, &changed, ""), expected);
+        }
     }
 
     #[test]
@@ -1064,6 +1184,12 @@ name = "neither"
             ),
             ("/src/zlib-1.0.0/Cargo.toml", "/src/zlib-1.0.0/Cargo.lock"),
             ("/src/zlib-1.0.0/Cargo.toml", "Cargo.toml"),
+            // A package without targets, or a target without kinds, or
+            // either of the wrong type.
+            (",\"targets\":[{\"kind\":[\"lib\"]}]", ""),
+            ("\"targets\":[{\"kind\":[\"lib\"]}]", "\"targets\":7"),
+            ("{\"kind\":[\"lib\"]}", "{\"name\":\"lib\"}"),
+            ("\"kind\":[\"lib\"]", "\"kind\":\"lib\""),
             // A node without an ID or dependencies, or a dependency without
             // a package or kinds, or one that names no node.
             ("{\"id\":\"zlib@1.0.0\",\"deps\"", "{\"deps\""),
