@@ -111,6 +111,8 @@ problems! {
     VorbisHeaderUnreadable = ("vorbis_header_unreadable", None, "This file's Vorbis stream headers are damaged or use a version we can't read."),
     /// A WAV file is damaged, or is not one, so it cannot be played; the problem's arguments give the reason and where in the file it was found.
     WavUnreadable = ("wav_unreadable", None, "We couldn't read this WAV file. It may be damaged, or written in a way we don't support."),
+    /// Passkey authenticator data, a COSE key or the CBOR that carries them could not be read (SEC-MED-001).
+    WebauthnDataUnreadable = ("webauthn_data_unreadable", None, "That passkey data could not be read."),
 }
 
 /// A typed value that a problem carries alongside its code.
@@ -146,7 +148,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 21] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 22] = [
         (
             "aiff_unreadable",
             None,
@@ -252,6 +254,11 @@ mod tests {
             None,
             "We couldn't read this WAV file. It may be damaged, or written in a way we don't support.",
         ),
+        (
+            "webauthn_data_unreadable",
+            None,
+            "That passkey data could not be read.",
+        ),
     ];
 
     /// Every status a catalogue entry may carry.
@@ -295,13 +302,95 @@ mod tests {
         assert_eq!(outside, []);
     }
 
+    /// Words that name what a client must never be told about: the
+    /// language, the database, a query, a stack trace or a panic. Each is
+    /// matched as a whole word, in any case, so each inflected form is
+    /// listed too ("selected" is left out: a client may select a folder).
+    const FORBIDDEN_WORDS: [&str; 22] = [
+        "backtrace",
+        "panic",
+        "panicked",
+        "panicking",
+        "panics",
+        "rust",
+        "rustc",
+        "select",
+        "selects",
+        "sql",
+        "sqlite",
+        "sqlstate",
+        "stack",
+        "stacks",
+        "stacktrace",
+        "trace",
+        "traceback",
+        "traces",
+        "unwrap",
+        "unwrapped",
+        "unwrapping",
+        "unwraps",
+    ];
+
+    /// The forbidden words `text` holds, in the order it holds them. A
+    /// word is a run of ASCII letters, so "trust" does not hold "rust".
+    fn forbidden_words(text: &str) -> Vec<String> {
+        text.split(|c: char| !c.is_ascii_alphabetic())
+            .map(str::to_ascii_lowercase)
+            .filter(|word| FORBIDDEN_WORDS.contains(&word.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn finds_forbidden_words_only_as_whole_words() {
+        assert_eq!(
+            forbidden_words("You can trust the selected folder. It's frustrating, we know."),
+            [""; 0]
+        );
+        assert_eq!(
+            forbidden_words("Retrace your steps, then restack the haystack."),
+            [""; 0]
+        );
+        assert_eq!(
+            forbidden_words("A Rust panic: SELECT failed, see the stack trace."),
+            ["rust", "panic", "select", "stack", "trace"]
+        );
+        assert_eq!(
+            forbidden_words("SQLite panicked. Backtrace-stacktrace,traceback!Unwrap?sql"),
+            [
+                "sqlite",
+                "panicked",
+                "backtrace",
+                "stacktrace",
+                "traceback",
+                "unwrap",
+                "sql"
+            ]
+        );
+        assert_eq!(
+            forbidden_words(
+                "It panics, panicking; traces, stacks and selects. Unwrapped, unwrapping, unwraps: rustc sqlstate."
+            ),
+            [
+                "panics",
+                "panicking",
+                "traces",
+                "stacks",
+                "selects",
+                "unwrapped",
+                "unwrapping",
+                "unwraps",
+                "rustc",
+                "sqlstate"
+            ]
+        );
+    }
+
     /// Verifies: SEC-API-072
     #[test]
     fn texts_hold_no_version_path_sql_or_trace() {
         // Letters, spaces and sentence punctuation only: no digit can spell
         // a version, no slash a path, and no bracket, colon or semicolon a
         // stack trace or a statement.
-        const FORBIDDEN_WORDS: [&str; 6] = ["panic", "rust", "select", "sql", "stack", "trace"];
         for code in ProblemCode::ALL {
             let text = code.text();
             assert!(
@@ -313,10 +402,12 @@ mod tests {
                 text.starts_with(|c: char| c.is_ascii_uppercase()) && text.ends_with('.'),
                 "{code:?}: {text:?}"
             );
-            let lower = text.to_ascii_lowercase();
-            for word in FORBIDDEN_WORDS {
-                assert!(!lower.contains(word), "{code:?} mentions {word:?}");
-            }
         }
+        let mentions: Vec<(ProblemCode, Vec<String>)> = ProblemCode::ALL
+            .iter()
+            .map(|code| (*code, forbidden_words(code.text())))
+            .filter(|(_, words)| !words.is_empty())
+            .collect();
+        assert_eq!(mentions, []);
     }
 }

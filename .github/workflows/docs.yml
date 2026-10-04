@@ -1,0 +1,30 @@
+name: Docs
+
+# Docs lints on every pull request and every push to main or a wave branch
+# (SEC-TM-001, SEC-TM-072 to SEC-TM-075, SEC-STD-001, SEC-STD-006).
+on:
+  pull_request:
+  push:
+    branches: [main, "wave-*"]
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - run: cargo run --locked --quiet -p xtask -- docs-lint

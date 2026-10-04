@@ -2,12 +2,16 @@
 //! dependency: the standard alphabet for pictures embedded in Vorbis
 //! comments, and the URL-safe alphabet for tokens.
 //!
-//! Decoding accepts each value in exactly one form, with or without its
-//! padding: no whitespace, no characters of the other alphabet, and no
-//! stray bits in the last character, so a token cannot be written two
-//! ways. The output size is checked against the caller's cap before
-//! anything is decoded. The text to decode arrives [`Untrusted`]: a token
-//! from a request or a picture from a tag (SEC-TM-031).
+//! Decoding is strict: no whitespace, no characters of the other alphabet
+//! and no stray bits in the last character. Padding is the one thing left
+//! open. Either alphabet is read with its padding or without it, because
+//! tags in the wild carry both, so a value whose length is not a multiple
+//! of three has two written forms and every other value has one. A caller
+//! that must accept one form only, as a token does, compares the text it
+//! was given with [`encode`]'s output for what it decoded. The output size
+//! is checked against the caller's cap before anything is decoded. The
+//! text to decode arrives [`Untrusted`]: a token from a request or a
+//! picture from a tag (SEC-TM-031).
 
 use crate::untrusted::Untrusted;
 
@@ -291,8 +295,8 @@ mod tests {
         }
     }
 
-    /// Only one encoding of each value is accepted, so a token cannot be
-    /// written in two ways.
+    /// Stray bits in the last character would give a value as many written
+    /// forms as there are settings of those bits.
     #[test]
     fn refuses_a_last_character_with_bits_left_over() {
         let cases: [(&[u8], usize); 4] = [(b"Zh==", 1), (b"Zh", 1), (b"Zm9=", 2), (b"Zm9vYmF", 6)];
@@ -302,6 +306,48 @@ mod tests {
                 Err(B64Error::TrailingBits { offset }),
                 "{input:?}"
             );
+        }
+    }
+
+    /// Every text of up to four characters over `Z`, `g`, `m`, `8`, `A`
+    /// and `=`: 1,555 of them.
+    fn short_texts() -> Vec<Vec<u8>> {
+        let symbols = *b"Zgm8A=";
+        let mut texts = vec![Vec::new()];
+        let mut longest = vec![Vec::new()];
+        for _ in 0..4 {
+            longest = longest
+                .iter()
+                .flat_map(|text: &Vec<u8>| {
+                    symbols.map(|symbol| text.iter().copied().chain([symbol]).collect())
+                })
+                .collect();
+            texts.extend(longest.iter().cloned());
+        }
+        texts
+    }
+
+    /// A value has two written forms, its padded one and its unpadded one,
+    /// and a value of a whole number of groups has one. Nothing else
+    /// decodes to it, in either alphabet. A caller that needs one form for
+    /// each value compares what it was given with [`encode`]'s.
+    #[test]
+    fn accepts_each_value_in_its_padded_and_its_unpadded_form_only() {
+        assert_eq!(short_texts().len(), 1_555);
+        let cases: [(&[u8], &[&[u8]]); 4] = [
+            (b"", &[b""]),
+            (b"f", &[b"Zg", b"Zg=="]),
+            (b"fo", &[b"Zm8", b"Zm8="]),
+            (b"d\x00\x00", &[b"ZAAA"]),
+        ];
+        for alphabet in [Alphabet::Standard, Alphabet::UrlSafe] {
+            for (value, forms) in cases {
+                let accepted: Vec<Vec<u8>> = short_texts()
+                    .into_iter()
+                    .filter(|text| decode(text, alphabet, 3) == Ok(value.to_vec()))
+                    .collect();
+                assert_eq!(accepted, forms);
+            }
         }
     }
 

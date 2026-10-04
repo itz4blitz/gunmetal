@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc cdd9394a566ffcbfff5cb74d316ac1fd6e11d07024c5fb3fd994ab70af09559a # shrinks to ip = 4000::
 cc b2263b92a9b6a86c98e5aeeefea07a56d5aaa73a2fc2ea942fa0a1dc975561b9 # shrinks to net_bits = 0, ip_bits = 0, prefix = 0, v6_net = 0, v6_ip = 0, v6_prefix = 0
+cc 2d456757d14e9ef417a96efab53f7638b91b20e82f048a06a659fc5b3871a16d # shrinks to high = 0, low = 0, block = 65535, prefix = 96

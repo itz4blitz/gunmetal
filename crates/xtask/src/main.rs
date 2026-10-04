@@ -13,8 +13,13 @@
 //!   two crypto modules agree (SEC-STD-018).
 //! - `core-deps <cargo-tree-output>`: `gunmetal-core`'s normal dependencies
 //!   are exactly the reviewed allowlist (SEC-SUP-025).
+//! - `docs-lint`: requirement tables, citations, ownership and the docs
+//!   checks in the security baseline (SEC-TM-001, SEC-TM-072 to SEC-TM-075,
+//!   SEC-STD-001, SEC-STD-006).
 //! - `fuzz-targets`: the registered harnesses as a JSON array, for the fuzz
 //!   workflow's job matrix.
+//! - `last-reviewed <tag>`: the threat model's "Last reviewed" line names
+//!   the release tag (SEC-TM-002).
 //! - `lint-exceptions`: only the modules on the written list turn a clippy
 //!   ban off, and no cargo configuration file in the repository can.
 //! - `lockfile-age requests <base-lock> <head-lock>` and
@@ -41,6 +46,15 @@
 //! - `site`: the project site's static files under `site/` hold the
 //!   security baseline's rules for gunmetal.tv (SEC-SUP-008, SEC-STD-016,
 //!   SEC-PRV-054, SEC-PRV-055, SEC-HIS-061).
+//! - `standards-coverage`: ASVS items at or below each chapter target have
+//!   a citing requirement or a complete register row (SEC-STD-002).
+//! - `standards-watch <feeds-dir>`: recorded release feeds name no newer
+//!   final edition than the pinned copies (SEC-STD-003).
+//! - `trace <release>`: every requirement due in that release has a
+//!   `Verifies:` line or a dated review record (SEC-STD-004, SEC-HIS-066).
+//!   A release that is not in the requirement tables' list is a usage error.
+//! - `trace-report <release>`: the requirements due in that release and the
+//!   evidence for each, `test`, `review` or `missing`, for publishing.
 //!
 //! Paths are relative to the repository root. A check that finds problems
 //! exits with status 1 and lists them. `check-harnesses` and
@@ -51,6 +65,7 @@ mod age_override;
 mod codeowners;
 mod core_deps;
 mod crypto_inventory;
+mod docs_lint;
 mod harnesses;
 mod js_deps;
 mod json;
@@ -60,7 +75,9 @@ mod lockfile_age;
 mod native_code;
 mod repo;
 mod site;
+mod standards;
 mod toml;
+mod trace;
 mod tree;
 
 use std::env;
@@ -116,8 +133,10 @@ fn dispatch(
             &tree.read(core_deps::ALLOWLIST).unwrap_or_default(),
         )),
         ["crypto-inventory"] => report(crypto_inventory::check(&tree)),
+        ["docs-lint"] => report(docs_lint::check(&tree)),
         ["fuzz-targets"] => write(out, &harnesses::targets_json(registered).map_err(rendered)?),
         ["js-deps"] => report(js_deps::check(&tree)),
+        ["last-reviewed", tag] => report(docs_lint::reviewed(&tree, tag)),
         ["lint-exceptions"] => report(lint_exceptions::check(&tree, lint_exceptions::EXCEPTIONS)),
         ["lockfile-age", "check", base, head, responses] => report(lockfile_age::check(
             &tree,
@@ -146,6 +165,12 @@ fn dispatch(
         ["repo", "scorecard", json] => report(repo::scorecard(&read(&tree, json)?)),
         ["repo", "settings", dir] => report(repo::settings(&tree, dir)),
         ["site"] => report(site::check(&tree, now)),
+        ["standards-coverage"] => report(standards::coverage(&tree, now)),
+        ["standards-watch", feeds] => report(standards::watch(&tree, feeds)),
+        ["trace", release] => trace::check(&tree, release).map_or(Err(Failure::Usage), report),
+        ["trace-report", release] => {
+            write(out, &trace::report(&tree, release).ok_or(Failure::Usage)?)
+        }
         _ => Err(Failure::Usage),
     }
 }
@@ -253,6 +278,15 @@ mod tests {
             &["lockfile-age", "override", "codeowners", "reviews"],
             &["lockfile-age", "requests", "base"],
             &["js-deps", "extra"],
+            &["docs-lint", "extra"],
+            &["last-reviewed"],
+            &["standards-coverage", "extra"],
+            &["standards-watch"],
+            &["trace"],
+            &["trace", "R9"],
+            &["trace", ""],
+            &["trace-report"],
+            &["trace-report", "v1.0.0"],
             &["native-code"],
             &["native-code", "metadata", "extra"],
             &["repo", "settings"],

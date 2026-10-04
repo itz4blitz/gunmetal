@@ -401,6 +401,154 @@ mod tests {
         );
     }
 
+    /// A lossy UTF-8 decoder used only as a test oracle. It is written from
+    /// table 3-7 of the Unicode Standard, "Well-Formed UTF-8 Byte
+    /// Sequences", and replaces each maximal subpart of an ill-formed
+    /// sequence with one U+FFFD, as section 3.9 of the standard recommends.
+    /// It calls no decoder: not the one under test, and not the standard
+    /// library's.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "a test oracle that counts octets of a short input"
+    )]
+    fn reference_utf8(bytes: &[u8]) -> String {
+        let mut out = String::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            let lead = bytes[at];
+            // The range the second octet must lie in, and how many octets
+            // follow the first.
+            let (second, following) = match lead {
+                0x00..=0x7F => (0x00..=0xFF, 0),
+                0xC2..=0xDF => (0x80..=0xBF, 1),
+                0xE0 => (0xA0..=0xBF, 2),
+                0xE1..=0xEC | 0xEE..=0xEF => (0x80..=0xBF, 2),
+                0xED => (0x80..=0x9F, 2),
+                0xF0 => (0x90..=0xBF, 3),
+                0xF1..=0xF3 => (0x80..=0xBF, 3),
+                0xF4 => (0x80..=0x8F, 3),
+                // A continuation octet, an overlong lead or one past
+                // U+10FFFF: a sequence of its own that is never complete.
+                _ => (0x00..=0xFF, 4),
+            };
+            let lead_bits = [0x7F, 0x1F, 0x0F, 0x07, 0x00][following];
+            let mut scalar = u32::from(lead & lead_bits);
+            let mut taken = 1;
+            let mut allowed = second;
+            while taken <= following
+                && following < 4
+                && bytes
+                    .get(at + taken)
+                    .is_some_and(|octet| allowed.contains(octet))
+            {
+                scalar = scalar * 64 + u32::from(bytes[at + taken] & 0x3F);
+                taken += 1;
+                allowed = 0x80..=0xBF;
+            }
+            out.push(if taken > following {
+                char::from_u32(scalar).expect("a well-formed sequence is a scalar value")
+            } else {
+                '\u{FFFD}'
+            });
+            at += taken;
+        }
+        out
+    }
+
+    /// Latin-1 as a test oracle: each octet is the code point of the same
+    /// number.
+    fn reference_latin1(bytes: &[u8]) -> String {
+        bytes
+            .iter()
+            .map(|&octet| char::from_u32(u32::from(octet)).expect("below U+0100"))
+            .collect()
+    }
+
+    /// What a field from media keeps of decoded text, as a test oracle:
+    /// one leading byte-order mark goes, and so does every C0 control but
+    /// tab and line feed, DEL, and every C1 control. The ranges are written
+    /// out from the Unicode code charts instead of asking the standard
+    /// library what a control is.
+    fn reference_clean(decoded: &str) -> String {
+        let mut chars = decoded.chars().peekable();
+        if chars.peek() == Some(&'\u{FEFF}') {
+            chars.next();
+        }
+        chars
+            .filter(|&c| {
+                let code = u32::from(c);
+                code == 0x09 || code == 0x0A || !(code <= 0x1F || (0x7F..=0x9F).contains(&code))
+            })
+            .collect()
+    }
+
+    /// The reference UTF-8 decoder against the Unicode Standard's own
+    /// examples: the first and last scalar value of every row of table
+    /// 3-7, and the ill-formed sequences of tables 3-8 to 3-11 in section
+    /// 3.9, "U+FFFD Substitution of Maximal Subparts".
+    #[test]
+    fn the_reference_utf8_decoder_matches_the_unicode_standard() {
+        let cases: [(&[u8], &str); 12] = [
+            (b"", ""),
+            (b"\x00A\x7F", "\0A\u{7F}"),
+            (b"\xC2\x80\xDF\xBF", "\u{80}\u{7FF}"),
+            (b"\xE0\xA0\x80\xE0\xBF\xBF", "\u{800}\u{FFF}"),
+            (
+                b"\xE1\x80\x80\xEC\xBF\xBF\xEE\x80\x80\xEF\xBF\xBF",
+                "\u{1000}\u{CFFF}\u{E000}\u{FFFF}",
+            ),
+            (b"\xED\x80\x80\xED\x9F\xBF", "\u{D000}\u{D7FF}"),
+            (
+                b"\xF0\x90\x80\x80\xF0\xBF\xBF\xBF\xF1\x80\x80\x80\xF3\xBF\xBF\xBF\xF4\x80\x80\x80\xF4\x8F\xBF\xBF",
+                "\u{10000}\u{3FFFF}\u{40000}\u{FFFFF}\u{100000}\u{10FFFF}",
+            ),
+            // Table 3-8, non-shortest forms.
+            (
+                b"\xC0\xAF\xE0\x80\xBF\xF0\x81\x82\x41",
+                "\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}A",
+            ),
+            // Table 3-9, ill-formed sequences for surrogates.
+            (
+                b"\xED\xA0\x80\xED\xBF\xBF\xED\xAF\x41",
+                "\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}A",
+            ),
+            // Table 3-10, other ill-formed sequences.
+            (
+                b"\xF4\x91\x92\x93\xFF\x41\x80\xBF\x42",
+                "\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}A\u{FFFD}\u{FFFD}B",
+            ),
+            // Table 3-11, truncated sequences.
+            (
+                b"\xE1\x80\xE2\xF0\x91\x92\xF1\xBF\x41",
+                "\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}A",
+            ),
+            // The section's first example, and a sequence cut off by the
+            // end of the input.
+            (
+                b"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\xF0\x9D\x84",
+                "a\u{FFFD}\u{FFFD}\u{FFFD}b\u{FFFD}c\u{FFFD}\u{FFFD}d\u{FFFD}",
+            ),
+        ];
+        for (bytes, expected) in cases {
+            assert_eq!(reference_utf8(bytes), expected, "{bytes:02X?}");
+        }
+    }
+
+    #[test]
+    fn the_reference_latin1_decoder_and_cleaner_match_the_code_charts() {
+        assert_eq!(
+            reference_latin1(b"A\x00\x7F\x80\x9F\xA0\xE9\xFF"),
+            "A\0\u{7F}\u{80}\u{9F}\u{A0}\u{E9}\u{FF}"
+        );
+        assert_eq!(
+            reference_clean(
+                "\u{FEFF}\u{FEFF}a\0\u{8}\tb\n\u{B}\rc\u{1F} \u{7E}\u{7F}\u{80}\u{9F}\u{A0}"
+            ),
+            "\u{FEFF}a\tb\nc \u{7E}\u{A0}"
+        );
+        assert_eq!(reference_clean(""), "");
+    }
+
     /// Bytes that reach the interesting cases more often than uniform
     /// random bytes would: controls, separators, bidirectional controls,
     /// surrogate halves, byte-order marks and invalid sequences.
@@ -482,22 +630,20 @@ mod tests {
             prop_assert_eq!(twice, text(&once.value, false, false));
         }
 
-        /// Text from media agrees with an independent lossy decoder written
-        /// here for UTF-8 and Latin-1.
+        /// Text from media agrees with the reference decoders written here
+        /// for UTF-8 and Latin-1, which share no code with the decoders
+        /// under test or with the standard library's.
         ///
         /// Verifies: SEC-MED-013
         #[test]
         fn agrees_with_a_reference_decoder(bytes in hostile_bytes()) {
-            let keep = |c: &char| !c.is_control() || *c == '\t' || *c == '\n';
-            let utf8 = String::from_utf8_lossy(&bytes);
-            let utf8 = utf8.strip_prefix('\u{FEFF}').unwrap_or(&utf8);
             prop_assert_eq!(
                 decode(&bytes, Encoding::Utf8, u32::MAX).value,
-                utf8.chars().filter(keep).collect::<String>()
+                reference_clean(&reference_utf8(&bytes))
             );
             prop_assert_eq!(
                 decode(&bytes, Encoding::Latin1, u32::MAX).value,
-                bytes.iter().map(|&b| char::from(b)).filter(keep).collect::<String>()
+                reference_clean(&reference_latin1(&bytes))
             );
         }
     }
