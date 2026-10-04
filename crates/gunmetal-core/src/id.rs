@@ -265,18 +265,240 @@ mod compile_fail {
     /// ```
     struct NoMintedLiteral;
 
-    /// Verifies: SEC-API-023
-    ///
-    /// No identifier type wraps an integer: none converts from one.
-    ///
-    /// ```compile_fail
-    /// use gunmetal_core::id::{IdKind, Minted, PublicId};
-    ///
-    /// fn from_integer(sequence: u128) -> PublicId {
-    ///     PublicId::from(sequence)
-    /// }
-    /// ```
-    struct NoIntegerConversion;
+    /// No identifier type wraps an integer: none converts from one, of any
+    /// width or sign, with `From` or with `TryFrom`. Each integer type has
+    /// a test of its own, because a compile-fail test passes as soon as
+    /// one line fails to compile, so one test naming several types would
+    /// still pass after a conversion from one of them appeared.
+    mod no_integer_conversion {
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u8) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u8) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromU8;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u16) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u16) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromU16;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u32) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u32) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromU32;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u64) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u64) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromU64;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u128) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: u128) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromU128;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: usize) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: usize) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromUsize;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i8) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i8) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromI8;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i16) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i16) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromI16;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i32) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i32) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromI32;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i64) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i64) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromI64;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i128) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: i128) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromI128;
+
+        /// Verifies: SEC-API-023
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: isize) -> PublicId {
+        ///     PublicId::from(sequence)
+        /// }
+        /// ```
+        ///
+        /// ```compile_fail
+        /// use gunmetal_core::id::{IdKind, Minted, PublicId};
+        ///
+        /// fn from_integer(sequence: isize) -> Option<PublicId> {
+        ///     PublicId::try_from(sequence).ok()
+        /// }
+        /// ```
+        struct FromIsize;
+    }
 }
 
 #[cfg(test)]
