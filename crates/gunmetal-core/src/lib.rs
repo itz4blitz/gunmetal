@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod client_context;
 pub mod collate;
 pub mod crypto;
+pub mod decision;
 pub mod ebml;
 pub mod formats;
 pub mod gain;
