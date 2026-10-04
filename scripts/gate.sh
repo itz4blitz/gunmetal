@@ -87,6 +87,14 @@ mkdir -p target
 cargo tree "$locked" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt
 cargo run "$locked" -q -p xtask -- core-deps target/core-deps.txt
 
+echo "==> native and unsafe code that ships is on the allow-list"
+# SEC-TM-034: every crate linked into what ships that is a -sys crate,
+# declares `links` or uses `unsafe` is on supply-chain/native-allowlist.toml
+# with a reason and a requirement, and the list names no other crate. The
+# targets are the ones deny.toml names.
+cargo metadata "$locked" --format-version 1 --all-features --filter-platform x86_64-unknown-linux-gnu --filter-platform aarch64-unknown-linux-gnu --filter-platform i686-unknown-linux-gnu --filter-platform wasm32-unknown-unknown >target/native-code.json
+cargo run "$locked" -q -p xtask -- native-code target/native-code.json
+
 echo "==> tests with 100% coverage"
 cargo llvm-cov --locked --workspace \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
