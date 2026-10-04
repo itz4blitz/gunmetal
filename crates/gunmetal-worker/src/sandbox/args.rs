@@ -126,7 +126,9 @@ mod tests {
         assert_eq!(ENTRY, "--gunmetal-worker");
     }
 
-    /// Verifies: SEC-HIS-020, SEC-HIS-021, SEC-TM-046
+    /// Every value of the typed arguments, since there are only two.
+    ///
+    /// Verifies: SEC-HIS-020
     #[test]
     fn every_argument_list_is_three_words_from_the_vocabulary() {
         assert_eq!(
@@ -136,10 +138,6 @@ mod tests {
         assert_eq!(
             TypedArgs::new(Job::SelfTest, Profile::Scan).argv(),
             ["--gunmetal-worker", "self-test", "scan"]
-        );
-        assert_eq!(
-            crate::sandbox::programs::Program::Worker.executable(),
-            "/proc/self/exe"
         );
     }
 

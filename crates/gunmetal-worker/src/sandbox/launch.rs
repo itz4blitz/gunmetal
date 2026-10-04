@@ -131,42 +131,20 @@ pub fn launch(program: Program, args: TypedArgs, fds: Inherited) -> Result<Child
     spawn(program.executable(), args, fds)
 }
 
-fn empty_argument_error(argv: [&str; 3]) -> Result<(), SpawnError> {
-    if argv.iter().any(|word| word.is_empty()) {
-        Err(SpawnError::Spawn(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a worker argument was empty",
-        )))
-    } else {
-        Ok(())
-    }
-}
-
-fn spawn(
-    executable: impl AsRef<std::ffi::OsStr>,
-    args: TypedArgs,
-    fds: Inherited,
-) -> Result<Child, SpawnError> {
-    spawn_argv(executable, args.argv(), fds)
-}
-
 /// Marks every descriptor numbered 3 and above close-on-exec.
 ///
-/// The standard library's `Command` still inherits descriptors that
-/// arrived without that flag. Closing them by number needs `unsafe`,
+/// A child started by the standard library's `Command` still inherits
+/// the descriptors that lack that flag. Closing them by number needs `unsafe`,
 /// which this crate forbids; setting close-on-exec does not, and is
 /// enough that a child started afterwards receives only the descriptors
 /// `Command` is told to pass (SEC-MED-022).
-pub fn mark_others_close_on_exec() {
+fn mark_others_close_on_exec() {
     close_fds::set_fds_cloexec(3, &[]);
 }
 
-fn spawn_argv(
-    executable: impl AsRef<std::ffi::OsStr>,
-    argv: [&'static str; 3],
-    fds: Inherited,
-) -> Result<Child, SpawnError> {
-    empty_argument_error(argv)?;
+/// Starts the executable at `executable`. [`launch`] is the only caller
+/// outside the tests, and passes a path from the closed program list.
+fn spawn(executable: &str, args: TypedArgs, fds: Inherited) -> Result<Child, SpawnError> {
     let input = OwnedFd::from(fds.child_end);
     let output = input.try_clone();
     let errors = input.try_clone();
@@ -180,7 +158,7 @@ fn spawn_argv(
                 reason = "the sandbox launcher is the one door that starts a process (SEC-MED-063)"
             )]
             let mut command = Command::new(executable);
-            command.args(argv).env_clear();
+            command.args(args.argv()).env_clear();
             command
                 .current_dir("/")
                 .stdin(input)
@@ -194,46 +172,23 @@ fn spawn_argv(
 
 #[cfg(test)]
 mod tests {
-    use super::SpawnError;
-    use std::io;
+    use super::{Inherited, SpawnError, mark_others_close_on_exec, spawn};
+    use crate::sandbox::args::{Job, TypedArgs};
+    use crate::sandbox::limits::Profile;
+    use std::io::{self, Read, Write};
 
     #[test]
     fn a_missing_executable_is_a_spawn_error() {
-        use super::{Inherited, spawn};
-        use crate::sandbox::args::{Job, TypedArgs};
-        use crate::sandbox::limits::Profile;
-
         let (fds, _ours) = Inherited::pair().unwrap();
         let error = spawn(
-            "no-such-gunmetal-worker-045",
+            "/no-such-gunmetal-worker-045",
             TypedArgs::new(Job::SelfTest, Profile::Scan),
             fds,
         )
         .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .starts_with("the worker could not be started:"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn empty_argument_words_are_refused() {
-        let error = super::empty_argument_error(["", "serve", "scan"]).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "the worker could not be started: a worker argument was empty"
-        );
-        assert!(super::empty_argument_error(["--gunmetal-worker", "serve", "scan"]).is_ok());
-        assert!(super::empty_argument_error(["--gunmetal-worker", "", "scan"]).is_err());
-        assert!(super::empty_argument_error(["--gunmetal-worker", "serve", ""]).is_err());
-        let (fds, _ours) = super::Inherited::pair().unwrap();
-        assert_eq!(
-            super::spawn_argv("no-such-gunmetal-worker-045", ["", "serve", "scan"], fds)
-                .unwrap_err()
-                .to_string(),
-            "the worker could not be started: a worker argument was empty"
+            "the worker could not be started: No such file or directory (os error 2)"
         );
     }
 
@@ -256,74 +211,12 @@ mod tests {
 
     #[test]
     fn a_socket_pair_connects_the_two_ends() {
-        use std::io::{Read, Write};
-
-        let (inherited, mut ours) = super::Inherited::pair().unwrap();
+        let (inherited, mut ours) = Inherited::pair().unwrap();
         let mut child_end = inherited.child_end;
         ours.write_all(&[0x5a]).unwrap();
         let mut octet = [0_u8; 1];
         child_end.read_exact(&mut octet).unwrap();
         assert_eq!(octet, [0x5a]);
-    }
-
-    #[test]
-    fn launch_starts_the_running_executable() {
-        use super::{Inherited, launch};
-        use crate::sandbox::args::{Job, TypedArgs};
-        use crate::sandbox::limits::Profile;
-        use crate::sandbox::programs::Program;
-
-        let (fds, _ours) = Inherited::pair().unwrap();
-        let child = launch(
-            Program::Worker,
-            TypedArgs::new(Job::SelfTest, Profile::Scan),
-            fds,
-        )
-        .unwrap();
-        let first = child.id();
-        assert_ne!(first, 0);
-        let (fds, _ours) = Inherited::pair().unwrap();
-        let other = launch(
-            Program::Worker,
-            TypedArgs::new(Job::SelfTest, Profile::Scan),
-            fds,
-        )
-        .unwrap();
-        assert_ne!(other.id(), first);
-        let _ = child.wait().unwrap();
-        let _ = other.wait().unwrap();
-    }
-
-    #[test]
-    fn stop_and_drop_reap_the_child() {
-        use super::{Inherited, launch};
-        use crate::sandbox::args::{Job, TypedArgs};
-        use crate::sandbox::exit::{Cause, Exit};
-        use crate::sandbox::limits::Profile;
-        use crate::sandbox::programs::Program;
-
-        let (fds, _ours) = Inherited::pair().unwrap();
-        let child = launch(
-            Program::Worker,
-            TypedArgs::new(Job::Serve, Profile::Scan),
-            fds,
-        )
-        .unwrap();
-        assert_eq!(child.stop().unwrap(), Exit::Killed(Cause::Kill));
-
-        let (fds, _ours) = Inherited::pair().unwrap();
-        let leaked = launch(
-            Program::Worker,
-            TypedArgs::new(Job::Serve, Profile::Scan),
-            fds,
-        )
-        .unwrap();
-        let pid = rustix::process::Pid::from_raw(i32::try_from(leaked.id()).unwrap()).unwrap();
-        drop(leaked);
-        assert!(
-            rustix::process::test_kill_process(pid).is_err(),
-            "Drop must stop the child"
-        );
     }
 
     #[test]
@@ -333,14 +226,7 @@ mod tests {
 
         let (probe, _peer) = UnixStream::pair().unwrap();
         fcntl_setfd(&probe, FdFlags::empty()).unwrap();
-        assert!(
-            !fcntl_getfd(&probe).unwrap().contains(FdFlags::CLOEXEC),
-            "the probe starts without close-on-exec"
-        );
-        super::mark_others_close_on_exec();
-        assert!(
-            fcntl_getfd(&probe).unwrap().contains(FdFlags::CLOEXEC),
-            "launch must mark extras close-on-exec so a worker does not inherit them"
-        );
+        mark_others_close_on_exec();
+        assert_eq!(fcntl_getfd(&probe).unwrap(), FdFlags::CLOEXEC);
     }
 }

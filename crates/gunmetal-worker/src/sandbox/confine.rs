@@ -2,8 +2,9 @@
 //! (SEC-MED-021, SEC-MED-022).
 //!
 //! The order is fixed: check that the process has one thread; set the
-//! resource limits and clear the dumpable flag; account for every open
-//! descriptor; set `no_new_privs`; enforce Landlock; install the seccomp
+//! resource limits and clear the dumpable flag; refuse to go on if any
+//! descriptor but the socket is open; set `no_new_privs`; enforce
+//! Landlock; install the seccomp
 //! filter last, because every earlier step makes calls the filter
 //! refuses. A step of the floor that fails stops the worker with a typed
 //! error. Landlock or seccomp being unavailable does not: the worker
@@ -47,8 +48,8 @@ pub enum ConfineError {
         /// The kernel's error number, when it gave one.
         errno: Option<i32>,
     },
-    /// Descriptors other than the socket were open, and there is no
-    /// seccomp filter to take them out of the worker's reach.
+    /// Descriptors other than the socket were open. The launcher passes
+    /// none, so the worker was not started by it.
     StrayDescriptors(Vec<u32>),
 }
 
@@ -65,7 +66,7 @@ impl fmt::Display for ConfineError {
                 )
             }
             Self::StrayDescriptors(strays) => {
-                write!(f, "descriptors {strays:?} are open and cannot be refused")
+                write!(f, "descriptors {strays:?} are open besides the socket")
             }
         }
     }
@@ -105,14 +106,13 @@ pub(crate) fn confine_with(
         .collect();
     // Closing a descriptor by number needs `unsafe`, which this crate
     // forbids. The launcher marks extras close-on-exec so a worker it
-    // starts has none. A stray that remains is not confined by handing
-    // it to seccomp (SEC-MED-022): refuse instead.
+    // starts has none; one that remains stops the worker here.
     if !strays.is_empty() {
         return Err(ConfineError::StrayDescriptors(strays));
     }
     kernel.no_new_privs().map_err(refused(Step::NoNewPrivs))?;
     let landlock = kernel.landlock();
-    let seccomp = kernel.seccomp(&[]);
+    let seccomp = kernel.seccomp();
     Ok(Enforced {
         process: true,
         limits: true,
@@ -143,86 +143,86 @@ pub fn confine(profile: Profile) -> Result<Enforced, ConfineError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConfineError, LAST_SOCKET_DESCRIPTOR, Step, confine, confine_with};
+    use super::{ConfineError, Step, confine, confine_with};
     use crate::sandbox::kernel::Kernel;
     use crate::sandbox::limits::{Limit, Profile};
-    use crate::sandbox::tier::Enforced;
+    use crate::sandbox::tier::{Enforced, Tier, TierReport};
     use std::io;
 
-    /// A kernel that plays a recorded script. Each method returns the next
-    /// prepared result and records what confinement asked for.
+    /// A kernel that plays a script: each method records its call and
+    /// returns the prepared result.
     struct Script {
         threads: Result<usize, i32>,
-        limits: Vec<Result<(), i32>>,
+        /// The error for the limit at this position, if it is to fail.
+        failing_limit: Option<(usize, i32)>,
         undumpable: Result<(), i32>,
         descriptors: Result<Vec<u32>, i32>,
         no_new_privs: Result<(), i32>,
         landlock: bool,
         seccomp: bool,
-        seen_limits: Vec<Limit>,
-        seen_strays: Option<Vec<u32>>,
-        seen_no_new_privs: usize,
+        calls: Vec<&'static str>,
+        limits: Vec<Limit>,
     }
 
     impl Script {
         fn ok() -> Self {
             Self {
                 threads: Ok(1),
-                limits: Profile::Scan.limits().into_iter().map(|_| Ok(())).collect(),
+                failing_limit: None,
                 undumpable: Ok(()),
                 descriptors: Ok(vec![0, 1, 2]),
                 no_new_privs: Ok(()),
                 landlock: true,
                 seccomp: true,
-                seen_limits: Vec::new(),
-                seen_strays: None,
-                seen_no_new_privs: 0,
+                calls: Vec::new(),
+                limits: Vec::new(),
             }
         }
 
-        fn into_error(result: Result<(), i32>) -> io::Result<()> {
+        fn result<T>(result: Result<T, i32>) -> io::Result<T> {
             result.map_err(io::Error::from_raw_os_error)
         }
     }
 
     impl Kernel for Script {
         fn threads(&mut self) -> io::Result<usize> {
-            self.threads.map_err(io::Error::from_raw_os_error)
+            self.calls.push("threads");
+            Self::result(self.threads)
         }
 
         fn limit(&mut self, limit: Limit) -> io::Result<()> {
-            self.seen_limits.push(limit);
-            match self.limits.split_first() {
-                Some((result, rest)) => {
-                    let result = *result;
-                    self.limits = rest.to_vec();
-                    Self::into_error(result)
-                }
-                None => Ok(()),
-            }
+            self.calls.push("limit");
+            let position = self.limits.len();
+            self.limits.push(limit);
+            Self::result(
+                self.failing_limit
+                    .filter(|&(failing, _)| failing == position)
+                    .map_or(Ok(()), |(_, errno)| Err(errno)),
+            )
         }
 
         fn undumpable(&mut self) -> io::Result<()> {
-            Self::into_error(self.undumpable)
+            self.calls.push("undumpable");
+            Self::result(self.undumpable)
         }
 
         fn descriptors(&mut self) -> io::Result<Vec<u32>> {
-            self.descriptors
-                .clone()
-                .map_err(io::Error::from_raw_os_error)
+            self.calls.push("descriptors");
+            Self::result(self.descriptors.clone())
         }
 
         fn no_new_privs(&mut self) -> io::Result<()> {
-            self.seen_no_new_privs = self.seen_no_new_privs.saturating_add(1);
-            Self::into_error(self.no_new_privs)
+            self.calls.push("no_new_privs");
+            Self::result(self.no_new_privs)
         }
 
         fn landlock(&mut self) -> bool {
+            self.calls.push("landlock");
             self.landlock
         }
 
-        fn seccomp(&mut self, strays: &[u32]) -> bool {
-            self.seen_strays = Some(strays.to_vec());
+        fn seccomp(&mut self) -> bool {
+            self.calls.push("seccomp");
             self.seccomp
         }
     }
@@ -234,115 +234,185 @@ mod tests {
         }
     }
 
+    /// Verifies: SEC-MED-022
     #[test]
-    fn the_floor_and_every_optional_control_are_reported_when_they_hold() {
+    fn the_steps_run_in_order_and_everything_that_holds_is_reported() {
         let mut kernel = Script::ok();
-        let enforced = confine_with(&mut kernel, Profile::Scan).unwrap();
-        assert_eq!(kernel.seen_limits, Profile::Scan.limits());
-        assert_eq!(kernel.seen_no_new_privs, 1);
-        assert_eq!(kernel.seen_strays.as_deref(), Some([].as_slice()));
+        let enforced = confine_with(&mut kernel, Profile::Scan);
+        assert_eq!(
+            kernel.calls,
+            [
+                "threads",
+                "limit",
+                "limit",
+                "limit",
+                "limit",
+                "limit",
+                "limit",
+                "undumpable",
+                "descriptors",
+                "no_new_privs",
+                "landlock",
+                "seccomp",
+            ]
+        );
+        assert_eq!(kernel.limits, Profile::Scan.limits());
         assert_eq!(
             enforced,
-            Enforced {
+            Ok(Enforced {
                 process: true,
                 limits: true,
                 no_new_privs: true,
                 seccomp: true,
                 landlock: true,
                 namespaces: false,
-            }
+            })
         );
     }
 
+    /// Verifies: SEC-MED-022
     #[test]
-    fn stray_descriptors_refuse_confinement_even_when_seccomp_holds() {
+    fn a_descriptor_besides_the_socket_stops_the_worker_before_it_is_confined() {
         let mut kernel = Script::ok();
-        kernel.descriptors = Ok(vec![0, 1, 2, 7, 9]);
+        kernel.descriptors = Ok(vec![9, 0, 7, 1, 2, 3]);
         assert_eq!(
-            confine_with(&mut kernel, Profile::Scan).unwrap_err(),
-            ConfineError::StrayDescriptors(vec![7, 9])
+            confine_with(&mut kernel, Profile::Scan),
+            Err(ConfineError::StrayDescriptors(vec![9, 7, 3]))
         );
-        assert_eq!(kernel.seen_no_new_privs, 0);
-        assert_eq!(kernel.seen_strays, None);
+        assert_eq!(kernel.calls.last(), Some(&"descriptors"));
     }
 
-    #[test]
-    fn stray_descriptors_without_seccomp_refuse_confinement() {
-        let mut kernel = Script::ok();
-        kernel.descriptors = Ok(vec![9, 0, 7, 1]);
-        kernel.seccomp = false;
-        assert_eq!(
-            confine_with(&mut kernel, Profile::Scan).unwrap_err(),
-            ConfineError::StrayDescriptors(vec![9, 7])
-        );
-        assert_eq!(kernel.seen_no_new_privs, 0);
-        assert_eq!(kernel.seen_strays, None);
-    }
-
+    /// Verifies: SEC-MED-021
     #[test]
     fn a_second_thread_stops_before_any_limit_is_set() {
         let mut kernel = Script::ok();
-        kernel.threads = Ok(3);
+        kernel.threads = Ok(2);
         assert_eq!(
-            confine_with(&mut kernel, Profile::Scan).unwrap_err(),
-            ConfineError::NotSingleThreaded { threads: 3 }
+            confine_with(&mut kernel, Profile::Scan),
+            Err(ConfineError::NotSingleThreaded { threads: 2 })
         );
-        assert_eq!(kernel.seen_limits, []);
+        assert_eq!(kernel.calls, ["threads"]);
+    }
+
+    #[test]
+    fn a_process_with_no_thread_listed_is_not_single_threaded() {
+        let mut kernel = Script::ok();
+        kernel.threads = Ok(0);
+        assert_eq!(
+            confine_with(&mut kernel, Profile::Scan),
+            Err(ConfineError::NotSingleThreaded { threads: 0 })
+        );
     }
 
     #[test]
     fn each_floor_step_names_itself_when_the_kernel_refuses() {
         type Prepare = fn(&mut Script);
-        let cases: [(Prepare, ConfineError); 5] = [
-            (|kernel| kernel.threads = Err(5), refused(Step::Threads, 5)),
-            (|kernel| kernel.limits[2] = Err(1), refused(Step::Limits, 1)),
+        let cases: [(Prepare, ConfineError, &str); 5] = [
+            (
+                |kernel| kernel.threads = Err(5),
+                refused(Step::Threads, 5),
+                "threads",
+            ),
+            (
+                |kernel| kernel.failing_limit = Some((2, 1)),
+                refused(Step::Limits, 1),
+                "limit",
+            ),
             (
                 |kernel| kernel.undumpable = Err(1),
                 refused(Step::Dumpable, 1),
+                "undumpable",
             ),
             (
                 |kernel| kernel.descriptors = Err(2),
                 refused(Step::Descriptors, 2),
+                "descriptors",
             ),
             (
                 |kernel| kernel.no_new_privs = Err(13),
                 refused(Step::NoNewPrivs, 13),
+                "no_new_privs",
             ),
         ];
-        for (prepare, expected) in cases {
+        for (prepare, expected, last) in cases {
             let mut kernel = Script::ok();
             prepare(&mut kernel);
-            assert_eq!(
-                confine_with(&mut kernel, Profile::Scan).unwrap_err(),
-                expected
-            );
+            assert_eq!(confine_with(&mut kernel, Profile::Scan), Err(expected));
+            assert_eq!(kernel.calls.last(), Some(&last));
         }
     }
 
     #[test]
-    fn landlock_or_seccomp_missing_is_still_the_floor() {
+    fn a_failing_limit_stops_at_that_limit() {
         let mut kernel = Script::ok();
-        kernel.landlock = false;
-        kernel.seccomp = false;
+        kernel.failing_limit = Some((2, 1));
         assert_eq!(
-            confine_with(&mut kernel, Profile::Scan).unwrap(),
-            Enforced {
-                process: true,
-                limits: true,
-                no_new_privs: true,
-                seccomp: false,
-                landlock: false,
-                namespaces: false,
-            }
+            confine_with(&mut kernel, Profile::Scan),
+            Err(refused(Step::Limits, 1))
         );
+        assert_eq!(kernel.calls, ["threads", "limit", "limit", "limit"]);
     }
 
+    /// A kernel or an architecture without seccomp or Landlock, 32-bit ARM
+    /// among them, leaves the worker at the floor, and the report names
+    /// what is missing.
+    ///
+    /// Verifies: SEC-MED-024
     #[test]
-    fn a_script_with_no_prepared_limits_accepts_further_calls() {
-        let mut kernel = Script::ok();
-        kernel.limits.clear();
-        kernel.limit(Profile::Scan.limits()[0]).unwrap();
-        assert_eq!(kernel.seen_limits.len(), 1);
+    fn landlock_or_seccomp_missing_is_the_reduced_tier_and_is_named() {
+        let floor = Enforced {
+            process: true,
+            limits: true,
+            no_new_privs: true,
+            seccomp: false,
+            landlock: false,
+            namespaces: false,
+        };
+        let cases = [
+            (
+                false,
+                true,
+                Enforced {
+                    landlock: true,
+                    ..floor
+                },
+                "Reduced isolation: media workers run without system call filtering (seccomp) \
+                 and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                true,
+                false,
+                Enforced {
+                    seccomp: true,
+                    ..floor
+                },
+                "Reduced isolation: media workers run without Landlock and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                false,
+                false,
+                floor,
+                "Reduced isolation: media workers run without system call filtering (seccomp), \
+                 Landlock and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+        ];
+        for (seccomp, landlock, expected, notice) in cases {
+            let mut kernel = Script::ok();
+            kernel.seccomp = seccomp;
+            kernel.landlock = landlock;
+            let enforced = confine_with(&mut kernel, Profile::Scan).unwrap();
+            assert_eq!(enforced, expected);
+            assert_eq!(
+                enforced.report(),
+                TierReport {
+                    tier: Tier::Reduced,
+                    notice: Some(notice.to_owned()),
+                }
+            );
+        }
     }
 
     #[test]
@@ -365,26 +435,30 @@ mod tests {
         );
         assert_eq!(
             ConfineError::StrayDescriptors(vec![7, 9]).to_string(),
-            "descriptors [7, 9] are open and cannot be refused"
+            "descriptors [7, 9] are open besides the socket"
         );
-        assert_eq!(LAST_SOCKET_DESCRIPTOR, 2);
         let error: &dyn std::error::Error = &refused(Step::NoNewPrivs, 1);
-        assert_eq!(error.to_string(), refused(Step::NoNewPrivs, 1).to_string());
+        assert_eq!(
+            error.to_string(),
+            "the kernel refused a confinement step (NoNewPrivs, Some(1))"
+        );
     }
 
-    /// The cargo test process has other threads. Confinement must refuse
-    /// it before changing anything.
+    /// The test process has a second thread for as long as this test
+    /// holds one parked. Confinement must refuse it before changing
+    /// anything.
     ///
     /// Verifies: SEC-MED-021
     #[test]
     fn confine_refuses_a_multithreaded_process() {
         let (keep, parked) = std::sync::mpsc::channel::<()>();
         let helper = std::thread::spawn(move || parked.recv());
-        let error = confine(Profile::Scan).unwrap_err();
-        assert!(
-            matches!(error, ConfineError::NotSingleThreaded { threads } if threads > 1),
-            "{error:?}"
-        );
+        let error = confine(Profile::Scan).unwrap_err().to_string();
+        let threads: Option<usize> = error
+            .strip_prefix("the worker has ")
+            .and_then(|rest| rest.strip_suffix(" threads and must have one"))
+            .and_then(|count| count.parse().ok());
+        assert!(threads.is_some_and(|threads| threads > 1));
         drop(keep);
         assert_eq!(helper.join().unwrap(), Err(std::sync::mpsc::RecvError));
     }

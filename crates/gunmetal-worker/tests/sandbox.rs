@@ -2,96 +2,107 @@
 //!
 //! This file is its own executable (`harness = false`) so the launcher can
 //! start it again as the worker: `/proc/self/exe` with the hidden worker
-//! arguments enters the child path. No extra binary ships.
+//! arguments enters the child path. No extra binary ships, and the hostile
+//! hooks exist only in this test executable.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the hostile worker tries each forbidden action by path, socket, clone, ptrace and Command (SEC-MED-022, SEC-TM-044)"
+    reason = "the hostile worker tries each forbidden action by path, socket and Command, and the test reads /proc to see what the kernel holds for a worker (SEC-MED-022, SEC-TM-044)"
 )]
 
 use gunmetal_worker::sandbox::{
     Cause, Child, Exit, Inherited, Job, Profile, Program, Tier, TierReport, TypedArgs,
-    answer_self_test, confine, launch, mark_others_close_on_exec, self_test,
+    answer_self_test, confine, launch, self_test,
 };
-use rustix::process::{PTracer, Pid, PidfdFlags, pidfd_open, set_ptracer};
-use std::fs::{self, File};
+use rustix::io::{Errno, FdFlags, fcntl_setfd};
+use rustix::process::{PTracer, Pid, getppid, set_ptracer, test_kill_process};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::process::{self, Command, Stdio};
+use std::path::PathBuf;
+use std::process::{self, Command};
 use std::thread;
-use std::time::Duration;
 
-/// Confine, then wait so the parent can inspect `/proc`.
+/// Report what the launcher handed over, confine, then wait.
 const WAIT: u8 = b'w';
+/// End without confining.
+const QUIT: u8 = b'q';
 /// Confine, then open a path.
 const OPEN: u8 = b'o';
-/// Confine, then create a network socket.
+/// Confine, then connect a TCP socket.
 const NETWORK: u8 = b'n';
 /// Confine, then execute a program.
 const EXEC: u8 = b'x';
-/// Confine, then allocate until the memory limit kills the process.
+/// Confine, then allocate until the memory limit ends the process.
 const MEMORY: u8 = b'm';
-/// Confine, then fork (clone a new process).
-const FORK: u8 = b'f';
-/// Confine, then ptrace.
-const PTRACE: u8 = b't';
+/// Confine, then start a thread, which is a `clone`.
+const CLONE: u8 = b'c';
+/// Confine, then ask for any process to be allowed to trace this one.
+const TRACE: u8 = b't';
+/// Confine, then signal the parent.
+const SIGNAL: u8 = b's';
 
 fn main() {
-    mark_others_close_on_exec();
-    if std::env::var_os("GUNMETAL_COVER_KERNEL").is_some() {
-        cover_kernel();
-    }
     if let Some(args) = TypedArgs::from_argv(std::env::args_os()) {
         worker(args);
         return;
     }
     let tests: &[(&str, fn())] = &[
         (
-            "self_test_reaches_the_floor_and_reports_missing_namespaces",
-            self_test_reaches_the_floor_and_reports_missing_namespaces,
+            "self_test_reports_the_reduced_tier_and_names_namespaces",
+            self_test_reports_the_reduced_tier_and_names_namespaces,
         ),
         (
-            "a_confined_worker_has_an_empty_environment_only_the_socket_and_is_not_dumpable",
-            a_confined_worker_has_an_empty_environment_only_the_socket_and_is_not_dumpable,
+            "a_worker_gets_the_socket_three_fixed_words_and_nothing_else",
+            a_worker_gets_the_socket_three_fixed_words_and_nothing_else,
+        ),
+        (
+            "a_confined_worker_is_limited_single_threaded_undumpable_and_filtered",
+            a_confined_worker_is_limited_single_threaded_undumpable_and_filtered,
         ),
         (
             "opening_a_path_is_killed_or_refused",
             opening_a_path_is_killed_or_refused,
         ),
         (
-            "creating_a_network_socket_is_killed_or_refused",
-            creating_a_network_socket_is_killed_or_refused,
+            "connecting_a_network_socket_is_killed_or_refused",
+            connecting_a_network_socket_is_killed_or_refused,
         ),
         (
             "executing_a_program_is_killed_or_refused",
             executing_a_program_is_killed_or_refused,
         ),
-        ("forking_is_killed_or_refused", forking_is_killed_or_refused),
-        ("ptrace_is_killed_or_refused", ptrace_is_killed_or_refused),
         (
-            "exceeding_the_memory_limit_aborts_and_the_parent_sees_why",
-            exceeding_the_memory_limit_aborts_and_the_parent_sees_why,
+            "starting_a_thread_is_killed_or_refused",
+            starting_a_thread_is_killed_or_refused,
         ),
         (
-            "linux_landlock_and_seccomp_hold",
-            linux_landlock_and_seccomp_hold,
+            "asking_to_be_traced_is_killed_or_refused",
+            asking_to_be_traced_is_killed_or_refused,
+        ),
+        (
+            "signalling_the_parent_is_killed_or_refused",
+            signalling_the_parent_is_killed_or_refused,
+        ),
+        (
+            "exceeding_the_memory_limit_aborts_and_the_parent_carries_on",
+            exceeding_the_memory_limit_aborts_and_the_parent_carries_on,
+        ),
+        (
+            "a_child_is_waited_for_stopped_or_reaped_when_dropped",
+            a_child_is_waited_for_stopped_or_reaped_when_dropped,
         ),
     ];
     let mut failed = 0_usize;
     for &(name, test) in tests {
         eprint!("test {name} ... ");
-        match catch_unwind(AssertUnwindSafe(test)) {
-            Ok(()) => eprintln!("ok"),
-            Err(panic) => {
-                failed = failed.saturating_add(1);
-                eprintln!("FAILED");
-                if let Some(message) = panic.downcast_ref::<String>() {
-                    eprintln!("{message}");
-                } else if let Some(message) = panic.downcast_ref::<&str>() {
-                    eprintln!("{message}");
-                }
-            }
+        if catch_unwind(AssertUnwindSafe(test)).is_ok() {
+            eprintln!("ok");
+        } else {
+            failed = failed.saturating_add(1);
+            eprintln!("FAILED");
         }
     }
     let passed = tests.len().saturating_sub(failed);
@@ -103,6 +114,9 @@ fn main() {
         process::exit(1);
     }
 }
+
+// The worker side: what the test executable does when the launcher starts
+// it again.
 
 fn worker(args: TypedArgs) {
     match args.job() {
@@ -116,90 +130,105 @@ fn worker(args: TypedArgs) {
 }
 
 fn serve(profile: Profile) {
-    let mut command = [0_u8; 1];
-    io::stdin().read_exact(&mut command).expect("read the hook");
-    match command[0] {
-        WAIT => report_launch_state(profile),
-        other => {
+    let mut hook = [0_u8; 1];
+    io::stdin().read_exact(&mut hook).expect("read the hook");
+    match hook[0] {
+        QUIT => {}
+        WAIT => report_then_confine(profile),
+        hostile => {
+            // The parent's ID is read first: asking for it is itself a
+            // call the filter refuses.
+            let parent = getppid();
             confine(profile).expect("confine the hostile worker");
-            match other {
-                OPEN => {
-                    refuse_or_die(&fs::File::open("/etc/hostname").expect_err("open must fail"));
-                }
-                NETWORK => refuse_or_die(
-                    &TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, 1))
-                        .expect_err("connect must fail"),
+            let error = match hostile {
+                OPEN => fs::File::open("/etc/hostname")
+                    .map(drop)
+                    .expect_err("the open must fail"),
+                NETWORK => TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, 1))
+                    .map(drop)
+                    .expect_err("the connect must fail"),
+                // `exec` replaces this process, with no `clone` first,
+                // and returns only when the kernel refuses.
+                EXEC => Command::new("/bin/true").exec(),
+                CLONE => thread::Builder::new()
+                    .spawn(|| {})
+                    .map(drop)
+                    .expect_err("the clone must fail"),
+                TRACE => io::Error::from(
+                    set_ptracer(PTracer::Any).expect_err("PR_SET_PTRACER must fail"),
                 ),
-                EXEC => {
-                    let error = match Command::new("/bin/true").status() {
-                        Ok(status) => panic!("/bin/true ran to {status}"),
-                        Err(error) => error,
-                    };
-                    refuse_or_die(&error);
-                }
-                FORK => try_fork(),
-                PTRACE => try_ptrace(),
+                SIGNAL => io::Error::from(
+                    test_kill_process(parent.expect("a parent")).expect_err("the kill must fail"),
+                ),
                 MEMORY => exhaust_memory(),
                 unknown => panic!("unknown hook {unknown}"),
-            }
+            };
+            let errno = u8::try_from(error.raw_os_error().unwrap_or(0)).unwrap_or(255);
+            let _ = io::stdout().write_all(&[errno]);
+            process::exit(2);
         }
     }
 }
 
-/// Confine, then report the post-confine environment (in-memory; Landlock
-/// has taken `/proc` away) and the cwd and descriptors observed just
-/// before the filter, which confinement does not change. The parent reads
-/// Dumpable, Threads and rlimits from `/proc/{pid}`: those files stay
-/// visible after `PR_SET_DUMPABLE` 0; `environ`, `cwd` and `fd` do not.
-fn report_launch_state(profile: Profile) {
-    let cwd = std::env::current_dir().expect("cwd before landlock");
-    let descriptors = live_self_fds();
-    confine(profile).expect("confine the inspect worker");
-    let env: Vec<(Vec<u8>, Vec<u8>)> = std::env::vars_os()
-        .map(|(key, value)| (key.into_encoded_bytes(), value.into_encoded_bytes()))
+/// One field of the worker's report: a length octet, then the octets.
+fn field(report: &mut Vec<u8>, octets: &[u8]) {
+    report.push(u8::try_from(octets.len()).expect("a field fits one length octet"));
+    report.extend_from_slice(octets);
+}
+
+/// Reads what the launcher handed this process, from `/proc/self` while it
+/// can still be read, then confines and reports. The environment is the
+/// block the process was started with, so a variable the coverage runtime
+/// sets for itself later is not in it; only its length is reported.
+fn report_then_confine(profile: Profile) {
+    let cwd = fs::read_link("/proc/self/cwd").expect("cwd");
+    let descriptors = open_descriptors();
+    let sockets: Vec<u8> = descriptors
+        .iter()
+        .map(|descriptor| {
+            let target = fs::read_link(format!("/proc/self/fd/{descriptor}")).expect("target");
+            u8::from(
+                target
+                    .as_os_str()
+                    .as_encoded_bytes()
+                    .starts_with(b"socket:["),
+            )
+        })
         .collect();
-    let env_count = u8::try_from(env.len()).unwrap_or(255);
-    let llvm = u8::from(env.iter().any(|(key, _)| key.starts_with(b"LLVM")));
-    let cwd_bytes = cwd.as_os_str().as_encoded_bytes();
-    let cwd_len = u8::try_from(cwd_bytes.len()).expect("cwd fits");
-    let fd_count = u8::try_from(descriptors.len()).expect("fd count");
-    let mut report = vec![1, env_count, llvm, cwd_len];
-    report.extend_from_slice(cwd_bytes);
-    report.push(fd_count);
-    report.extend(descriptors.iter().map(|&fd| u8::try_from(fd).expect("fd")));
-    for (key, value) in env {
-        let key_len = u8::try_from(key.len()).expect("key");
-        let value_len = u8::try_from(value.len()).expect("value");
-        report.push(key_len);
-        report.extend_from_slice(&key);
-        report.push(value_len);
-        report.extend_from_slice(&value);
-    }
+    let environment = fs::read("/proc/self/environ").expect("environ");
+    let arguments = fs::read("/proc/self/cmdline").expect("cmdline");
+    confine(profile).expect("confine the inspected worker");
+    let mut report = vec![1];
+    field(&mut report, cwd.as_os_str().as_encoded_bytes());
+    field(&mut report, &descriptors);
+    field(&mut report, &sockets);
+    field(&mut report, &arguments);
+    report.push(u8::try_from(environment.len()).unwrap_or(255));
     io::stdout().write_all(&report).expect("report");
     io::stdout().flush().expect("flush");
     wait_until_stopped();
 }
 
-/// Open descriptors of this process, excluding the directory used to list
-/// them.
-fn live_self_fds() -> Vec<u32> {
-    let names: Vec<u32> = fs::read_dir("/proc/self/fd")
-        .expect("self fd")
+/// The numbers of this process's open descriptors, without the one that
+/// listed them.
+fn open_descriptors() -> Vec<u8> {
+    let names: Vec<u8> = fs::read_dir("/proc/self/fd")
+        .expect("list descriptors")
         .map(|entry| {
             entry
                 .expect("entry")
                 .file_name()
                 .to_string_lossy()
                 .parse()
-                .expect("fd number")
+                .expect("a descriptor number")
         })
         .collect();
-    let mut live: Vec<u32> = names
+    let mut open: Vec<u8> = names
         .into_iter()
-        .filter(|&descriptor| fs::read_link(format!("/proc/self/fd/{descriptor}")).is_ok())
+        .filter(|descriptor| fs::read_link(format!("/proc/self/fd/{descriptor}")).is_ok())
         .collect();
-    live.sort_unstable();
-    live
+    open.sort_unstable();
+    open
 }
 
 fn wait_until_stopped() {
@@ -207,56 +236,16 @@ fn wait_until_stopped() {
     let _ = io::stdin().read_to_end(&mut sink);
 }
 
-/// Applies the real kernel confine path in this process so llvm-cov
-/// records Landlock and seccomp, then waits so the parent can read
-/// `/proc` before we exit.
-fn cover_kernel() -> ! {
-    let enforced = confine(Profile::Scan).expect("confine the cover-kernel worker");
-    assert!(enforced.landlock, "Landlock must hold on this kernel");
-    assert!(enforced.seccomp, "seccomp must hold on this kernel");
-    wait_until_stopped();
-    process::exit(0);
-}
-
-fn refuse_or_die(error: &io::Error) {
-    let errno = u8::try_from(error.raw_os_error().unwrap_or(0)).unwrap_or(255);
-    let _ = io::stdout().write_all(&[errno]);
-    process::exit(2);
-}
-
-/// `clone` is Linux's fork family (SEC-MED-022 names `clone`/`fork`).
-/// `fork(2)` itself needs `unsafe`, which the workspace forbids.
-fn try_fork() {
-    match thread::Builder::new().spawn(|| {}) {
-        Ok(_) => panic!("clone ran"),
-        Err(error) => refuse_or_die(&error),
-    }
-}
-
-/// `ptrace(2)` needs `unsafe`. The worker instead issues the ptrace
-/// attach family that rustix exposes as safe functions: `pidfd_open` of
-/// another process and `PR_SET_PTRACER`. Neither is on the allowlist.
-fn try_ptrace() {
-    if let Some(init) = Pid::from_raw(1) {
-        match pidfd_open(init, PidfdFlags::empty()) {
-            Ok(_) => panic!("pidfd_open of init ran"),
-            Err(error) => refuse_or_die(&io::Error::from(error)),
-        }
-    }
-    match set_ptracer(PTracer::Any) {
-        Ok(()) => panic!("PR_SET_PTRACER ran"),
-        Err(error) => refuse_or_die(&io::Error::from(error)),
-    }
-}
-
-fn exhaust_memory() {
+fn exhaust_memory() -> ! {
     let mut held = Vec::new();
     loop {
         held.push(vec![0_u8; 16 * 1024 * 1024]);
     }
 }
 
-fn spawn_serve() -> (Child, std::os::unix::net::UnixStream) {
+// The test side.
+
+fn spawn_serve() -> (Child, UnixStream) {
     let (fds, ours) = Inherited::pair().expect("socket pair");
     let child = launch(
         Program::Worker,
@@ -267,39 +256,99 @@ fn spawn_serve() -> (Child, std::os::unix::net::UnixStream) {
     (child, ours)
 }
 
-fn ask(command: u8) -> (Exit, Option<u8>) {
+/// Starts a worker with `hook` and returns how it ended and the error
+/// number it reported, if it lived to report one.
+fn ask(hook: u8) -> (Exit, Option<u8>) {
     let (child, mut ours) = spawn_serve();
-    ours.write_all(&[command]).expect("write the hook");
+    ours.write_all(&[hook]).expect("write the hook");
     let mut errno = [0_u8; 1];
     let reported = ours.read_exact(&mut errno).ok().map(|()| errno[0]);
     (child.wait().expect("wait"), reported)
 }
 
-fn assert_killed_or_refused(command: u8) {
-    match ask(command) {
-        (Exit::Killed(Cause::ForbiddenCall), _) => {}
-        (Exit::Code(2), Some(errno)) => {
-            assert!(
-                errno == 1 || errno == 13,
-                "refused with EPERM or EACCES, got {errno}"
-            );
-        }
-        other => panic!("expected SIGSYS or a refused open, got {other:?}"),
-    }
+/// The exact outcomes SEC-MED-022 allows a forbidden action: the filter
+/// kills the worker with `SIGSYS`, or the kernel refuses the call with
+/// `EPERM` (1) or `EACCES` (13) and the worker reports it. The filter ends
+/// the worker at the first call an action makes that is off the
+/// allowlist, which for a library routine can come before the call the
+/// action is named for.
+fn assert_killed_or_refused(hook: u8) {
+    let outcome = ask(hook);
+    assert!(
+        matches!(
+            outcome,
+            (Exit::Killed(Cause::ForbiddenCall), None) | (Exit::Code(2), Some(1 | 13))
+        ),
+        "expected SIGSYS, EPERM or EACCES, got {outcome:?}"
+    );
 }
 
-/// Verifies: SEC-MED-024, SEC-TM-045
-fn self_test_reaches_the_floor_and_reports_missing_namespaces() {
+/// What a `WAIT` worker reported.
+#[derive(Debug, PartialEq, Eq)]
+struct Report {
+    confined: u8,
+    cwd: Vec<u8>,
+    descriptors: Vec<u8>,
+    sockets: Vec<u8>,
+    arguments: Vec<u8>,
+    environment_length: u8,
+}
+
+fn read_octet(channel: &mut UnixStream) -> u8 {
+    let mut octet = [0_u8; 1];
+    channel.read_exact(&mut octet).expect("an octet");
+    octet[0]
+}
+
+fn read_field(channel: &mut UnixStream) -> Vec<u8> {
+    let mut octets = vec![0_u8; usize::from(read_octet(channel))];
+    channel.read_exact(&mut octets).expect("a field");
+    octets
+}
+
+/// Starts a worker, lets it confine itself, and returns it, still
+/// running, with its report.
+fn inspect() -> (Child, UnixStream, Report) {
+    let (child, mut ours) = spawn_serve();
+    ours.write_all(&[WAIT]).expect("write the hook");
+    let report = Report {
+        confined: read_octet(&mut ours),
+        cwd: read_field(&mut ours),
+        descriptors: read_field(&mut ours),
+        sockets: read_field(&mut ours),
+        arguments: read_field(&mut ours),
+        environment_length: read_octet(&mut ours),
+    };
+    (child, ours, report)
+}
+
+/// The value of one line of `/proc/<pid>/status`.
+fn status(pid: u32, name: &str) -> Option<String> {
+    let status = fs::read_to_string(format!("/proc/{pid}/status")).expect("status");
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix(name))
+        .map(|value| value.trim().to_owned())
+}
+
+/// The soft and hard values of one line of `/proc/<pid>/limits`.
+fn limit(limits: &str, label: &str) -> Vec<String> {
+    limits
+        .lines()
+        .find_map(|line| line.strip_prefix(label))
+        .map(|values| {
+            values
+                .split_whitespace()
+                .take(2)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Verifies: SEC-MED-024
+fn self_test_reports_the_reduced_tier_and_names_namespaces() {
     let report = self_test(Profile::Scan);
-    assert!(
-        report.memory_safe_parsing(),
-        "memory-safe parsing must stay on at the floor: {report:?}"
-    );
-    assert!(
-        !report.native_decoders(),
-        "native decoders stay off without namespaces: {report:?}"
-    );
-    assert_eq!(report.tier, Tier::Reduced);
     assert_eq!(
         report,
         TierReport {
@@ -312,100 +361,75 @@ fn self_test_reaches_the_floor_and_reports_missing_namespaces() {
             ),
         }
     );
+    assert!(report.memory_safe_parsing());
+    assert!(!report.native_decoders());
 }
 
-/// The launcher clears the environment (`env_clear`); it does not copy
-/// `LLVM*` into the child. The coverage runtime may `setenv` `__LLVM_*`
-/// after exec. That is not a launcher exception: host keys still fail.
-fn assert_empty_launch_environment(llvm: u8, env: &[(Vec<u8>, Vec<u8>)]) {
-    let keys: Vec<&[u8]> = env.iter().map(|(key, _)| key.as_slice()).collect();
-    assert!(
-        env.iter()
-            .all(|(key, _)| key.starts_with(b"LLVM") || key.starts_with(b"__LLVM")),
-        "launcher must not pass host environment, got {keys:?}"
-    );
-    if env.is_empty() {
-        assert_eq!(llvm, 0, "no LLVM* exception in the child environment");
-        return;
-    }
-    if let Some((_, value)) = env
-        .iter()
-        .find(|(key, _)| key.as_slice() == b"LLVM_PROFILE_FILE")
-    {
-        if let Ok(parent) = std::env::var("LLVM_PROFILE_FILE") {
-            assert_ne!(
-                value.as_slice(),
-                parent.as_bytes(),
-                "production launch must not copy the parent's LLVM_PROFILE_FILE"
-            );
+/// The test process holds a descriptor without close-on-exec while it
+/// launches, as a server started by another program might. The worker
+/// still gets only its socket, as descriptors 0, 1 and 2; its arguments
+/// are the three fixed words; its environment is empty, with no exception.
+///
+/// Verifies: SEC-OPS-014, SEC-STD-040, SEC-HIS-020
+fn a_worker_gets_the_socket_three_fixed_words_and_nothing_else() {
+    let (stray, _peer) = UnixStream::pair().expect("stray pair");
+    fcntl_setfd(&stray, FdFlags::empty()).expect("clear close-on-exec");
+    let (child, _ours, report) = inspect();
+    assert_eq!(
+        report,
+        Report {
+            confined: 1,
+            cwd: b"/".to_vec(),
+            descriptors: vec![0, 1, 2],
+            sockets: vec![1, 1, 1],
+            arguments: b"/proc/self/exe\0--gunmetal-worker\0serve\0scan\0".to_vec(),
+            environment_length: 0,
         }
-    }
+    );
+    // This process has an environment of its own, so the worker's empty
+    // one is the launcher's doing.
+    assert!(std::env::vars_os().next().is_some());
+    assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
 }
 
-/// Verifies: SEC-OPS-014, SEC-STD-040, SEC-MED-021
-fn a_confined_worker_has_an_empty_environment_only_the_socket_and_is_not_dumpable() {
-    let (child, mut ours) = spawn_serve();
-    ours.write_all(&[WAIT]).expect("write wait");
-    let mut header = [0_u8; 4];
-    ours.read_exact(&mut header).expect("report header");
-    assert_eq!(header[0], 1, "the worker must confine before it reports");
-    let mut cwd = vec![0_u8; usize::from(header[3])];
-    ours.read_exact(&mut cwd).expect("cwd");
-    assert_eq!(cwd, b"/", "the child working directory must be /");
-    let mut fd_count = [0_u8; 1];
-    ours.read_exact(&mut fd_count).expect("fd count");
-    let mut descriptors = vec![0_u8; usize::from(fd_count[0])];
-    ours.read_exact(&mut descriptors).expect("fds");
+/// Verifies: SEC-MED-021, SEC-MED-022
+fn a_confined_worker_is_limited_single_threaded_undumpable_and_filtered() {
+    // Before the worker confines itself, this process, which runs as the
+    // same user, can read where its working directory is.
+    let (before, _ours) = spawn_serve();
     assert_eq!(
-        descriptors,
-        [0, 1, 2],
-        "the socket is descriptors 0, 1 and 2, got {descriptors:?}"
+        fs::read_link(format!("/proc/{}/cwd", before.id())).ok(),
+        Some(PathBuf::from("/"))
     );
-    let mut env = Vec::with_capacity(usize::from(header[1]));
-    for _ in 0..header[1] {
-        let mut key_len = [0_u8; 1];
-        ours.read_exact(&mut key_len).expect("key len");
-        let mut key = vec![0_u8; usize::from(key_len[0])];
-        ours.read_exact(&mut key).expect("key");
-        let mut value_len = [0_u8; 1];
-        ours.read_exact(&mut value_len).expect("value len");
-        let mut value = vec![0_u8; usize::from(value_len[0])];
-        ours.read_exact(&mut value).expect("value");
-        env.push((key, value));
-    }
-    assert_empty_launch_environment(header[2], &env);
+    drop(before);
 
+    let (child, _ours, report) = inspect();
+    assert_eq!(report.confined, 1);
     let pid = child.id();
-    // Linux 6.17 dropped the Dumpable: line; PR_SET_DUMPABLE 0 is the
-    // reason other processes get EACCES on environ, cwd and fd.
-    let hidden = [
-        fs::read(format!("/proc/{pid}/environ")).expect_err("environ"),
-        fs::read_link(format!("/proc/{pid}/cwd")).expect_err("cwd"),
-        fs::read_dir(format!("/proc/{pid}/fd")).expect_err("fd"),
-    ];
-    for error in hidden {
-        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
-    }
+    // The dumpable flag is 0: the same reads are now refused.
     assert_eq!(
-        proc_status_field(pid, "Threads").as_deref(),
-        Some("1"),
-        "the worker must be single-threaded"
+        [
+            fs::read_link(format!("/proc/{pid}/cwd")).map(drop),
+            fs::read(format!("/proc/{pid}/environ")).map(drop),
+            fs::read_dir(format!("/proc/{pid}/fd")).map(drop),
+        ]
+        .map(|read| read.map_err(|error| error.kind())),
+        [Err(io::ErrorKind::PermissionDenied); 3]
     );
+    assert_eq!(status(pid, "Threads:").as_deref(), Some("1"));
+    assert_eq!(status(pid, "NoNewPrivs:").as_deref(), Some("1"));
+    assert_eq!(status(pid, "Seccomp:").as_deref(), Some("2"));
+    let limits = fs::read_to_string(format!("/proc/{pid}/limits")).expect("limits");
     assert_eq!(
-        proc_status_field(pid, "NoNewPrivs").as_deref(),
-        Some("1"),
-        "no_new_privs must hold"
+        limit(&limits, "Max address space"),
+        ["536870912", "536870912"]
     );
-    let limits = proc_limits(pid);
-    assert_eq!(limits.as_limit, (536_870_912, 536_870_912));
-    assert_eq!(limits.core, (0, 0));
-    assert_eq!(limits.nofile, (32, 32));
-    assert_eq!(limits.nproc, (0, 0));
-
-    assert!(matches!(
-        child.stop().expect("stop"),
-        Exit::Killed(Cause::Kill) | Exit::Code(_)
-    ));
+    assert_eq!(limit(&limits, "Max core file size"), ["0", "0"]);
+    assert_eq!(limit(&limits, "Max open files"), ["32", "32"]);
+    assert_eq!(limit(&limits, "Max cpu time"), ["60", "61"]);
+    assert_eq!(limit(&limits, "Max processes"), ["0", "0"]);
+    assert_eq!(limit(&limits, "Max file size"), ["0", "0"]);
+    assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
 }
 
 /// Verifies: SEC-MED-022, SEC-TM-044
@@ -413,8 +437,8 @@ fn opening_a_path_is_killed_or_refused() {
     assert_killed_or_refused(OPEN);
 }
 
-/// Verifies: SEC-MED-022, SEC-TM-044, SEC-STD-040
-fn creating_a_network_socket_is_killed_or_refused() {
+/// Verifies: SEC-MED-022, SEC-TM-044
+fn connecting_a_network_socket_is_killed_or_refused() {
     assert_killed_or_refused(NETWORK);
 }
 
@@ -423,132 +447,49 @@ fn executing_a_program_is_killed_or_refused() {
     assert_killed_or_refused(EXEC);
 }
 
+/// A thread is a `clone`, the call behind `fork` on Linux. `fork` by name
+/// needs `unsafe`, which the workspace forbids; the allowlist's own test
+/// shows that `fork`, `vfork`, `clone` and `clone3` are all off it.
+///
 /// Verifies: SEC-MED-022, SEC-TM-044
-fn forking_is_killed_or_refused() {
-    assert_killed_or_refused(FORK);
+fn starting_a_thread_is_killed_or_refused() {
+    assert_killed_or_refused(CLONE);
 }
 
-/// Verifies: SEC-MED-022, SEC-TM-044
-fn ptrace_is_killed_or_refused() {
-    assert_killed_or_refused(PTRACE);
-}
-
+/// `ptrace` by name needs `unsafe`, which the workspace forbids. The hook
+/// makes the tracing call safe code can make, `PR_SET_PTRACER`; the
+/// allowlist's own test shows that `ptrace` and `prctl` are both off it.
+///
 /// Verifies: SEC-MED-022
-fn linux_landlock_and_seccomp_hold() {
-    mark_others_close_on_exec();
-    let exe = std::env::current_exe().expect("exe");
-    let mut command = Command::new(exe);
-    command.env("GUNMETAL_COVER_KERNEL", "1");
-    // `%c` mmaps the profile before Landlock. rustc only defines the bias
-    // symbols with `-C llvm-args=-runtime-counter-relocation` (the jail
-    // grants no profile directory).
-    command.env_remove("LLVM_PROFILE_FILE");
-    if let Some(dir) = std::env::var("LLVM_PROFILE_FILE").ok().and_then(|file| {
-        file.split('%')
-            .next()
-            .and_then(|prefix| prefix.rsplit_once('/'))
-            .map(|(dir, _)| dir.to_owned())
-    }) {
-        let profile = format!("{dir}/wp045-kernel-{}.profraw", process::id());
-        let _ = File::create(&profile);
-        command.env("LLVM_PROFILE_FILE", format!("{profile}%c"));
-    }
-    command.stdin(Stdio::piped());
-    let mut child = command.spawn().expect("cover-kernel child");
-    let pid = child.id();
-    let mut mode = None;
-    for _ in 0..100 {
-        thread::sleep(Duration::from_millis(10));
-        mode = seccomp_mode(pid);
-        if mode == Some(2) {
-            break;
-        }
-    }
-    assert_eq!(
-        mode,
-        Some(2),
-        "seccomp filter must be installed, got {mode:?}"
-    );
-    drop(child.stdin.take());
-    let status = child.wait().expect("wait cover-kernel");
-    assert!(
-        status.success() || status.signal() == Some(31),
-        "cover-kernel must exit or die of SIGSYS after applying the filter, got {status:?}"
-    );
+fn asking_to_be_traced_is_killed_or_refused() {
+    assert_killed_or_refused(TRACE);
 }
 
-fn seccomp_mode(pid: u32) -> Option<u8> {
-    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    status.lines().find_map(|line| {
-        line.strip_prefix("Seccomp:")
-            .and_then(|rest| rest.trim().parse().ok())
-    })
+/// Verifies: SEC-TM-044
+fn signalling_the_parent_is_killed_or_refused() {
+    assert_killed_or_refused(SIGNAL);
 }
 
-fn proc_status_field(pid: u32, name: &str) -> Option<String> {
-    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    let prefix = format!("{name}:");
-    status.lines().find_map(|line| {
-        line.strip_prefix(&prefix)
-            .map(|rest| rest.trim().to_owned())
-    })
-}
-
-struct ProcLimits {
-    as_limit: (u64, u64),
-    core: (u64, u64),
-    nofile: (u64, u64),
-    nproc: (u64, u64),
-}
-
-fn proc_limits(pid: u32) -> ProcLimits {
-    let text = fs::read_to_string(format!("/proc/{pid}/limits")).expect("limits");
-    let pair = |label: &str| {
-        let line = text
-            .lines()
-            .find(|line| line.starts_with(label))
-            .unwrap_or_else(|| panic!("missing {label}"));
-        let mut words = line[label.len()..].split_whitespace();
-        let soft = words.next().expect("soft");
-        let hard = words.next().expect("hard");
-        (parse_limit(soft), parse_limit(hard))
-    };
-    ProcLimits {
-        as_limit: pair("Max address space"),
-        core: pair("Max core file size"),
-        nofile: pair("Max open files"),
-        nproc: pair("Max processes"),
-    }
-}
-
-fn parse_limit(word: &str) -> u64 {
-    if word == "unlimited" {
-        u64::MAX
-    } else {
-        word.parse().unwrap_or_else(|_| panic!("{word}"))
-    }
-}
-
+/// A worker that runs out of memory aborts, the launcher reports the
+/// cause, and this process, standing in for the server, carries on and
+/// starts another worker.
+///
 /// Verifies: SEC-MED-018, SEC-MED-021, SEC-TM-044
-fn exceeding_the_memory_limit_aborts_and_the_parent_sees_why() {
-    let (child, mut ours) = spawn_serve();
-    ours.write_all(&[MEMORY]).expect("write memory");
-    // The child may take a moment to fill its address space.
-    thread::sleep(Duration::from_millis(50));
-    let exit = child.wait().expect("wait");
-    assert!(
-        matches!(exit, Exit::Killed(Cause::Abort | Cause::Kill)),
-        "a memory-limit death is abort or the OOM killer, got {exit:?}"
-    );
+fn exceeding_the_memory_limit_aborts_and_the_parent_carries_on() {
+    assert_eq!(ask(MEMORY).0, Exit::Killed(Cause::Abort));
+    let (child, _ours, report) = inspect();
+    assert_eq!(report.confined, 1);
+    assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
+}
 
-    // The parent keeps serving: a fresh worker still answers.
-    let (child, mut ours) = spawn_serve();
-    ours.write_all(&[WAIT]).expect("write wait");
-    let mut ready = [0_u8; 1];
-    ours.read_exact(&mut ready).expect("parent still serves");
-    assert_eq!(ready, [1], "a later worker still confines");
-    assert!(matches!(
-        child.stop().expect("stop"),
-        Exit::Killed(Cause::Kill) | Exit::Code(_)
-    ));
+fn a_child_is_waited_for_stopped_or_reaped_when_dropped() {
+    assert_eq!(ask(QUIT).0, Exit::Code(0));
+
+    let (child, _ours) = spawn_serve();
+    assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
+
+    let (child, _ours) = spawn_serve();
+    let pid = Pid::from_raw(i32::try_from(child.id()).expect("a process ID")).expect("not zero");
+    drop(child);
+    assert_eq!(test_kill_process(pid), Err(Errno::SRCH));
 }

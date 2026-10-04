@@ -9,7 +9,7 @@
 //! The launcher marks every extra descriptor close-on-exec before it
 //! starts the worker, so a child started that way has only its socket.
 //! [`confine_with`](super::confine::confine_with) still refuses if any
-//! extra remains: listing them for seccomp is not closing them.
+//! extra remains.
 
 use super::limits::Limit;
 use super::syscalls::{ALLOWLIST, Allowed, Check, Test, checks};
@@ -44,11 +44,9 @@ pub(crate) trait Kernel {
     /// far as the kernel's ABI goes. `false` when the kernel has no
     /// Landlock.
     fn landlock(&mut self) -> bool;
-    /// Installs the seccomp allowlist. `strays` is the descriptors the
-    /// filter must also refuse; production confinement passes none,
-    /// because a worker with extra descriptors is not confined.
-    /// `false` when the architecture or the kernel has no seccomp filter.
-    fn seccomp(&mut self, strays: &[u32]) -> bool;
+    /// Installs the seccomp allowlist. `false` when the architecture or
+    /// the kernel has no seccomp filter.
+    fn seccomp(&mut self) -> bool;
 }
 
 /// The running kernel.
@@ -109,7 +107,6 @@ fn numbers(directory: &str) -> io::Result<(i32, Vec<u32>)> {
 fn condition(check: &Check) -> Result<SeccompCondition, seccompiler::BackendError> {
     let operator = match check.test {
         Test::Is => SeccompCmpOp::Eq,
-        Test::IsNot => SeccompCmpOp::Ne,
         Test::MaskedIs(mask) => SeccompCmpOp::MaskedEq(mask),
     };
     SeccompCondition::new(
@@ -144,13 +141,13 @@ fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
 /// The compiled filter for `native`: every call on the allowlist is
 /// allowed when its checks hold, and anything else kills the process.
 /// `None` when there is no native architecture, as on 32-bit ARM.
-fn program_for(native: Option<NativeArch>, strays: &[u32], pid: u32) -> Option<BpfProgram> {
+fn program_for(native: Option<NativeArch>, pid: u32) -> Option<BpfProgram> {
     native.and_then(|(arch, number)| {
         ALLOWLIST
             .iter()
             .copied()
             .map(|allowed| {
-                checks(allowed.guard, strays, pid)
+                checks(allowed.guard, pid)
                     .iter()
                     .map(condition)
                     .collect::<Result<Vec<_>, _>>()
@@ -174,8 +171,8 @@ fn program_for(native: Option<NativeArch>, strays: &[u32], pid: u32) -> Option<B
 }
 
 /// The compiled filter for this architecture.
-fn program(strays: &[u32], pid: u32) -> Option<BpfProgram> {
-    program_for(NATIVE, strays, pid)
+fn program(pid: u32) -> Option<BpfProgram> {
+    program_for(NATIVE, pid)
 }
 
 impl Kernel for Linux {
@@ -219,182 +216,154 @@ impl Kernel for Linux {
             .is_ok_and(|status| status.ruleset != RulesetStatus::NotEnforced)
     }
 
-    fn seccomp(&mut self, strays: &[u32]) -> bool {
+    fn seccomp(&mut self) -> bool {
         let pid = rustix::process::getpid()
             .as_raw_nonzero()
             .get()
             .unsigned_abs();
-        program(strays, pid).is_some_and(|filter| seccompiler::apply_filter(&filter).is_ok())
+        program(pid).is_some_and(|filter| seccompiler::apply_filter(&filter).is_ok())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Kernel, Linux, numbers, program};
+    use super::{Kernel, Linux, numbers, program, program_for};
+    use std::io::ErrorKind;
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
+    use std::time::Duration;
 
     #[test]
     fn the_running_process_lists_its_threads_and_descriptors() {
         let mut linux = Linux;
         assert!(linux.threads().unwrap() >= 1);
         let descriptors = linux.descriptors().unwrap();
-        assert!(descriptors.contains(&0), "{descriptors:?}");
-        assert!(descriptors.contains(&1), "{descriptors:?}");
-        assert!(descriptors.contains(&2), "{descriptors:?}");
+        assert!(descriptors.contains(&0));
+        assert!(descriptors.contains(&1));
+        assert!(descriptors.contains(&2));
     }
 
     #[test]
     fn a_missing_or_non_directory_proc_entry_is_an_error() {
-        assert!(numbers("/proc/self/does-not-exist").is_err());
-        assert!(numbers("/proc/self/status").is_err());
+        assert_eq!(
+            numbers("/proc/self/does-not-exist").unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            numbers("/proc/self/status").unwrap_err().kind(),
+            ErrorKind::NotADirectory
+        );
     }
 
     #[test]
-    fn numeric_proc_names_are_kept_and_the_listing_descriptor_is_dropped() {
-        let (own, tasks) = numbers("/proc/self/task").unwrap();
-        assert!(own >= 0);
-        assert!(!tasks.contains(&u32::try_from(own).unwrap()));
-        assert!(!tasks.is_empty());
+    fn a_listing_holds_numbers_only_and_names_its_own_descriptor() {
+        let (own, open) = numbers("/proc/self/fd").unwrap();
+        assert!(own > 2);
+        assert!(open.contains(&0));
+        assert!(open.contains(&u32::try_from(own).unwrap()));
     }
 
-    /// Verifies: SEC-MED-024
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
     fn the_seccomp_filter_compiles_for_this_architecture() {
-        assert!(program(&[], 1).is_some());
-        assert!(program(&[5, 9], 4321).is_some());
+        assert!(program(1).is_some_and(|filter| !filter.is_empty()));
     }
 
-    /// Verifies: SEC-MED-024
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     #[test]
     fn the_seccomp_filter_is_absent_on_this_architecture() {
-        assert!(program(&[], 1).is_none());
-        assert!(program(&[5, 9], 4321).is_none());
+        assert_eq!(program(1), None);
     }
 
-    /// Verifies: SEC-MED-024
+    /// An architecture seccompiler has no target for, 32-bit ARM among
+    /// them, gets no filter, so [`Linux::seccomp`] reports the control
+    /// missing there.
     #[test]
-    fn a_missing_native_arch_reports_reduced_and_names_seccomp() {
-        use crate::sandbox::tier::{Enforced, Tier};
-
-        assert!(super::program_for(None, &[], 1).is_none());
-        assert!(super::program_for(None, &[5, 9], 4321).is_none());
-        let report = Enforced {
-            process: true,
-            limits: true,
-            no_new_privs: true,
-            seccomp: false,
-            landlock: true,
-            namespaces: true,
-        }
-        .report();
-        assert_eq!(report.tier, Tier::Reduced);
-        let notice = report.notice.as_deref().expect("reduced notice");
-        assert!(
-            notice.contains("system call filtering (seccomp)"),
-            "{notice}"
-        );
-        assert!(
-            !notice.contains("Landlock") && !notice.contains("namespaces"),
-            "{notice}"
-        );
+    fn no_native_architecture_means_no_filter() {
+        assert_eq!(program_for(None, 1), None);
+        assert_eq!(program_for(None, 4321), None);
     }
 
-    #[test]
-    fn a_landlock_ruleset_grants_no_filesystem_path() {
-        assert!(super::landlock_ruleset().is_ok());
+    /// Whether this thread can list a directory by path, or why not.
+    fn list_by_path() -> Result<(), ErrorKind> {
+        numbers("/proc/self/task")
+            .map(|_| ())
+            .map_err(|error| error.kind())
     }
 
-    /// Directory of a `LLVM_PROFILE_FILE` value, or `/tmp` when the value
-    /// has no directory so the probe always has one path to mmap.
-    fn child_coverage_profile(llvm_profile_file: Option<&str>, pid: u32) -> String {
-        let dir = llvm_profile_file
-            .and_then(|file| {
-                file.split('%')
-                    .next()
-                    .and_then(|prefix| prefix.rsplit_once('/'))
-                    .map(|(dir, _)| dir)
-            })
-            .unwrap_or("/tmp");
-        format!("{dir}/wp045-landlock-{pid}.profraw")
-    }
-
-    #[test]
-    fn child_coverage_profile_uses_the_file_directory_or_tmp() {
-        assert_eq!(
-            child_coverage_profile(Some("/cov/out.profraw%m"), 7),
-            "/cov/wp045-landlock-7.profraw"
-        );
-        assert_eq!(
-            child_coverage_profile(Some("/cov/out.profraw"), 7),
-            "/cov/wp045-landlock-7.profraw"
-        );
-        assert_eq!(
-            child_coverage_profile(Some("nodir.profraw"), 1),
-            "/tmp/wp045-landlock-1.profraw"
-        );
-        assert_eq!(
-            child_coverage_profile(None, 1),
-            "/tmp/wp045-landlock-1.profraw"
-        );
-    }
-
-    /// A `landlock` method that returns `true` without `restrict_self`
-    /// still lets a path open. The probe is a child so this process is
-    /// not Landlock'd.
+    /// Landlock binds the thread that enforces it, so a thread of its own
+    /// can try it and leave the test process free.
     ///
     /// Verifies: SEC-MED-022
     #[test]
-    fn landlock_denies_a_path_when_it_reports_enforced() {
-        if std::env::var_os("GUNMETAL_PROBE_LANDLOCK").is_some() {
-            let mut linux = Linux;
-            linux.no_new_privs().unwrap();
-            assert!(linux.landlock(), "Landlock must hold on this kernel");
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the probe opens a path to observe Landlock, not to read a file (SEC-MED-022)"
-            )]
-            let error =
-                std::fs::File::open("/etc/hostname").expect_err("Landlock must deny the path");
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::PermissionDenied,
-                "{error}"
-            );
-            std::process::exit(0);
-        }
+    fn landlock_refuses_every_path_on_the_thread_that_enforced_it() {
+        let (enforced, listing) = std::thread::spawn(|| (Linux.landlock(), list_by_path()))
+            .join()
+            .unwrap();
+        assert!(enforced);
+        assert_eq!(listing, Err(ErrorKind::PermissionDenied));
+        assert_eq!(list_by_path(), Ok(()));
+    }
+
+    /// The `Seccomp:` line of a thread's status: 0 without a filter, 2
+    /// with one.
+    fn seccomp_mode(tid: i32) -> Option<String> {
         #[expect(
             clippy::disallowed_methods,
-            reason = "the sandbox launcher is the one door that starts a process (SEC-MED-063); this probe re-enters the unit-test binary"
+            reason = "the test reads a thread's own /proc status to see the filter the kernel holds for it (SEC-MED-022)"
         )]
-        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-        command.env("GUNMETAL_PROBE_LANDLOCK", "1").args([
-            "--exact",
-            "sandbox::kernel::tests::landlock_denies_a_path_when_it_reports_enforced",
-        ]);
-        // `%c` mmaps the profile before Landlock. rustc only defines the
-        // bias symbols with `-C llvm-args=-runtime-counter-relocation`.
-        let profile = child_coverage_profile(
-            std::env::var("LLVM_PROFILE_FILE").ok().as_deref(),
-            std::process::id(),
-        );
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "create the coverage profile the probe child mmaps before Landlock (SEC-MED-022)"
-        )]
-        let _ = std::fs::File::create(&profile);
-        command.env("LLVM_PROFILE_FILE", format!("{profile}%c"));
-        let status = command.status().unwrap();
-        assert!(status.success(), "{status:?}");
+        let status = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")).unwrap();
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix("Seccomp:"))
+            .map(|mode| mode.trim().to_owned())
+    }
+
+    /// A seccomp filter binds the thread that installs it. The helper
+    /// thread installs the worker's filter and then only spins, which
+    /// needs no system call, until this thread has read its status.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+        let tid = AtomicI32::new(0);
+        // 0: not done yet. 1: no filter. 2: installed.
+        let outcome = AtomicU8::new(0);
+        let seen = AtomicBool::new(false);
+        let mode = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                tid.store(
+                    rustix::thread::gettid().as_raw_nonzero().get(),
+                    Ordering::SeqCst,
+                );
+                Linux.no_new_privs().unwrap();
+                let installed = Linux.seccomp();
+                outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
+                while !seen.load(Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+            });
+            while outcome.load(Ordering::SeqCst) == 0 {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let mode = seccomp_mode(tid.load(Ordering::SeqCst));
+            seen.store(true, Ordering::SeqCst);
+            mode
+        });
+        assert_eq!(outcome.load(Ordering::SeqCst), 2);
+        assert_eq!(mode.as_deref(), Some("2"));
+        let own = rustix::thread::gettid().as_raw_nonzero().get();
+        assert_eq!(seccomp_mode(own).as_deref(), Some("0"));
     }
 
     #[test]
     fn proc_directory_flags_are_read_only_directory_and_close_on_exec() {
         use rustix::fs::OFlags;
 
-        assert!(super::PROC_DIR_FLAGS.contains(OFlags::RDONLY));
-        assert!(super::PROC_DIR_FLAGS.contains(OFlags::DIRECTORY));
-        assert!(super::PROC_DIR_FLAGS.contains(OFlags::CLOEXEC));
+        assert_eq!(
+            super::PROC_DIR_FLAGS,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC
+        );
     }
 
     #[test]
@@ -434,18 +403,15 @@ mod tests {
     fn only_a_cleared_dumpable_flag_is_accepted() {
         use rustix::process::DumpableBehavior;
 
-        assert!(super::require_not_dumpable(DumpableBehavior::NotDumpable).is_ok());
+        let verdict = |behavior| super::require_not_dumpable(behavior).map_err(|e| e.to_string());
+        assert_eq!(verdict(DumpableBehavior::NotDumpable), Ok(()));
         assert_eq!(
-            super::require_not_dumpable(DumpableBehavior::Dumpable)
-                .unwrap_err()
-                .to_string(),
-            "dumpable is Dumpable"
+            verdict(DumpableBehavior::Dumpable),
+            Err("dumpable is Dumpable".to_owned())
         );
         assert_eq!(
-            super::require_not_dumpable(DumpableBehavior::DumpableReadableOnlyByRoot)
-                .unwrap_err()
-                .to_string(),
-            "dumpable is DumpableReadableOnlyByRoot"
+            verdict(DumpableBehavior::DumpableReadableOnlyByRoot),
+            Err("dumpable is DumpableReadableOnlyByRoot".to_owned())
         );
     }
 }

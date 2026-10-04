@@ -2,7 +2,7 @@
 //! itself, and report the tier it reached.
 //!
 //! The worker answers with one octet. The server treats it as it treats
-//! everything a worker sends, as untrusted input (SEC-MED-023): any octet
+//! everything a worker sends, as untrusted input: any octet
 //! that is not a well-formed answer, no answer in time, and a worker that
 //! could not be started all count as nothing enforced, which the tier
 //! table turns into "off".
@@ -50,9 +50,8 @@ fn encode(outcome: &Result<Enforced, ConfineError>) -> u8 {
     ]
     .into_iter()
     .filter(|(holds, _)| *holds)
-    .fold(MARK, |answer, (_, bit)| {
-        answer.checked_add(bit).expect("answer bits do not overlap")
-    })
+    .map(|(_, bit)| bit)
+    .fold(MARK, u8::saturating_add)
 }
 
 /// Reads an answer back. The process is separate by the fact that it
