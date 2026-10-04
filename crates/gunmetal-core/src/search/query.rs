@@ -1097,9 +1097,9 @@ mod tests {
 
         #[test]
         fn a_query_of_any_text_returns_no_more_than_the_limit_of_each_type(
-            titles in vec(".{0,12}", 0..8),
+            titles in vec(prop_oneof![".{0,12}".boxed(), phrase().boxed()], 0..8),
             rest in vec(rest(), 8),
-            q in ".{0,300}",
+            q in prop_oneof![".{0,300}".boxed(), word().boxed()],
             limit in 0_u16..4,
         ) {
             let index = Index::build(docs(titles, rest).into_iter());
