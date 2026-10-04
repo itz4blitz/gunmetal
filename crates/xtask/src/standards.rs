@@ -8,6 +8,11 @@
 //! (SEC-STD-002). [`watch`] compares recorded release feeds with the pinned
 //! editions, and fails when a feed no longer names the pinned edition,
 //! because such a feed could not show a newer one either (SEC-STD-003).
+//!
+//! No test here carries a `Verifies:` line for SEC-STD-002, so the
+//! traceability check keeps it open: the requirement asks CI to regenerate
+//! the coverage tables and fail, and [`coverage`] only checks them, runs in
+//! no workflow and does not yet pass on the real coverage file.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -996,7 +1001,6 @@ Each is argued elsewhere.
         }
     }
 
-    /// Verifies: SEC-STD-002
     #[test]
     fn an_item_at_or_below_its_target_needs_a_citation_or_a_register_row() {
         assert_eq!(coverage(&repo(), 0), [Finding::MissingCoverage]);
@@ -1020,7 +1024,6 @@ Each is argued elsewhere.
         );
     }
 
-    /// Verifies: SEC-STD-002
     #[test]
     fn a_register_row_whose_review_day_has_ended_fails() {
         let tree = covering(
@@ -1049,7 +1052,6 @@ Each is argued elsewhere.
         }
     }
 
-    /// Verifies: SEC-STD-002
     #[test]
     fn a_register_row_needs_a_reason_a_control_an_owner_and_a_review_date() {
         let asvs = "15.1.1 2\n15.1.2 2\n15.1.3 2\n15.1.4 2\n15.1.7 2\n15.1.8 2\n";

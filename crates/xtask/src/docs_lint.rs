@@ -815,6 +815,12 @@ fn find_directive(text: &str, name: &str) -> Option<String> {
 }
 
 /// Live requirements that restate an egress-inventory default differently.
+///
+/// A sentence is about an inventory row when it names one of the things
+/// the row's Purpose cell lists ([`purpose_terms`]), and it restates the
+/// default when it says `on by default` or `off by default`. Both have to
+/// be in the one sentence, as for the cookie attributes.
+/// Only the first default a sentence states is read.
 fn egress_conflicts(tree: &dyn Tree, reqs: &[Requirement]) -> Vec<Finding> {
     let Some(model) = tree.read(THREAT_MODEL) else {
         return Vec::new();
@@ -824,29 +830,58 @@ fn egress_conflicts(tree: &dyn Tree, reqs: &[Requirement]) -> Vec<Finding> {
         let Some(owned_on) = default_on(&default) else {
             continue;
         };
+        let terms = purpose_terms(&purpose);
         for req in reqs.iter().filter(|req| req.is_live()) {
             if owners.iter().any(|owner| owner == &req.id) {
                 continue;
             }
-            if !req.text.contains(&purpose) {
-                continue;
-            }
-            let Some((stated, stated_on)) = restated_default(&req.text) else {
-                continue;
-            };
-            if stated_on != owned_on {
-                findings.push(Finding::Conflict {
-                    path: req.path.clone(),
-                    line: req.line,
-                    id: req.id.clone(),
-                    key: purpose.clone(),
-                    stated,
-                    owned: default.clone(),
-                });
+            for sentence in sentences(&req.text) {
+                let said = words(sentence);
+                let Some((stated, stated_on)) = restated_default(&said) else {
+                    continue;
+                };
+                if stated_on != owned_on && terms.iter().any(|term| holds(&said, term)) {
+                    findings.push(Finding::Conflict {
+                        path: req.path.clone(),
+                        line: req.line,
+                        id: req.id.clone(),
+                        key: purpose.clone(),
+                        stated: stated.to_owned(),
+                        owned: default.clone(),
+                    });
+                }
             }
         }
     }
     findings
+}
+
+/// The words of `text` for comparing prose: letters and digits in lower
+/// case, without `the` and without a final `s`, so that `a metadata
+/// provider` and `Metadata providers` read alike.
+fn words(text: &str) -> Vec<String> {
+    text.split(|ch: char| !ch.is_ascii_alphanumeric())
+        .map(str::to_ascii_lowercase)
+        .filter(|word| !word.is_empty() && word != "the")
+        .map(|word| word.strip_suffix('s').unwrap_or(&word).to_owned())
+        .collect()
+}
+
+/// The things a Purpose cell lists, each as its [`words`]: the cell cut at
+/// every `:`, `,` and `and`. `Relays, address lookup and the browser edge`
+/// lists `relay`, `addres lookup` and `browser edge`.
+fn purpose_terms(purpose: &str) -> Vec<Vec<String>> {
+    purpose
+        .replace(" and ", ",")
+        .split([',', ':'])
+        .map(words)
+        .filter(|term| !term.is_empty())
+        .collect()
+}
+
+/// Whether the words `said` hold the words of `term` in a row.
+fn holds(said: &[String], term: &[String]) -> bool {
+    (0..said.len()).any(|at| said.get(at..).is_some_and(|rest| rest.starts_with(term)))
 }
 
 /// Rows of the egress inventory: purpose, default and owners.
@@ -891,16 +926,21 @@ fn default_on(default: &str) -> Option<bool> {
     }
 }
 
-/// `on by default` or `off by default` in `text`.
-fn restated_default(text: &str) -> Option<(String, bool)> {
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("on by default") {
-        Some(("on by default".to_owned(), true))
-    } else if lower.contains("off by default") {
-        Some(("off by default".to_owned(), false))
-    } else {
-        None
-    }
+/// `on by default` or `off by default` among the words `said`.
+fn restated_default(said: &[String]) -> Option<(&'static str, bool)> {
+    said.iter()
+        .zip(said.iter().skip(1))
+        .zip(said.iter().skip(2))
+        .find_map(|((state, by), default)| {
+            if by != "by" || default != "default" {
+                return None;
+            }
+            match state.as_str() {
+                "on" => Some(("on by default", true)),
+                "off" => Some(("off by default", false)),
+                _ => None,
+            }
+        })
 }
 
 /// Feature files and work packages that name no TB or no TM-T.
@@ -1277,7 +1317,15 @@ Last reviewed: 2026-10-02 (v0.1.0, the R1 baseline).
 
 | Purpose | Default | Destination | Data sent | Release | Owner |
 |---|---|---|---|---|---|
-| Metadata providers | Off until the owner turns one on | The provider | Listed fields | R1.1 | SEC-TM-001 |
+| Naming: label registration and DNS-01 updates | On when the install chose the project name service (recommended, OD-1); allowed before the claim | The project name service | Random label, public key, TXT value, signature | R2 | SEC-TM-001 |
+| ACME certificate issuance | On with project or own-domain naming; allowed before the claim | The configured CA | Certificate request; ACME account key | R1 | SEC-TM-001 |
+| Certificate Transparency monitoring | On with project naming, from the claim | Two independent CT monitors | The server's own name | R2 | SEC-TM-001 |
+| Update and advisory feed | The owner's first-run answer | The project feed (static files) | A plain GET with no identifiers | R1 | SEC-TM-001 |
+| OIDC discovery, keys and tokens | When the owner configures a provider | The configured issuer | Standard OIDC requests | R1.2 | SEC-TM-001 |
+| Metadata, artwork and lyrics providers | Off until the owner turns one on in the required setup step | The provider | The fields the setup screen lists | R1.1 | SEC-TM-001 |
+| Relays, address lookup and the browser edge | Off until the owner turns on remote access | Configured relays and edge | As the relay requirements state | R2 | SEC-TM-001 |
+| Plugins and webhooks | Off; per grant or allowlisted host | Granted hosts | Per grant | R2 | SEC-TM-001 |
+| Live TV sources | Off; per source | The source | Per source | R3 | SEC-TM-001 |
 ";
 
     /// Requirements on identity, R1 and R1.2.
@@ -1779,31 +1827,129 @@ Crosses TB1; threat TM-T01.
         assert_eq!(check(&unowned), []);
     }
 
+    /// A conflict the egress lint reports on SEC-API-097 of the fixture.
+    fn egress_conflict(key: &str, stated: &str, owned: &str) -> Finding {
+        Finding::Conflict {
+            path: "docs/security/web-and-api-security.md".to_owned(),
+            line: 8,
+            id: "SEC-API-097".to_owned(),
+            key: key.to_owned(),
+            stated: stated.to_owned(),
+            owned: owned.to_owned(),
+        }
+    }
+
+    /// The fixture with `sentence` put in place of SEC-API-097's text.
+    fn stating(sentence: &str) -> Memory {
+        edited(
+            "docs/security/web-and-api-security.md",
+            "Share links use the fragment pattern.",
+            sentence,
+        )
+    }
+
+    /// The fixture's inventory holds the threat model's own purposes and
+    /// defaults, and the sentences are shaped like the baseline's.
+    ///
     /// Verifies: SEC-TM-075
     #[test]
     fn a_restated_egress_default_fails() {
-        let tree = edited(
-            "docs/security/web-and-api-security.md",
-            "Share links use the fragment pattern.",
-            "Share links use the fragment pattern; Metadata providers are on by default.",
+        assert_eq!(
+            check(&stating(
+                "The scanner must skip hidden files; a metadata provider must be on by default when the library holds only music."
+            )),
+            [egress_conflict(
+                "Metadata, artwork and lyrics providers",
+                "on by default",
+                "Off until the owner turns one on in the required setup step"
+            )]
         );
         assert_eq!(
-            check(&tree),
-            [Finding::Conflict {
-                path: "docs/security/web-and-api-security.md".to_owned(),
-                line: 8,
-                id: "SEC-API-097".to_owned(),
-                key: "Metadata providers".to_owned(),
-                stated: "on by default".to_owned(),
-                owned: "Off until the owner turns one on".to_owned(),
-            }]
+            check(&stating(
+                "Lyrics providers must be On by default. Share links use the fragment pattern."
+            )),
+            [egress_conflict(
+                "Metadata, artwork and lyrics providers",
+                "on by default",
+                "Off until the owner turns one on in the required setup step"
+            )]
         );
-        let agrees = edited(
-            "docs/security/web-and-api-security.md",
-            "Share links use the fragment pattern.",
-            "Share links use the fragment pattern; Metadata providers are off by default.",
+        assert_eq!(
+            check(&stating(
+                "Outbound webhooks must be on by default for the owner."
+            )),
+            [egress_conflict(
+                "Plugins and webhooks",
+                "on by default",
+                "Off; per grant or allowlisted host"
+            )]
         );
-        assert_eq!(check(&agrees), []);
+        assert_eq!(
+            check(&stating(
+                "Until the sandbox exists, a Live TV source and the browser edge must be on by default."
+            )),
+            [
+                egress_conflict(
+                    "Relays, address lookup and the browser edge",
+                    "on by default",
+                    "Off until the owner turns on remote access"
+                ),
+                egress_conflict("Live TV sources", "on by default", "Off; per source"),
+            ]
+        );
+        assert_eq!(
+            check(&stating(
+                "ACME certificate issuance must be off by default, and Certificate Transparency monitoring with it."
+            )),
+            [
+                egress_conflict(
+                    "ACME certificate issuance",
+                    "off by default",
+                    "On with project or own-domain naming; allowed before the claim"
+                ),
+                egress_conflict(
+                    "Certificate Transparency monitoring",
+                    "off by default",
+                    "On with project naming, from the claim"
+                ),
+            ]
+        );
+        assert_eq!(
+            check(&stating("DNS-01 updates must be off by default.")),
+            [egress_conflict(
+                "Naming: label registration and DNS-01 updates",
+                "off by default",
+                "On when the install chose the project name service (recommended, OD-1); allowed before the claim"
+            )]
+        );
+    }
+
+    #[test]
+    fn an_egress_default_that_agrees_or_is_about_something_else_passes() {
+        for sentence in [
+            // The same default as the inventory.
+            "A metadata provider must be off by default.",
+            "Label registration is on by default.",
+            // The purpose and the default are in different sentences.
+            "Lyrics providers are listed in setup; transcoding there must be on by default.",
+            "Transcoding must be on by default. Webhooks are signed.",
+            // No purpose of the inventory: real sentences of the baseline.
+            "Until that sandbox exists on a platform, transcoding there must be off by default, and the health page must say isolation is reduced.",
+            "\"Now playing\" updates must be a separate setting that is off by default.",
+            "It matches Jellyfin 12, which turns legacy authorisation off by default and removed those prefixes.",
+            // Part of a listed thing is not the thing.
+            "The address book and the browser must be on by default.",
+            "Certificate checks and issuance records are off by default.",
+            // A word that only ends in a default.
+            "Webhooks use encryption by default.",
+            "Webhooks are on by design.",
+            "Webhooks turn on to default hosts.",
+            // A row whose default is neither on nor off.
+            "The advisory feed is off by default.",
+            "OIDC discovery is on by default.",
+        ] {
+            assert_eq!(check(&stating(sentence)), []);
+        }
     }
 
     /// Verifies: SEC-TM-001
@@ -2081,22 +2227,9 @@ Crosses TB1; threat TM-T01.
         let owner_default = edited(
             "docs/security/threat-model.md",
             "| SEC-TM-001 | Every feature file must name TB and TM-T IDs. |",
-            "| SEC-TM-001 | Every feature file must name TB and TM-T IDs; Metadata providers are on by default. |",
+            "| SEC-TM-001 | Every feature file must name TB and TM-T IDs; metadata providers are on by default. |",
         );
         assert_eq!(check(&owner_default), []);
-        let no_polarity = edited(
-            "docs/security/threat-model.md",
-            "| Metadata providers | Off until the owner turns one on |",
-            "| Metadata providers | The owner's first-run answer |",
-        )
-        .with(
-            "docs/security/web-and-api-security.md",
-            &WEB.replace(
-                "Share links use the fragment pattern.",
-                "Share links use the fragment pattern; Metadata providers stay listed.",
-            ),
-        );
-        assert_eq!(check(&no_polarity), []);
         let heading = edited(
             "docs/plan/work-packages.md",
             "## Waves",
@@ -2147,6 +2280,19 @@ Crosses TB1; threat TM-T01.
         assert_eq!(super::sentences("done. "), ["done"]);
         assert_eq!(super::sentences(". done"), ["done"]);
         assert_eq!(super::sentences("; x"), ["x"]);
+        assert_eq!(
+            super::words("The server's DNS-01 updates, and The Edges"),
+            ["server", "", "dn", "01", "update", "and", "edge"]
+        );
+        assert_eq!(
+            super::purpose_terms("Relays, and the edge: , address lookup and keys"),
+            [
+                vec![String::from("relay")],
+                vec![String::from("edge")],
+                vec![String::from("addres"), String::from("lookup")],
+                vec![String::from("key")],
+            ]
+        );
         assert_eq!(super::default_on("maybe later"), None);
         assert_eq!(super::default_on("..."), None);
         assert_eq!(super::default_on("123"), None);
