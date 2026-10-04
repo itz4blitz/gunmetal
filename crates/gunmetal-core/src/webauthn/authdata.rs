@@ -1,0 +1,715 @@
+//! Authenticator data: RP ID hash, flags, sign count and attested
+//! credential data (`WebAuthn` Level 3 section 6.1).
+
+use super::cbor::{self, Cbor, WebauthnError};
+use super::cose::{self, CoseKey};
+use crate::parse::{Budget, Cursor, Depth, Limits};
+
+/// User present (bit 0).
+const UP: u8 = 0x01;
+/// User verified (bit 2).
+const UV: u8 = 0x04;
+/// Backup eligible (bit 3).
+const BE: u8 = 0x08;
+/// Backup state (bit 4).
+const BS: u8 = 0x10;
+/// Attested credential data (bit 6).
+const AT: u8 = 0x40;
+/// Extension data (bit 7).
+const ED: u8 = 0x80;
+/// Largest credential id `WebAuthn` Level 3 section 6.5.1 allows.
+const MAX_CREDENTIAL_ID: u16 = 1023;
+
+/// The flags octet of authenticator data, decoded into the bits `WebAuthn`
+/// Level 3 section 6.1.3 names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "WebAuthn names each flag bit; packing them would hide the fields WP-081 reads"
+)]
+pub struct Flags {
+    /// The flags octet as it was read, including reserved bits.
+    pub raw: u8,
+    /// Bit 0: user present.
+    pub user_present: bool,
+    /// Bit 2: user verified.
+    pub user_verified: bool,
+    /// Bit 3: backup eligible.
+    pub backup_eligible: bool,
+    /// Bit 4: backup state.
+    pub backup_state: bool,
+    /// Bit 6: attested credential data follows.
+    pub attested_credential_data: bool,
+    /// Bit 7: extension data follows.
+    pub extension_data: bool,
+}
+
+impl Flags {
+    fn from_raw(raw: u8) -> Self {
+        Self {
+            raw,
+            user_present: raw & UP != 0,
+            user_verified: raw & UV != 0,
+            backup_eligible: raw & BE != 0,
+            backup_state: raw & BS != 0,
+            attested_credential_data: raw & AT != 0,
+            extension_data: raw & ED != 0,
+        }
+    }
+}
+
+/// The attested credential data that follows the 37-octet prefix when
+/// flag bit 6 is set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttestedCredential<'a> {
+    /// The authenticator's AAGUID.
+    pub aaguid: [u8; 16],
+    /// The credential id, at most 1023 octets.
+    pub credential_id: &'a [u8],
+    /// The credential public key.
+    pub public_key: CoseKey,
+}
+
+/// Authenticator data: the RP ID hash, flags, signature counter, and
+/// optional attested credential data and extensions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthData<'a> {
+    /// SHA-256 of the relying-party ID, 32 octets.
+    pub rp_id_hash: [u8; 32],
+    /// The flags octet, decoded.
+    pub flags: Flags,
+    /// The signature counter.
+    pub sign_count: u32,
+    /// Attested credential data, when flag bit 6 is set.
+    pub attested: Option<AttestedCredential<'a>>,
+    /// Extension CBOR, when flag bit 7 is set.
+    pub extensions: Option<Cbor<'a>>,
+}
+
+/// Reads authenticator data from `bytes`.
+///
+/// The parse spends one step for the fixed 37-octet prefix and one per CBOR
+/// item in the credential key and extensions, so `n` octets cost at most
+/// `n + 1` steps (k = 1, c = 1; SEC-MED-007).
+///
+/// # Errors
+///
+/// Returns a typed error when the input is shorter than 37 octets, the
+/// backup-state bit is set without backup-eligible, attested credential
+/// data or extensions are missing or malformed, a credential id is empty
+/// or longer than 1023 octets, or the parse hits a CBOR, budget or limit
+/// fault.
+pub fn auth_data<'a>(
+    bytes: &'a [u8],
+    limits: &Limits,
+    budget: &mut Budget,
+    depth: Depth,
+) -> Result<AuthData<'a>, WebauthnError> {
+    auth_data_from(Cursor::new(bytes), limits, budget, depth)
+}
+
+/// Reads authenticator data that fills the whole of `cursor`, reporting
+/// offsets from that cursor's position, so authenticator data inside an
+/// attestation object reports where it failed in the whole object.
+pub(super) fn auth_data_from<'a>(
+    mut cursor: Cursor<'a>,
+    limits: &Limits,
+    budget: &mut Budget,
+    depth: Depth,
+) -> Result<AuthData<'a>, WebauthnError> {
+    budget.charge(1, cursor.offset())?;
+    let rp_id_hash = cursor.array()?;
+    let flags_at = cursor.offset();
+    let raw = cursor.u8()?;
+    let flags = Flags::from_raw(raw);
+    let sign_count = cursor.u32_be()?;
+    if flags.backup_state && !flags.backup_eligible {
+        return Err(WebauthnError::BackupState {
+            offset: flags_at,
+            flags: raw,
+        });
+    }
+    let attested = if flags.attested_credential_data {
+        Some(read_attested(&mut cursor, limits, budget, depth)?)
+    } else {
+        None
+    };
+    let extensions = if flags.extension_data {
+        Some(read_extensions(&mut cursor, limits, budget, depth)?)
+    } else {
+        None
+    };
+    cbor::require_empty(&cursor)?;
+    Ok(AuthData {
+        rp_id_hash,
+        flags,
+        sign_count,
+        attested,
+        extensions,
+    })
+}
+
+fn read_attested<'a>(
+    cursor: &mut Cursor<'a>,
+    limits: &Limits,
+    budget: &mut Budget,
+    depth: Depth,
+) -> Result<AttestedCredential<'a>, WebauthnError> {
+    let aaguid = cursor.array()?;
+    let length_at = cursor.offset();
+    let length = cursor.u16_be()?;
+    if length == 0 || length > MAX_CREDENTIAL_ID {
+        return Err(WebauthnError::CredentialId {
+            offset: length_at,
+            length,
+        });
+    }
+    let credential_id = cursor.take(u64::from(length))?;
+    let public_key = cose::cose_key_from(cursor, limits, budget, depth)?;
+    Ok(AttestedCredential {
+        aaguid,
+        credential_id,
+        public_key,
+    })
+}
+
+fn read_extensions<'a>(
+    cursor: &mut Cursor<'a>,
+    limits: &Limits,
+    budget: &mut Budget,
+    depth: Depth,
+) -> Result<Cbor<'a>, WebauthnError> {
+    let offset = cursor.offset();
+    let value = cbor::decode_from(cursor, limits, budget, depth)?;
+    match value {
+        Cbor::Map(_) => Ok(value),
+        _ => Err(WebauthnError::NotMap { offset }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{
+        bytes, len, map, negative_arg, on_small_stack, repeated, unsigned,
+    };
+    use super::*;
+    use crate::parse::{LimitKind, ParseFault};
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+
+    const RP: [u8; 32] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+        0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+        0x1E, 0x1F,
+    ];
+    const AAGUID: [u8; 16] = [
+        0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE,
+        0xAF,
+    ];
+    const X: [u8; 32] = [0x11; 32];
+    const Y: [u8; 32] = [0x22; 32];
+    const P: [u8; 32] = [0x33; 32];
+    const CRED_ID: &[u8] = &[0xAB, 0xCD, 0xEF];
+
+    fn plenty() -> Budget {
+        Budget::for_input(0, 0, u64::MAX)
+    }
+
+    fn parse(bytes: &[u8]) -> Result<AuthData<'_>, WebauthnError> {
+        auth_data(
+            bytes,
+            &Limits::DEFAULT,
+            &mut plenty(),
+            Depth::CONTAINER_ROOT,
+        )
+    }
+
+    fn prefix(flags: u8, sign_count: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&RP);
+        out.push(flags);
+        out.extend_from_slice(&sign_count.to_be_bytes());
+        out
+    }
+
+    fn es256_key() -> Vec<u8> {
+        map(&[
+            (unsigned(1), unsigned(2)),
+            (unsigned(3), negative_arg(6)),
+            (negative_arg(0), unsigned(1)),
+            (negative_arg(1), bytes(&X)),
+            (negative_arg(2), bytes(&Y)),
+        ])
+    }
+
+    fn eddsa_key() -> Vec<u8> {
+        map(&[
+            (unsigned(1), unsigned(1)),
+            (unsigned(3), negative_arg(7)),
+            (negative_arg(0), unsigned(6)),
+            (negative_arg(1), bytes(&P)),
+        ])
+    }
+
+    fn attested(id: &[u8], key: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&AAGUID);
+        out.extend_from_slice(&u16::try_from(id.len()).expect("id fits u16").to_be_bytes());
+        out.extend_from_slice(id);
+        out.extend_from_slice(key);
+        out
+    }
+
+    fn expected_flags(raw: u8) -> Flags {
+        Flags {
+            raw,
+            user_present: raw & 0x01 != 0,
+            user_verified: raw & 0x04 != 0,
+            backup_eligible: raw & 0x08 != 0,
+            backup_state: raw & 0x10 != 0,
+            attested_credential_data: raw & 0x40 != 0,
+            extension_data: raw & 0x80 != 0,
+        }
+    }
+
+    #[test]
+    fn reads_the_37_octet_prefix() {
+        let bytes = prefix(UP | UV, 0x0102_0304);
+        assert_eq!(
+            parse(&bytes),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(UP | UV),
+                sign_count: 0x0102_0304,
+                attested: None,
+                extensions: None,
+            })
+        );
+    }
+
+    #[test]
+    fn decodes_every_flags_combination() {
+        let key = es256_key();
+        for raw in 0u8..=255 {
+            let mut input = prefix(raw, 9);
+            if raw & AT != 0 {
+                input.extend_from_slice(&attested(CRED_ID, &key));
+            }
+            if raw & ED != 0 {
+                input.push(0xA0);
+            }
+            let expected = if raw & BS != 0 && raw & BE == 0 {
+                Err(WebauthnError::BackupState {
+                    offset: 32,
+                    flags: raw,
+                })
+            } else {
+                Ok(AuthData {
+                    rp_id_hash: RP,
+                    flags: expected_flags(raw),
+                    sign_count: 9,
+                    attested: (raw & AT != 0).then_some(AttestedCredential {
+                        aaguid: AAGUID,
+                        credential_id: CRED_ID,
+                        public_key: CoseKey::Es256 { x: X, y: Y },
+                    }),
+                    extensions: (raw & ED != 0).then_some(Cbor::Map(Vec::new())),
+                })
+            };
+            assert_eq!(parse(&input), expected);
+        }
+    }
+
+    #[test]
+    fn reads_attested_credential_data_with_an_eddsa_key() {
+        let mut bytes = prefix(AT, 0);
+        bytes.extend_from_slice(&attested(&[0x01], &eddsa_key()));
+        assert_eq!(
+            parse(&bytes),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x40),
+                sign_count: 0,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: &[0x01],
+                    public_key: CoseKey::Eddsa { x: P },
+                }),
+                extensions: None,
+            })
+        );
+    }
+
+    #[test]
+    fn reads_attested_credential_data_then_extensions() {
+        let mut bytes = prefix(AT | ED, 1);
+        bytes.extend_from_slice(&attested(CRED_ID, &es256_key()));
+        bytes.extend_from_slice(&map(&[(unsigned(1), unsigned(2))]));
+        assert_eq!(
+            parse(&bytes),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0xC0),
+                sign_count: 1,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: CRED_ID,
+                    public_key: CoseKey::Es256 { x: X, y: Y },
+                }),
+                extensions: Some(Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Unsigned(2))])),
+            })
+        );
+        assert_eq!(unsigned(256), [0x19, 0x01, 0x00]);
+        assert_eq!(unsigned(65_536), [0x1A, 0x00, 0x01, 0x00, 0x00]);
+        let mut wide = prefix(ED, 0);
+        wide.extend_from_slice(&map(&[(unsigned(256), unsigned(65_536))]));
+        assert_eq!(
+            parse(&wide),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x80),
+                sign_count: 0,
+                attested: None,
+                extensions: Some(Cbor::Map(vec![(
+                    Cbor::Unsigned(256),
+                    Cbor::Unsigned(65_536)
+                )])),
+            })
+        );
+    }
+
+    #[test]
+    fn accepts_a_1023_octet_credential_id_and_refuses_zero_or_1024() {
+        let key = es256_key();
+        let long: Vec<u8> = (0..1023).map(|_| 0xCD).collect();
+        let mut ok = prefix(AT, 0);
+        ok.extend_from_slice(&attested(&long, &key));
+        assert_eq!(long.len(), 1023);
+        assert_eq!(
+            parse(&ok),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x40),
+                sign_count: 0,
+                attested: Some(AttestedCredential {
+                    aaguid: AAGUID,
+                    credential_id: &long,
+                    public_key: CoseKey::Es256 { x: X, y: Y },
+                }),
+                extensions: None,
+            })
+        );
+
+        let mut empty = prefix(AT, 0);
+        empty.extend_from_slice(&AAGUID);
+        empty.extend_from_slice(&0u16.to_be_bytes());
+        assert_eq!(
+            parse(&empty),
+            Err(WebauthnError::CredentialId {
+                offset: 53,
+                length: 0,
+            })
+        );
+
+        let mut too_long = prefix(AT, 0);
+        too_long.extend_from_slice(&AAGUID);
+        too_long.extend_from_slice(&1024u16.to_be_bytes());
+        assert_eq!(
+            parse(&too_long),
+            Err(WebauthnError::CredentialId {
+                offset: 53,
+                length: 1024,
+            })
+        );
+    }
+
+    #[test]
+    fn refuses_extension_data_that_is_not_a_map() {
+        let mut bytes = prefix(ED, 0);
+        bytes.push(0x00);
+        assert_eq!(parse(&bytes), Err(WebauthnError::NotMap { offset: 37 }));
+        let mut array = prefix(ED, 0);
+        array.push(0x80);
+        assert_eq!(parse(&array), Err(WebauthnError::NotMap { offset: 37 }));
+    }
+
+    #[test]
+    fn reports_a_bad_credential_key_at_the_offset_of_the_key() {
+        // 37-octet prefix, 16-octet AAGUID, 2-octet length, 3-octet id: the
+        // key starts at octet 58.
+        let mut not_map = prefix(AT, 0);
+        not_map.extend_from_slice(&attested(CRED_ID, &[0x00]));
+        assert_eq!(parse(&not_map), Err(WebauthnError::NotMap { offset: 58 }));
+
+        let rs256 = map(&[(unsigned(1), unsigned(3)), (unsigned(3), negative_arg(256))]);
+        assert_eq!(rs256, [0xA2, 0x01, 0x03, 0x03, 0x39, 0x01, 0x00]);
+        let mut rsa = prefix(AT, 0);
+        rsa.extend_from_slice(&attested(CRED_ID, &rs256));
+        assert_eq!(
+            parse(&rsa),
+            Err(WebauthnError::Algorithm {
+                offset: 58,
+                kty: Some(3),
+                alg: Some(-257),
+                crv: None,
+            })
+        );
+
+        let without_x = map(&[
+            (unsigned(1), unsigned(2)),
+            (unsigned(3), negative_arg(6)),
+            (negative_arg(0), unsigned(1)),
+            (negative_arg(2), bytes(&Y)),
+        ]);
+        let mut no_x = prefix(AT, 0);
+        no_x.extend_from_slice(&attested(CRED_ID, &without_x));
+        assert_eq!(
+            parse(&no_x),
+            Err(WebauthnError::CoseField {
+                offset: 58,
+                label: -2,
+            })
+        );
+    }
+
+    #[test]
+    fn refuses_trailing_octets() {
+        let mut prefix_only = prefix(UP, 0);
+        prefix_only.push(0x00);
+        assert_eq!(
+            parse(&prefix_only),
+            Err(WebauthnError::Trailing {
+                offset: 37,
+                remaining: 1,
+            })
+        );
+        let mut with_key = prefix(AT, 0);
+        with_key.extend_from_slice(&attested(CRED_ID, &es256_key()));
+        with_key.push(0xFF);
+        // 37-octet prefix, 16-octet AAGUID, 2-octet length, 3-octet id, 77-octet ES256 key.
+        assert_eq!(
+            parse(&with_key),
+            Err(WebauthnError::Trailing {
+                offset: 135,
+                remaining: 1,
+            })
+        );
+        let mut with_ext = prefix(ED, 0);
+        with_ext.push(0xA0);
+        with_ext.push(0x01);
+        assert_eq!(
+            parse(&with_ext),
+            Err(WebauthnError::Trailing {
+                offset: 38,
+                remaining: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn reports_truncation_at_each_boundary() {
+        assert_eq!(
+            parse(&[]),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 0,
+                needed: 32,
+                available: 0,
+            }))
+        );
+        assert_eq!(
+            parse(&RP[..31]),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 0,
+                needed: 32,
+                available: 31,
+            }))
+        );
+        let mut flags_only = RP.to_vec();
+        assert_eq!(
+            parse(&flags_only),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 32,
+                needed: 1,
+                available: 0,
+            }))
+        );
+        flags_only.push(UP);
+        assert_eq!(
+            parse(&flags_only),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 33,
+                needed: 4,
+                available: 0,
+            }))
+        );
+        flags_only.extend_from_slice(&[0, 0, 0]);
+        assert_eq!(
+            parse(&flags_only),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 33,
+                needed: 4,
+                available: 3,
+            }))
+        );
+        let mut at = prefix(AT, 0);
+        assert_eq!(
+            parse(&at),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 37,
+                needed: 16,
+                available: 0,
+            }))
+        );
+        at.extend_from_slice(&AAGUID);
+        assert_eq!(
+            parse(&at),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 53,
+                needed: 2,
+                available: 0,
+            }))
+        );
+        at.extend_from_slice(&1u16.to_be_bytes());
+        assert_eq!(
+            parse(&at),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 55,
+                needed: 1,
+                available: 0,
+            }))
+        );
+        let ed = prefix(ED, 0);
+        assert_eq!(
+            parse(&ed),
+            Err(WebauthnError::Fault(ParseFault::Truncated {
+                offset: 37,
+                needed: 1,
+                available: 0,
+            }))
+        );
+    }
+
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn spends_one_step_for_the_prefix() {
+        let bytes = prefix(UP, 0);
+        let mut budget = Budget::for_input(0, 0, 1);
+        assert_eq!(
+            auth_data(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: expected_flags(0x01),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
+        );
+        assert_eq!(budget.remaining(), 0);
+        let mut budget = Budget::for_input(0, 0, 0);
+        assert_eq!(
+            auth_data(&bytes, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT),
+            Err(WebauthnError::Fault(ParseFault::BudgetExceeded {
+                offset: 0
+            }))
+        );
+        let mut with_key = prefix(AT, 0);
+        with_key.extend_from_slice(&attested(CRED_ID, &es256_key()));
+        let mut budget = Budget::for_input(0, 0, 1);
+        assert_eq!(
+            auth_data(
+                &with_key,
+                &Limits::DEFAULT,
+                &mut budget,
+                Depth::CONTAINER_ROOT
+            ),
+            Err(WebauthnError::Fault(ParseFault::BudgetExceeded {
+                offset: 58
+            }))
+        );
+    }
+
+    #[test]
+    fn keeps_backup_eligible_without_backup_state() {
+        let flags = |raw, backup_state| Flags {
+            raw,
+            user_present: false,
+            user_verified: false,
+            backup_eligible: true,
+            backup_state,
+            attested_credential_data: false,
+            extension_data: false,
+        };
+        assert_eq!(
+            parse(&prefix(0x08, 0)),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: flags(0x08, false),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
+        );
+        assert_eq!(
+            parse(&prefix(0x18, 0)),
+            Ok(AuthData {
+                rp_id_hash: RP,
+                flags: flags(0x18, true),
+                sign_count: 0,
+                attested: None,
+                extensions: None,
+            })
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn refuses_a_cose_map_past_the_children_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::Children, 4)
+            .expect("4 is below the ceiling");
+        let mut bytes = prefix(AT, 0);
+        bytes.extend_from_slice(&attested(CRED_ID, &es256_key()));
+        assert_eq!(
+            auth_data(&bytes, &limits, &mut plenty(), Depth::CONTAINER_ROOT),
+            Err(WebauthnError::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Children,
+                value: 5,
+                max: 4,
+                offset: 58,
+            }))
+        );
+    }
+
+    proptest! {
+        /// Verifies: SEC-MED-001
+        #[test]
+        fn never_panics_on_any_input(input in vec(any::<u8>(), 0..160)) {
+            on_small_stack(move || {
+                let _ = parse(&input);
+            });
+        }
+
+        /// Verifies: SEC-MED-007
+        #[test]
+        fn spends_at_most_one_step_per_octet_plus_one(
+            input in prop_oneof![
+                vec(any::<u8>(), 0..256),
+                (any::<u8>(), 0usize..512).prop_map(|(octet, count)| repeated(&[octet], count)),
+                (any::<u8>(), vec(any::<u8>(), 0..160)).prop_map(|(flags, tail)| {
+                    let mut input = prefix(flags | AT, 0);
+                    input.extend_from_slice(&attested(CRED_ID, &es256_key()));
+                    input.extend_from_slice(&tail);
+                    input
+                }),
+            ],
+        ) {
+            let octets = len(&input);
+            let spent = on_small_stack(move || {
+                let mut budget = plenty();
+                let _ = auth_data(&input, &Limits::DEFAULT, &mut budget, Depth::CONTAINER_ROOT);
+                u64::MAX.checked_sub(budget.remaining()).unwrap()
+            });
+            prop_assert!(spent <= octets.checked_add(1).unwrap());
+        }
+    }
+}
