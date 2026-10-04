@@ -3111,6 +3111,39 @@ mod tests {
         );
     }
 
+    /// A zero field budget keeps both lists and diagnostics empty while
+    /// independent scalar fields still map.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_zero_field_limit_keeps_lists_and_problems_empty() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::TagFields, 0)
+            .unwrap();
+        let v2 = tag(
+            4,
+            spaced(vec![
+                text_frame(b"TRCK", &["0"]),
+                text_frame(b"TPE1", &["Artist"]),
+                text_frame(b"TIT2", &["Still mapped"]),
+            ]),
+        );
+        assert_eq!(
+            from_id3(Some(&v2), None, &limits),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Still mapped")),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    title: Some(v2_at(b"TIT2", 50)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
     /// Verifies: SEC-MED-014
     #[test]
     fn drops_a_malformed_mbid_and_isrc() {
