@@ -4,6 +4,21 @@
 //! start it again as the worker: `/proc/self/exe` with the hidden worker
 //! arguments enters the child path. No extra binary ships, and the hostile
 //! hooks exist only in this test executable.
+//!
+//! Every test runs once against the kernel as it is, and again against a
+//! kernel that has no Landlock, no seccomp filter, and neither. Those
+//! kernels are made here: the executable starts itself again with a word
+//! from [`EMULATED`], and that process first installs a filter of its own
+//! under which the kernel answers the Landlock calls, the `seccomp` call,
+//! or both with `ENOSYS`, which is the answer of a kernel built without
+//! them. Workers inherit that filter, so their confinement meets a kernel
+//! that really refuses, and the reduced tier is proven against it rather
+//! than skipped (SEC-MED-022, SEC-MED-024).
+//!
+//! What each kernel offers is decided here, never by the code under test:
+//! from `/sys/kernel/security/lsm`, the kernel's release, the build's
+//! architecture, and which calls this executable itself took away
+//! ([`Host`]). Every expected report and outcome is written out per case.
 #![expect(
     clippy::disallowed_methods,
     reason = "the hostile worker tries each forbidden action by path, socket and Command, and the test reads /proc to see what the kernel holds for a worker (SEC-MED-022, SEC-TM-044)"
@@ -14,7 +29,7 @@ use gunmetal_worker::sandbox::{
     answer_self_test, confine, launch, self_test,
 };
 use rustix::io::{Errno, FdFlags, fcntl_setfd};
-use rustix::process::{PTracer, Pid, getppid, set_ptracer, test_kill_process};
+use rustix::process::{PTracer, Pid, getppid, getuid, set_ptracer, test_kill_process};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
@@ -44,74 +59,218 @@ const TRACE: u8 = b't';
 /// Confine, then signal the parent.
 const SIGNAL: u8 = b's';
 
+/// The words that start this executable again against a kernel with
+/// something taken away: Landlock, the seccomp filter, or both.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const EMULATED: [&str; 3] = [
+    "--kernel-without-landlock",
+    "--kernel-without-seccomp",
+    "--kernel-without-landlock-or-seccomp",
+];
+/// An architecture seccompiler cannot write a filter for cannot take a
+/// call away either, so only the kernel as it is runs there.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+const EMULATED: [&str; 0] = [];
+
+/// One test: its name and its body, which is told what the kernel offers.
+type Test = (&'static str, fn(&Host));
+
+const TESTS: [Test; 11] = [
+    (
+        "self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing",
+        self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing,
+    ),
+    (
+        "a_worker_gets_the_socket_three_fixed_words_and_nothing_else",
+        a_worker_gets_the_socket_three_fixed_words_and_nothing_else,
+    ),
+    (
+        "a_confined_worker_is_limited_single_threaded_undumpable_and_filtered",
+        a_confined_worker_is_limited_single_threaded_undumpable_and_filtered,
+    ),
+    (
+        "opening_a_path_is_killed_or_refused",
+        opening_a_path_is_killed_or_refused,
+    ),
+    (
+        "connecting_a_network_socket_is_killed_or_refused",
+        connecting_a_network_socket_is_killed_or_refused,
+    ),
+    (
+        "executing_a_program_is_killed_or_refused",
+        executing_a_program_is_killed_or_refused,
+    ),
+    (
+        "starting_a_thread_is_killed_or_refused",
+        starting_a_thread_is_killed_or_refused,
+    ),
+    (
+        "asking_to_be_traced_is_killed_or_left_to_the_dumpable_flag",
+        asking_to_be_traced_is_killed_or_left_to_the_dumpable_flag,
+    ),
+    (
+        "signalling_the_parent_is_killed_or_refused",
+        signalling_the_parent_is_killed_or_refused,
+    ),
+    (
+        "exceeding_the_memory_limit_aborts_and_the_parent_carries_on",
+        exceeding_the_memory_limit_aborts_and_the_parent_carries_on,
+    ),
+    (
+        "a_child_is_waited_for_stopped_or_reaped_when_dropped",
+        a_child_is_waited_for_stopped_or_reaped_when_dropped,
+    ),
+];
+
 fn main() {
     if let Some(args) = TypedArgs::from_argv(std::env::args_os()) {
         worker(args);
         return;
     }
-    let tests: &[(&str, fn())] = &[
-        (
-            "self_test_reports_the_reduced_tier_and_names_namespaces",
-            self_test_reports_the_reduced_tier_and_names_namespaces,
-        ),
-        (
-            "a_worker_gets_the_socket_three_fixed_words_and_nothing_else",
-            a_worker_gets_the_socket_three_fixed_words_and_nothing_else,
-        ),
-        (
-            "a_confined_worker_is_limited_single_threaded_undumpable_and_filtered",
-            a_confined_worker_is_limited_single_threaded_undumpable_and_filtered,
-        ),
-        (
-            "opening_a_path_is_killed_or_refused",
-            opening_a_path_is_killed_or_refused,
-        ),
-        (
-            "connecting_a_network_socket_is_killed_or_refused",
-            connecting_a_network_socket_is_killed_or_refused,
-        ),
-        (
-            "executing_a_program_is_killed_or_refused",
-            executing_a_program_is_killed_or_refused,
-        ),
-        (
-            "starting_a_thread_is_killed_or_refused",
-            starting_a_thread_is_killed_or_refused,
-        ),
-        (
-            "asking_to_be_traced_is_killed_or_refused",
-            asking_to_be_traced_is_killed_or_refused,
-        ),
-        (
-            "signalling_the_parent_is_killed_or_refused",
-            signalling_the_parent_is_killed_or_refused,
-        ),
-        (
-            "exceeding_the_memory_limit_aborts_and_the_parent_carries_on",
-            exceeding_the_memory_limit_aborts_and_the_parent_carries_on,
-        ),
-        (
-            "a_child_is_waited_for_stopped_or_reaped_when_dropped",
-            a_child_is_waited_for_stopped_or_reaped_when_dropped,
-        ),
-    ];
+    // Resource limits and Landlock do not bind root, so every refusal
+    // below would be for the wrong reason, or not happen.
+    assert!(!getuid().is_root(), "these tests must not run as root");
+    let word = std::env::args().nth(1).unwrap_or_default();
+    let emulated = EMULATED.iter().position(|known| *known == word);
+    let host = Host::read(emulated);
+    eprintln!("\nkernel: {host:?}");
     let mut failed = 0_usize;
-    for &(name, test) in tests {
+    for (name, test) in TESTS {
         eprint!("test {name} ... ");
-        if catch_unwind(AssertUnwindSafe(test)).is_ok() {
+        if catch_unwind(AssertUnwindSafe(|| test(&host))).is_ok() {
             eprintln!("ok");
         } else {
             failed = failed.saturating_add(1);
             eprintln!("FAILED");
         }
     }
-    let passed = tests.len().saturating_sub(failed);
+    let passed = TESTS.len().saturating_sub(failed);
     eprintln!(
         "\ntest result: {}. {passed} passed; {failed} failed",
         if failed == 0 { "ok" } else { "FAILED" }
     );
-    if failed != 0 {
+    // The kernel as it is goes first; then one more process per kernel
+    // with something taken away, because a filter cannot be removed.
+    let mut kernels_failed = usize::from(failed != 0);
+    if emulated.is_none() {
+        for word in EMULATED {
+            let passed = Command::new("/proc/self/exe")
+                .arg(word)
+                .status()
+                .expect("start the tests again")
+                .success();
+            kernels_failed = kernels_failed.saturating_add(usize::from(!passed));
+        }
+    }
+    if kernels_failed != 0 {
         process::exit(1);
+    }
+}
+
+// What the kernel offers, decided without the code under test.
+
+/// What the kernel a worker meets offers.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is one independent fact about the kernel"
+)]
+#[derive(Debug)]
+struct Host {
+    /// The worker can install its seccomp filter.
+    seccomp: bool,
+    /// The worker can enforce a Landlock ruleset.
+    landlock: bool,
+    /// Landlock restricts TCP connections: its ABI 4, Linux 6.7.
+    landlock_network: bool,
+    /// Landlock scopes signals: its ABI 6, Linux 6.12.
+    landlock_signals: bool,
+    /// The Yama module is active, so `PR_SET_PTRACER` exists.
+    yama: bool,
+    /// Some seccomp filter binds the worker: its own, or the one this
+    /// executable installed to take calls away.
+    filtered: bool,
+}
+
+/// `ENOSYS`: what a kernel answers for a call it does not have.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const ENOSYS: u32 = 38;
+/// `landlock_create_ruleset`, `landlock_add_rule` and
+/// `landlock_restrict_self`, which have the same numbers on every
+/// architecture.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const LANDLOCK_CALLS: [i64; 3] = [444, 445, 446];
+/// The `seccomp` call's number, and seccompiler's name for the
+/// architecture.
+#[cfg(target_arch = "x86_64")]
+const SECCOMP_CALL: (i64, seccompiler::TargetArch) = (317, seccompiler::TargetArch::x86_64);
+#[cfg(target_arch = "aarch64")]
+const SECCOMP_CALL: (i64, seccompiler::TargetArch) = (277, seccompiler::TargetArch::aarch64);
+
+/// Makes the kernel answer `ENOSYS` to these calls, for this process and
+/// every process it starts, from now on.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn take_away(calls: &[i64]) {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+
+    let rules = calls.iter().map(|&call| (call, Vec::new())).collect();
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(ENOSYS),
+        SECCOMP_CALL.1,
+    )
+    .expect("a filter");
+    let program = BpfProgram::try_from(filter).expect("a compiled filter");
+    seccompiler::apply_filter(&program).expect("install the filter");
+}
+
+/// Takes away what the emulated kernel at this position in [`EMULATED`]
+/// lacks, and returns whether Landlock and seccomp are still there.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn emulate(position: usize) -> (bool, bool) {
+    let (landlock, seccomp) = [(false, true), (true, false), (false, false)][position];
+    // The Landlock calls go first: once the `seccomp` call is gone, no
+    // further filter can be installed.
+    if !landlock {
+        take_away(&LANDLOCK_CALLS);
+    }
+    if !seccomp {
+        take_away(&[SECCOMP_CALL.0]);
+    }
+    (landlock, seccomp)
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn emulate(_position: usize) -> (bool, bool) {
+    (true, true)
+}
+
+impl Host {
+    /// Reads what the running kernel offers, less what the emulated
+    /// kernel at this position in [`EMULATED`] lacks.
+    fn read(emulated: Option<usize>) -> Self {
+        let lsm = fs::read_to_string("/sys/kernel/security/lsm").expect("the kernel's LSM list");
+        let active = |module: &str| lsm.trim().split(',').any(|name| name == module);
+        let release =
+            fs::read_to_string("/proc/sys/kernel/osrelease").expect("the kernel's release");
+        let mut numbers = release
+            .split(|character: char| !character.is_ascii_digit())
+            .map(|number| number.parse::<u32>().expect("a release number"));
+        let version = (
+            numbers.next().expect("a major version"),
+            numbers.next().expect("a minor version"),
+        );
+        let (landlock_left, seccomp_left) = emulated.map_or((true, true), emulate);
+        Self {
+            seccomp: seccomp_left
+                && cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
+                && status(process::id(), "Seccomp:").is_some(),
+            landlock: landlock_left && active("landlock"),
+            landlock_network: version >= (6, 7),
+            landlock_signals: version >= (6, 12),
+            yama: active("yama"),
+            filtered: emulated.is_some(),
+        }
     }
 }
 
@@ -140,30 +299,23 @@ fn serve(profile: Profile) {
             // call the filter refuses.
             let parent = getppid();
             confine(profile).expect("confine the hostile worker");
-            let error = match hostile {
-                OPEN => fs::File::open("/etc/hostname")
-                    .map(drop)
-                    .expect_err("the open must fail"),
-                NETWORK => TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, 1))
-                    .map(drop)
-                    .expect_err("the connect must fail"),
+            // What the action came to: the kernel's error number, or 0
+            // when the kernel allowed it.
+            let outcome = match hostile {
+                OPEN => fs::File::open("/etc/hostname").map(drop),
+                NETWORK => TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, 1)).map(drop),
                 // `exec` replaces this process, with no `clone` first,
                 // and returns only when the kernel refuses.
-                EXEC => Command::new("/bin/true").exec(),
-                CLONE => thread::Builder::new()
-                    .spawn(|| {})
-                    .map(drop)
-                    .expect_err("the clone must fail"),
-                TRACE => io::Error::from(
-                    set_ptracer(PTracer::Any).expect_err("PR_SET_PTRACER must fail"),
-                ),
-                SIGNAL => io::Error::from(
-                    test_kill_process(parent.expect("a parent")).expect_err("the kill must fail"),
-                ),
+                EXEC => Err(Command::new("/bin/true").exec()),
+                CLONE => thread::Builder::new().spawn(|| {}).map(drop),
+                TRACE => set_ptracer(PTracer::Any).map_err(io::Error::from),
+                SIGNAL => test_kill_process(parent.expect("a parent")).map_err(io::Error::from),
                 MEMORY => exhaust_memory(),
                 unknown => panic!("unknown hook {unknown}"),
             };
-            let errno = u8::try_from(error.raw_os_error().unwrap_or(0)).unwrap_or(255);
+            let errno = outcome.err().map_or(0, |error| {
+                u8::try_from(error.raw_os_error().unwrap_or(255)).unwrap_or(255)
+            });
             let _ = io::stdout().write_all(&[errno]);
             process::exit(2);
         }
@@ -266,21 +418,37 @@ fn ask(hook: u8) -> (Exit, Option<u8>) {
     (child.wait().expect("wait"), reported)
 }
 
-/// The exact outcomes SEC-MED-022 allows a forbidden action: the filter
-/// kills the worker with `SIGSYS`, or the kernel refuses the call with
-/// `EPERM` (1) or `EACCES` (13) and the worker reports it. The filter ends
-/// the worker at the first call an action makes that is off the
-/// allowlist, which for a library routine can come before the call the
-/// action is named for.
-fn assert_killed_or_refused(hook: u8) {
-    let outcome = ask(hook);
-    assert!(
-        matches!(
-            outcome,
-            (Exit::Killed(Cause::ForbiddenCall), None) | (Exit::Code(2), Some(1 | 13))
-        ),
-        "expected SIGSYS, EPERM or EACCES, got {outcome:?}"
-    );
+/// The filter killed the worker with `SIGSYS` before it could report.
+const KILLED: (Exit, Option<u8>) = (Exit::Killed(Cause::ForbiddenCall), None);
+
+/// The worker lived to report this error number, or 0 for "allowed".
+const fn reported(errno: u8) -> (Exit, Option<u8>) {
+    (Exit::Code(2), Some(errno))
+}
+
+/// `EPERM`.
+const EPERM: u8 = 1;
+/// `EAGAIN`.
+const EAGAIN: u8 = 11;
+/// `EACCES`.
+const EACCES: u8 = 13;
+/// `ECONNREFUSED`: the connection was tried and nothing was listening.
+const ECONNREFUSED: u8 = 111;
+/// The kernel carried the action out.
+const ALLOWED: u8 = 0;
+
+/// Starts a worker with `hook` and asserts the one outcome this kernel
+/// gives it. With the seccomp filter that is `SIGSYS` for every hostile
+/// action: each makes a call that is off the allowlist, and for a library
+/// routine that can come before the call the action is named for.
+/// `without_seccomp` is the outcome where the filter is missing.
+fn assert_outcome(host: &Host, hook: u8, without_seccomp: (Exit, Option<u8>)) {
+    let expected = if host.seccomp {
+        KILLED
+    } else {
+        without_seccomp
+    };
+    assert_eq!(ask(hook), expected);
 }
 
 /// What a `WAIT` worker reported.
@@ -346,19 +514,42 @@ fn limit(limits: &str, label: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Namespaces are never created, so the tier is always the reduced one;
+/// the notice names them and whichever of seccomp and Landlock this
+/// kernel lacks.
+///
 /// Verifies: SEC-MED-024
-fn self_test_reports_the_reduced_tier_and_names_namespaces() {
+fn self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing(host: &Host) {
+    let notice = match (host.seccomp, host.landlock) {
+        (true, true) => {
+            "Reduced isolation: media workers run without namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+        (true, false) => {
+            "Reduced isolation: media workers run without Landlock and namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+        (false, true) => {
+            "Reduced isolation: media workers run without system call filtering (seccomp) \
+             and namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+        (false, false) => {
+            "Reduced isolation: media workers run without system call filtering (seccomp), \
+             Landlock and namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+    };
     let report = self_test(Profile::Scan);
     assert_eq!(
         report,
         TierReport {
             tier: Tier::Reduced,
-            notice: Some(
-                "Reduced isolation: media workers run without namespaces. \
-                 They still run in a separate process with resource limits \
-                 and no new privileges."
-                    .to_owned()
-            ),
+            notice: Some(notice.to_owned()),
         }
     );
     assert!(report.memory_safe_parsing());
@@ -371,7 +562,7 @@ fn self_test_reports_the_reduced_tier_and_names_namespaces() {
 /// are the three fixed words; its environment is empty, with no exception.
 ///
 /// Verifies: SEC-OPS-014, SEC-STD-040, SEC-HIS-020
-fn a_worker_gets_the_socket_three_fixed_words_and_nothing_else() {
+fn a_worker_gets_the_socket_three_fixed_words_and_nothing_else(_host: &Host) {
     let (stray, _peer) = UnixStream::pair().expect("stray pair");
     fcntl_setfd(&stray, FdFlags::empty()).expect("clear close-on-exec");
     let (child, _ours, report) = inspect();
@@ -393,7 +584,7 @@ fn a_worker_gets_the_socket_three_fixed_words_and_nothing_else() {
 }
 
 /// Verifies: SEC-MED-021, SEC-MED-022
-fn a_confined_worker_is_limited_single_threaded_undumpable_and_filtered() {
+fn a_confined_worker_is_limited_single_threaded_undumpable_and_filtered(host: &Host) {
     // Before the worker confines itself, this process, which runs as the
     // same user, can read where its working directory is.
     let (before, _ours) = spawn_serve();
@@ -418,7 +609,13 @@ fn a_confined_worker_is_limited_single_threaded_undumpable_and_filtered() {
     );
     assert_eq!(status(pid, "Threads:").as_deref(), Some("1"));
     assert_eq!(status(pid, "NoNewPrivs:").as_deref(), Some("1"));
-    assert_eq!(status(pid, "Seccomp:").as_deref(), Some("2"));
+    // Mode 2 is a filter, mode 0 none.
+    let mode = if host.seccomp || host.filtered {
+        "2"
+    } else {
+        "0"
+    };
+    assert_eq!(status(pid, "Seccomp:").as_deref(), Some(mode));
     let limits = fs::read_to_string(format!("/proc/{pid}/limits")).expect("limits");
     assert_eq!(
         limit(&limits, "Max address space"),
@@ -432,42 +629,82 @@ fn a_confined_worker_is_limited_single_threaded_undumpable_and_filtered() {
     assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
 }
 
+/// Without the filter Landlock refuses the open with `EACCES`. With
+/// neither, the floor does not stop a worker opening a path, which is why
+/// the notice names both.
+///
 /// Verifies: SEC-MED-022, SEC-TM-044
-fn opening_a_path_is_killed_or_refused() {
-    assert_killed_or_refused(OPEN);
+fn opening_a_path_is_killed_or_refused(host: &Host) {
+    let without_seccomp = if host.landlock { EACCES } else { ALLOWED };
+    assert_outcome(host, OPEN, reported(without_seccomp));
 }
 
+/// Without the filter Landlock refuses the TCP connection with `EACCES`
+/// where its ABI covers the network. Otherwise the connection is tried,
+/// and fails only because nothing listens on port 1.
+///
 /// Verifies: SEC-MED-022, SEC-TM-044
-fn connecting_a_network_socket_is_killed_or_refused() {
-    assert_killed_or_refused(NETWORK);
+fn connecting_a_network_socket_is_killed_or_refused(host: &Host) {
+    let without_seccomp = if host.landlock && host.landlock_network {
+        EACCES
+    } else {
+        ECONNREFUSED
+    };
+    assert_outcome(host, NETWORK, reported(without_seccomp));
 }
 
+/// Without the filter Landlock refuses to execute the file with `EACCES`.
+/// With neither, the program runs in the worker's place and exits with
+/// its own status, 0.
+///
 /// Verifies: SEC-MED-022, SEC-TM-044
-fn executing_a_program_is_killed_or_refused() {
-    assert_killed_or_refused(EXEC);
+fn executing_a_program_is_killed_or_refused(host: &Host) {
+    let without_seccomp = if host.landlock {
+        reported(EACCES)
+    } else {
+        (Exit::Code(0), None)
+    };
+    assert_outcome(host, EXEC, without_seccomp);
 }
 
 /// A thread is a `clone`, the call behind `fork` on Linux. `fork` by name
 /// needs `unsafe`, which the workspace forbids; the allowlist's own test
 /// shows that `fork`, `vfork`, `clone` and `clone3` are all off it.
+/// Without the filter the process limit of 0 refuses it with `EAGAIN`.
 ///
 /// Verifies: SEC-MED-022, SEC-TM-044
-fn starting_a_thread_is_killed_or_refused() {
-    assert_killed_or_refused(CLONE);
+fn starting_a_thread_is_killed_or_refused(host: &Host) {
+    assert_outcome(host, CLONE, reported(EAGAIN));
 }
 
 /// `ptrace` by name needs `unsafe`, which the workspace forbids. The hook
-/// makes the tracing call safe code can make, `PR_SET_PTRACER`; the
-/// allowlist's own test shows that `ptrace` and `prctl` are both off it.
+/// makes the tracing call safe code can make, `PR_SET_PTRACER`, which
+/// asks Yama to let any process trace this one; the allowlist's own test
+/// shows that `ptrace` and `prctl` are both off it. Without the filter
+/// the call is allowed where Yama is active and is `EINVAL` where it is
+/// not, and what then keeps another process from attaching is the cleared
+/// dumpable flag, which the limits test observes.
 ///
 /// Verifies: SEC-MED-022
-fn asking_to_be_traced_is_killed_or_refused() {
-    assert_killed_or_refused(TRACE);
+fn asking_to_be_traced_is_killed_or_left_to_the_dumpable_flag(host: &Host) {
+    /// `EINVAL`.
+    const EINVAL: u8 = 22;
+    let without_seccomp = if host.yama { ALLOWED } else { EINVAL };
+    assert_outcome(host, TRACE, reported(without_seccomp));
 }
 
-/// Verifies: SEC-TM-044
-fn signalling_the_parent_is_killed_or_refused() {
-    assert_killed_or_refused(SIGNAL);
+/// Without the filter Landlock refuses the signal with `EPERM` where its
+/// ABI scopes signals. Otherwise the floor does not stop a worker
+/// signalling a process of the same user.
+///
+/// Verifies: SEC-MED-022, SEC-TM-044
+fn signalling_the_parent_is_killed_or_refused(host: &Host) {
+    let without_seccomp = if host.landlock && host.landlock_signals {
+        EPERM
+    } else {
+        ALLOWED
+    };
+    assert_outcome(host, SIGNAL, reported(without_seccomp));
 }
 
 /// A worker that runs out of memory aborts, the launcher reports the
@@ -475,14 +712,14 @@ fn signalling_the_parent_is_killed_or_refused() {
 /// starts another worker.
 ///
 /// Verifies: SEC-MED-018, SEC-MED-021, SEC-TM-044
-fn exceeding_the_memory_limit_aborts_and_the_parent_carries_on() {
+fn exceeding_the_memory_limit_aborts_and_the_parent_carries_on(_host: &Host) {
     assert_eq!(ask(MEMORY).0, Exit::Killed(Cause::Abort));
     let (child, _ours, report) = inspect();
     assert_eq!(report.confined, 1);
     assert_eq!(child.stop().expect("stop"), Exit::Killed(Cause::Kill));
 }
 
-fn a_child_is_waited_for_stopped_or_reaped_when_dropped() {
+fn a_child_is_waited_for_stopped_or_reaped_when_dropped(_host: &Host) {
     assert_eq!(ask(QUIT).0, Exit::Code(0));
 
     let (child, _ours) = spawn_serve();

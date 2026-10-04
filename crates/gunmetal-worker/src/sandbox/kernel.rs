@@ -290,18 +290,92 @@ mod tests {
             .map_err(|error| error.kind())
     }
 
+    /// Whether the running kernel has Landlock active, read from the
+    /// kernel's own list of security modules and not from the code under
+    /// test.
+    fn kernel_has_landlock() -> bool {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test reads the kernel's list of security modules, a fixed path, to know what to expect of Landlock (SEC-MED-024)"
+        )]
+        let modules = std::fs::read_to_string("/sys/kernel/security/lsm").unwrap();
+        modules.trim().split(',').any(|name| name == "landlock")
+    }
+
     /// Landlock binds the thread that enforces it, so a thread of its own
-    /// can try it and leave the test process free.
+    /// can try it and leave the test process free. Where the kernel has
+    /// Landlock every path is refused; where it has none the control is
+    /// reported missing and the path still opens.
     ///
     /// Verifies: SEC-MED-022
     #[test]
     fn landlock_refuses_every_path_on_the_thread_that_enforced_it() {
+        let offered = kernel_has_landlock();
         let (enforced, listing) = std::thread::spawn(|| (Linux.landlock(), list_by_path()))
             .join()
             .unwrap();
-        assert!(enforced);
-        assert_eq!(listing, Err(ErrorKind::PermissionDenied));
+        assert_eq!(enforced, offered);
+        assert_eq!(
+            listing,
+            [Ok(()), Err(ErrorKind::PermissionDenied)][usize::from(offered)]
+        );
         assert_eq!(list_by_path(), Ok(()));
+    }
+
+    /// Makes the kernel answer `ENOSYS`, as one built without the call
+    /// does, to each of `calls` on the calling thread from now on.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn take_away(calls: &[i64]) {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+
+        let (arch, _) = super::NATIVE.unwrap();
+        let rules = calls.iter().map(|&call| (call, Vec::new())).collect();
+        let filter =
+            SeccompFilter::new(rules, SeccompAction::Allow, SeccompAction::Errno(38), arch)
+                .unwrap();
+        seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
+    }
+
+    /// On a kernel without Landlock the control is reported missing, never
+    /// assumed: the three Landlock calls, numbers 444 to 446 on every
+    /// architecture, answer `ENOSYS` on this thread, and the path that
+    /// Landlock would have refused still opens.
+    ///
+    /// Verifies: SEC-MED-024
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn landlock_is_reported_missing_on_a_kernel_without_it() {
+        let (enforced, listing) = std::thread::spawn(|| {
+            take_away(&[444, 445, 446]);
+            (Linux.landlock(), list_by_path())
+        })
+        .join()
+        .unwrap();
+        assert!(!enforced);
+        assert_eq!(listing, Ok(()));
+    }
+
+    /// The `seccomp` call's number on this architecture.
+    #[cfg(target_arch = "x86_64")]
+    const SECCOMP_CALL: i64 = 317;
+    #[cfg(target_arch = "aarch64")]
+    const SECCOMP_CALL: i64 = 277;
+
+    /// On a kernel without seccomp filters the control is reported
+    /// missing: the `seccomp` call answers `ENOSYS` on this thread, so
+    /// the worker's filter cannot be installed.
+    ///
+    /// Verifies: SEC-MED-024
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_is_reported_missing_on_a_kernel_without_it() {
+        let installed = std::thread::spawn(|| {
+            take_away(&[SECCOMP_CALL]);
+            Linux.seccomp()
+        })
+        .join()
+        .unwrap();
+        assert!(!installed);
     }
 
     /// The `Seccomp:` line of a thread's status: 0 without a filter, 2
