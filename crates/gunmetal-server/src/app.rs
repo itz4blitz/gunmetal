@@ -248,10 +248,12 @@ mod tests {
             Some(StartError::Privileged(PrivilegeError::Root))
         );
         assert_eq!(out, "");
+        assert!(testing::durable_missing(&dir));
         // Nothing was created: the first real start still has work to do.
         let (started, out) = start(&dir, &local(), &Env::default());
         assert!(started.is_ok());
         assert_eq!(out, STARTED);
+        assert!(!testing::durable_missing(&dir));
     }
 
     /// Verifies: SEC-OPS-053
@@ -419,8 +421,8 @@ mod tests {
             [
                 "Could not read this process's privileges or switch off its core dumps: permission denied.",
                 "Gunmetal does not run as root, and no setting changes that. Run it as a dedicated unprivileged user that owns the data directory: User=gunmetal in a systemd unit, or --user in a container.",
-                "The data directory /data is on a network filesystem (SMB). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk.",
-                "/data/durable/config.toml is longer than 65536 bytes, which no Gunmetal configuration needs.",
+                r#"The data directory "/data" is on a network filesystem (SMB). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk."#,
+                r#""/data/durable/config.toml" is longer than 65536 bytes, which no Gunmetal configuration needs."#,
                 "The environment variable \"GUNMETAL_X\" is not one Gunmetal reads. Check the spelling, or unset it.",
             ]
         );

@@ -51,11 +51,11 @@ impl ConfigFileError {
         let file = item_path(dir, &Item::Path(CONFIG_FILE));
         match self {
             Self::Open(error) => explain(error, dir),
-            Self::Read(kind) => format!("Could not read {file}: {kind}."),
+            Self::Read(kind) => format!("Could not read {file:?}: {kind}."),
             Self::TooLarge => format!(
-                "{file} is longer than {MAX_CONFIG_BYTES} bytes, which no Gunmetal configuration needs."
+                "{file:?} is longer than {MAX_CONFIG_BYTES} bytes, which no Gunmetal configuration needs."
             ),
-            Self::NotUtf8 => format!("{file} is not UTF-8 text."),
+            Self::NotUtf8 => format!("{file:?} is not UTF-8 text."),
         }
     }
 }
@@ -189,10 +189,10 @@ const fn filesystem(kind: NetworkFs) -> &'static str {
 /// `dir`, naming the fix.
 #[must_use]
 pub fn explain(error: &DataRootError, dir: &Path) -> String {
-    let root = dir.display();
+    let shown = dir.display().to_string();
     match error {
         DataRootError::NetworkFilesystem(kind) => format!(
-            "The data directory {root} is on a network filesystem ({}). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk.",
+            "The data directory {shown:?} is on a network filesystem ({}). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk.",
             filesystem(*kind)
         ),
         DataRootError::Io {
@@ -200,21 +200,25 @@ pub fn explain(error: &DataRootError, dir: &Path) -> String {
             kind: io::ErrorKind::NotFound,
             ..
         } => format!(
-            "The data directory {root} does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 {}",
-            quoted(&root.to_string())
+            "The data directory {shown:?} does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 {}",
+            quoted(&shown)
         ),
         DataRootError::Io { item, op, kind } => {
-            format!("Could not {} {}: {kind}.", verb(*op), item_path(dir, item))
+            format!(
+                "Could not {} {:?}: {kind}.",
+                verb(*op),
+                item_path(dir, item)
+            )
         }
         DataRootError::NotOwned { item, owner, uid } => {
             let path = item_path(dir, item);
             format!(
-                "{path} belongs to user {owner}, but Gunmetal runs as user {uid}. As root, run: chown {uid} {}",
+                "{path:?} belongs to user {owner}, but Gunmetal runs as user {uid}. As root, run: chown {uid} {}",
                 quoted(&path)
             )
         }
         DataRootError::WrongKind { item, found } => format!(
-            "{} is a {}, which does not belong there. Move it out of the data directory.",
+            "{:?} is a {}, which does not belong there. Move it out of the data directory.",
             item_path(dir, item),
             noun(*found)
         ),
@@ -225,7 +229,7 @@ pub fn explain(error: &DataRootError, dir: &Path) -> String {
         } => {
             let path = item_path(dir, item);
             format!(
-                "{path} has mode {mode:o}, which lets other users in. Run: chmod {required:o} {}",
+                "{path:?} has mode {mode:o}, which lets other users in. Run: chmod {required:o} {}",
                 quoted(&path)
             )
         }
@@ -234,18 +238,17 @@ pub fn explain(error: &DataRootError, dir: &Path) -> String {
             mode,
             required,
         } => format!(
-            "{} still has mode {mode:o} after Gunmetal set {required:o}: its filesystem does not keep permissions. Move the data directory to a disk on this machine.",
+            "{:?} still has mode {mode:o} after Gunmetal set {required:o}: its filesystem does not keep permissions. Move the data directory to a disk on this machine.",
             item_path(dir, item)
         ),
         DataRootError::Leftover { item } => format!(
-            "{} was left by an interrupted write. Remove it, then start Gunmetal again.",
+            "{:?} was left by an interrupted write. Remove it, then start Gunmetal again.",
             item_path(dir, item)
         ),
-        DataRootError::ForeignEntry { parent, name } => format!(
-            "{}/{} was not created by Gunmetal. Move it out of the secrets directory.",
-            item_path(dir, parent),
-            name.to_string_lossy()
-        ),
+        DataRootError::ForeignEntry { parent, name } => {
+            let path = format!("{}/{}", item_path(dir, parent), name.to_string_lossy());
+            format!("{path:?} was not created by Gunmetal. Move it out of the secrets directory.")
+        }
     }
 }
 
@@ -298,7 +301,7 @@ mod tests {
                 },
                 &dir()
             ),
-            r"/srv/gun metal's has mode 750, which lets other users in. Run: chmod 700 '/srv/gun metal'\''s'"
+            r#""/srv/gun metal's" has mode 750, which lets other users in. Run: chmod 700 '/srv/gun metal'\''s'"#
         );
         assert_eq!(
             explain(
@@ -309,7 +312,7 @@ mod tests {
                 },
                 &PathBuf::from("/var/lib/gunmetal")
             ),
-            "/var/lib/gunmetal/secrets/root.key has mode 640, which lets other users in. Run: chmod 600 '/var/lib/gunmetal/secrets/root.key'"
+            r#""/var/lib/gunmetal/secrets/root.key" has mode 640, which lets other users in. Run: chmod 600 '/var/lib/gunmetal/secrets/root.key'"#
         );
     }
 
@@ -319,7 +322,7 @@ mod tests {
         let cases = [
             (
                 DataRootError::NetworkFilesystem(NetworkFs::Nfs),
-                "The data directory /data is on a network filesystem (NFS). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk.",
+                r#"The data directory "/data" is on a network filesystem (NFS). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk."#,
             ),
             (
                 DataRootError::Io {
@@ -327,7 +330,7 @@ mod tests {
                     op: Op::Probe,
                     kind: io::ErrorKind::NotFound,
                 },
-                "The data directory /data does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 '/data'",
+                r#"The data directory "/data" does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 '/data'"#,
             ),
             (
                 DataRootError::Io {
@@ -335,7 +338,7 @@ mod tests {
                     op: Op::Inspect,
                     kind: io::ErrorKind::NotFound,
                 },
-                "Could not inspect /data/durable: entity not found.",
+                r#"Could not inspect "/data/durable": entity not found."#,
             ),
             (
                 DataRootError::Io {
@@ -343,7 +346,7 @@ mod tests {
                     op: Op::OpenRoot,
                     kind: io::ErrorKind::PermissionDenied,
                 },
-                "Could not open /data: permission denied.",
+                r#"Could not open "/data": permission denied."#,
             ),
             (
                 DataRootError::NotOwned {
@@ -351,14 +354,14 @@ mod tests {
                     owner: 0,
                     uid: 1000,
                 },
-                "/data/secrets belongs to user 0, but Gunmetal runs as user 1000. As root, run: chown 1000 '/data/secrets'",
+                r#""/data/secrets" belongs to user 0, but Gunmetal runs as user 1000. As root, run: chown 1000 '/data/secrets'"#,
             ),
             (
                 DataRootError::WrongKind {
                     item: Item::Path(KEY),
                     found: Kind::Symlink,
                 },
-                "/data/secrets/root.key is a symbolic link, which does not belong there. Move it out of the data directory.",
+                r#""/data/secrets/root.key" is a symbolic link, which does not belong there. Move it out of the data directory."#,
             ),
             (
                 DataRootError::CannotRepair {
@@ -366,20 +369,27 @@ mod tests {
                     mode: 0o777,
                     required: 0o700,
                 },
-                "/data still has mode 777 after Gunmetal set 700: its filesystem does not keep permissions. Move the data directory to a disk on this machine.",
+                r#""/data" still has mode 777 after Gunmetal set 700: its filesystem does not keep permissions. Move the data directory to a disk on this machine."#,
             ),
             (
                 DataRootError::Leftover {
                     item: Item::Replacement(KEY),
                 },
-                "/data/secrets/.root.key.tmp was left by an interrupted write. Remove it, then start Gunmetal again.",
+                r#""/data/secrets/.root.key.tmp" was left by an interrupted write. Remove it, then start Gunmetal again."#,
             ),
             (
                 DataRootError::ForeignEntry {
                     parent: Item::Dir(DataDir::Secrets),
                     name: OsString::from("Notes.txt"),
                 },
-                "/data/secrets/Notes.txt was not created by Gunmetal. Move it out of the secrets directory.",
+                r#""/data/secrets/Notes.txt" was not created by Gunmetal. Move it out of the secrets directory."#,
+            ),
+            (
+                DataRootError::ForeignEntry {
+                    parent: Item::Dir(DataDir::Secrets),
+                    name: OsString::from("evil\n\x1b[31mx"),
+                },
+                "\"/data/secrets/evil\\n\\u{1b}[31mx\" was not created by Gunmetal. Move it out of the secrets directory.",
             ),
         ];
         let explained: Vec<(DataRootError, String)> = cases
@@ -538,10 +548,10 @@ mod tests {
         assert_eq!(
             messages,
             [
-                "Could not open /data/durable/config.toml: permission denied.",
-                "Could not read /data/durable/config.toml: is a directory.",
-                "/data/durable/config.toml is longer than 65536 bytes, which no Gunmetal configuration needs.",
-                "/data/durable/config.toml is not UTF-8 text.",
+                r#"Could not open "/data/durable/config.toml": permission denied."#,
+                r#"Could not read "/data/durable/config.toml": is a directory."#,
+                r#""/data/durable/config.toml" is longer than 65536 bytes, which no Gunmetal configuration needs."#,
+                r#""/data/durable/config.toml" is not UTF-8 text."#,
             ]
         );
     }

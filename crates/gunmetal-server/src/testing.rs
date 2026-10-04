@@ -41,6 +41,17 @@ impl Write for Capture {
     }
 }
 
+/// Whether a refused start left the scratch directory without a `durable`
+/// layout directory. The start never opened a [`gunmetal_fs::dataroot::DataRoot`],
+/// so this is observed by path.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a refused start never opens a DataRoot, so emptiness of the scratch directory can only be observed by path"
+)]
+pub fn durable_missing(dir: &gunmetal_testkit::tempdir::TempDir) -> bool {
+    !dir.path().join("durable").exists()
+}
+
 impl Capture {
     /// Everything written so far.
     pub fn text(&self) -> String {

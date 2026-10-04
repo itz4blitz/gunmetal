@@ -25,7 +25,7 @@ use gunmetal_fs::host::HostFacts;
 
 use crate::app::{AppState, Host, StartError, VERSION};
 use crate::clock::SystemClock;
-use crate::config::Env;
+use crate::config::{ConfigError, Env};
 use crate::datadir;
 use crate::host::{self, Privileges};
 
@@ -337,15 +337,13 @@ fn serve(
     let env = Env::read(vars);
     let from_env = env.as_ref().ok().and_then(|env| env.data_dir.as_ref());
     let dir = datadir::choose(command.data_dir.as_ref(), from_env);
-    let started = env.map_err(StartError::Config).and_then(|env| {
-        start_from_probes(
-            host::disable_core_dumps().and_then(|()| Privileges::probe()),
-            HostFacts::probe(&dir),
-            &dir,
-            &env,
-            out,
-        )
-    });
+    let started = start_from_probes(
+        host::disable_core_dumps().and_then(|()| Privileges::probe()),
+        HostFacts::probe(&dir),
+        &dir,
+        env,
+        out,
+    );
     match started {
         Ok(_) => Exit::Ok,
         Err(error) => {
@@ -361,14 +359,20 @@ fn start_from_probes(
     privileges: Result<Privileges, rustix::io::Errno>,
     facts: Result<HostFacts, gunmetal_fs::dataroot::DataRootError>,
     dir: &std::path::Path,
-    env: &Env,
+    env: Result<Env, ConfigError>,
     out: Box<dyn Write + Send>,
 ) -> Result<AppState, StartError> {
-    let host = Host {
-        privileges: privileges.map_err(StartError::Os)?,
-        facts: facts.map_err(StartError::DataDir)?,
-    };
-    AppState::start(dir, &host, env, Arc::new(SystemClock), out)
+    let privileges = privileges.map_err(StartError::Os)?;
+    privileges.check().map_err(StartError::Privileged)?;
+    let env = env.map_err(StartError::Config)?;
+    let facts = facts.map_err(StartError::DataDir)?;
+    AppState::start(
+        dir,
+        &Host { privileges, facts },
+        &env,
+        Arc::new(SystemClock),
+        out,
+    )
 }
 
 #[cfg(test)]
@@ -760,7 +764,7 @@ Run gunmetal --help for the commands and options.
             Err(Errno::PERM),
             HostFacts::probe(dir.path()),
             dir.path(),
-            &env,
+            Ok(env.clone()),
             Box::new(out.clone()),
         );
         assert_eq!(os.err().map(|error| Exit::of(&error)), Some(Exit::Os));
@@ -774,7 +778,7 @@ Run gunmetal --help for the commands and options.
             }),
             facts,
             dir.path(),
-            &env,
+            Ok(env.clone()),
             Box::new(Capture::default()),
         );
         assert_eq!(
@@ -789,10 +793,83 @@ Run gunmetal --help for the commands and options.
             }),
             HostFacts::probe(dir.path()),
             dir.path(),
-            &env,
+            Ok(env),
             Box::new(Capture::default()),
         );
         assert!(started.is_ok());
+    }
+
+    /// Verifies: SEC-OPS-053
+    #[test]
+    fn root_is_refused_before_a_missing_data_directory_or_a_stray_variable() {
+        let dir = gunmetal_testkit::tempdir::TempDir::new("cli-root-first").expect("scratch");
+        let missing = std::path::PathBuf::from(format!("{}/gone", dir.path().display()));
+        let root = Privileges {
+            euid: 0,
+            effective: 0,
+            permitted: 0,
+        };
+        let out = Capture::default();
+        let missing_dir = start_from_probes(
+            Ok(root),
+            Err(DataRootError::Io {
+                item: gunmetal_fs::dataroot::Item::Root,
+                op: gunmetal_fs::dataroot::Op::Probe,
+                kind: std::io::ErrorKind::NotFound,
+            }),
+            &missing,
+            Ok(Env::default()),
+            Box::new(out.clone()),
+        );
+        assert_eq!(
+            missing_dir.err().map(|error| Exit::of(&error)),
+            Some(Exit::Privileged)
+        );
+        assert_eq!(out.text(), "");
+        let stray = start_from_probes(
+            Ok(root),
+            HostFacts::probe(dir.path()),
+            dir.path(),
+            Err(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
+            Box::new(Capture::default()),
+        );
+        assert_eq!(
+            stray.err().map(|error| Exit::of(&error)),
+            Some(Exit::Privileged)
+        );
+        assert!(crate::testing::durable_missing(&dir));
+        let caps = start_from_probes(
+            Ok(Privileges {
+                euid: 1000,
+                effective: 0,
+                permitted: 0x400,
+            }),
+            HostFacts::probe(dir.path()),
+            dir.path(),
+            Ok(Env::default()),
+            Box::new(Capture::default()),
+        );
+        assert_eq!(
+            caps.err().map(|error| Exit::of(&error)),
+            Some(Exit::Privileged)
+        );
+        let unprivileged = Privileges {
+            euid: 1000,
+            effective: 0,
+            permitted: 0,
+        };
+        let stray_after_check = start_from_probes(
+            Ok(unprivileged),
+            HostFacts::probe(dir.path()),
+            dir.path(),
+            Err(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
+            Box::new(Capture::default()),
+        );
+        assert_eq!(
+            stray_after_check.err().map(|error| Exit::of(&error)),
+            Some(Exit::Config)
+        );
+        assert!(crate::testing::durable_missing(&dir));
     }
 
     #[test]

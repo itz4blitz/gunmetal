@@ -23,9 +23,9 @@
 //!   SEC-OPS-029, SEC-PRV-042).
 //! - **URLs are redacted.** A URL is logged only as a [`LoggedUrl`], which
 //!   drops the user information, the query string and the fragment and
-//!   replaces every path segment that is not a short plain word, so stream
-//!   signatures, invitation, share and pairing codes and OAuth codes and
-//!   states never reach a line (SEC-IAM-047).
+//!   replaces every non-empty path segment, so stream signatures,
+//!   invitation, share and pairing codes, OAuth codes and states, titles
+//!   and search terms never reach a line (SEC-IAM-047, SEC-PRV-043).
 //! - **Debug switches itself off.** The level defaults to info. Debug level
 //!   is switched on for a stated time of at most 24 hours, only once the
 //!   audit log has the [`SecurityEvent::GmDebugLoggingEnabled`] record, and
@@ -58,9 +58,6 @@ const WITHHELD: &str = "[withheld]";
 /// What a redacted part of a URL is written as.
 const REDACTED: &str = "[redacted]";
 
-/// The longest path segment a [`LoggedUrl`] keeps.
-const MAX_PLAIN_SEGMENT: usize = 16;
-
 /// How important an event is. Events below the logger's level are dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
@@ -89,11 +86,10 @@ impl Level {
 
 /// A URL with everything that could carry a secret or a title taken out.
 ///
-/// Built only by [`LoggedUrl::redact`]: the scheme and host stay, the user
-/// information, query and fragment go, and each path segment stays only
-/// when it is a plain word of at most 16 lower-case letters, digits, `.`,
-/// `-` and `_`. Capability tokens, codes and percent-encoded titles are
-/// longer or use other characters, so they are replaced (SEC-IAM-047).
+/// Built only by [`LoggedUrl::redact`]: a recognised scheme and its host
+/// stay, the user information, query and fragment go, and every non-empty
+/// path segment is replaced. Until WP-118 can keep a route template's
+/// literal segments, the logger fails closed (SEC-IAM-047, SEC-PRV-043).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoggedUrl(String);
 
@@ -107,18 +103,24 @@ impl LoggedUrl {
             None => (url, ""),
         };
         let (origin, path) = match url.split_once("://") {
-            Some((scheme, rest)) => {
+            Some((scheme, rest)) if is_scheme(scheme) => {
                 let (authority, path) = rest.find('/').map_or((rest, ""), |at| rest.split_at(at));
                 let host = authority
                     .rsplit_once('@')
                     .map_or(authority, |(_, host)| host);
                 (format!("{scheme}://{host}"), path)
             }
-            None => (String::new(), url),
+            _ => (String::new(), url),
         };
         let path: Vec<&str> = path
             .split('/')
-            .map(|segment| if plain(segment) { segment } else { REDACTED })
+            .map(|segment| {
+                if segment.is_empty() {
+                    segment
+                } else {
+                    REDACTED
+                }
+            })
             .collect();
         Self(format!("{origin}{}{query}", path.join("/")))
     }
@@ -130,13 +132,17 @@ impl LoggedUrl {
     }
 }
 
-/// Whether a path segment is a short plain word, which a [`LoggedUrl`]
-/// keeps. The empty segment before a leading `/` is one.
-fn plain(segment: &str) -> bool {
-    segment.len() <= MAX_PLAIN_SEGMENT
-        && segment
-            .bytes()
-            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_'))
+/// Whether `text` is a URI scheme: `[a-z][a-z0-9+.-]*`. Anything else
+/// before `://` is treated as a path, so a secret cannot hide in a fake
+/// scheme.
+fn is_scheme(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    match bytes.next() {
+        Some(b'a'..=b'z') => {
+            bytes.all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'+' | b'.' | b'-'))
+        }
+        _ => false,
+    }
 }
 
 /// The value of one field.
@@ -363,7 +369,8 @@ fn push_key(line: &mut String, key: &str) {
 struct State {
     out: Box<dyn Write + Send>,
     base: Level,
-    debug_until: Option<Timestamp>,
+    /// When debug is on: when the window opened and when it must end.
+    debug_window: Option<(Timestamp, Timestamp)>,
 }
 
 /// The value inside the lock, even if a previous holder panicked. Writing
@@ -394,7 +401,7 @@ impl Logger {
             state: Mutex::new(State {
                 out,
                 base,
-                debug_until: None,
+                debug_window: None,
             }),
         }
     }
@@ -443,7 +450,7 @@ impl Logger {
             .min(MAX_DEBUG_MS);
         let until = Timestamp::from_millis(now.millis() + ms).unwrap_or(Timestamp::MAX);
         let mut state = recover(self.state.lock());
-        state.debug_until = Some(until);
+        state.debug_window = Some((now, until));
         Self::write(
             &mut state,
             now,
@@ -454,12 +461,12 @@ impl Logger {
     }
 
     /// The level at `now`, switching debug level off, and logging that, when
-    /// its time is up.
+    /// its time is up or the clock has stepped back before the window opened.
     fn settle(state: &mut State, now: Timestamp) -> Level {
-        match state.debug_until {
-            Some(until) if now < until => Level::Debug,
+        match state.debug_window {
+            Some((opened, until)) if now >= opened && now < until => Level::Debug,
             Some(_) => {
-                state.debug_until = None;
+                state.debug_window = None;
                 let base = state.base;
                 Self::write(state, now, base, &LogEvent::DebugLoggingEnded);
                 base
@@ -736,7 +743,7 @@ mod tests {
             line(Level::Info, &fields),
             format!(
                 "{HEAD},{}}}\n",
-                r#""n":18446744073709551615,"t":"1970-01-01T00:00:00.000Z","u":"https://example.org/api/v1?[redacted]""#
+                r#""n":18446744073709551615,"t":"1970-01-01T00:00:00.000Z","u":"https://example.org/[redacted]/[redacted]?[redacted]""#
             )
         );
     }
@@ -801,29 +808,51 @@ mod tests {
     /// Verifies: SEC-IAM-047, SEC-PRV-042, SEC-TM-057
     #[test]
     fn redacts_tokens_codes_and_query_strings_from_urls() {
+        const CANARY: &str = "canary7f3a";
         let cases = [
             (
                 "https://music.example.org/s/AbCdEfGhIjKlMnOpQrStUv/stream?sig=1",
-                "https://music.example.org/s/[redacted]/stream?[redacted]",
+                "https://music.example.org/[redacted]/[redacted]/[redacted]?[redacted]",
             ),
             (
                 "https://user:pass@example.org:8443/invite/4fq7k2m9x3c8v5b1n6z0p2r4t7",
-                "https://example.org:8443/invite/[redacted]",
+                "https://example.org:8443/[redacted]/[redacted]",
             ),
             (
                 "https://example.org/oauth/callback?code=abc&state=xyz#frag",
-                "https://example.org/oauth/callback?[redacted]",
+                "https://example.org/[redacted]/[redacted]?[redacted]",
             ),
-            ("/pair/ABCD-EFGH", "/pair/[redacted]"),
-            ("/music/A%20Love%20Supreme.flac", "/music/[redacted]"),
+            ("/pair/ABCD-EFGH", "/[redacted]/[redacted]"),
+            ("/music/A%20Love%20Supreme.flac", "/[redacted]/[redacted]"),
             ("https://example.org", "https://example.org"),
             ("https://example.org/", "https://example.org/"),
-            ("/a-b_c.d/0123456789abcdef", "/a-b_c.d/0123456789abcdef"),
+            ("/a-b_c.d/0123456789abcdef", "/[redacted]/[redacted]"),
             ("/0123456789abcdefg", "/[redacted]"),
-            ("relative#only", "relative"),
+            ("relative#only", "[redacted]"),
+            ("/library/canary7f3a", "/[redacted]/[redacted]"),
+            ("/pair/bcdfghjk", "/[redacted]/[redacted]"),
+            (
+                "/s/0123456789abcdef/stream",
+                "/[redacted]/[redacted]/[redacted]",
+            ),
+            (
+                "/invite/4fq7k2m9x3c8v5b1n6z0p2r4t7/next://x",
+                "/[redacted]/[redacted]/[redacted]//[redacted]",
+            ),
+            (
+                "/invite/canary7f3a/next://x",
+                "/[redacted]/[redacted]/[redacted]//[redacted]",
+            ),
+            ("://x", "[redacted]//[redacted]"),
+            (
+                "hTTP://example.org/library/canary7f3a",
+                "[redacted]//[redacted]/[redacted]/[redacted]",
+            ),
         ];
         for (url, expected) in cases {
             assert_eq!(LoggedUrl::redact(url).as_str(), expected);
+            assert!(!LoggedUrl::redact(url).as_str().contains(CANARY));
+            assert!(!expected.contains(CANARY));
         }
     }
 
@@ -842,7 +871,7 @@ mod tests {
             Field {
                 key: "path",
                 class: DataClass::Public,
-                value: Value::Url(LoggedUrl::redact(&format!("/library/{CANARY}%20title"))),
+                value: Value::Url(LoggedUrl::redact(&format!("/library/{CANARY}"))),
             },
             text("title", DataClass::Library, CANARY),
             text("search", DataClass::Activity, CANARY),
@@ -854,7 +883,7 @@ mod tests {
             written,
             format!(
                 "{HEAD},{}}}\n",
-                r#""url":"https://example.org/search?[redacted]","path":"/library/[redacted]","title":"[withheld]","search":"[withheld]","authorization":"[withheld]""#
+                r#""url":"https://example.org/[redacted]?[redacted]","path":"/[redacted]/[redacted]","title":"[withheld]","search":"[withheld]","authorization":"[withheld]""#
             )
         );
     }
@@ -1094,6 +1123,18 @@ mod tests {
         );
         assert_eq!(log.level(), Level::Info);
         assert_eq!(out.text(), "");
+    }
+
+    /// Verifies: SEC-OPS-029
+    #[test]
+    fn a_clock_that_steps_back_ends_the_debug_window() {
+        let (log, clock, _) = logger(Level::Info);
+        let sink = Recording::new(true);
+        log.enable_debug(Duration::from_secs(3_600), None, &sink)
+            .expect("recorded");
+        assert_eq!(log.level(), Level::Debug);
+        clock.advance(-1);
+        assert_eq!(log.level(), Level::Info);
     }
 
     /// Verifies: SEC-OPS-029

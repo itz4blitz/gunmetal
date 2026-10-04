@@ -55,6 +55,17 @@ fn path(dir: &TempDir) -> &str {
     dir.path().to_str().expect("a UTF-8 temporary directory")
 }
 
+/// Whether a refused start left the scratch directory without a `durable`
+/// layout directory. The start never opened a [`DataRoot`], so this is
+/// observed by path.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a refused start never opens a DataRoot, so emptiness of the scratch directory can only be observed by path"
+)]
+fn durable_missing(dir: &TempDir) -> bool {
+    !dir.path().join("durable").exists()
+}
+
 /// The facts about this host, which must not be running the suite as root:
 /// the server would refuse to start, and root ignores the modes checked
 /// here.
@@ -164,7 +175,7 @@ fn serve_refuses_a_data_directory_that_does_not_exist() {
             Exit::DataDir,
             String::new(),
             format!(
-                "gunmetal: The data directory {missing} does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 '{missing}'\n"
+                "gunmetal: The data directory {missing:?} does not exist. Create it as the user Gunmetal runs as: mkdir -m 700 '{missing}'\n"
             )
         )
     );
@@ -184,13 +195,20 @@ fn serve_refuses_a_secret_in_the_environment_before_it_opens_anything() {
         err,
         "gunmetal: GUNMETAL_OIDC_CLIENT_SECRET holds a secret in a plain environment variable, which other processes and crash reports can read. Put the secret in a file only Gunmetal's user can read and set GUNMETAL_OIDC_CLIENT_SECRET_FILE to that file's path, or pass it as a systemd credential, then unset GUNMETAL_OIDC_CLIENT_SECRET.\n"
     );
-    // Nothing was created: a strict open of the untouched directory finds
-    // the layout missing and makes it, with nothing to repair.
-    let secrets = DataPath::constant(DataDir::Secrets, "probe");
-    let root = DataRoot::open(dir.path(), &facts(&dir), Policy::DEFAULT)
-        .expect("opens")
-        .root;
-    assert!(root.create_new(&secrets).is_ok());
+    assert!(durable_missing(&dir));
+}
+
+/// Verifies that `main` forwards an empty argument list to the library.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "this test starts only this package's gunmetal binary with no arguments, to cover main"
+)]
+#[test]
+fn the_binary_without_a_subcommand_exits_with_the_usage_code() {
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_gunmetal"))
+        .status()
+        .expect("the binary ran");
+    assert_eq!(status.code(), Some(64));
 }
 
 #[test]
