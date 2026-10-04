@@ -1775,9 +1775,9 @@ fn no_telemetry_or_crash_reporting_sdk_can_be_linked() {
 #[test]
 fn no_c_media_image_font_or_subtitle_library_can_be_linked() {
     // The same bans serve SEC-TM-034, but a list of names cannot fail for a
-    // native crate it does not name. SEC-TM-034 is proved once a check
-    // compares every `-sys`, `links` and unsafe-using crate in the shipped
-    // graph with a justified allowlist, so this test does not claim it.
+    // native crate it does not name, so this test does not claim it. The
+    // gate's `xtask native-code` step proves it: see
+    // `the_gate_compares_what_ships_with_the_native_code_allow_list`.
     let expected = sorted(&[
         "ffmpeg-next",
         "ffmpeg-sys",
@@ -1827,6 +1827,57 @@ fn no_c_media_image_font_or_subtitle_library_can_be_linked() {
     );
 }
 
+/// Verifies: SEC-TM-034
+#[test]
+fn the_gate_compares_what_ships_with_the_native_code_allow_list() {
+    // The gate hands `xtask native-code` every crate cargo resolves, with
+    // every feature on, for exactly the targets deny.toml names. The check
+    // itself is proved by xtask's tests (crates/xtask/src/native_code.rs).
+    for line in [
+        "cargo metadata \"$locked\" --format-version 1 --all-features --filter-platform x86_64-unknown-linux-gnu --filter-platform aarch64-unknown-linux-gnu --filter-platform i686-unknown-linux-gnu --filter-platform wasm32-unknown-unknown >target/native-code.json",
+        "cargo run \"$locked\" -q -p xtask -- native-code target/native-code.json",
+    ] {
+        assert!(has_line(GATE, line));
+    }
+    assert_eq!(
+        rules(&array(&table(DENY, "graph"), "targets")),
+        [
+            "\"x86_64-unknown-linux-gnu\",",
+            "\"aarch64-unknown-linux-gnu\",",
+            "\"i686-unknown-linux-gnu\",",
+            "\"wasm32-unknown-unknown\",",
+        ]
+    );
+}
+
+/// Verifies: SEC-EXT-018, SEC-HIS-056
+#[test]
+fn sqlite_cannot_load_an_extension() {
+    // rusqlite's `load_extension` feature lets a connection load a native
+    // library by path. cargo-deny refuses the feature wherever it is turned
+    // on, next to the one other feature ban.
+    let bans: Vec<Vec<&str>> = DENY
+        .split("\n[[bans.features]]\n")
+        .skip(1)
+        .map(|rest| rules(&table(rest, "")))
+        .collect();
+    assert_eq!(
+        bans,
+        [
+            [
+                "crate = \"rand\"",
+                "deny = [\"small_rng\"]",
+                "reason = \"SmallRng is a non-cryptographic generator (SEC-STD-022)\"",
+            ],
+            [
+                "crate = \"rusqlite\"",
+                "deny = [\"load_extension\"]",
+                "reason = \"loads a native library into the server at run time (SEC-EXT-018, SEC-HIS-056)\"",
+            ],
+        ]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The supply chain.
 // ---------------------------------------------------------------------------
@@ -1845,6 +1896,8 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
             "cargo vet --locked \"${vet_offline[@]}\"",
             "cargo tree \"$locked\" -p gunmetal-core -e normal --target all --all-features --prefix none --format '{p}' >target/core-deps.txt",
             "cargo run \"$locked\" -q -p xtask -- core-deps target/core-deps.txt",
+            "cargo metadata \"$locked\" --format-version 1 --all-features --filter-platform x86_64-unknown-linux-gnu --filter-platform aarch64-unknown-linux-gnu --filter-platform i686-unknown-linux-gnu --filter-platform wasm32-unknown-unknown >target/native-code.json",
+            "cargo run \"$locked\" -q -p xtask -- native-code target/native-code.json",
             "cargo llvm-cov --locked --workspace \\",
             "cargo test --locked --workspace --doc",
             "cargo mutants --workspace --no-shuffle \"${scope[@]}\" --cargo-arg=--locked",
@@ -1961,8 +2014,10 @@ fn only_reviewed_crates_run_build_scripts() {
             "rustix",
             "serde",
             "serde_core",
+            "serde_json",
             "thiserror",
             "zerocopy",
+            "zmij",
         ]
     );
     // A bypass is reviewed for one version, so an update is reviewed again.

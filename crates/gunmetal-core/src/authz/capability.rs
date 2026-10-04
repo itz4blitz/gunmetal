@@ -5,11 +5,13 @@
 //! account is created or changed; the policy never sees one. The
 //! capabilities follow the table in the identity baseline
 //! (`docs/security/identity-and-access.md`, design guidance section 3),
-//! with two additions: [`Capability::LibraryAll`], which is how the owner
+//! with three additions: [`Capability::LibraryAll`], which is how the owner
 //! and administrators see every library, new ones included, without a
-//! per-library grant, and [`Capability::HostFiles`] and
-//! [`Capability::Backup`], which the host-equivalent actions of SEC-TM-017
-//! need.
+//! per-library grant; [`Capability::OwnRead`] and [`Capability::OwnWrite`],
+//! which every role's preset holds and which exist so that a credential's
+//! scope has to name its holder's own data before it can reach it
+//! (SEC-API-020); and [`Capability::HostFiles`] and [`Capability::Backup`],
+//! which the host-equivalent actions of SEC-TM-017 need.
 
 /// One thing a principal may be allowed to do.
 ///
@@ -28,6 +30,12 @@ pub enum Capability {
     LibraryDownload,
     /// `playlist.share`: share a playlist with other accounts on the server.
     PlaylistShare,
+    /// `own.read`: read what the principal's own account and profile own:
+    /// history, playlists, settings, devices and its own security log.
+    OwnRead,
+    /// `own.write`: change what the principal's own account and profile
+    /// own.
+    OwnWrite,
     /// `library.manage`: scan, edit metadata, attach lyrics or artwork.
     LibraryManage,
     /// `invite.guest`: invite a guest.
@@ -87,11 +95,13 @@ pub enum Tier {
 
 impl Capability {
     /// Every capability, in declaration order.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 23] = [
         Self::LibraryRead,
         Self::LibraryAll,
         Self::LibraryDownload,
         Self::PlaylistShare,
+        Self::OwnRead,
+        Self::OwnWrite,
         Self::LibraryManage,
         Self::InviteGuest,
         Self::InviteMember,
@@ -115,9 +125,12 @@ impl Capability {
     #[must_use]
     pub const fn tier(self) -> Tier {
         match self {
-            Self::LibraryRead | Self::LibraryAll | Self::LibraryDownload | Self::PlaylistShare => {
-                Tier::Everyday
-            }
+            Self::LibraryRead
+            | Self::LibraryAll
+            | Self::LibraryDownload
+            | Self::PlaylistShare
+            | Self::OwnRead
+            | Self::OwnWrite => Tier::Everyday,
             Self::LibraryManage
             | Self::InviteGuest
             | Self::InviteMember
@@ -141,7 +154,7 @@ impl Capability {
     /// The one bit that stands for this capability in a [`CapabilitySet`].
     const fn bit(self) -> u32 {
         // A fieldless enum's discriminant is its declaration index, below
-        // 21, so the shift stays inside 32 bits.
+        // 23, so the shift stays inside 32 bits.
         1_u32.wrapping_shl(self as u32)
     }
 }
@@ -251,7 +264,8 @@ impl Role {
 
     /// The capabilities an account of this role starts with. A member and a
     /// guest start with no management capability (SEC-HIS-013); which
-    /// libraries they see comes from their grants.
+    /// libraries they see comes from their grants. Every role reads and
+    /// changes its own data.
     #[must_use]
     pub const fn preset(self) -> CapabilitySet {
         match self {
@@ -263,8 +277,14 @@ impl Role {
                 Capability::LibraryRead,
                 Capability::LibraryDownload,
                 Capability::PlaylistShare,
+                Capability::OwnRead,
+                Capability::OwnWrite,
             ]),
-            Self::Guest => CapabilitySet::of(&[Capability::LibraryRead]),
+            Self::Guest => CapabilitySet::of(&[
+                Capability::LibraryRead,
+                Capability::OwnRead,
+                Capability::OwnWrite,
+            ]),
         }
     }
 }
@@ -278,11 +298,13 @@ mod tests {
     use Capability as C;
 
     /// The tiers, written out independently of [`Capability::tier`].
-    const TIERS: [(Capability, Tier); 21] = [
+    const TIERS: [(Capability, Tier); 23] = [
         (C::LibraryRead, Tier::Everyday),
         (C::LibraryAll, Tier::Everyday),
         (C::LibraryDownload, Tier::Everyday),
         (C::PlaylistShare, Tier::Everyday),
+        (C::OwnRead, Tier::Everyday),
+        (C::OwnWrite, Tier::Everyday),
         (C::LibraryManage, Tier::Admin),
         (C::InviteGuest, Tier::Admin),
         (C::InviteMember, Tier::Admin),
@@ -328,7 +350,9 @@ mod tests {
                 C::LibraryRead,
                 C::LibraryAll,
                 C::LibraryDownload,
-                C::PlaylistShare
+                C::PlaylistShare,
+                C::OwnRead,
+                C::OwnWrite,
             ]
         );
         assert_eq!(
@@ -384,6 +408,8 @@ mod tests {
                 C::LibraryAll,
                 C::LibraryDownload,
                 C::PlaylistShare,
+                C::OwnRead,
+                C::OwnWrite,
                 C::LibraryManage,
                 C::InviteGuest,
                 C::InviteMember,
@@ -399,9 +425,18 @@ mod tests {
         );
         assert_eq!(
             listed(Role::Member.preset()),
-            [C::LibraryRead, C::LibraryDownload, C::PlaylistShare]
+            [
+                C::LibraryRead,
+                C::LibraryDownload,
+                C::PlaylistShare,
+                C::OwnRead,
+                C::OwnWrite,
+            ]
         );
-        assert_eq!(listed(Role::Guest.preset()), [C::LibraryRead]);
+        assert_eq!(
+            listed(Role::Guest.preset()),
+            [C::LibraryRead, C::OwnRead, C::OwnWrite]
+        );
         assert_eq!(
             Role::ALL,
             [Role::Owner, Role::Administrator, Role::Member, Role::Guest]
