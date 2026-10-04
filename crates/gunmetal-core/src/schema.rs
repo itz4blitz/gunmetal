@@ -453,6 +453,32 @@ mod tests {
         );
     }
 
+    /// The class the privacy baseline lists after `class`, or `None` after
+    /// the last. The match is exhaustive, so a class added to the enum does
+    /// not compile until it has an arm here and another arm leads to it;
+    /// the list the test below walks then holds it, and the test fails
+    /// until `ALL` holds it at the same place.
+    const fn after(class: DataClass) -> Option<DataClass> {
+        match class {
+            DataClass::Public => Some(DataClass::Library),
+            DataClass::Library => Some(DataClass::Activity),
+            DataClass::Activity => Some(DataClass::Identity),
+            DataClass::Identity => Some(DataClass::Secret),
+            DataClass::Secret => None,
+        }
+    }
+
+    #[test]
+    fn all_holds_every_class_once_in_the_order_of_the_privacy_baseline() {
+        let mut walked = Vec::new();
+        let mut next = Some(DataClass::Public);
+        while let Some(class) = next {
+            walked.push(class);
+            next = after(class);
+        }
+        assert_eq!(walked, DataClass::ALL);
+    }
+
     #[test]
     fn refuses_two_parts_with_the_same_name() {
         assert_eq!(

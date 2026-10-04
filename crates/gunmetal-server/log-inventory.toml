@@ -1,0 +1,59 @@
+# The log inventory (SEC-PRV-044): every event the server's diagnostic log
+# can carry, with its level, its fields and their data classes (SEC-PRV-001),
+# where it goes and how long it is kept. The audit log is a separate store
+# with its own catalogue (crates/gunmetal-core/src/audit_event.rs, WP-069).
+#
+# A test in crates/gunmetal-server/src/log.rs compares this file with the
+# typed LogEvent enum and fails when they differ, so an event the code can
+# emit is always listed here. A package that adds an event adds its entry,
+# in the order of the enum.
+#
+# Every line goes to standard output as one JSON object, which the service
+# manager stores: the system journal under systemd, the engine's log under a
+# container. Its retention is the host's, as ADM-111 and the install
+# documentation describe; the server keeps no copy of its own.
+
+[[event]]
+name = "sys_startup"
+level = "info"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = [
+    { name = "version", class = "public" },
+]
+
+[[event]]
+name = "gm_data_root_mode_repaired"
+level = "warn"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = [
+    { name = "item", class = "public" },
+    { name = "from", class = "public" },
+    { name = "to", class = "public" },
+]
+
+[[event]]
+name = "gm_data_root_leftover_removed"
+level = "warn"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = [
+    { name = "item", class = "public" },
+]
+
+[[event]]
+name = "gm_debug_logging_enabled"
+level = "warn"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = [
+    { name = "until", class = "public" },
+]
+
+[[event]]
+name = "gm_debug_logging_ended"
+level = "warn"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = []

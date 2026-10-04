@@ -16,13 +16,9 @@ use crate::client_context::PathClass;
 use crate::id::PublicId;
 
 /// The actions any principal may ask for with no capability: signing out,
-/// and its own data.
-const NEED_NOTHING: [Action; 4] = [
-    Action::SignOut,
-    Action::ReadOwnData,
-    Action::WriteOwnData,
-    Action::ManageOwnCredentials,
-];
+/// and managing its own credentials. Reading and changing its own data
+/// need `own.read` and `own.write`.
+const NEED_NOTHING: [Action; 2] = [Action::SignOut, Action::ManageOwnCredentials];
 
 /// The capabilities nobody but the owner may hold.
 const OWNER_ONLY: [Capability; 6] = [
@@ -166,7 +162,7 @@ fn scope_reaches(scope: &Scope, library: &PublicId) -> bool {
 proptest! {
     /// Verifies: SEC-IAM-068
     #[test]
-    fn a_principal_with_no_grants_may_only_sign_out_and_use_its_own_data(
+    fn a_principal_with_no_grants_may_only_sign_out_and_manage_its_own_credentials(
         mut principal in facts(),
         action in action(),
         resource in resource(),
@@ -196,7 +192,9 @@ proptest! {
         let result = decide(&principal, action, &resource, &context(ranks));
         for n in 0..4 {
             let library = library(n);
-            let held = result.as_ref().is_ok_and(|permit| permit.libraries().contains(&library));
+            // A pattern, not a closure: the closure ran only on a permit,
+            // which a run need not generate.
+            let held = matches!(&result, Ok(permit) if permit.libraries().contains(&library));
             let browse = decide(&principal, Action::BrowseLibrary, &ResourceFacts::Library(library), &at_home());
             prop_assert!([!held, allowed(&browse)].contains(&true));
         }
@@ -286,16 +284,22 @@ proptest! {
         let with_scope = decide(&scoped, action, &resource, &context);
         let without = decide(&holder, action, &resource, &context);
         prop_assert!(!allowed(&with_scope) || allowed(&without));
-        if let (Ok(with_scope), Ok(without)) = (&with_scope, &without) {
-            for n in 0..4 {
-                let library = library(n);
-                let seen = with_scope.libraries().contains(&library);
-                let reached = [
-                    without.libraries().contains(&library),
-                    scope_reaches(&scope, &library),
-                ];
-                prop_assert!(!seen || reached == [true, true]);
-            }
+        // A scope that names no capability allows nothing but signing out,
+        // the holder's own data included.
+        let mut empty = scoped.clone();
+        empty.scope = Some(Scope { capabilities: CapabilitySet::EMPTY, libraries: scope.libraries.clone() });
+        let with_empty_scope = decide(&empty, action, &resource, &context);
+        prop_assert!(!allowed(&with_empty_scope) || action == Action::SignOut);
+        // Worked out for every case, permitted or not, so that whether a run
+        // generates a permit does not change what the run covers.
+        for n in 0..4 {
+            let library = library(n);
+            let seen = matches!(&with_scope, Ok(permit) if permit.libraries().contains(&library));
+            let reached = [
+                matches!(&without, Ok(permit) if permit.libraries().contains(&library)),
+                scope_reaches(&scope, &library),
+            ];
+            prop_assert!(!seen || reached == [true, true]);
         }
         let credential = matches!(
             action,
@@ -315,11 +319,42 @@ proptest! {
         creator in facts(),
         requested in scope(),
     ) {
-        if let Ok(issued) = may_issue(&creator, &requested) {
-            prop_assert_eq!(&issued, &requested);
+        // A random request almost always names something the creator lacks,
+        // so on some runs no case was permitted and the checks below never
+        // ran. Every case therefore also asks, as the same creator without
+        // a scope, for the part of the request it may hand out: what it can
+        // use, less the owner-only capabilities, on the libraries it may
+        // browse. That is always permitted, so every case meets a permit.
+        let mut unscoped = creator.clone();
+        unscoped.scope = None;
+        let mut libraries = Vec::new();
+        for library in &requested.libraries {
+            let browse = decide(&unscoped, Action::BrowseLibrary, &ResourceFacts::Library(*library), &at_home());
+            if allowed(&browse) {
+                libraries.push(*library);
+            }
+        }
+        let narrowed = Scope {
+            capabilities: requested
+                .capabilities
+                .intersection(unscoped.effective())
+                .difference(CapabilitySet::of(&OWNER_ONLY)),
+            libraries,
+        };
+        let narrowed_result = may_issue(&unscoped, &narrowed);
+        prop_assert_eq!(&narrowed_result, &Ok(narrowed.clone()));
+        if creator.scope.is_some() {
+            prop_assert_eq!(may_issue(&creator, &narrowed), Err(Denial::ScopedCredential));
+        }
+        for (creator, asked, result) in [
+            (&creator, &requested, may_issue(&creator, &requested)),
+            (&unscoped, &narrowed, narrowed_result),
+        ] {
+            let Ok(issued) = result else { continue };
+            prop_assert_eq!(&issued, asked);
             prop_assert!(creator.scope.is_none());
             prop_assert!(issued.capabilities.is_subset(creator.effective()));
-            prop_assert!(OWNER_ONLY.iter().all(|capability| !issued.capabilities.contains(*capability)));
+            prop_assert_eq!(issued.capabilities.intersection(CapabilitySet::of(&OWNER_ONLY)), CapabilitySet::EMPTY);
             let every = creator
                 .capabilities
                 .intersection(creator.kind.ceiling())
