@@ -30,6 +30,7 @@ pub mod ratelimit;
 pub mod retention;
 pub mod schema;
 pub mod shuffle;
+pub mod tags;
 pub mod text;
 pub mod time;
 pub mod token;
