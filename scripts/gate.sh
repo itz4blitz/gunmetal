@@ -13,15 +13,16 @@
 # GATE_SKIP_MUTANTS=1 runs every step except mutation testing.
 #
 # GATE_MUTANTS_SHARD=k/n runs only mutation testing, and only shard k of n
-# of the whole workspace's mutants; k counts from 0. Mutant i of the list
+# of the mutants it would otherwise test (the whole workspace's, or with
+# GATE_MUTANTS_DIFF the diff's); k counts from 0. Mutant i of that list
 # belongs to shard i mod n, so the n shards together test every mutant
-# exactly once. CI's full gate is one job with GATE_SKIP_MUTANTS=1 and one
-# job per shard, because a single job cannot finish the full mutation run
+# exactly once. CI runs the gate as one job with GATE_SKIP_MUTANTS=1 and one
+# job per shard, because a single job cannot finish a large mutation run
 # within its time limit.
 #
-# At most one of the three may be set, since each chooses which mutants the
-# run tests. With none of them the script runs every step over the whole
-# workspace, which is the definition of done.
+# GATE_SKIP_MUTANTS=1 cannot be combined with either of the other two, since
+# they choose which mutants to test. With none of them the script runs every
+# step over the whole workspace, which is the definition of done.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -44,12 +45,8 @@ fi
 if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then
   usage "GATE_MUTANTS_SHARD must be k/n with 0 <= k < n <= 9999, not '$mutants_shard'"
 fi
-switches=()
-if [[ -n "$mutants_diff" ]]; then switches+=(GATE_MUTANTS_DIFF); fi
-if [[ -n "$mutants_shard" ]]; then switches+=(GATE_MUTANTS_SHARD); fi
-if [[ "$skip_mutants" == 1 ]]; then switches+=(GATE_SKIP_MUTANTS); fi
-if ((${#switches[@]} > 1)); then
-  usage "${switches[*]} cannot be combined: each one chooses which mutants this run tests"
+if [[ "$skip_mutants" == 1 && -n "$mutants_diff$mutants_shard" ]]; then
+  usage "GATE_SKIP_MUTANTS=1 cannot be combined with GATE_MUTANTS_DIFF or GATE_MUTANTS_SHARD: it tests no mutants, and they choose which to test"
 fi
 
 # A distro-packaged Rust has no rustup llvm-tools component, so point
@@ -148,8 +145,8 @@ checks() {
   cargo test --locked --workspace --doc
 }
 
-# Mutation testing: the whole workspace, the code changed since a ref, or
-# one shard of the whole workspace.
+# Mutation testing: the whole workspace or the code changed since a ref, and
+# of those mutants either all or one shard.
 mutants() {
   echo "==> mutation testing, zero survivors"
   scope=()
@@ -158,10 +155,11 @@ mutants() {
     trap 'rm -f "$diff_file"' EXIT
     git diff --no-ext-diff "${mutants_diff}...HEAD" >"$diff_file"
     echo "only mutants in code changed since ${mutants_diff}"
-    scope=(--in-diff "$diff_file")
-  elif [[ -n "$mutants_shard" ]]; then
-    echo "only shard ${mutants_shard} of the workspace's mutants"
-    scope=(--shard "$mutants_shard" --sharding round-robin)
+    scope+=(--in-diff "$diff_file")
+  fi
+  if [[ -n "$mutants_shard" ]]; then
+    echo "only shard ${mutants_shard} of those mutants"
+    scope+=(--shard "$mutants_shard" --sharding round-robin)
   fi
   cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
 }

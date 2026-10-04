@@ -1966,25 +1966,44 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
     ));
 }
 
-/// The full mutation run is split across jobs and loses no mutant: the
-/// gate's switches cannot be combined into a run that tests nothing, the
-/// shards partition one list, and the one required check fails unless every
-/// job it waits for ended as it should.
+/// Mutation testing is split across jobs and loses no mutant, in a full run
+/// and in a pull request's diff-scoped run alike: the gate's switches cannot
+/// be combined into a run that tests nothing, the shards partition one list,
+/// and the one required check fails unless every job it waits for succeeded.
 #[test]
 fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
-    // The script refuses a switch it cannot read and any two together.
+    // The script refuses a switch it cannot read, and skipping mutation
+    // testing together with a switch that chooses which mutants to test.
     for line in [
         r#"*) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;"#,
         r#"if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then"#,
         r#"if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then"#,
-        r"if ((${#switches[@]} > 1)); then",
-        r#"usage "${switches[*]} cannot be combined: each one chooses which mutants this run tests""#,
-        // A shard is one slice of the same list the unscoped run tests.
-        r#"scope=(--shard "$mutants_shard" --sharding round-robin)"#,
-        r#"cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked"#,
+        r#"if [[ "$skip_mutants" == 1 && -n "$mutants_diff$mutants_shard" ]]; then"#,
+        r#"usage "GATE_SKIP_MUTANTS=1 cannot be combined with GATE_MUTANTS_DIFF or GATE_MUTANTS_SHARD: it tests no mutants, and they choose which to test""#,
     ] {
         assert!(has_line(GATE, line), "{line}");
     }
+    // The diff scope filters the workspace's list first and the shard then
+    // takes its slice of what is left, so the shards of one diff-scoped run
+    // together test every mutant the diff touches exactly once.
+    assert!(GATE.contains(
+        r#"
+  scope=()
+  if [[ -n "$mutants_diff" ]]; then
+    diff_file=$(mktemp)
+    trap 'rm -f "$diff_file"' EXIT
+    git diff --no-ext-diff "${mutants_diff}...HEAD" >"$diff_file"
+    echo "only mutants in code changed since ${mutants_diff}"
+    scope+=(--in-diff "$diff_file")
+  fi
+  if [[ -n "$mutants_shard" ]]; then
+    echo "only shard ${mutants_shard} of those mutants"
+    scope+=(--shard "$mutants_shard" --sharding round-robin)
+  fi
+  cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
+}
+"#
+    ));
     // What runs: every other step unless this is a shard, and mutation
     // testing unless it is skipped. Nothing follows that could undo it.
     assert!(GATE.ends_with(
@@ -2011,37 +2030,33 @@ fi
             "gate",
         ]
     );
-    let diff_scoped = "github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-')";
 
-    // Without a diff scope, the checks job leaves mutation testing to the
-    // shards. With one, it is the whole gate and the shards do not run.
+    // The checks job never mutation-tests; the shards always do.
     let checks = workflow_job(CI, "checks");
-    for line in [
-        format!(
-            "GATE_MUTANTS_DIFF: ${{{{ {diff_scoped} && format('origin/{{0}}', github.base_ref) || '' }}}}"
-        ),
-        format!("GATE_SKIP_MUTANTS: ${{{{ {diff_scoped} && '0' || '1' }}}}"),
-        "- run: scripts/gate.sh".to_owned(),
-    ] {
-        assert!(checks.contains(&line.as_str()), "{line}");
-    }
+    assert!(checks.contains(&"GATE_SKIP_MUTANTS: 1"));
+    assert!(checks.contains(&"- run: scripts/gate.sh"));
+    assert!(!checks.iter().any(|line| line.contains("GATE_MUTANTS_")));
 
-    // Shards 0 to 9 of 10: each index once, and a failed shard does not
-    // cancel the others, so one run reports every missed mutant.
+    // Shards 0 to 9 of 10 run for every event: each index once, and a failed
+    // shard does not cancel the others, so one run reports every missed
+    // mutant. A pull request into a wave branch scopes them to its diff,
+    // which needs the base branch's history.
     let mutants = workflow_job(CI, "mutants");
     for line in [
-        format!("if: ${{{{ !({diff_scoped}) }}}}"),
-        "fail-fast: false".to_owned(),
-        "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]".to_owned(),
-        "GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10".to_owned(),
-        "- run: scripts/gate.sh".to_owned(),
+        "fail-fast: false",
+        "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
+        "fetch-depth: 0",
+        "GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}",
+        "GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10",
+        "- run: scripts/gate.sh",
     ] {
-        assert!(mutants.contains(&line.as_str()), "{line}");
+        assert!(mutants.contains(&line), "{line}");
     }
+    assert!(!mutants.iter().any(|line| line.starts_with("if:")));
 
     // The required check waits for every other job, runs even when one of
     // them failed or was cancelled (a skipped job would count as passed),
-    // and compares each result with the one this kind of run must have.
+    // and fails unless every one of them succeeded.
     let gate = workflow_job(CI, "gate");
     let others: Vec<&str> = workflow_jobs(CI)
         .into_iter()
@@ -2050,16 +2065,12 @@ fi
     assert!(gate.contains(&"if: ${{ always() }}"));
     assert!(gate.contains(&format!("needs: [{}]", others.join(", ")).as_str()));
     for line in [
-        format!("DIFF_SCOPED: ${{{{ {diff_scoped} }}}}"),
-        "NEEDS: ${{ toJSON(needs) }}".to_owned(),
-        "mutants=success".to_owned(),
-        "if [[ \"$DIFF_SCOPED\" == true ]]; then".to_owned(),
-        "mutants=skipped".to_owned(),
-        r#"wrong=$(jq -r --arg mutants "$mutants" '[to_entries[] | select(.value.result != (if .key == "mutants" then $mutants else "success" end)) | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")"#.to_owned(),
-        "if [[ -n \"$wrong\" ]]; then".to_owned(),
-        "exit 1".to_owned(),
+        "NEEDS: ${{ toJSON(needs) }}",
+        r#"wrong=$(jq -r '[to_entries[] | select(.value.result != "success") | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")"#,
+        "if [[ -n \"$wrong\" ]]; then",
+        "exit 1",
     ] {
-        assert!(gate.contains(&line.as_str()), "{line}");
+        assert!(gate.contains(&line), "{line}");
     }
 
     // No job can hang: each has a limit.

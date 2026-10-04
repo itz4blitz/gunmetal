@@ -35,12 +35,13 @@ scripts/gate.sh
 On a machine without network, `GATE_OFFLINE=1 scripts/gate.sh` runs the
 dependency checks against cached data.
 
-The full mutation run is the slow step. `GATE_SKIP_MUTANTS=1` runs every
-step except it, and `GATE_MUTANTS_SHARD=k/n` runs only it, on shard `k` of
-`n` (counting from 0). The `n` shards together test every mutant exactly
-once, so a full gate may be run as one command or as those `n + 1`. The
-script refuses a switch it cannot read and any two of `GATE_MUTANTS_DIFF`,
-`GATE_MUTANTS_SHARD` and `GATE_SKIP_MUTANTS` together.
+The mutation run is the slow step. `GATE_SKIP_MUTANTS=1` runs every step
+except it, and `GATE_MUTANTS_SHARD=k/n` runs only it, on shard `k` of `n`
+(counting from 0) of the mutants it would otherwise test, with or without
+`GATE_MUTANTS_DIFF`. The `n` shards together test every one of those
+mutants exactly once, so a gate may be run as one command or as those
+`n + 1`. The script refuses a switch it cannot read, and
+`GATE_SKIP_MUTANTS=1` together with either of the other two.
 
 ## Security
 
@@ -96,7 +97,7 @@ work mergeable. The owner accepted them on 2026-10-02
    mutation-tests only the code the pull request changes
    (`GATE_MUTANTS_DIFF`). Every push to a wave branch or `main`, every pull
    request into `main` and a nightly run on `main` run the full gate.
-   CI splits the full gate's mutation run across ten jobs
+   CI splits the mutation run, diff-scoped or full, across ten jobs
    (`GATE_MUTANTS_SHARD`) that together test every mutant. The required
    check is still the one named `gate`, which fails unless every job
    succeeded.
