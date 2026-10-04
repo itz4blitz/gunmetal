@@ -4,7 +4,9 @@
 //! - **No secret is an argument.** Arguments are visible to every user of
 //!   the host, in the process list and the shell history. [`FLAGS`] lists
 //!   every flag the parser accepts, none takes a secret, and anything else
-//!   is refused by name (SEC-OPS-014). No flag turns authentication off
+//!   is refused (SEC-OPS-014). A refusal never repeats the argument it
+//!   refuses: a secret typed there by mistake must not go on to the
+//!   console and the journal behind it. No flag turns authentication off
 //!   either (SEC-HIS-004).
 //! - **Exit codes are documented.** [`Exit`] gives each kind of refusal its
 //!   own code, from `sysexits.h`, so a service manager or a script can tell
@@ -90,21 +92,22 @@ pub struct Command {
     pub data_dir: Option<OsString>,
 }
 
-/// Why the command line was refused. Arguments are quoted in lossy UTF-8.
+/// Why the command line was refused. No variant holds an argument's text:
+/// what was typed may be a secret, so it is neither stored nor printed
+/// (SEC-OPS-014). The words of an incomplete command are the one exception,
+/// because they are words of [`SUBCOMMANDS`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsageError {
     /// No subcommand was given.
     NoCommand,
     /// The words name no subcommand.
-    UnknownCommand(String),
+    UnknownCommand,
     /// The words are the start of a subcommand that needs another word.
     IncompleteCommand(String),
     /// A subcommand was followed by an argument it does not take.
-    UnexpectedArgument(String),
-    /// The flag is not one of [`FLAGS`]. The string is the flag name
-    /// only: the text before `=`, so a value after `=` is never stored
-    /// or printed (SEC-OPS-014).
-    UnknownFlag(String),
+    UnexpectedArgument,
+    /// An argument starts with `-` and is not one of [`FLAGS`].
+    UnknownFlag,
     /// `--data-dir` was the last argument, or its value was empty.
     MissingValue,
     /// `--data-dir` was given twice.
@@ -117,16 +120,14 @@ impl UsageError {
     pub fn message(&self) -> String {
         match self {
             Self::NoCommand => "No command given.".to_owned(),
-            Self::UnknownCommand(words) => format!("{words:?} is not a gunmetal command."),
+            Self::UnknownCommand => "That is not a gunmetal command.".to_owned(),
             Self::IncompleteCommand(words) => {
                 format!("{words:?} is not a whole command; it needs another word.")
             }
-            Self::UnexpectedArgument(argument) => {
-                format!("Unexpected argument {argument:?}.")
+            Self::UnexpectedArgument => {
+                "The command was followed by an argument it does not take.".to_owned()
             }
-            Self::UnknownFlag(flag) => format!(
-                "{flag:?} is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets)."
-            ),
+            Self::UnknownFlag => "An option was given that gunmetal does not have. Options take no secrets: those come from files (see the documentation on secrets).".to_owned(),
             Self::MissingValue => "--data-dir needs a directory after it.".to_owned(),
             Self::RepeatedFlag => "--data-dir was given twice.".to_owned(),
         }
@@ -136,25 +137,14 @@ impl UsageError {
 /// The subcommand `words` name.
 fn action(words: &[&str]) -> Result<Action, UsageError> {
     let exact = SUBCOMMANDS.iter().find(|(path, _)| *path == words);
-    let extra = SUBCOMMANDS
-        .iter()
-        .find_map(|(path, _)| words.strip_prefix(*path).and_then(<[&str]>::first));
+    let extra = SUBCOMMANDS.iter().any(|(path, _)| words.starts_with(path));
     let partial = SUBCOMMANDS.iter().any(|(path, _)| path.starts_with(words));
     match (exact, extra) {
         (Some((_, action)), _) => Ok(*action),
-        (None, Some(argument)) => Err(UsageError::UnexpectedArgument((*argument).to_owned())),
-        (None, None) if words.is_empty() => Err(UsageError::NoCommand),
-        (None, None) if partial => Err(UsageError::IncompleteCommand(words.join(" "))),
-        (None, None) => Err(UsageError::UnknownCommand(words.join(" "))),
-    }
-}
-
-/// The flag name in `token`: the text before the first `=`, so a value
-/// after `=` is never stored or printed (SEC-OPS-014).
-fn flag_name(token: &str) -> &str {
-    match token.split_once('=') {
-        Some((name, _)) => name,
-        None => token,
+        (None, true) => Err(UsageError::UnexpectedArgument),
+        (None, false) if words.is_empty() => Err(UsageError::NoCommand),
+        (None, false) if partial => Err(UsageError::IncompleteCommand(words.join(" "))),
+        (None, false) => Err(UsageError::UnknownCommand),
     }
 }
 
@@ -184,9 +174,7 @@ pub fn parse_args(args: &[OsString]) -> Result<Command, UsageError> {
                     return Err(UsageError::RepeatedFlag);
                 }
             }
-            flag if flag.starts_with('-') => {
-                return Err(UsageError::UnknownFlag(flag_name(flag).to_owned()));
-            }
+            flag if flag.starts_with('-') => return Err(UsageError::UnknownFlag),
             _ => words.push(text),
         }
     }
@@ -504,13 +492,10 @@ mod tests {
         let cases: [(&[&str], UsageError); 14] = [
             (&[], UsageError::NoCommand),
             (&["--data-dir", "/d"], UsageError::NoCommand),
-            (&["run"], UsageError::UnknownCommand("run".to_owned())),
-            (
-                &["admin", "reset"],
-                UsageError::UnknownCommand("admin reset".to_owned()),
-            ),
-            (&["Serve"], UsageError::UnknownCommand("Serve".to_owned())),
-            (&[""], UsageError::UnknownCommand(String::new())),
+            (&["run"], UsageError::UnknownCommand),
+            (&["admin", "reset"], UsageError::UnknownCommand),
+            (&["Serve"], UsageError::UnknownCommand),
+            (&[""], UsageError::UnknownCommand),
             (
                 &["admin"],
                 UsageError::IncompleteCommand("admin".to_owned()),
@@ -519,13 +504,10 @@ mod tests {
                 &["snapshot"],
                 UsageError::IncompleteCommand("snapshot".to_owned()),
             ),
-            (
-                &["serve", "now"],
-                UsageError::UnexpectedArgument("now".to_owned()),
-            ),
+            (&["serve", "now"], UsageError::UnexpectedArgument),
             (
                 &["snapshot", "restore", "2026-10-01", "x"],
-                UsageError::UnexpectedArgument("2026-10-01".to_owned()),
+                UsageError::UnexpectedArgument,
             ),
             (&["serve", "--data-dir"], UsageError::MissingValue),
             (&["serve", "--data-dir", ""], UsageError::MissingValue),
@@ -533,10 +515,7 @@ mod tests {
                 &["--data-dir", "/a", "serve", "--data-dir", "/b"],
                 UsageError::RepeatedFlag,
             ),
-            (
-                &["serve", "--data-dir=/srv"],
-                UsageError::UnknownFlag("--data-dir".to_owned()),
-            ),
+            (&["serve", "--data-dir=/srv"], UsageError::UnknownFlag),
         ];
         for (list, error) in cases {
             assert_eq!(parse(list), Err(error));
@@ -568,56 +547,52 @@ mod tests {
         ] {
             assert_eq!(
                 parse(&["serve", flag, "canary-value"]),
-                Err(UsageError::UnknownFlag(flag.to_owned()))
+                Err(UsageError::UnknownFlag)
             );
         }
     }
 
     /// Verifies: SEC-OPS-014
     #[test]
-    fn an_equals_form_unknown_flag_never_repeats_the_value() {
-        let cases = [
-            ("--password=SECRET-canary-9f2a", "--password"),
-            ("--token=canary-token-7b1e", "--token"),
-            (
-                "--oidc-client-secret=canary-oidc-4c8d",
-                "--oidc-client-secret",
-            ),
-            ("-p=SECRET-canary-9f2a", "-p"),
-            ("--password=SE=CRET-canary-9f2a", "--password"),
+    fn a_refused_argument_is_never_repeated_to_the_console() {
+        // A secret typed by mistake as a word, or glued to a flag with no
+        // `=`, must not reach the console or the journal behind it.
+        let option = "gunmetal: An option was given that gunmetal does not have. Options take no secrets: those come from files (see the documentation on secrets).
+Run gunmetal --help for the commands and options.
+";
+        let command = "gunmetal: That is not a gunmetal command.
+Run gunmetal --help for the commands and options.
+";
+        let argument = "gunmetal: The command was followed by an argument it does not take.
+Run gunmetal --help for the commands and options.
+";
+        let cases: [(&[&str], &str); 9] = [
+            (&["serve", "-pSECRET-canary-9f2a"], option),
+            (&["serve", "--passwordSECRET-canary-9f2a"], option),
+            (&["serve", "--password", "SECRET-canary-9f2a"], option),
+            (&["serve", "--password=SECRET-canary-9f2a"], option),
+            (&["serve", "--password=SE=CRET-canary-9f2a"], option),
+            (&["serve", "-p=SECRET-canary-9f2a"], option),
+            (&["SECRET-canary-9f2a"], command),
+            (&["admin", "SECRET-canary-9f2a"], command),
+            (&["admin", "recover", "SECRET-canary-9f2a"], argument),
         ];
-        for (arg, name) in cases {
-            assert_eq!(
-                parse(&["serve", arg]),
-                Err(UsageError::UnknownFlag(name.to_owned()))
-            );
-            let (exit, out, err) = ran(&["serve", arg]);
-            assert_eq!(exit, Exit::Usage);
-            assert_eq!(out, "");
-            assert_eq!(
-                err,
-                format!(
-                    "gunmetal: {name:?} is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n"
-                )
-            );
+        for (list, expected) in cases {
+            assert_eq!(ran(list), (Exit::Usage, String::new(), expected.to_owned()));
         }
     }
 
     proptest! {
         /// Verifies: SEC-OPS-014, SEC-HIS-004
         #[test]
-        fn a_flag_that_is_not_listed_is_refused_by_name(
+        fn a_flag_that_is_not_listed_is_refused(
             flag in "-{1,2}[a-zA-Z=-]{0,16}",
             at in 0_usize..3,
         ) {
             prop_assume!(!["--data-dir", "--help", "-h", "--version", "-V"].contains(&flag.as_str()));
             let mut list = vec!["admin", "recover"];
             list.insert(at, &flag);
-            let name = match flag.split_once('=') {
-                Some((name, _)) => name,
-                None => flag.as_str(),
-            };
-            prop_assert_eq!(parse(&list), Err(UsageError::UnknownFlag(name.to_owned())));
+            prop_assert_eq!(parse(&list), Err(UsageError::UnknownFlag));
         }
     }
 
@@ -625,10 +600,10 @@ mod tests {
     fn says_what_is_wrong_with_the_command_line() {
         let messages: Vec<String> = [
             UsageError::NoCommand,
-            UsageError::UnknownCommand("run\u{1b}[31m".to_owned()),
+            UsageError::UnknownCommand,
             UsageError::IncompleteCommand("admin".to_owned()),
-            UsageError::UnexpectedArgument("now".to_owned()),
-            UsageError::UnknownFlag("--token".to_owned()),
+            UsageError::UnexpectedArgument,
+            UsageError::UnknownFlag,
             UsageError::MissingValue,
             UsageError::RepeatedFlag,
         ]
@@ -639,10 +614,10 @@ mod tests {
             messages,
             [
                 "No command given.",
-                "\"run\\u{1b}[31m\" is not a gunmetal command.",
+                "That is not a gunmetal command.",
                 "\"admin\" is not a whole command; it needs another word.",
-                "Unexpected argument \"now\".",
-                "\"--token\" is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).",
+                "The command was followed by an argument it does not take.",
+                "An option was given that gunmetal does not have. Options take no secrets: those come from files (see the documentation on secrets).",
                 "--data-dir needs a directory after it.",
                 "--data-dir was given twice.",
             ]
@@ -760,7 +735,7 @@ mod tests {
             (
                 Exit::Usage,
                 String::new(),
-                "gunmetal: \"--token\" is not a gunmetal option. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n".to_owned()
+                "gunmetal: An option was given that gunmetal does not have. Options take no secrets: those come from files (see the documentation on secrets).\nRun gunmetal --help for the commands and options.\n".to_owned()
             )
         );
     }
