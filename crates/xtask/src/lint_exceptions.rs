@@ -120,6 +120,16 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the test of the one method that exposes a secret (SEC-OPS-013, WP-047)",
     },
     Exception {
+        path: "crates/gunmetal-server/src/testing.rs",
+        lint: LINTS[1],
+        reason: "a refused start never opens a DataRoot, and DataRoot::open would create the layout, so emptiness is observed by path (WP-043)",
+    },
+    Exception {
+        path: "crates/gunmetal-server/tests/serve.rs",
+        lint: LINTS[1],
+        reason: "covers main by starting only this package's gunmetal binary, and observes that a refused start left no durable layout (WP-043)",
+    },
+    Exception {
         path: "crates/gunmetal-testkit/src/tempdir.rs",
         lint: LINTS[1],
         reason: "test scratch directories (owner decision 33, WP-007)",
