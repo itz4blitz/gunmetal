@@ -158,6 +158,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "inflate"
+path = "fuzz_targets/inflate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "link"
 path = "fuzz_targets/link.rs"
 test = false
