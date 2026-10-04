@@ -534,6 +534,35 @@ fn workflow_toolchains(workflow: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The names of a workflow's jobs, in file order: the keys indented two
+/// spaces under `jobs:`.
+fn workflow_jobs(workflow: &str) -> Vec<&str> {
+    workflow
+        .lines()
+        .skip_while(|line| *line != "jobs:")
+        .filter_map(|line| line.strip_prefix("  ")?.strip_suffix(':'))
+        .filter(|name| !name.starts_with([' ', '#']))
+        .collect()
+}
+
+/// The trimmed lines of one job of a workflow, up to the next job.
+fn workflow_job<'a>(workflow: &'a str, job: &str) -> Vec<&'a str> {
+    let opening = format!("  {job}:");
+    workflow
+        .lines()
+        .skip_while(|line| *line != opening)
+        .skip(1)
+        .take_while(|line| !is_job_opening(line))
+        .map(str::trim)
+        .collect()
+}
+
+/// Whether `line` opens a job: a key indented exactly two spaces.
+fn is_job_opening(line: &str) -> bool {
+    line.strip_prefix("  ")
+        .is_some_and(|rest| !rest.starts_with([' ', '#']) && rest.ends_with(':'))
+}
+
 /// The commands in a shell script that run cargo, one per line.
 fn cargo_commands(script: &str) -> Vec<&str> {
     script
@@ -1937,6 +1966,123 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
     ));
 }
 
+/// Mutation testing is split across jobs and loses no mutant, in a full run
+/// and in a pull request's diff-scoped run alike: the gate's switches cannot
+/// be combined into a run that tests nothing, the shards partition one list,
+/// and the one required check fails unless every job it waits for succeeded.
+#[test]
+fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
+    // The script refuses a switch it cannot read, and skipping mutation
+    // testing together with a switch that chooses which mutants to test.
+    for line in [
+        r#"*) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;"#,
+        r#"if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then"#,
+        r#"if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then"#,
+        r#"if [[ "$skip_mutants" == 1 && -n "$mutants_diff$mutants_shard" ]]; then"#,
+        r#"usage "GATE_SKIP_MUTANTS=1 cannot be combined with GATE_MUTANTS_DIFF or GATE_MUTANTS_SHARD: it tests no mutants, and they choose which to test""#,
+    ] {
+        assert!(has_line(GATE, line), "{line}");
+    }
+    // The diff scope filters the workspace's list first and the shard then
+    // takes its slice of what is left, so the shards of one diff-scoped run
+    // together test every mutant the diff touches exactly once.
+    assert!(GATE.contains(
+        r#"
+  scope=()
+  if [[ -n "$mutants_diff" ]]; then
+    diff_file=$(mktemp)
+    trap 'rm -f "$diff_file"' EXIT
+    git diff --no-ext-diff "${mutants_diff}...HEAD" >"$diff_file"
+    echo "only mutants in code changed since ${mutants_diff}"
+    scope+=(--in-diff "$diff_file")
+  fi
+  if [[ -n "$mutants_shard" ]]; then
+    echo "only shard ${mutants_shard} of those mutants"
+    scope+=(--shard "$mutants_shard" --sharding round-robin)
+  fi
+  cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
+}
+"#
+    ));
+    // What runs: every other step unless this is a shard, and mutation
+    // testing unless it is skipped. Nothing follows that could undo it.
+    assert!(GATE.ends_with(
+        r#"
+if [[ -z "$mutants_shard" ]]; then
+  checks
+fi
+if [[ "$skip_mutants" == 1 ]]; then
+  echo "==> mutation testing skipped (GATE_SKIP_MUTANTS=1)"
+else
+  mutants
+fi
+"#
+    ));
+
+    assert_eq!(
+        workflow_jobs(CI),
+        [
+            "checks",
+            "mutants",
+            "core-32-bit",
+            "locked-self-test",
+            "gate-switches-self-test",
+            "gate",
+        ]
+    );
+
+    // The checks job never mutation-tests; the shards always do.
+    let checks = workflow_job(CI, "checks");
+    assert!(checks.contains(&"GATE_SKIP_MUTANTS: 1"));
+    assert!(checks.contains(&"- run: scripts/gate.sh"));
+    assert!(!checks.iter().any(|line| line.contains("GATE_MUTANTS_")));
+
+    // Shards 0 to 9 of 10 run for every event: each index once, and a failed
+    // shard does not cancel the others, so one run reports every missed
+    // mutant. A pull request into a wave branch scopes them to its diff,
+    // which needs the base branch's history.
+    let mutants = workflow_job(CI, "mutants");
+    for line in [
+        "fail-fast: false",
+        "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
+        "fetch-depth: 0",
+        "GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}",
+        "GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10",
+        "- run: scripts/gate.sh",
+    ] {
+        assert!(mutants.contains(&line), "{line}");
+    }
+    assert!(!mutants.iter().any(|line| line.starts_with("if:")));
+
+    // The required check waits for every other job, runs even when one of
+    // them failed or was cancelled (a skipped job would count as passed),
+    // and fails unless every one of them succeeded.
+    let gate = workflow_job(CI, "gate");
+    let others: Vec<&str> = workflow_jobs(CI)
+        .into_iter()
+        .filter(|job| *job != "gate")
+        .collect();
+    assert!(gate.contains(&"if: ${{ always() }}"));
+    assert!(gate.contains(&format!("needs: [{}]", others.join(", ")).as_str()));
+    for line in [
+        "NEEDS: ${{ toJSON(needs) }}",
+        r#"wrong=$(jq -r '[to_entries[] | select(.value.result != "success") | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")"#,
+        "if [[ -n \"$wrong\" ]]; then",
+        "exit 1",
+    ] {
+        assert!(gate.contains(&line), "{line}");
+    }
+
+    // No job can hang: each has a limit.
+    for job in workflow_jobs(CI) {
+        let limits = workflow_job(CI, job)
+            .into_iter()
+            .filter(|line| line.starts_with("timeout-minutes: "))
+            .count();
+        assert_eq!(limits, 1, "{job}");
+    }
+}
+
 /// Verifies: SEC-SUP-021
 #[test]
 fn the_dependency_policy_runs_on_every_change_and_every_day() {
@@ -2108,7 +2254,7 @@ fn every_build_uses_one_exact_toolchain_release() {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
         "{channel} is not an exact release"
     );
-    assert_eq!(workflow_toolchains(CI), [channel, channel, channel]);
+    assert_eq!(workflow_toolchains(CI), [channel; 4]);
     assert_eq!(workflow_toolchains(DAILY_DENY), [channel]);
 }
 
