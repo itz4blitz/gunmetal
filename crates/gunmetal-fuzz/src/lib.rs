@@ -30,6 +30,7 @@ pub mod http_range;
 pub mod id3_structure;
 pub mod id3v1;
 pub mod id3v2_tag;
+pub mod inflate;
 pub mod link;
 pub mod logframe;
 pub mod lyrics;

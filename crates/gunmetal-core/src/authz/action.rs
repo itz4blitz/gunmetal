@@ -251,7 +251,8 @@ impl Action {
         use Capability as C;
         match self {
             Self::SignOut => rule(Need::Nothing, Target::Server, false),
-            Self::ReadOwnData | Self::WriteOwnData => rule(Need::Nothing, Target::Own, false),
+            Self::ReadOwnData => rule(needs(C::OwnRead), Target::Own, false),
+            Self::WriteOwnData => rule(needs(C::OwnWrite), Target::Own, false),
             Self::ManageOwnCredentials => rule(Need::Nothing, Target::Own, true),
             Self::BrowseLibrary | Self::StreamMedia => {
                 rule(needs(C::LibraryRead), Target::Library, false)
