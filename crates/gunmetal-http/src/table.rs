@@ -561,6 +561,12 @@ mod tests {
     #[test]
     fn refuses_a_body_type_on_a_route_that_takes_no_body() {
         let path = "/api/v1/things";
+        // The stand-in handler these tests share answers with nothing.
+        let accepted = typed_entry::<NoQuery, NoBody>(Method::Post, path, MUTATES, BodyRule::None);
+        assert_eq!(
+            block_on(accepted.call(raw(Vec::new(), &[]))),
+            Ok(Reply::empty())
+        );
         assert_eq!(
             [
                 one(typed_entry::<NoQuery, Name>(
