@@ -9,8 +9,9 @@
 //! level it does not depend on the handler asking, or on the type refusing
 //! unknown fields itself. Below the top level it does: a nested struct in
 //! a body type must carry `#[serde(deny_unknown_fields)]`, or serde drops
-//! an extra nested key. A route without a query takes [`NoQuery`] and a route without a
-//! body takes [`NoBody`]; neither names a field, so each refuses everything.
+//! an extra nested key. A route without a query takes [`NoQuery`] and a
+//! route without a body takes [`NoBody`]; neither names a field, so each
+//! refuses everything.
 //!
 //! Every failure is the one `invalid_request` problem, which echoes nothing
 //! that was sent (SEC-API-072).

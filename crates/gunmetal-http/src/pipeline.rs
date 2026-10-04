@@ -42,9 +42,9 @@
 //! held, and the client gets the generic 500 (SEC-API-073). The same holds
 //! for the request-identifier hook, whose panic is answered with the
 //! generic 500 under identifier 0, and a panic in the log hook loses only
-//! its record, never the response. Every request
-//! ends with one [`AccessRecord`], which names the route template and never
-//! the path that was sent (SEC-API-095).
+//! its record, never the response. Every request ends with one
+//! [`AccessRecord`], which names the route template and never the path that
+//! was sent (SEC-API-095).
 
 use core::any::Any;
 use core::future::Future;
