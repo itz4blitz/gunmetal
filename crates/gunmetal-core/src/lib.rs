@@ -36,3 +36,4 @@ pub mod time;
 pub mod token;
 pub mod untrusted;
 pub mod values;
+pub mod wire;
