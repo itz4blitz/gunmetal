@@ -14,7 +14,8 @@ use gunmetal_http::client::{TestClient, TestResponse};
 use gunmetal_http::credential::Credential;
 use gunmetal_http::pipeline::{AccessRecord, router};
 use gunmetal_http::problem::RequestId;
-use gunmetal_http::route::{Access, BodyRule, Effect, Method, RateClass};
+use gunmetal_http::request::{Fields, NoQuery};
+use gunmetal_http::route::{Access, BodyRule, Effect, JsonLimits, Method, RateClass};
 use gunmetal_http::table::{RouteEntry, Table, TableError};
 use proptest::prelude::*;
 use support::{
@@ -217,6 +218,36 @@ fn builds_a_router_only_from_a_well_formed_table() {
         ]
     );
     assert_eq!(router(&[], hooks(&seen, false)).map(|_| ()), Ok(()));
+}
+
+/// A body type that names the same `id` its route's path binds.
+#[derive(serde::Deserialize)]
+struct Thing {}
+
+impl Fields for Thing {
+    const FIELDS: &'static [&'static str] = &["id", "name"];
+}
+
+/// Verifies: SEC-API-067
+#[test]
+fn refuses_at_start_up_a_route_that_takes_one_name_from_the_path_and_the_body() {
+    let seen = Arc::new(Seen::default());
+    let path = "/api/v1/things/{id}";
+    let entry = RouteEntry::new(
+        spec(
+            Method::Put,
+            path,
+            Access::Public {
+                effect: Effect::Mutates,
+            },
+            BodyRule::Json(JsonLimits::DEFAULT),
+        ),
+        |_: Call<NoQuery, Thing>| async { Ok(Reply::empty()) },
+    );
+    assert_eq!(
+        router(&[entry], hooks(&seen, false)).map(|_| ()),
+        Err(TableError::Ambiguous(path, "id"))
+    );
 }
 
 /// Verifies: SEC-HIS-005, SEC-IAM-067
@@ -770,8 +801,16 @@ fn refuses_extra_duplicate_and_repeated_fields() {
         patch(r#"["x"]"#),
         patch(r#""x""#),
         bearer("POST", "/api/v1/notes", &[JSON], "[]"),
+        // The path's `id` given again in the body.
+        patch(r#"{"id":"q","name":"x"}"#),
+        bearer(
+            "POST",
+            "/api/v1/admin/accounts/acc_1/disable",
+            &[JSON],
+            r#"{"id":"acc_2","user":"usr_b"}"#,
+        ),
     ];
-    let expected: Vec<TestResponse> = (0..25).map(invalid).collect();
+    let expected: Vec<TestResponse> = (0..27).map(invalid).collect();
     assert_eq!(send_all(&client, requests), expected);
     assert_eq!(seen.handled(), [] as [&str; 0]);
     assert_eq!(
@@ -832,6 +871,51 @@ fn takes_the_acting_principal_only_from_the_credential() {
         )),
         json(200, r#"{"id":"acc_1","user":"usr_b"}"#)
     );
+}
+
+/// Verifies: SEC-API-073
+#[test]
+fn answers_when_the_request_id_or_the_log_hook_panics() {
+    let seen = Arc::new(Seen::default());
+    let mut drawing = hooks(&seen, false);
+    drawing.request_id = Arc::new(|| std::panic::resume_unwind(Box::new("no randomness")));
+    let client = TestClient::new(router(&entries(&seen), drawing).unwrap());
+    let internal = problem("internal_error", 500, INTERNAL, 0, &[]);
+    assert_eq!(
+        send_all(&client, vec![get("/api/v1/server"), get("/api/v1/nowhere")]),
+        [internal.clone(), internal]
+    );
+    let unnumbered = AccessRecord {
+        request: RequestId(0),
+        method: Some(Method::Get),
+        route: None,
+        status: 500,
+        panic: Some("no randomness".to_owned()),
+    };
+    assert_eq!(seen.records(), [unnumbered.clone(), unnumbered]);
+    assert_eq!(seen.handled(), [] as [&str; 0]);
+
+    let seen = Arc::new(Seen::default());
+    let mut logging = hooks(&seen, false);
+    logging.log =
+        Arc::new(|_: &AccessRecord, _: &_| std::panic::resume_unwind(Box::new("disk full")));
+    let client = TestClient::new(router(&entries(&seen), logging).unwrap());
+    assert_eq!(
+        send_all(
+            &client,
+            vec![
+                get("/api/v1/server"),
+                get("/api/v1/nowhere"),
+                bearer("GET", "/api/v1/me", &[], "")
+            ]
+        ),
+        [
+            json(200, r#"{"name":"gm"}"#),
+            not_found(1),
+            json(200, r#"{"principal":"Bearer alice"}"#),
+        ]
+    );
+    assert_eq!(seen.handled(), ["me"]);
 }
 
 /// Verifies: SEC-API-073, SEC-TM-040, SEC-API-072

@@ -12,7 +12,9 @@
 //! 2. The `Host` allow-list, answering 421 (SEC-API-007).
 //! 3. No credential in the URL, answering 400 (SEC-API-004). This runs
 //!    before the route match because the exact matcher would otherwise
-//!    answer 404 to a path that carries one.
+//!    answer 404 to a path that carries one. The query is parsed here for
+//!    that check, so a malformed query is answered 400 `invalid_request`
+//!    even on a path no route has.
 //! 4. The exact route match, answering 404, then the method check,
 //!    answering 405 with `Allow`. Method-override headers are never read
 //!    (SEC-API-055, SEC-API-008).
@@ -37,7 +39,10 @@
 //! from [`security_headers`] and its error body from the problem catalogue
 //! (SEC-API-053, SEC-API-072). A panic anywhere in the steps above is
 //! caught, the request's future is dropped, which rolls back whatever it
-//! held, and the client gets the generic 500 (SEC-API-073). Every request
+//! held, and the client gets the generic 500 (SEC-API-073). The same holds
+//! for the request-identifier hook, whose panic is answered with the
+//! generic 500 under identifier 0, and a panic in the log hook loses only
+//! its record, never the response. Every request
 //! ends with one [`AccessRecord`], which names the route template and never
 //! the path that was sent (SEC-API-095).
 
@@ -194,11 +199,19 @@ impl Pipeline {
     /// Answers one request: runs the steps, renders the result and writes
     /// the access record.
     async fn answer(&self, request: Request<Body>) -> Response<Body> {
-        let id = (self.hooks.request_id)();
         let (parts, body) = request.into_parts();
         let method = Method::from_name(parts.method.as_str());
         let mut trace = Trace::default();
-        let outcome = Guarded(Box::pin(self.run(&parts, method, body, &mut trace))).await;
+        // Drawing the identifier is part of handling the request: if it
+        // panics, the request is answered with the generic 500 under a
+        // fixed identifier, and nothing else runs.
+        let (id, outcome) = match catch_unwind(AssertUnwindSafe(|| (self.hooks.request_id)())) {
+            Ok(id) => (
+                id,
+                Guarded(Box::pin(self.run(&parts, method, body, &mut trace))).await,
+            ),
+            Err(payload) => (RequestId(0), Err(panic_text(payload.as_ref()))),
+        };
         let (result, panic) = match outcome {
             Ok(result) => (result, None),
             Err(text) => (Err(ProblemCode::InternalError.into()), Some(text)),
@@ -226,7 +239,11 @@ impl Pipeline {
             status,
             panic,
         };
-        (self.hooks.log)(&record, trace.grant.as_deref().unwrap_or(&parts.extensions));
+        let context = trace.grant.as_deref().unwrap_or(&parts.extensions);
+        // A log hook that panics loses its record, never the response.
+        drop(catch_unwind(AssertUnwindSafe(|| {
+            (self.hooks.log)(&record, context);
+        })));
         response
     }
 

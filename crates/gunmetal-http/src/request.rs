@@ -5,9 +5,11 @@
 //! registered ([`crate::table::RouteEntry::new`]), and both types name their
 //! fields ([`Fields`]). [`typed`] refuses a query parameter or a top-level
 //! body key that the type does not name, then decodes both, so a handler
-//! cannot be reached with input its route did not declare: it does not
-//! depend on the handler asking, or on the type refusing unknown fields
-//! itself. A route without a query takes [`NoQuery`] and a route without a
+//! cannot be reached with input its route did not declare: at the top
+//! level it does not depend on the handler asking, or on the type refusing
+//! unknown fields itself. Below the top level it does: a nested struct in
+//! a body type must carry `#[serde(deny_unknown_fields)]`, or serde drops
+//! an extra nested key. A route without a query takes [`NoQuery`] and a route without a
 //! body takes [`NoBody`]; neither names a field, so each refuses everything.
 //!
 //! Every failure is the one `invalid_request` problem, which echoes nothing
@@ -29,6 +31,8 @@ use crate::problem::ApiError;
 /// field the action takes; the pipeline refuses any other name before it
 /// decodes. Keep `FIELDS` equal to the type's own fields: a name listed
 /// here that the type does not have would be accepted and ignored.
+/// `FIELDS` covers the top level only; every struct nested inside a body
+/// type must carry `#[serde(deny_unknown_fields)]` (SEC-API-067).
 pub trait Fields: DeserializeOwned + 'static {
     /// Every query parameter, or every top-level body key, the action takes.
     const FIELDS: &'static [&'static str];

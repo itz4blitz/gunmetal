@@ -36,7 +36,18 @@ impl ApiError {
     /// that has none, since such a code should never reach a response.
     #[must_use]
     pub fn status(self) -> u16 {
-        self.0.status().unwrap_or(500)
+        self.shown().status().unwrap_or(500)
+    }
+
+    /// The code the client is told: this error's own, or `internal_error`
+    /// for a code with no HTTP status, which is a failure no request should
+    /// meet and so is answered as the generic error (SEC-API-073).
+    fn shown(self) -> ProblemCode {
+        if self.0.status().is_some() {
+            self.0
+        } else {
+            ProblemCode::InternalError
+        }
     }
 }
 
@@ -74,9 +85,10 @@ struct Document<'a> {
 /// The problem document for an error, as bytes.
 #[must_use]
 pub fn render(error: ApiError, request: RequestId) -> Vec<u8> {
+    let code = error.shown();
     let document = Document {
-        kind: format!("urn:gunmetal:problem:{}", error.code().code()),
-        title: error.code().text(),
+        kind: format!("urn:gunmetal:problem:{}", code.code()),
+        title: code.text(),
         status: error.status(),
         request: request.to_string(),
     };
@@ -99,6 +111,25 @@ mod tests {
             ))
             .unwrap(),
             r#"{"type":"urn:gunmetal:problem:not_found","title":"We couldn't find that. It may have been removed, or you may not have access to it.","status":404,"request":"0000000000000000000000000000002a"}"#
+        );
+    }
+
+    /// Verifies: SEC-API-073, SEC-TM-040
+    #[test]
+    fn renders_a_code_with_no_status_as_the_generic_error() {
+        let error = ApiError::new(ProblemCode::WavUnreadable);
+        assert_eq!(
+            (
+                error.code(),
+                error.status(),
+                String::from_utf8(render(error, RequestId(7))).unwrap()
+            ),
+            (
+                ProblemCode::WavUnreadable,
+                500,
+                r#"{"type":"urn:gunmetal:problem:internal_error","title":"Something went wrong on the server. Try again later.","status":500,"request":"00000000000000000000000000000007"}"#
+                    .to_owned()
+            )
         );
     }
 

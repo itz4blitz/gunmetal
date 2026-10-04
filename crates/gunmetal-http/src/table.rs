@@ -3,8 +3,11 @@
 //!
 //! [`Table::new`] refuses a table that is not well formed: a path outside
 //! `/api/v1` (SEC-API-092), a malformed template, the same method on the
-//! same path twice, two templates that could match the same path, or a
-//! `GET` route that changes state (SEC-API-036). Matching is exact: no
+//! same path twice, two templates that could match the same path, a
+//! `GET` route that changes state (SEC-API-036), a name the path, the
+//! query type and the body type could take from more than one place
+//! (SEC-API-067), a body type on a route that takes no body, or a path
+//! parameter that names a principal on a route that may not (SEC-API-013). Matching is exact: no
 //! trailing slash, extension, `;` parameter, other case or encoded
 //! character matches a literal segment, and a parameter segment takes only
 //! letters, digits, `-` and `_`, so no variant of a path reaches a handler
@@ -12,12 +15,14 @@
 
 use core::future::Future;
 use core::pin::Pin;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::call::{Call, Reply};
+use crate::decode::identity_key;
 use crate::problem::ApiError;
 use crate::request::{Fields, Raw, typed};
-use crate::route::{AccessClass, Method, RouteSpec};
+use crate::route::{AccessClass, BodyRule, Method, RouteSpec};
 
 /// Where every route lives (SEC-API-092).
 pub const PREFIX: &str = "/api/v1/";
@@ -34,6 +39,10 @@ type Handler = Arc<dyn Fn(Raw) -> HandlerFuture + Send + Sync>;
 #[derive(Clone)]
 pub struct RouteEntry {
     spec: RouteSpec,
+    /// The query parameters the route's query type names.
+    query: &'static [&'static str],
+    /// The top-level body keys the route's body type names.
+    body: &'static [&'static str],
     handler: Handler,
 }
 
@@ -53,6 +62,8 @@ impl RouteEntry {
     {
         Self {
             spec,
+            query: Q::FIELDS,
+            body: B::FIELDS,
             handler: Arc::new(move |raw| {
                 let answer = typed::<Q, B>(raw).map(&handler);
                 Box::pin(async move { answer?.await })
@@ -92,6 +103,15 @@ pub enum TableError {
     Overlap(&'static str, &'static str),
     /// A `GET` route is declared as changing state.
     ReadMutates(&'static str),
+    /// A name is bound by the path twice, or named by more than one of the
+    /// path, the query type and the body type (SEC-API-067).
+    Ambiguous(&'static str, &'static str),
+    /// A route that takes no body has a body type that names fields, which
+    /// no request to it could ever fill.
+    UnusedBody(&'static str),
+    /// A path parameter names a principal on a route that may not name one
+    /// (SEC-API-013).
+    NamesPrincipal(&'static str, &'static str),
 }
 
 /// One segment of a path template.
@@ -163,6 +183,7 @@ impl Table {
             if spec.method == Method::Get && spec.mutates() {
                 return Err(TableError::ReadMutates(spec.path));
             }
+            placement(&entry, &segments)?;
             for (other, earlier) in &routes {
                 let meets = other.len() == segments.len()
                     && other.iter().zip(&segments).all(|(a, b)| a.meets(*b));
@@ -216,6 +237,38 @@ impl Table {
     }
 }
 
+/// Checks where a route takes each name from: every name in one place
+/// only, no body type on a route without a body, and no path parameter
+/// that names a principal unless the route may name one.
+fn placement(entry: &RouteEntry, segments: &[Segment]) -> Result<(), TableError> {
+    let path = entry.spec.path;
+    if entry.spec.body == BodyRule::None && !entry.body.is_empty() {
+        return Err(TableError::UnusedBody(path));
+    }
+    let params: Vec<&'static str> = segments
+        .iter()
+        .filter_map(|segment| match *segment {
+            Segment::Param(name) => Some(name),
+            Segment::Literal(_) => None,
+        })
+        .collect();
+    let mut names = BTreeSet::new();
+    if let Some(name) = params
+        .iter()
+        .chain(entry.query)
+        .chain(entry.body)
+        .find(|name| !names.insert(**name))
+    {
+        return Err(TableError::Ambiguous(path, name));
+    }
+    match params.iter().find(|name| identity_key(name)) {
+        Some(name) if !entry.spec.access.names_principals() => {
+            Err(TableError::NamesPrincipal(path, name))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The parameters a template binds from a path, if it matches.
 fn bind(segments: &[Segment], parts: &[&str]) -> Option<Vec<(&'static str, String)>> {
     if segments.len() != parts.len() {
@@ -242,6 +295,7 @@ fn bind(segments: &[Segment], parts: &[&str]) -> Option<Vec<(&'static str, Strin
 mod tests {
     use super::*;
     use crate::client::block_on;
+    use crate::request::{NoBody, NoQuery};
     use crate::route::{Access, BodyRule, Effect, RateClass, RouteTag};
     use axum::http::Extensions;
     use gunmetal_core::problem::ProblemCode;
@@ -392,6 +446,177 @@ mod tests {
             handler,
         )];
         assert!(Table::new(entries).is_ok());
+    }
+
+    /// A request type that names `id` and `name`.
+    #[derive(serde::Deserialize)]
+    struct IdAndName {}
+
+    impl Fields for IdAndName {
+        const FIELDS: &'static [&'static str] = &["id", "name"];
+    }
+
+    /// A request type that names `name`.
+    #[derive(serde::Deserialize)]
+    struct Name {}
+
+    impl Fields for Name {
+        const FIELDS: &'static [&'static str] = &["name"];
+    }
+
+    /// An entry whose handler takes query type `Q` and body type `B`.
+    fn typed_entry<Q: Fields, B: Fields>(
+        method: Method,
+        path: &'static str,
+        access: Access,
+        body: BodyRule,
+    ) -> RouteEntry {
+        let spec = RouteSpec {
+            access,
+            body,
+            ..spec(method, path, Effect::Mutates)
+        };
+        RouteEntry::new(spec, |_: Call<Q, B>| async { Ok(Reply::empty()) })
+    }
+
+    const MUTATES: Access = Access::Public {
+        effect: Effect::Mutates,
+    };
+
+    const JSON: BodyRule = BodyRule::Json(crate::route::JsonLimits::DEFAULT);
+
+    fn one(entry: RouteEntry) -> Result<(), TableError> {
+        Table::new(vec![entry]).map(|_| ())
+    }
+
+    /// Verifies: SEC-API-067
+    #[test]
+    fn refuses_a_name_in_more_than_one_place() {
+        let things = "/api/v1/things/{id}";
+        assert_eq!(
+            [
+                one(typed_entry::<NoQuery, IdAndName>(
+                    Method::Put,
+                    things,
+                    MUTATES,
+                    JSON
+                )),
+                one(typed_entry::<IdAndName, NoBody>(
+                    Method::Put,
+                    things,
+                    MUTATES,
+                    BodyRule::None
+                )),
+                one(typed_entry::<Name, IdAndName>(
+                    Method::Post,
+                    "/api/v1/things",
+                    MUTATES,
+                    JSON
+                )),
+                one(typed_entry::<NoQuery, NoBody>(
+                    Method::Put,
+                    "/api/v1/a/{id}/b/{id}",
+                    MUTATES,
+                    BodyRule::None
+                )),
+            ],
+            [
+                Err(TableError::Ambiguous(things, "id")),
+                Err(TableError::Ambiguous(things, "id")),
+                Err(TableError::Ambiguous("/api/v1/things", "name")),
+                Err(TableError::Ambiguous("/api/v1/a/{id}/b/{id}", "id")),
+            ]
+        );
+        assert_eq!(
+            [
+                one(typed_entry::<NoQuery, Name>(
+                    Method::Put,
+                    things,
+                    MUTATES,
+                    JSON
+                )),
+                one(typed_entry::<Name, NoBody>(
+                    Method::Put,
+                    things,
+                    MUTATES,
+                    BodyRule::None
+                )),
+                one(typed_entry::<NoQuery, IdAndName>(
+                    Method::Post,
+                    "/api/v1/things",
+                    MUTATES,
+                    JSON
+                )),
+                one(typed_entry::<NoQuery, NoBody>(
+                    Method::Put,
+                    "/api/v1/a/{id}/b/{key}",
+                    MUTATES,
+                    BodyRule::None
+                )),
+            ],
+            [Ok(()), Ok(()), Ok(()), Ok(())]
+        );
+    }
+
+    #[test]
+    fn refuses_a_body_type_on_a_route_that_takes_no_body() {
+        let path = "/api/v1/things";
+        assert_eq!(
+            [
+                one(typed_entry::<NoQuery, Name>(
+                    Method::Post,
+                    path,
+                    MUTATES,
+                    BodyRule::None
+                )),
+                one(typed_entry::<NoQuery, Name>(
+                    Method::Post,
+                    path,
+                    MUTATES,
+                    JSON
+                )),
+                one(typed_entry::<NoQuery, NoBody>(
+                    Method::Post,
+                    path,
+                    MUTATES,
+                    JSON
+                )),
+            ],
+            [Err(TableError::UnusedBody(path)), Ok(()), Ok(())]
+        );
+    }
+
+    /// Verifies: SEC-API-013
+    #[test]
+    fn refuses_a_path_parameter_that_names_a_principal() {
+        let path = "/api/v1/users/{user_id}/playlists";
+        let admin = |target| Access::Admin {
+            capability: crate::route::Capability::new("accounts.manage"),
+            effect: crate::route::AdminEffect::Reads,
+            target,
+        };
+        let get = |access| {
+            one(typed_entry::<NoQuery, NoBody>(
+                Method::Get,
+                path,
+                access,
+                BodyRule::None,
+            ))
+        };
+        assert_eq!(
+            [
+                get(Access::Public {
+                    effect: Effect::Reads
+                }),
+                get(admin(crate::route::Target::Caller)),
+                get(admin(crate::route::Target::OtherPrincipals)),
+            ],
+            [
+                Err(TableError::NamesPrincipal(path, "user_id")),
+                Err(TableError::NamesPrincipal(path, "user_id")),
+                Ok(()),
+            ]
+        );
     }
 
     /// Verifies: SEC-API-055

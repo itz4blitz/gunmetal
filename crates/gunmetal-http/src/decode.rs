@@ -206,10 +206,13 @@ impl<'r> Room<'r> {
     }
 }
 
-/// Whether a request's query parameters are well placed: no name twice,
-/// no name that a path parameter or a top-level body key also has, and, on
-/// a route that may not name principals, no name that names one
-/// (SEC-API-067, SEC-API-013).
+/// Whether a request's parameters are well placed: no top-level body key
+/// that a path parameter also has; no query name twice, no query name that
+/// a path parameter or a top-level body key also has, and, on a route that
+/// may not name principals, no query name that names one (SEC-API-067,
+/// SEC-API-013). [`crate::table::Table::new`] already refuses a route whose
+/// types could let two places share a name; this is the same rule checked
+/// on the request itself.
 #[must_use]
 pub fn placed(
     query: &[(String, String)],
@@ -218,12 +221,14 @@ pub fn placed(
     names_principals: bool,
 ) -> bool {
     let mut seen = BTreeSet::new();
-    query.iter().all(|(name, _)| {
-        seen.insert(name.as_str())
-            && path.iter().all(|(param, _)| param != name)
-            && !body.contains(name)
-            && (names_principals || !identity_key(name))
-    })
+    body.iter()
+        .all(|key| path.iter().all(|(param, _)| param != key))
+        && query.iter().all(|(name, _)| {
+            seen.insert(name.as_str())
+                && path.iter().all(|(param, _)| param != name)
+                && !body.contains(name)
+                && (names_principals || !identity_key(name))
+        })
 }
 
 /// Whether a key names a principal.
@@ -467,5 +472,18 @@ mod tests {
             .collect();
         let expected: Vec<bool> = cases.iter().map(|(.., expected)| *expected).collect();
         assert_eq!(answers, expected);
+    }
+
+    /// Verifies: SEC-API-067
+    #[test]
+    fn body_keys_are_not_path_parameters() {
+        let path = [("id", "pls_1".to_owned())];
+        let answers = [
+            placed(&[], &path, &["id".to_owned()], false),
+            placed(&[], &path, &["name".to_owned(), "id".to_owned()], true),
+            placed(&[], &path, &["name".to_owned(), "ID".to_owned()], false),
+            placed(&[], &[], &["id".to_owned()], false),
+        ];
+        assert_eq!(answers, [false, false, true, true]);
     }
 }
