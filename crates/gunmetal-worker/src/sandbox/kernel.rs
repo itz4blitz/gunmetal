@@ -305,6 +305,89 @@ mod tests {
         assert!(super::landlock_ruleset().is_ok());
     }
 
+    /// Directory of a `LLVM_PROFILE_FILE` value, or `/tmp` when the value
+    /// has no directory so the probe always has one path to mmap.
+    fn child_coverage_profile(llvm_profile_file: Option<&str>, pid: u32) -> String {
+        let dir = llvm_profile_file
+            .and_then(|file| {
+                file.split('%')
+                    .next()
+                    .and_then(|prefix| prefix.rsplit_once('/'))
+                    .map(|(dir, _)| dir)
+            })
+            .unwrap_or("/tmp");
+        format!("{dir}/wp045-landlock-{pid}.profraw")
+    }
+
+    #[test]
+    fn child_coverage_profile_uses_the_file_directory_or_tmp() {
+        assert_eq!(
+            child_coverage_profile(Some("/cov/out.profraw%m"), 7),
+            "/cov/wp045-landlock-7.profraw"
+        );
+        assert_eq!(
+            child_coverage_profile(Some("/cov/out.profraw"), 7),
+            "/cov/wp045-landlock-7.profraw"
+        );
+        assert_eq!(
+            child_coverage_profile(Some("nodir.profraw"), 1),
+            "/tmp/wp045-landlock-1.profraw"
+        );
+        assert_eq!(
+            child_coverage_profile(None, 1),
+            "/tmp/wp045-landlock-1.profraw"
+        );
+    }
+
+    /// A `landlock` method that returns `true` without `restrict_self`
+    /// still lets a path open. The probe is a child so this process is
+    /// not Landlock'd.
+    ///
+    /// Verifies: SEC-MED-022
+    #[test]
+    fn landlock_denies_a_path_when_it_reports_enforced() {
+        if std::env::var_os("GUNMETAL_PROBE_LANDLOCK").is_some() {
+            let mut linux = Linux;
+            linux.no_new_privs().unwrap();
+            assert!(linux.landlock(), "Landlock must hold on this kernel");
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the probe opens a path to observe Landlock, not to read a file (SEC-MED-022)"
+            )]
+            let error =
+                std::fs::File::open("/etc/hostname").expect_err("Landlock must deny the path");
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "{error}"
+            );
+            std::process::exit(0);
+        }
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the sandbox launcher is the one door that starts a process (SEC-MED-063); this probe re-enters the unit-test binary"
+        )]
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.env("GUNMETAL_PROBE_LANDLOCK", "1").args([
+            "--exact",
+            "sandbox::kernel::tests::landlock_denies_a_path_when_it_reports_enforced",
+        ]);
+        // `%c` mmaps the profile before Landlock. rustc only defines the
+        // bias symbols with `-C llvm-args=-runtime-counter-relocation`.
+        let profile = child_coverage_profile(
+            std::env::var("LLVM_PROFILE_FILE").ok().as_deref(),
+            std::process::id(),
+        );
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "create the coverage profile the probe child mmaps before Landlock (SEC-MED-022)"
+        )]
+        let _ = std::fs::File::create(&profile);
+        command.env("LLVM_PROFILE_FILE", format!("{profile}%c"));
+        let status = command.status().unwrap();
+        assert!(status.success(), "{status:?}");
+    }
+
     #[test]
     fn proc_directory_flags_are_read_only_directory_and_close_on_exec() {
         use rustix::fs::OFlags;
