@@ -100,6 +100,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "corpus replay reads the committed seeds by path (SEC-MED-028)",
     },
     Exception {
+        path: "crates/gunmetal-secrets/src/crypto/",
+        lint: LINTS[2],
+        reason: "the secrets crate's crypto module: HMAC, HKDF and the AEAD (SEC-STD-018, WP-047)",
+    },
+    Exception {
         path: "crates/gunmetal-secrets/src/mint.rs",
         lint: LINTS[1],
         reason: "the one public-ID minting function (SEC-HIS-012, WP-047)",
@@ -118,21 +123,6 @@ pub const EXCEPTIONS: &[Exception] = &[
         path: "crates/gunmetal-testkit/src/tempdir.rs",
         lint: LINTS[1],
         reason: "test scratch directories (owner decision 33, WP-007)",
-    },
-    Exception {
-        path: "crates/gunmetal-worker/src/sandbox/kernel.rs",
-        lint: LINTS[1],
-        reason: "the worker reads its own /proc/self entries before it gives up the filesystem (SEC-MED-022, WP-045)",
-    },
-    Exception {
-        path: "crates/gunmetal-worker/src/sandbox/launch.rs",
-        lint: LINTS[1],
-        reason: "the sandbox launcher is the one door that starts a process (SEC-MED-063, WP-045)",
-    },
-    Exception {
-        path: "crates/gunmetal-worker/tests/",
-        lint: LINTS[1],
-        reason: "the hostile worker tries each forbidden action by path, socket and Command (SEC-MED-022, WP-045)",
     },
     Exception {
         path: "crates/xtask/src/tree.rs",

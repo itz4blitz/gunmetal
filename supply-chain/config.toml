@@ -13,6 +13,11 @@ url = "https://raw.githubusercontent.com/google/supply-chain/main/audits.toml"
 [imports.mozilla]
 url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 
+[[exemptions.aead]]
+version = "0.6.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.autocfg]]
 version = "1.5.1"
 criteria = "safe-to-run"
@@ -48,6 +53,26 @@ version = "1.0.5"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02; raised to safe-to-deploy on 2026-10-03 because sha2 (WP-122) makes it a runtime dependency of gunmetal-core. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.chacha20]]
+version = "0.10.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.chacha20poly1305]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cipher]]
+version = "0.5.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.cmov]]
+version = "0.5.4"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.cobs]]
 version = "0.3.0"
 criteria = "safe-to-deploy"
@@ -63,20 +88,15 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through digest. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.ctutils]]
+version = "0.4.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.digest]]
 version = "0.11.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); the trait crate sha2 implements. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
-
-[[exemptions.enumflags2]]
-version = "0.7.12"
-criteria = "safe-to-deploy"
-notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker (landlock). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
-
-[[exemptions.enumflags2_derive]]
-version = "0.7.12"
-criteria = "safe-to-deploy"
-notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker (landlock's derive). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.errno]]
 version = "0.3.14"
@@ -108,10 +128,25 @@ version = "0.4.3"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.hkdf]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (HKDF-SHA-256; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.hmac]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (HMAC-SHA-256; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.hybrid-array]]
 version = "0.4.15"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through block-buffer and crypto-common. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.inout]]
+version = "0.2.2"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.io-extras]]
 version = "0.19.0"
@@ -132,11 +167,6 @@ notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlit
 version = "2.12.2"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
-
-[[exemptions.landlock]]
-version = "0.4.7"
-criteria = "safe-to-deploy"
-notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker's Linux sandbox (owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.libc]]
 version = "0.2.190"
@@ -167,6 +197,11 @@ notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 20
 version = "0.3.34"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlite; owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.poly1305]]
+version = "0.9.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.postcard]]
 version = "1.1.3"
@@ -238,11 +273,6 @@ version = "0.3.1"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
-[[exemptions.seccompiler]]
-version = "0.5.0"
-criteria = "safe-to-deploy"
-notes = "Added on 2026-10-03 by WP-045 for gunmetal-worker's seccomp filter (owner decision D-02). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
-
 [[exemptions.serde]]
 version = "1.0.229"
 criteria = "safe-to-deploy"
@@ -270,8 +300,8 @@ notes = "Added on 2026-10-03 by WP-126 for gunmetal-fs (cap-std, rustix, rusqlit
 
 [[exemptions.syn]]
 version = "2.0.119"
-criteria = "safe-to-deploy"
-notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-045's landlock brought it in through enumflags2_derive. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+criteria = "safe-to-run"
+notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.syn]]
 version = "3.0.6"
@@ -307,6 +337,11 @@ notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 20
 version = "0.1.25"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 for gunmetal-core search folding and natural sort, its only user in the core (WP-036, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.universal-hash]]
+version = "0.6.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.windows-link]]
 version = "0.2.1"
@@ -432,3 +467,8 @@ notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an
 version = "0.8.59"
 criteria = "safe-to-run"
 notes = "Seeded by cargo vet init on 2026-10-02. Dev-only today. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.zeroize]]
+version = "1.9.0"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets, pulled in by the zeroize features of chacha20poly1305, hmac and sha2 so key copies are wiped (SEC-TM-049, SEC-STD-023). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
