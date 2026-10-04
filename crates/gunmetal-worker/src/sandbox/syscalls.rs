@@ -11,6 +11,11 @@
 //! list, proven against a stub worker; WP-079 extends it from audit runs
 //! of the real jobs. Each row carries the call's number on both server
 //! architectures, taken from the kernel's tables.
+//!
+//! The list is shaped by glibc. musl raises an abort through `tkill`, not
+//! `tgkill`, so a static or Alpine build would report an out-of-memory
+//! abort as a forbidden call; such a build needs this list and the
+//! [`Guard::AbortSelf`] guard looked at again (a note for WP-079).
 
 /// When a listed call is allowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

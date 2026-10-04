@@ -58,7 +58,12 @@ impl Profile {
     /// - CPU time: 60 seconds. The hard limit is one second later, so the
     ///   kernel first sends `SIGXCPU`, which names the cause, and only
     ///   then `SIGKILL`.
-    /// - Processes: none, which also refuses a second thread.
+    /// - Processes: none, which also refuses a second thread. The kernel
+    ///   does not apply this limit to a process with `CAP_SYS_RESOURCE` or
+    ///   `CAP_SYS_ADMIN`, so it holds only while the server does not run
+    ///   as root. A root server's worker that runs without seccomp has
+    ///   nothing that stops it forking; WP-078 or the packaging package
+    ///   must refuse to start workers as root or say so in the notice.
     /// - File size: none; a worker writes only to its socket.
     #[must_use]
     pub(crate) const fn limits(self) -> [Limit; 6] {

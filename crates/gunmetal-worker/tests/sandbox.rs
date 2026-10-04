@@ -127,8 +127,9 @@ fn main() {
         worker(args);
         return;
     }
-    // Resource limits and Landlock do not bind root, so every refusal
-    // below would be for the wrong reason, or not happen.
+    // The process limit does not bind root (it is not enforced with
+    // CAP_SYS_RESOURCE or CAP_SYS_ADMIN), and root can read a process that
+    // is not dumpable, so some refusals below would not happen.
     assert!(!getuid().is_root(), "these tests must not run as root");
     let word = std::env::args().nth(1).unwrap_or_default();
     let emulated = EMULATED.iter().position(|known| *known == word);

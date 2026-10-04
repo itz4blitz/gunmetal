@@ -1,11 +1,11 @@
 //! The sandbox self-test (SEC-MED-024): start a worker, let it confine
 //! itself, and report the tier it reached.
 //!
-//! The worker answers with one octet. The server treats it as it treats
-//! everything a worker sends, as untrusted input: any octet
-//! that is not a well-formed answer, no answer in time, and a worker that
-//! could not be started all count as nothing enforced, which the tier
-//! table turns into "off".
+//! The worker answers with two octets. The server treats them as it treats
+//! everything a worker sends, as untrusted input: anything that is not a
+//! well-formed answer, no answer in time, and a worker that could not be
+//! started all count as nothing enforced, which the tier table turns into
+//! "off".
 
 use super::args::{Job, TypedArgs};
 use super::confine::ConfineError;
@@ -18,8 +18,12 @@ use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
-/// The high bits of every answer. Printable text never has them all set,
-/// so a message a broken worker prints is not mistaken for an answer.
+/// The high bits of an answer's first octet. The second octet is the
+/// first's complement, so it is below `0x20`. No text is like that: in
+/// ASCII the first octet never has these bits, and in UTF-8 an octet that
+/// has them is a lead octet (or none at all) that must be followed by a
+/// continuation octet, `0x80` to `0xBF`. So a message a broken worker
+/// prints, in any language, is not mistaken for an answer.
 const MARK: u8 = 0b1110_0000;
 /// The answer's bit for the resource limits.
 const LIMITS: u8 = 0b0_0001;
@@ -35,13 +39,14 @@ const NAMESPACES: u8 = 0b1_0000;
 /// How long the server waits for a worker's answer.
 const WAIT: Duration = Duration::from_secs(30);
 
-/// The answer for the outcome of confinement. A worker that could not
-/// confine itself answers that nothing is enforced.
-fn encode(outcome: &Result<Enforced, ConfineError>) -> u8 {
+/// The answer for the outcome of confinement: the mark with one bit per
+/// control, then its complement. A worker that could not confine itself
+/// answers that nothing is enforced.
+fn encode(outcome: &Result<Enforced, ConfineError>) -> [u8; 2] {
     let enforced = outcome
         .as_ref()
         .map_or(Enforced::NONE, |&enforced| enforced);
-    [
+    let first = [
         (enforced.limits, LIMITS),
         (enforced.no_new_privs, NO_NEW_PRIVS),
         (enforced.seccomp, SECCOMP),
@@ -51,26 +56,27 @@ fn encode(outcome: &Result<Enforced, ConfineError>) -> u8 {
     .into_iter()
     .filter(|(holds, _)| *holds)
     .map(|(_, bit)| bit)
-    .fold(MARK, u8::saturating_add)
+    .fold(MARK, u8::saturating_add);
+    [first, !first]
 }
 
 /// Reads an answer back. The process is separate by the fact that it
 /// answered over the launcher's socket.
-fn decode(answer: u8) -> Option<Enforced> {
-    (answer & MARK == MARK).then_some(Enforced {
+fn decode([first, second]: [u8; 2]) -> Option<Enforced> {
+    (first & MARK == MARK && second == !first).then_some(Enforced {
         process: true,
-        limits: answer & LIMITS != 0,
-        no_new_privs: answer & NO_NEW_PRIVS != 0,
-        seccomp: answer & SECCOMP != 0,
-        landlock: answer & LANDLOCK != 0,
-        namespaces: answer & NAMESPACES != 0,
+        limits: first & LIMITS != 0,
+        no_new_privs: first & NO_NEW_PRIVS != 0,
+        seccomp: first & SECCOMP != 0,
+        landlock: first & LANDLOCK != 0,
+        namespaces: first & NAMESPACES != 0,
     })
 }
 
 /// Writes the answer for `outcome` to the worker's socket.
 fn answer(outcome: &Result<Enforced, ConfineError>, channel: &mut impl Write) -> io::Result<()> {
     channel
-        .write_all(&[encode(outcome)])
+        .write_all(&encode(outcome))
         .and_then(|()| channel.flush())
 }
 
@@ -87,14 +93,15 @@ pub fn answer_self_test(profile: Profile, channel: &mut impl Write) -> io::Resul
     answer(&confine(profile), channel)
 }
 
-/// Waits for one octet from the worker.
-fn read_answer(channel: &mut UnixStream) -> Option<u8> {
-    let mut octet = [0_u8; 1];
+/// Waits for the two octets of an answer from the worker. Fewer before
+/// the stream ends or the wait runs out is no answer.
+fn read_answer(channel: &mut UnixStream) -> Option<[u8; 2]> {
+    let mut octets = [0_u8; 2];
     channel
         .set_read_timeout(Some(WAIT))
-        .and_then(|()| channel.read_exact(&mut octet))
+        .and_then(|()| channel.read_exact(&mut octets))
         .ok()
-        .map(|()| octet[0])
+        .map(|()| octets)
 }
 
 /// Starts a self-test worker and returns what it says it enforced.
@@ -128,7 +135,7 @@ pub fn self_test(profile: Profile) -> TierReport {
 
 #[cfg(test)]
 mod tests {
-    use super::{answer, answer_self_test, decode, encode, self_test};
+    use super::{answer, answer_self_test, decode, encode, read_answer, self_test};
     use crate::sandbox::confine::{ConfineError, Step};
     use crate::sandbox::limits::Profile;
     use crate::sandbox::tier::{Enforced, Tier, TierReport};
@@ -144,42 +151,42 @@ mod tests {
     };
 
     #[test]
-    fn an_answer_is_the_mark_and_one_bit_per_control() {
-        assert_eq!(encode(&Ok(TYPICAL)), 0b1110_1111);
+    fn an_answer_is_the_mark_and_one_bit_per_control_then_its_complement() {
+        assert_eq!(encode(&Ok(TYPICAL)), [0b1110_1111, 0b0001_0000]);
         assert_eq!(
             encode(&Ok(Enforced {
                 namespaces: true,
                 ..TYPICAL
             })),
-            0b1111_1111
+            [0b1111_1111, 0b0000_0000]
         );
         assert_eq!(
             encode(&Ok(Enforced {
                 seccomp: false,
                 ..TYPICAL
             })),
-            0b1110_1011
+            [0b1110_1011, 0b0001_0100]
         );
         assert_eq!(
             encode(&Ok(Enforced {
                 landlock: false,
                 ..TYPICAL
             })),
-            0b1110_0111
+            [0b1110_0111, 0b0001_1000]
         );
         assert_eq!(
             encode(&Ok(Enforced {
                 limits: false,
                 ..TYPICAL
             })),
-            0b1110_1110
+            [0b1110_1110, 0b0001_0001]
         );
         assert_eq!(
             encode(&Ok(Enforced {
                 no_new_privs: false,
                 ..TYPICAL
             })),
-            0b1110_1101
+            [0b1110_1101, 0b0001_0010]
         );
     }
 
@@ -190,29 +197,29 @@ mod tests {
                 step: Step::Limits,
                 errno: Some(1)
             })),
-            0b1110_0000
+            [0b1110_0000, 0b0001_1111]
         );
     }
 
     #[test]
     fn an_answer_reads_back_as_a_separate_process_with_its_controls() {
-        assert_eq!(decode(0b1110_1111), Some(TYPICAL));
+        assert_eq!(decode([0b1110_1111, 0b0001_0000]), Some(TYPICAL));
         assert_eq!(
-            decode(0b1111_1111),
+            decode([0b1111_1111, 0b0000_0000]),
             Some(Enforced {
                 namespaces: true,
                 ..TYPICAL
             })
         );
         assert_eq!(
-            decode(0b1110_0000),
+            decode([0b1110_0000, 0b0001_1111]),
             Some(Enforced {
                 process: true,
                 ..Enforced::NONE
             })
         );
         assert_eq!(
-            decode(0b1110_0001),
+            decode([0b1110_0001, 0b0001_1110]),
             Some(Enforced {
                 process: true,
                 limits: true,
@@ -220,7 +227,7 @@ mod tests {
             })
         );
         assert_eq!(
-            decode(0b1110_0010),
+            decode([0b1110_0010, 0b0001_1101]),
             Some(Enforced {
                 process: true,
                 no_new_privs: true,
@@ -228,7 +235,7 @@ mod tests {
             })
         );
         assert_eq!(
-            decode(0b1110_0100),
+            decode([0b1110_0100, 0b0001_1011]),
             Some(Enforced {
                 process: true,
                 seccomp: true,
@@ -236,7 +243,7 @@ mod tests {
             })
         );
         assert_eq!(
-            decode(0b1110_1000),
+            decode([0b1110_1000, 0b0001_0111]),
             Some(Enforced {
                 process: true,
                 landlock: true,
@@ -245,18 +252,65 @@ mod tests {
         );
     }
 
+    /// Of all 65,536 pairs of octets, exactly the 32 whose first octet has
+    /// the whole mark and whose second is its complement are answers.
     #[test]
-    fn an_octet_without_the_whole_mark_is_not_an_answer() {
-        for octet in [0x00, 0x1f, b'e', b'\n', 0x7f, 0x80, 0xc0, 0xdf, 0x6f, 0xaf] {
-            assert_eq!(decode(octet), None);
+    fn only_the_mark_and_its_complement_is_an_answer() {
+        let mut answers = Vec::new();
+        for first in 0..=u8::MAX {
+            for second in 0..=u8::MAX {
+                if decode([first, second]).is_some() {
+                    answers.push([first, second]);
+                }
+            }
+        }
+        let expected: Vec<[u8; 2]> = (0xe0..=0xff_u8).map(|first| [first, !first]).collect();
+        assert_eq!(answers, expected);
+    }
+
+    /// Text a broken worker prints is never an answer, in any language:
+    /// a first octet with the whole mark is a UTF-8 lead octet or no
+    /// UTF-8 at all, and the complement that follows is never a
+    /// continuation octet.
+    #[test]
+    fn the_start_of_any_text_is_not_an_answer() {
+        for text in [
+            "error: no such file",
+            "\u{feff}byte-order mark",
+            "\u{ff25}\u{ff32}\u{ff32}",
+            "\u{3042}\u{3044}",
+            "\u{7fa9}",
+            "\u{d55c}",
+            "\u{1f600}",
+            "\u{e9}",
+        ] {
+            let octets = text.as_bytes();
+            assert_eq!(decode([octets[0], octets[1]]), None, "{text}");
         }
     }
 
     #[test]
-    fn the_answer_is_written_as_one_octet() {
+    fn the_answer_is_written_as_two_octets() {
         let mut channel = Vec::new();
         answer(&Ok(TYPICAL), &mut channel).unwrap();
-        assert_eq!(channel, [0b1110_1111]);
+        assert_eq!(channel, [0b1110_1111, 0b0001_0000]);
+    }
+
+    /// One octet and then the end of the stream is not an answer, even
+    /// when that octet is a whole one's first half.
+    #[test]
+    fn a_single_octet_is_not_an_answer() {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+
+        let (mut ours, mut theirs) = UnixStream::pair().unwrap();
+        theirs.write_all(&[0b1110_1111]).unwrap();
+        drop(theirs);
+        assert_eq!(read_answer(&mut ours), None);
+
+        let (mut ours, mut theirs) = UnixStream::pair().unwrap();
+        theirs.write_all(&[0b1110_1111, 0b0001_0000]).unwrap();
+        assert_eq!(read_answer(&mut ours), Some([0b1110_1111, 0b0001_0000]));
     }
 
     /// The test process has more than one thread, so confinement refuses
@@ -267,7 +321,7 @@ mod tests {
         let helper = std::thread::spawn(move || parked.recv());
         let mut channel = Vec::new();
         answer_self_test(Profile::Scan, &mut channel).unwrap();
-        assert_eq!(channel, [0b1110_0000]);
+        assert_eq!(channel, [0b1110_0000, 0b0001_1111]);
         drop(keep);
         assert_eq!(helper.join().unwrap(), Err(std::sync::mpsc::RecvError));
     }
