@@ -143,6 +143,11 @@ security_events! {
         /// Where the request came from, which the limiter keyed on.
         source: ClientContext,
     }
+    /// Debug logging was switched on; it switches itself off within 24 hours (SEC-OPS-029).
+    GmDebugLoggingEnabled = "gm_debug_logging_enabled" {
+        /// The administrator who switched it on, or none when it was switched on from the host.
+        account: Option<PublicId>,
+    }
 }
 
 /// Where producers send security events.
@@ -342,11 +347,12 @@ mod tests {
 
     /// Every event's vocabulary name, in order, written out independently of
     /// the declaration above.
-    const VOCABULARY: [&str; 4] = [
+    const VOCABULARY: [&str; 5] = [
         "authn_login_fail",
         "authn_login_success",
         "authz_fail",
         "excess_rate_limit_exceeded",
+        "gm_debug_logging_enabled",
     ];
 
     fn source() -> ClientContext {
@@ -428,6 +434,10 @@ mod tests {
             (
                 SecurityEvent::ExcessRateLimitExceeded { source: source() },
                 EventName::ExcessRateLimitExceeded,
+            ),
+            (
+                SecurityEvent::GmDebugLoggingEnabled { account: None },
+                EventName::GmDebugLoggingEnabled,
             ),
         ];
         let reported: Vec<(SecurityEvent, EventName)> = cases
