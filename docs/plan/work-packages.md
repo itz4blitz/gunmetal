@@ -2363,7 +2363,7 @@ returns the whole expected value.
   web-and-api-security.md; API-SYS-09.
 - **Security.** Boundaries TB1, TB2, TB4; threats TM-T02, TM-T03, TM-T08,
   TM-T10, TM-T11, TM-T14. Verifies SEC-API-001, SEC-API-004, SEC-API-007,
-  SEC-API-008, SEC-API-013, SEC-API-019, SEC-API-033,
+  SEC-API-008, SEC-API-013, SEC-API-019, SEC-API-025, SEC-API-033,
   SEC-API-034, SEC-API-035, SEC-API-036, SEC-API-038, SEC-API-040,
   SEC-API-053, SEC-API-054, SEC-API-055, SEC-API-060, SEC-API-063,
   SEC-API-065, SEC-API-067, SEC-API-068, SEC-API-072, SEC-API-073,
@@ -2420,9 +2420,8 @@ returns the whole expected value.
   are explicit per role and never serialised storage records
   (SEC-API-068). The access log records the route template, never a raw
   path (SEC-API-095). The list paging convention with a page cap of 500
-  (SEC-API-063). Cursor text is URL-safe and length-capped here;
-  handle or MAC integrity is the first list route's (WP-066). An
-  in-process test client.
+  (SEC-API-063) and opaque cursors (SEC-API-025). An in-process test
+  client.
 - **Not in scope.** Sessions, principals and authorisation decisions
   (WP-062, WP-065), which plug into the hooks. Connection-level limits and
   timeouts (WP-118). The generated suites over the full route table
@@ -8788,7 +8787,7 @@ authoritative.
 | SEC-API-022 | Folder browser used to choose library: admin-only | WP-099 |
 | SEC-API-023 | Identifier visible outside the server: carry at least 128 bits from a CSPRNG | WP-006, WP-046, WP-047, WP-102 |
 | SEC-API-024 | Identifiers: typed by kind | WP-006, WP-131 |
-| SEC-API-025 | Pagination cursors and other continuation tokens: either opaque server-side handles or MAC-protected | WP-066 |
+| SEC-API-025 | Pagination cursors and other continuation tokens: either opaque server-side handles or MAC-protected | WP-044, WP-066 |
 | SEC-API-026 | Audio: served only from capability URLs whose path | WP-031, WP-082, WP-105 |
 | SEC-API-027 | Capability URL lifetimes | WP-031, WP-082, WP-103 |
 | SEC-API-028 | After the MAC and expiry checks: confirm that the bound session is still active | WP-082, WP-105 |
