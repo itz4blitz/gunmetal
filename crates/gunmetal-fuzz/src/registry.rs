@@ -63,6 +63,7 @@ harnesses! {
     id3_structure,
     id3v1,
     id3v2_tag,
+    inflate,
     link,
     logframe,
     lyrics,

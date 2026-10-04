@@ -336,6 +336,20 @@ disallowed-methods = [
     # until WP-006 adds the type; remove it then.
     { path = "gunmetal_core::id::Minted::from_os_random", reason = "public IDs are minted only by the secrets crate's minting function (SEC-HIS-012)" },
 
+    # SEC-MED-009: decompression only through the one streaming helper in
+    # gunmetal-core/src/inflate.rs (WP-128). The with-alloc helpers are
+    # off in the core's pin; they stay banned so turning the feature on
+    # cannot open a second door.
+    { path = "miniz_oxide::inflate::core::decompress", reason = "decompression only through the one streaming helper (SEC-MED-009)" },
+    { path = "miniz_oxide::inflate::core::decompress_with_limit", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    { path = "miniz_oxide::inflate::stream::inflate", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    { path = "miniz_oxide::inflate::decompress_slice_iter_to_slice", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    # feature-gated: miniz_oxide "with-alloc"
+    { path = "miniz_oxide::inflate::decompress_to_vec", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    { path = "miniz_oxide::inflate::decompress_to_vec_zlib", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    { path = "miniz_oxide::inflate::decompress_to_vec_with_limit", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+    { path = "miniz_oxide::inflate::decompress_to_vec_zlib_with_limit", reason = "decompression only through the one streaming helper (SEC-MED-009)", allow-invalid = true },
+
     # SEC-OPS-013, SEC-IAM-095: a secret's value is reachable only inside
     # gunmetal-secrets (WP-047).
     { path = "gunmetal_secrets::Secret::expose", reason = "secret values are exposed only inside gunmetal-secrets (SEC-OPS-013, SEC-IAM-095)" },
