@@ -8,7 +8,10 @@
 //! 1. the principal holds the capability the action needs, within its
 //!    kind's ceiling; its credential's scope allows it; its device class
 //!    allows it; and its session is elevated if the capability runs the
-//!    server;
+//!    server. Only signing out and managing one's own credentials need no
+//!    capability, and step 2 refuses the second to every scoped
+//!    credential, so a scope that names nothing allows nothing but signing
+//!    out (SEC-API-020);
 //! 2. neither a scoped credential nor a limited-class device is creating
 //!    or changing a credential;
 //! 3. the resource is one the principal may act on: an item in a library
@@ -59,6 +62,15 @@ pub enum Owner {
     Account(PublicId),
     /// A profile, such as a listening history's.
     Profile(PublicId),
+}
+
+/// The person an action on a person was decided about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetPerson {
+    /// The person's account.
+    pub account: PublicId,
+    /// The kind of principal the account was when the policy decided.
+    pub kind: PrincipalKind,
 }
 
 /// Why the policy refused.
@@ -141,9 +153,10 @@ impl Describe for Denial {
 /// Only [`decide`] can make one. It has no public constructor, its fields
 /// are private, and it cannot be cloned, so holding one proves that the
 /// policy allowed this action for this principal. It records who that
-/// principal is and, for an action on the principal's own data, whose data
-/// it is, so a reader can refuse a permit that was decided for someone
-/// else.
+/// principal is and what the decision was about: for an action on the
+/// principal's own data, whose data it is, and for an action on a person,
+/// that person's account and kind. A reader or a writer can therefore
+/// refuse a permit that was decided for someone or something else.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Permit {
     action: Action,
@@ -151,6 +164,7 @@ pub struct Permit {
     account: Option<PublicId>,
     profile: Option<PublicId>,
     owner: Option<Owner>,
+    target: Option<TargetPerson>,
 }
 
 impl Permit {
@@ -188,6 +202,17 @@ impl Permit {
     pub const fn owner(&self) -> Option<Owner> {
         self.owner
     }
+
+    /// The person the decision was made about, when the action acts on a
+    /// person: managing or recovering a user, ending their sessions, making
+    /// or unmaking an administrator, or handing over the server. A writer
+    /// in the identity store changes only this account, and only while it
+    /// is still of this kind, so a permit decided for a member cannot be
+    /// spent on an administrator or the owner.
+    #[must_use]
+    pub const fn target(&self) -> Option<TargetPerson> {
+        self.target
+    }
 }
 
 /// Decides whether the principal described by `principal` may perform
@@ -218,13 +243,13 @@ pub fn decide(
         return Err(Denial::LimitedDevice);
     }
     let libraries = visible_libraries(principal);
-    let owner = match (rule.target, resource) {
-        (Target::Server | Target::Library, ResourceFacts::Server) => None,
+    let (owner, target) = match (rule.target, resource) {
+        (Target::Server | Target::Library, ResourceFacts::Server) => (None, None),
         (Target::Library, ResourceFacts::Library(library)) => {
             if !libraries.contains(library) {
                 return Err(Denial::NotVisible);
             }
-            None
+            (None, None)
         }
         (Target::Own, ResourceFacts::Owned(owner)) => {
             let own = match owner {
@@ -234,13 +259,17 @@ pub fn decide(
             if !own {
                 return Err(Denial::NotVisible);
             }
-            Some(*owner)
+            (Some(*owner), None)
         }
-        (Target::Person(kinds), ResourceFacts::Person { kind, .. }) => {
+        (Target::Person(kinds), ResourceFacts::Person { account, kind }) => {
             if !kinds.contains(kind) {
                 return Err(Denial::TargetNotAllowed(*kind));
             }
-            None
+            let person = TargetPerson {
+                account: *account,
+                kind: *kind,
+            };
+            (None, Some(person))
         }
         _ => return Err(Denial::NotVisible),
     };
@@ -262,6 +291,7 @@ pub fn decide(
         account: principal.account,
         profile: principal.profile,
         owner,
+        target,
     })
 }
 
@@ -400,7 +430,7 @@ mod compile_fail {
     /// use gunmetal_core::authz::{Action, Context, Denial, LibrarySet, Permit, PrincipalFacts, ResourceFacts, decide};
     ///
     /// fn forge(libraries: LibrarySet) -> Permit {
-    ///     Permit { action: Action::BrowseLibrary, libraries, account: None, profile: None, owner: None }
+    ///     Permit { action: Action::BrowseLibrary, libraries, account: None, profile: None, owner: None, target: None }
     /// }
     /// ```
     struct NoStructLiteral;
@@ -545,6 +575,12 @@ mod tests {
         );
         assert_eq!(
             ask(&bare, Action::ReadOwnData, &own, &at_home()),
+            Err(Denial::MissingCapability(C::OwnRead))
+        );
+        // Holding only `own.read`, its own data comes with no library.
+        let reader = facts(K::Member, CapabilitySet::of(&[C::OwnRead]));
+        assert_eq!(
+            ask(&reader, Action::ReadOwnData, &own, &at_home()),
             Ok((Action::ReadOwnData, only(&[])))
         );
         // The same person with `library.read` carries the grant.
@@ -568,7 +604,7 @@ mod tests {
         // A key whose scope lacks `library.read` sees no library, whatever
         // its holder sees and whatever libraries its scope lists.
         let mut key = member();
-        key.scope = Some(scope(&[C::PlaylistShare], &[1]));
+        key.scope = Some(scope(&[C::PlaylistShare, C::OwnRead], &[1]));
         assert_eq!(
             ask(
                 &key,
@@ -604,23 +640,34 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-TM-024
     #[test]
-    fn a_permit_records_who_it_was_decided_for_and_whose_object_it_opens() {
-        type Subject = (Option<PublicId>, Option<PublicId>, Option<Owner>);
+    fn a_permit_records_who_it_was_decided_for_and_what_it_was_decided_about() {
+        type Subject = (
+            Option<PublicId>,
+            Option<PublicId>,
+            Option<Owner>,
+            Option<TargetPerson>,
+        );
         let subject = |principal: &PrincipalFacts, action, resource: &ResourceFacts| {
-            decide(principal, action, resource, &at_home())
-                .map(|permit| (permit.account(), permit.profile(), permit.owner()))
+            decide(principal, action, resource, &at_home()).map(|permit| {
+                (
+                    permit.account(),
+                    permit.profile(),
+                    permit.owner(),
+                    permit.target(),
+                )
+            })
         };
-        let both =
-            |owner| -> Result<Subject, Denial> { Ok((Some(account(1)), Some(profile(1)), owner)) };
+        let both = |owner, target| -> Result<Subject, Denial> {
+            Ok((Some(account(1)), Some(profile(1)), owner, target))
+        };
         assert_eq!(
             subject(
                 &member(),
                 Action::ReadOwnData,
                 &ResourceFacts::Owned(Owner::Profile(profile(1)))
             ),
-            both(Some(Owner::Profile(profile(1))))
+            both(Some(Owner::Profile(profile(1))), None)
         );
         assert_eq!(
             subject(
@@ -628,12 +675,13 @@ mod tests {
                 Action::WriteOwnData,
                 &ResourceFacts::Owned(Owner::Account(account(1)))
             ),
-            both(Some(Owner::Account(account(1))))
+            both(Some(Owner::Account(account(1))), None)
         );
-        // Anything that is not the principal's own object names no owner.
+        // Anything that is neither the principal's own object nor a person
+        // names no owner and no target.
         assert_eq!(
             subject(&member(), Action::BrowseLibrary, &ResourceFacts::Server),
-            both(None)
+            both(None, None)
         );
         assert_eq!(
             subject(
@@ -641,11 +689,38 @@ mod tests {
                 Action::StreamMedia,
                 &ResourceFacts::Library(library(1))
             ),
-            both(None)
+            both(None, None)
         );
+        // An action on a person names that person's account and kind.
         assert_eq!(
             subject(&owner(), Action::ManageUser, &person(K::Member)),
-            both(None)
+            both(
+                None,
+                Some(TargetPerson {
+                    account: account(2),
+                    kind: K::Member
+                })
+            )
+        );
+        let other_admin = ResourceFacts::Person {
+            account: account(3),
+            kind: K::Administrator,
+        };
+        assert_eq!(
+            subject(&admin(), Action::EndSessions, &other_admin),
+            both(
+                None,
+                Some(TargetPerson {
+                    account: account(3),
+                    kind: K::Administrator
+                })
+            )
+        );
+        // No permit to manage that administrator exists to be confused
+        // with the one above.
+        assert_eq!(
+            subject(&admin(), Action::ManageUser, &other_admin),
+            Err(Denial::TargetNotAllowed(K::Administrator))
         );
         // The account and the profile are each the principal's own, or
         // absent when it has none.
@@ -658,14 +733,77 @@ mod tests {
                 Action::ReadOwnData,
                 &ResourceFacts::Owned(Owner::Profile(profile(2)))
             ),
-            Ok((None, Some(profile(2)), Some(Owner::Profile(profile(2)))))
+            Ok((
+                None,
+                Some(profile(2)),
+                Some(Owner::Profile(profile(2))),
+                None
+            ))
         );
         let mut account_only = member();
         account_only.account = Some(account(2));
         account_only.profile = None;
         assert_eq!(
             subject(&account_only, Action::SignOut, &ResourceFacts::Server),
-            Ok((Some(account(2)), None, None))
+            Ok((Some(account(2)), None, None, None))
+        );
+    }
+
+    /// Verifies: SEC-API-020
+    #[test]
+    fn a_scope_reaches_its_holder_s_own_data_only_when_it_names_it() {
+        let own = ResourceFacts::Owned(Owner::Profile(profile(1)));
+        let asked = |holder: PrincipalFacts, scope: Option<Scope>| {
+            let mut key = holder;
+            key.scope = scope;
+            [Action::ReadOwnData, Action::WriteOwnData]
+                .map(|action| ask(&key, action, &own, &at_home()))
+        };
+        let read = || Ok((Action::ReadOwnData, only(&[])));
+        let write = || Ok((Action::WriteOwnData, only(&[])));
+        let no_read = || Err(Denial::OutOfScope(C::OwnRead));
+        let no_write = || Err(Denial::OutOfScope(C::OwnWrite));
+        // An empty scope, and one that names only the libraries, open
+        // nothing the holder owns.
+        assert_eq!(
+            asked(member(), Some(scope(&[], &[]))),
+            [no_read(), no_write()]
+        );
+        assert_eq!(
+            asked(member(), Some(scope(&[C::LibraryRead], &[1]))),
+            [no_read(), no_write()]
+        );
+        // Each of the two is named on its own.
+        assert_eq!(
+            asked(member(), Some(scope(&[C::OwnRead], &[]))),
+            [read(), no_write()]
+        );
+        assert_eq!(
+            asked(member(), Some(scope(&[C::OwnWrite], &[]))),
+            [no_read(), write()]
+        );
+        assert_eq!(
+            asked(member(), Some(scope(&[C::OwnRead, C::OwnWrite], &[]))),
+            [read(), write()]
+        );
+        // The holder itself, with no scope, has both.
+        assert_eq!(
+            asked(member(), None),
+            [
+                Ok((Action::ReadOwnData, only(&[1]))),
+                Ok((Action::WriteOwnData, only(&[1])))
+            ]
+        );
+        // A scope cannot add what its holder lacks.
+        assert_eq!(
+            asked(
+                facts(K::Member, CapabilitySet::EMPTY),
+                Some(scope(&[C::OwnRead, C::OwnWrite], &[]))
+            ),
+            [
+                Err(Denial::MissingCapability(C::OwnRead)),
+                Err(Denial::MissingCapability(C::OwnWrite))
+            ]
         );
     }
 

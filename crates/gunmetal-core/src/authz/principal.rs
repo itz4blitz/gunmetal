@@ -53,7 +53,9 @@ impl PrincipalKind {
     /// The most a principal of this kind may ever hold, whatever it was
     /// granted. Only the owner's ceiling holds the owner-only capabilities
     /// (SEC-IAM-075), and only the owner's and administrators' hold any
-    /// capability that runs the server.
+    /// capability that runs the server. Every kind's holds `own.read` and
+    /// `own.write`: what narrows a principal's access to its own data is
+    /// its grant and its credential's scope, not its kind.
     #[must_use]
     pub const fn ceiling(self) -> CapabilitySet {
         match self {
@@ -65,21 +67,32 @@ impl PrincipalKind {
                 Capability::LibraryRead,
                 Capability::LibraryDownload,
                 Capability::PlaylistShare,
+                Capability::OwnRead,
+                Capability::OwnWrite,
                 Capability::LibraryManage,
                 Capability::InviteGuest,
                 Capability::HouseholdDevice,
                 Capability::HouseholdProfile,
             ]),
-            Self::ManagedProfile => {
-                CapabilitySet::of(&[Capability::LibraryRead, Capability::LibraryDownload])
-            }
+            Self::ManagedProfile => CapabilitySet::of(&[
+                Capability::LibraryRead,
+                Capability::LibraryDownload,
+                Capability::OwnRead,
+                Capability::OwnWrite,
+            ]),
             Self::Guest | Self::ApiClient => CapabilitySet::of(&[
                 Capability::LibraryRead,
                 Capability::LibraryDownload,
                 Capability::PlaylistShare,
+                Capability::OwnRead,
+                Capability::OwnWrite,
             ]),
             Self::Device | Self::Plugin | Self::PeerServer | Self::LinkHolder => {
-                CapabilitySet::of(&[Capability::LibraryRead])
+                CapabilitySet::of(&[
+                    Capability::LibraryRead,
+                    Capability::OwnRead,
+                    Capability::OwnWrite,
+                ])
             }
         }
     }
@@ -91,7 +104,8 @@ pub enum DeviceClass {
     /// One person's own phone, computer or personal-mode browser.
     Personal,
     /// A TV, a shared-mode browser or another device several people use. It
-    /// may browse and play, nothing more (A-116, A-118).
+    /// may browse and play, and read and keep the listening history and
+    /// settings of whoever is using it, nothing more (A-116, A-118).
     Limited,
 }
 
@@ -101,7 +115,12 @@ impl DeviceClass {
     pub const fn ceiling(self) -> CapabilitySet {
         match self {
             Self::Personal => CapabilitySet::EVERY,
-            Self::Limited => CapabilitySet::of(&[Capability::LibraryRead, Capability::LibraryAll]),
+            Self::Limited => CapabilitySet::of(&[
+                Capability::LibraryRead,
+                Capability::LibraryAll,
+                Capability::OwnRead,
+                Capability::OwnWrite,
+            ]),
         }
     }
 }
@@ -258,7 +277,14 @@ mod tests {
     /// Verifies: SEC-IAM-075
     #[test]
     fn each_kind_has_the_ceiling_of_the_table() {
-        let read = vec![C::LibraryRead];
+        let read = vec![C::LibraryRead, C::OwnRead, C::OwnWrite];
+        let share = vec![
+            C::LibraryRead,
+            C::LibraryDownload,
+            C::PlaylistShare,
+            C::OwnRead,
+            C::OwnWrite,
+        ];
         let ceilings: Vec<(PrincipalKind, Vec<Capability>)> = PrincipalKind::ALL
             .iter()
             .map(|kind| (*kind, listed(kind.ceiling())))
@@ -274,6 +300,8 @@ mod tests {
                         C::LibraryAll,
                         C::LibraryDownload,
                         C::PlaylistShare,
+                        C::OwnRead,
+                        C::OwnWrite,
                         C::LibraryManage,
                         C::InviteGuest,
                         C::InviteMember,
@@ -293,6 +321,8 @@ mod tests {
                         C::LibraryRead,
                         C::LibraryDownload,
                         C::PlaylistShare,
+                        C::OwnRead,
+                        C::OwnWrite,
                         C::LibraryManage,
                         C::InviteGuest,
                         C::HouseholdDevice,
@@ -301,17 +331,11 @@ mod tests {
                 ),
                 (
                     PrincipalKind::ManagedProfile,
-                    vec![C::LibraryRead, C::LibraryDownload]
+                    vec![C::LibraryRead, C::LibraryDownload, C::OwnRead, C::OwnWrite]
                 ),
-                (
-                    PrincipalKind::Guest,
-                    vec![C::LibraryRead, C::LibraryDownload, C::PlaylistShare]
-                ),
+                (PrincipalKind::Guest, share.clone()),
                 (PrincipalKind::Device, read.clone()),
-                (
-                    PrincipalKind::ApiClient,
-                    vec![C::LibraryRead, C::LibraryDownload, C::PlaylistShare]
-                ),
+                (PrincipalKind::ApiClient, share),
                 (PrincipalKind::Plugin, read.clone()),
                 (PrincipalKind::PeerServer, read.clone()),
                 (PrincipalKind::LinkHolder, read),
@@ -324,7 +348,7 @@ mod tests {
         assert_eq!(listed(DeviceClass::Personal.ceiling()), Capability::ALL);
         assert_eq!(
             listed(DeviceClass::Limited.ceiling()),
-            [C::LibraryRead, C::LibraryAll]
+            [C::LibraryRead, C::LibraryAll, C::OwnRead, C::OwnWrite]
         );
         assert_eq!(listed(Elevation::Elevated.ceiling()), Capability::ALL);
         assert_eq!(
@@ -333,7 +357,9 @@ mod tests {
                 C::LibraryRead,
                 C::LibraryAll,
                 C::LibraryDownload,
-                C::PlaylistShare
+                C::PlaylistShare,
+                C::OwnRead,
+                C::OwnWrite,
             ]
         );
     }
@@ -358,19 +384,21 @@ mod tests {
         let mut owner = facts(PrincipalKind::Owner);
         assert_eq!(listed(owner.effective()), Capability::ALL);
 
-        owner.capabilities = CapabilitySet::of(&[C::Backup, C::LibraryRead, C::HostFiles]);
+        owner.capabilities =
+            CapabilitySet::of(&[C::Backup, C::LibraryRead, C::OwnRead, C::HostFiles]);
         assert_eq!(
             listed(owner.effective()),
-            [C::LibraryRead, C::HostFiles, C::Backup]
+            [C::LibraryRead, C::OwnRead, C::HostFiles, C::Backup]
         );
 
         owner.elevation = Elevation::Ordinary;
-        assert_eq!(listed(owner.effective()), [C::LibraryRead]);
+        assert_eq!(listed(owner.effective()), [C::LibraryRead, C::OwnRead]);
 
         owner.elevation = Elevation::Elevated;
         owner.device = DeviceClass::Limited;
-        assert_eq!(listed(owner.effective()), [C::LibraryRead]);
+        assert_eq!(listed(owner.effective()), [C::LibraryRead, C::OwnRead]);
 
+        // A scope that does not name the holder's own data leaves it out.
         owner.device = DeviceClass::Personal;
         owner.scope = Some(Scope {
             capabilities: CapabilitySet::of(&[C::HostFiles, C::AuditRead]),
@@ -381,7 +409,13 @@ mod tests {
         let guest = facts(PrincipalKind::Guest);
         assert_eq!(
             listed(guest.effective()),
-            [C::LibraryRead, C::LibraryDownload, C::PlaylistShare]
+            [
+                C::LibraryRead,
+                C::LibraryDownload,
+                C::PlaylistShare,
+                C::OwnRead,
+                C::OwnWrite,
+            ]
         );
     }
 }
