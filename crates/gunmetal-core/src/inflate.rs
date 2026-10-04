@@ -1005,7 +1005,7 @@ mod tests {
         }
     }
 
-    /// RFC 9559 ContentCompAlgo 0 is zlib; 1 (bzlib) and 2 (lzo1x) are
+    /// RFC 9559 `ContentCompAlgo` 0 is zlib; 1 (bzlib) and 2 (lzo1x) are
     /// refused on this door, as is every other value.
     ///
     /// Verifies: SEC-MED-009
