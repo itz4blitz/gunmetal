@@ -415,9 +415,9 @@ struct Mapper<'a> {
     sources: FieldSources,
     problems: Vec<TagProblem>,
     limits: &'a Limits,
-    year: Option<(u16, FieldSource)>,
+    year: Option<(PartialDate, FieldSource)>,
     date_part: Option<(u8, u8, FieldSource)>,
-    original_year: Option<(u16, FieldSource)>,
+    original_year: Option<(PartialDate, FieldSource)>,
     pending_track_peak: Option<PeakRatio>,
     pending_album_peak: Option<PeakRatio>,
 }
@@ -652,13 +652,12 @@ impl<'a> Mapper<'a> {
         };
         match PartialDate::parse(Untrusted::new(value)) {
             Ok(date) => {
-                let year = date.year();
                 if original {
                     if self.original_year.is_none() {
-                        self.original_year = Some((year, source));
+                        self.original_year = Some((date, source));
                     }
                 } else if self.year.is_none() {
-                    self.year = Some((year, source));
+                    self.year = Some((date, source));
                 }
             }
             Err(error) => self
@@ -684,33 +683,27 @@ impl<'a> Mapper<'a> {
 
     fn finish_dates(&mut self) {
         if self.tags.date.is_none() {
-            if let Some((year, source)) = self.year {
-                let (month, day) = match self.date_part {
-                    Some((month, day, _)) => (Some(month), Some(day)),
-                    None => (None, None),
-                };
-                match PartialDate::new(year, month, day) {
-                    Ok(date) => {
-                        self.tags.date = Some(date);
-                        self.sources.date = Some(source);
-                    }
-                    Err(error) => {
+            if let Some((written, source)) = self.year {
+                let combined = self.date_part.map(|(month, day, _)| {
+                    PartialDate::new(written.year(), Some(month), Some(day))
+                });
+                let date = match combined {
+                    Some(Ok(date)) => date,
+                    Some(Err(error)) => {
                         self.problems
                             .push(TagProblem::InvalidValue { source, error });
-                        if let Ok(date) = PartialDate::new(year, None, None) {
-                            self.tags.date = Some(date);
-                            self.sources.date = Some(source);
-                        }
+                        written
                     }
-                }
+                    None => written,
+                };
+                self.tags.date = Some(date);
+                self.sources.date = Some(source);
             }
         }
         if self.tags.original_date.is_none() {
-            if let Some((year, source)) = self.original_year {
-                if let Ok(date) = PartialDate::new(year, None, None) {
-                    self.tags.original_date = Some(date);
-                    self.sources.original_date = Some(source);
-                }
+            if let Some((date, source)) = self.original_year {
+                self.tags.original_date = Some(date);
+                self.sources.original_date = Some(source);
             }
         }
     }
@@ -1017,7 +1010,7 @@ impl<'a> Mapper<'a> {
         self.embed_lyrics(
             LyricsOrigin::Id3Unsynced,
             LyricsTiming::Plain,
-            body.text.value.clone(),
+            &body.text.value,
             source,
         );
     }
@@ -1032,38 +1025,35 @@ impl<'a> Mapper<'a> {
         if text.trim().is_empty() {
             return;
         }
-        self.embed_lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, text, source);
+        self.embed_lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, &text, source);
     }
 
     fn embed_lyrics(
         &mut self,
         origin: LyricsOrigin,
         timing: LyricsTiming,
-        text: String,
+        text: &str,
         source: FieldSource,
     ) {
-        if let Ok(lyrics_source) = LyricsSource::new(origin, timing) {
-            self.add_lyrics(
-                TagLyrics {
-                    source: lyrics_source,
-                    text,
-                },
-                source,
-            );
-        }
+        // `LyricsSource::new` refuses only untimed `SYLT` text, which no
+        // caller here asks for.
+        LyricsSource::new(origin, timing)
+            .into_iter()
+            .map(|lyrics_source| TagLyrics {
+                source: lyrics_source,
+                text: text.to_owned(),
+            })
+            .for_each(|lyrics| self.add_lyrics(lyrics, source));
     }
 
     fn add_lyrics(&mut self, lyrics: TagLyrics, source: FieldSource) {
-        if !push(
+        if push(
             &mut self.tags.lyrics,
             lyrics,
             self.limits,
             &mut self.problems,
         ) {
-            return;
-        }
-        if self.sources.lyrics.is_none() {
-            self.sources.lyrics = Some(source);
+            remember(&mut self.sources.lyrics, source);
         }
     }
 
@@ -2094,6 +2084,22 @@ mod tests {
         assert_eq!(mapped.tags.date, Some(date(1971, Some(12), Some(17))));
         assert_eq!(mapped.tags.original_date, Some(date(1969, None, None)));
         assert_eq!(mapped.sources.date, Some(v2_source(b"TYER")));
+    }
+
+    #[test]
+    fn keeps_a_whole_date_written_in_a_year_frame() {
+        let mapped = map_frames(
+            3,
+            vec![
+                text_frame(b"TYER", &["1971-12-17"]),
+                text_frame(b"TORY", &["1969-07"]),
+            ],
+        );
+        assert_eq!(mapped.tags.date, Some(date(1971, Some(12), Some(17))));
+        assert_eq!(mapped.tags.original_date, Some(date(1969, Some(7), None)));
+        assert_eq!(mapped.sources.date, Some(v2_source(b"TYER")));
+        assert_eq!(mapped.sources.original_date, Some(v2_source(b"TORY")));
+        assert_eq!(mapped.problems, []);
     }
 
     #[test]
