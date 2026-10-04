@@ -216,7 +216,7 @@ fn the_documented_budget_is_enough_for_a_valid_file_of_each_format() {
 /// typed error or a recorded problem, never with a refused read or a
 /// hang.
 ///
-/// Verifies: SEC-MED-007, SEC-MED-008
+/// Verifies: SEC-MED-007, SEC-MED-008, SEC-TM-032
 #[test]
 fn returns_for_every_budget_a_valid_file_can_run_out_of() {
     for (file, ext) in samples() {
