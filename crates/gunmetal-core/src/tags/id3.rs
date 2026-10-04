@@ -605,18 +605,14 @@ impl<'a> Mapper<'a> {
             Ok(position) => {
                 self.tags.position = position;
                 if track {
-                    if self.sources.track.is_none() && parsed.0.is_some() {
-                        self.sources.track = Some(source);
-                    }
-                    if self.sources.track_total.is_none() && parsed.1.is_some() {
-                        self.sources.track_total = Some(source);
+                    remember(&mut self.sources.track, source);
+                    if parsed.1.is_some() {
+                        remember(&mut self.sources.track_total, source);
                     }
                 } else {
-                    if self.sources.disc.is_none() && parsed.0.is_some() {
-                        self.sources.disc = Some(source);
-                    }
-                    if self.sources.disc_total.is_none() && parsed.1.is_some() {
-                        self.sources.disc_total = Some(source);
+                    remember(&mut self.sources.disc, source);
+                    if parsed.1.is_some() {
+                        remember(&mut self.sources.disc_total, source);
                     }
                 }
             }
@@ -1141,6 +1137,13 @@ impl<'a> Mapper<'a> {
                 );
             }
         }
+    }
+}
+
+/// Records `source` when that field has not been filled yet.
+fn remember(slot: &mut Option<FieldSource>, source: FieldSource) {
+    if slot.is_none() {
+        *slot = Some(source);
     }
 }
 
@@ -2014,6 +2017,10 @@ mod tests {
             mapped.tags.position,
             TrackPosition::new(Some(1), None, Some(2), None).unwrap()
         );
+        assert_eq!(mapped.sources.track, Some(v2_source(b"TRK")));
+        assert_eq!(mapped.sources.disc, Some(v2_source(b"TPA")));
+        assert_eq!(mapped.sources.track_total, None);
+        assert_eq!(mapped.sources.disc_total, None);
     }
 
     #[test]
@@ -3386,8 +3393,8 @@ mod tests {
                 frame(
                     b"TIT2",
                     FrameBody::UserText {
-                        description: text("x"),
-                        values: texts(&["y"]),
+                        description: text("MOOD"),
+                        values: texts(&["Nocturnal"]),
                     },
                 ),
                 frame(
@@ -3412,13 +3419,18 @@ mod tests {
                         timestamp_format: 2,
                         content_type: 1,
                         description: text(""),
-                        lines: Vec::new(),
+                        lines: vec![crate::formats::id3v2::SyncedText {
+                            text: text("words"),
+                            time: 0,
+                        }],
                         truncated: false,
                     }),
                 ),
             ],
         );
         assert_eq!(mapped.tags, TrackTags::default());
+        assert_eq!(mapped.tags.moods, [] as [String; 0]);
+        assert_eq!(mapped.tags.lyrics, [] as [crate::catalog::TagLyrics; 0]);
     }
 
     #[test]
