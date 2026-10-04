@@ -1024,13 +1024,43 @@ impl<'a> Mapper<'a> {
         );
     }
 
+    /// The lines of a `SYLT` frame joined by newlines, up to the lyrics
+    /// limit. Lines the parser dropped at the line limit, and lines past
+    /// the lyrics limit, are each reported (SEC-MED-006).
     fn sylt(&mut self, body: &SyncedLyrics, source: FieldSource) {
-        let text = body
-            .lines
-            .iter()
-            .map(|line| line.text.value.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+        // Content type 1 is lyrics and 2 a transcription; writers that
+        // leave it unset write 0. Movement names, events, chords, trivia
+        // and links are not the words of the recording.
+        if body.content_type > 2 {
+            return;
+        }
+        if body.truncated {
+            let count = u64::try_from(body.lines.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1);
+            self.report(TagProblem::LimitExceeded {
+                limit: LimitKind::LyricsLines,
+                count,
+            });
+        }
+        let mut text = String::new();
+        for (index, line) in body.lines.iter().enumerate() {
+            let separator = if index == 0 { "" } else { "\n" };
+            let octets = text
+                .len()
+                .saturating_add(separator.len())
+                .saturating_add(line.text.value.len());
+            let count = u64::try_from(octets).unwrap_or(u64::MAX);
+            if self.limits.check(LimitKind::LyricsBytes, count, 0).is_err() {
+                self.report(TagProblem::LimitExceeded {
+                    limit: LimitKind::LyricsBytes,
+                    count,
+                });
+                break;
+            }
+            text.push_str(separator);
+            text.push_str(&line.text.value);
+        }
         if text.trim().is_empty() {
             return;
         }
@@ -1645,6 +1675,28 @@ mod tests {
                     })
                     .collect(),
             ),
+        )
+    }
+
+    /// A `SYLT` frame of `lines`, a tenth of a second apart.
+    fn synced_frame(content_type: u8, lines: &[&str], truncated: bool) -> Frame {
+        frame(
+            b"SYLT",
+            FrameBody::SyncedLyrics(SyncedLyrics {
+                language: *b"eng",
+                timestamp_format: 2,
+                content_type,
+                description: text(""),
+                lines: lines
+                    .iter()
+                    .zip((0_u32..).step_by(100))
+                    .map(|(line, time)| crate::formats::id3v2::SyncedText {
+                        text: text(line),
+                        time,
+                    })
+                    .collect(),
+                truncated,
+            }),
         )
     }
 
@@ -2610,6 +2662,115 @@ mod tests {
                 "old"
             )]
         );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_synced_lyrics_at_the_lyrics_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::LyricsBytes, 9)
+            .unwrap();
+        let v2 = tag(4, vec![synced_frame(1, &["abc", "de", "fg"], false)]);
+        let mapped = from_id3(Some(&v2), None, &limits);
+        assert_eq!(
+            mapped.tags.lyrics,
+            [lyrics(
+                LyricsOrigin::Id3Synced,
+                LyricsTiming::Line,
+                "abc\nde\nfg"
+            )]
+        );
+        assert_eq!(mapped.problems, []);
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn cuts_synced_lyrics_past_the_lyrics_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::LyricsBytes, 8)
+            .unwrap();
+        let v2 = tag(4, vec![synced_frame(1, &["abc", "de", "fg"], false)]);
+        let mapped = from_id3(Some(&v2), None, &limits);
+        assert_eq!(
+            mapped.tags.lyrics,
+            [lyrics(
+                LyricsOrigin::Id3Synced,
+                LyricsTiming::Line,
+                "abc\nde"
+            )]
+        );
+        assert_eq!(mapped.sources.lyrics, Some(v2_source(b"SYLT")));
+        assert_eq!(
+            mapped.problems,
+            [TagProblem::LimitExceeded {
+                limit: LimitKind::LyricsBytes,
+                count: 9,
+            }]
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn drops_a_first_synced_line_past_the_lyrics_limit() {
+        let limits = Limits::DEFAULT
+            .with_override(LimitKind::LyricsBytes, 2)
+            .unwrap();
+        let v2 = tag(4, vec![synced_frame(1, &["abc", "d"], false)]);
+        let mapped = from_id3(Some(&v2), None, &limits);
+        assert_eq!(mapped.tags.lyrics, [] as [TagLyrics; 0]);
+        assert_eq!(mapped.sources.lyrics, None);
+        assert_eq!(
+            mapped.problems,
+            [TagProblem::LimitExceeded {
+                limit: LimitKind::LyricsBytes,
+                count: 3,
+            }]
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reports_synced_lyrics_the_parser_cut_at_the_line_limit() {
+        let lines: Vec<&str> = (0..10_000).map(|_| "x").collect();
+        let v2 = tag(4, vec![synced_frame(1, &lines, true)]);
+        let mapped = map(Some(&v2), None);
+        assert_eq!(
+            mapped.tags.lyrics,
+            [lyrics(
+                LyricsOrigin::Id3Synced,
+                LyricsTiming::Line,
+                &lines.join("\n")
+            )]
+        );
+        assert_eq!(
+            mapped.problems,
+            [TagProblem::LimitExceeded {
+                limit: LimitKind::LyricsLines,
+                count: 10_001,
+            }]
+        );
+    }
+
+    #[test]
+    fn keeps_a_blank_first_synced_line() {
+        let mapped = map_frames(4, vec![synced_frame(1, &["", "la"], false)]);
+        assert_eq!(
+            mapped.tags.lyrics,
+            [lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, "\nla")]
+        );
+    }
+
+    #[test]
+    fn maps_synced_text_only_when_it_holds_words() {
+        let words = [lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, "la")];
+        for content_type in 0..=2 {
+            let mapped = map_frames(4, vec![synced_frame(content_type, &["la"], false)]);
+            assert_eq!(mapped.tags.lyrics, words, "content type {content_type}");
+        }
+        for content_type in [3, 4, 5, 6, 7, 8, 255] {
+            let mapped = map_frames(4, vec![synced_frame(content_type, &["la"], false)]);
+            assert_eq!(mapped, Mapped::default(), "content type {content_type}");
+        }
     }
 
     #[test]
