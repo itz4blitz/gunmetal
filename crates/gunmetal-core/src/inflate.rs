@@ -343,17 +343,17 @@ mod heap_meter {
         static PEAK: Cell<usize> = const { Cell::new(0) };
     }
 
-    pub fn start() {
+    pub(super) fn start() {
         PEAK.set(0);
         ON.set(true);
     }
 
-    pub fn stop() -> usize {
+    pub(super) fn stop() -> usize {
         ON.set(false);
         PEAK.get()
     }
 
-    pub fn set(bytes: usize) {
+    pub(super) fn set(bytes: usize) {
         if ON.get() {
             PEAK.set(PEAK.get().max(bytes));
         }

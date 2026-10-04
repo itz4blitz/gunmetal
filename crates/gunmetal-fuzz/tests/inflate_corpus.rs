@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use gunmetal_core::inflate::InflateError;
+use gunmetal_core::inflate::{Framing, InflateError};
 use gunmetal_core::parse::ParseFault;
 use gunmetal_fuzz::inflate::{Inflated, Outcome, run};
 
@@ -25,7 +25,9 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 8] = [
+const SEEDS: [&str; 10] = [
+    "algo-bzlib",
+    "algo-lzo1x",
     "bad-checksum",
     "deflate-bomb",
     "empty",
@@ -75,6 +77,11 @@ fn failed(error: InflateError, output: &[u8]) -> Inflated {
     }
 }
 
+/// The refusal of `algo`, a Matroska `ContentCompAlgo` other than 0.
+fn refused(algo: u64) -> Result<Framing, InflateError> {
+    Err(InflateError::UnsupportedAlgo { algo, offset: 0 })
+}
+
 /// The input ends before the stream does, after `offset` octets.
 fn truncated(offset: u64) -> InflateError {
     InflateError::Fault(ParseFault::Truncated {
@@ -101,6 +108,9 @@ fn the_corpus_holds_exactly_the_seeds_tested_here() {
     assert_eq!(names, SEEDS);
 }
 
+/// No octets read as a `ContentCompAlgo` are 0, zlib, the one algorithm
+/// the helper takes.
+///
 /// Verifies: SEC-MED-028
 #[test]
 fn replays_the_empty_input() {
@@ -108,8 +118,46 @@ fn replays_the_empty_input() {
         "empty",
         &[],
         &Outcome {
+            algo: Ok(Framing::Zlib),
             zlib: failed(truncated(0), &[]),
             deflate: failed(truncated(0), &[]),
+        },
+    );
+}
+
+/// The octets a fuzzer needs to find the refused Matroska algorithms:
+/// `ContentCompAlgo` 1 is bzlib (RFC 9559). As zlib, one octet is half a
+/// header. As deflate, 0x01 opens a final stored block whose lengths are
+/// missing.
+///
+/// Verifies: SEC-MED-009, SEC-MED-028
+#[test]
+fn replays_the_bzlib_algorithm() {
+    replay(
+        "algo-bzlib",
+        &[0x01],
+        &Outcome {
+            algo: refused(1),
+            zlib: failed(truncated(1), &[]),
+            deflate: failed(truncated(1), &[]),
+        },
+    );
+}
+
+/// `ContentCompAlgo` 2 is lzo1x (RFC 9559). As zlib, one octet is half a
+/// header. As deflate, 0x02 opens a fixed-Huffman block (BFINAL 0, BTYPE
+/// 01) and its five zero bits are less than the shortest code.
+///
+/// Verifies: SEC-MED-009, SEC-MED-028
+#[test]
+fn replays_the_lzo1x_algorithm() {
+    replay(
+        "algo-lzo1x",
+        &[0x02],
+        &Outcome {
+            algo: refused(2),
+            zlib: failed(truncated(1), &[]),
+            deflate: failed(truncated(1), &[]),
         },
     );
 }
@@ -125,6 +173,7 @@ fn replays_what_zlib_itself_wrote() {
         "hello-zlib",
         &HELLO_ZLIB,
         &Outcome {
+            algo: refused(0x07C9_C9CD_48CB_9C78),
             zlib: Inflated {
                 result: Ok(13),
                 output: b"hello".to_vec(),
@@ -144,6 +193,7 @@ fn replays_a_stored_block() {
         "stored-hello",
         &[0x01, 0x05, 0x00, 0xFA, 0xFF, b'h', b'e', b'l', b'l', b'o'],
         &Outcome {
+            algo: refused(0x6C65_68FF_FA00_0501),
             zlib: failed(InflateError::Corrupt { offset: 2 }, &[]),
             deflate: Inflated {
                 result: Ok(10),
@@ -163,6 +213,7 @@ fn replays_a_reserved_block_type() {
         "reserved-block-type",
         &[0x07],
         &Outcome {
+            algo: refused(7),
             zlib: failed(truncated(1), &[]),
             deflate: failed(InflateError::Corrupt { offset: 1 }, &[]),
         },
@@ -182,6 +233,7 @@ fn replays_a_wrong_checksum() {
             0x78, 0x01, 0x01, 0x03, 0x00, 0xFC, 0xFF, b'a', b'b', b'c', 0x02, 0x4E, 0x01, 0x28,
         ],
         &Outcome {
+            algo: refused(0x61FF_FC00_0301_0178),
             zlib: failed(InflateError::ChecksumMismatch { offset: 14 }, b"abc"),
             deflate: failed(InflateError::Corrupt { offset: 5 }, &[]),
         },
@@ -197,6 +249,7 @@ fn replays_a_stream_cut_inside_its_checksum() {
         "truncated-checksum",
         &HELLO_ZLIB[..12],
         &Outcome {
+            algo: refused(0x07C9_C9CD_48CB_9C78),
             zlib: failed(truncated(12), b"hello"),
             deflate: failed(InflateError::Corrupt { offset: 5 }, &[]),
         },
@@ -213,6 +266,7 @@ fn replays_a_deflate_bomb() {
         "deflate-bomb",
         &bomb(),
         &Outcome {
+            algo: refused(0x8000_0000_0081_C1ED),
             zlib: failed(InflateError::Corrupt { offset: 2 }, &[]),
             deflate: failed(
                 InflateError::LongerThanDeclared {
@@ -237,6 +291,7 @@ fn replays_a_zlib_bomb() {
         "zlib-bomb",
         &stream,
         &Outcome {
+            algo: refused(0x0000_0081_C1ED_0178),
             zlib: failed(
                 InflateError::LongerThanDeclared {
                     declared: 65_536,
