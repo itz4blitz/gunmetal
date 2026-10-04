@@ -1961,8 +1961,10 @@ fn only_reviewed_crates_run_build_scripts() {
             "rustix",
             "serde",
             "serde_core",
+            "serde_json",
             "thiserror",
             "zerocopy",
+            "zmij",
         ]
     );
     // A bypass is reviewed for one version, so an update is reviewed again.
