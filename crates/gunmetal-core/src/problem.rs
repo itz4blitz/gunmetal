@@ -281,13 +281,67 @@ mod tests {
         assert_eq!(outside, []);
     }
 
+    /// Words that name what a client must never be told about: the
+    /// language, the database, a query, a stack trace or a panic. Each is
+    /// matched as a whole word, in any case.
+    const FORBIDDEN_WORDS: [&str; 12] = [
+        "backtrace",
+        "panic",
+        "panicked",
+        "rust",
+        "select",
+        "sql",
+        "sqlite",
+        "stack",
+        "stacktrace",
+        "trace",
+        "traceback",
+        "unwrap",
+    ];
+
+    /// The forbidden words `text` holds, in the order it holds them. A
+    /// word is a run of ASCII letters, so "trust" does not hold "rust".
+    fn forbidden_words(text: &str) -> Vec<String> {
+        text.split(|c: char| !c.is_ascii_alphabetic())
+            .map(str::to_ascii_lowercase)
+            .filter(|word| FORBIDDEN_WORDS.contains(&word.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn finds_forbidden_words_only_as_whole_words() {
+        assert_eq!(
+            forbidden_words("You can trust the selected folder. It's frustrating, we know."),
+            [""; 0]
+        );
+        assert_eq!(
+            forbidden_words("Retrace your steps, then restack the haystack."),
+            [""; 0]
+        );
+        assert_eq!(
+            forbidden_words("A Rust panic: SELECT failed, see the stack trace."),
+            ["rust", "panic", "select", "stack", "trace"]
+        );
+        assert_eq!(
+            forbidden_words("SQLite panicked. Backtrace-stacktrace,traceback!Unwrap?sql"),
+            [
+                "sqlite",
+                "panicked",
+                "backtrace",
+                "stacktrace",
+                "traceback",
+                "unwrap",
+                "sql"
+            ]
+        );
+    }
+
     /// Verifies: SEC-API-072
     #[test]
     fn texts_hold_no_version_path_sql_or_trace() {
         // Letters, spaces and sentence punctuation only: no digit can spell
         // a version, no slash a path, and no bracket, colon or semicolon a
         // stack trace or a statement.
-        const FORBIDDEN_WORDS: [&str; 6] = ["panic", "rust", "select", "sql", "stack", "trace"];
         for code in ProblemCode::ALL {
             let text = code.text();
             assert!(
@@ -299,10 +353,12 @@ mod tests {
                 text.starts_with(|c: char| c.is_ascii_uppercase()) && text.ends_with('.'),
                 "{code:?}: {text:?}"
             );
-            let lower = text.to_ascii_lowercase();
-            for word in FORBIDDEN_WORDS {
-                assert!(!lower.contains(word), "{code:?} mentions {word:?}");
-            }
         }
+        let mentions: Vec<(ProblemCode, Vec<String>)> = ProblemCode::ALL
+            .iter()
+            .map(|code| (*code, forbidden_words(code.text())))
+            .filter(|(_, words)| !words.is_empty())
+            .collect();
+        assert_eq!(mentions, []);
     }
 }
