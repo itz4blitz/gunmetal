@@ -320,15 +320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gunmetal-store"
-version = "0.0.0"
-dependencies = [
- "gunmetal-core",
- "gunmetal-fs",
- "gunmetal-testkit",
-]
-
-[[package]]
 name = "gunmetal-server"
 version = "0.0.0"
 dependencies = [
@@ -339,6 +330,15 @@ dependencies = [
  "proptest",
  "rustix",
  "toml",
+]
+
+[[package]]
+name = "gunmetal-store"
+version = "0.0.0"
+dependencies = [
+ "gunmetal-core",
+ "gunmetal-fs",
+ "gunmetal-testkit",
 ]
 
 [[package]]
