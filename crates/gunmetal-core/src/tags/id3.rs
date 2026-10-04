@@ -1642,11 +1642,25 @@ mod tests {
         map_frames(major, vec![text_frame(id, &[value])])
     }
 
-    fn v2_source(id: &[u8]) -> FieldSource {
+    /// `frames` with frame `i` at offset `10 + 20 * i`, so that two frames
+    /// with the same identifier are different sources.
+    fn spaced(frames: Vec<Frame>) -> Vec<Frame> {
+        frames
+            .into_iter()
+            .zip((10..).step_by(20))
+            .map(|(frame, offset)| Frame { offset, ..frame })
+            .collect()
+    }
+
+    fn v2_at(id: &[u8], offset: u64) -> FieldSource {
         FieldSource::Id3v2 {
             id: frame_id(id),
-            offset: 10,
+            offset,
         }
+    }
+
+    fn v2_source(id: &[u8]) -> FieldSource {
+        v2_at(id, 10)
     }
 
     fn v1_source(field: Id3v1Field) -> FieldSource {
@@ -1946,21 +1960,30 @@ mod tests {
     fn maps_album_artist_album_and_sorts() {
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 text_frame(b"TPE2", &["David Bowie"]),
                 text_frame(b"TSO2", &["Bowie, David"]),
                 text_frame(b"TALB", &["Blackstar"]),
                 text_frame(b"TSOA", &["Blackstar"]),
                 text_frame(b"TSOP", &["Bowie, David"]),
-            ],
+            ]),
         );
         assert_eq!(mapped.tags.album_artist, ["David Bowie"]);
         assert_eq!(mapped.tags.album_artist_sort, ["Bowie, David"]);
         assert_eq!(mapped.tags.album.as_deref(), Some("Blackstar"));
         assert_eq!(mapped.tags.album_sort.as_deref(), Some("Blackstar"));
         assert_eq!(mapped.tags.artist_sort, ["Bowie, David"]);
-        assert_eq!(mapped.sources.album, Some(v2_source(b"TALB")));
-        assert_eq!(mapped.sources.album_artist, Some(v2_source(b"TPE2")));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                album_artist: Some(v2_at(b"TPE2", 10)),
+                album_artist_sort: Some(v2_at(b"TSO2", 30)),
+                album: Some(v2_at(b"TALB", 50)),
+                album_sort: Some(v2_at(b"TSOA", 70)),
+                artist_sort: Some(v2_at(b"TSOP", 90)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -2309,20 +2332,28 @@ mod tests {
     fn maps_compilation_grouping_mood_and_label() {
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 text_frame(b"TCMP", &["1"]),
                 text_frame(b"GRP1", &["Work"]),
                 text_frame(b"TIT1", &["Movement"]),
                 text_frame(b"TMOO", &["Nocturnal"]),
                 text_frame(b"TPUB", &["ISO"]),
-            ],
+            ]),
         );
         assert_eq!(mapped.tags.compilation, Some(true));
         assert_eq!(mapped.tags.grouping, ["Work", "Movement"]);
         assert_eq!(mapped.tags.moods, ["Nocturnal"]);
         assert_eq!(mapped.tags.labels, ["ISO"]);
-        assert_eq!(mapped.sources.compilation, Some(v2_source(b"TCMP")));
-        assert_eq!(mapped.sources.grouping, Some(v2_source(b"GRP1")));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                compilation: Some(v2_at(b"TCMP", 10)),
+                grouping: Some(v2_at(b"GRP1", 30)),
+                moods: Some(v2_at(b"TMOO", 70)),
+                labels: Some(v2_at(b"TPUB", 90)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -2344,6 +2375,13 @@ mod tests {
     fn maps_mood_from_txxx() {
         let mapped = map_frames(4, vec![user_text(b"TXXX", "MOOD", &["Tense"])]);
         assert_eq!(mapped.tags.moods, ["Tense"]);
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                moods: Some(v2_source(b"TXXX")),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -2365,7 +2403,7 @@ mod tests {
         let album_artist = "9b11f54e-8a37-11df-8f36-0025905a5714";
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 frame(
                     b"UFID",
                     FrameBody::Ufid {
@@ -2378,7 +2416,7 @@ mod tests {
                 user_text(b"TXXX", "MusicBrainz Release Track Id", &[track]),
                 user_text(b"TXXX", "MusicBrainz Artist Id", &[artist]),
                 user_text(b"TXXX", "MusicBrainz Album Artist Id", &[album_artist]),
-            ],
+            ]),
         );
         assert_eq!(
             mapped.tags.musicbrainz,
@@ -2391,8 +2429,18 @@ mod tests {
                 album_artists: vec![mbid(album_artist)],
             }
         );
-        assert_eq!(mapped.sources.recording_mbid, Some(v2_source(b"UFID")));
-        assert_eq!(mapped.sources.release_mbid, Some(v2_source(b"TXXX")));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                recording_mbid: Some(v2_at(b"UFID", 10)),
+                release_mbid: Some(v2_at(b"TXXX", 30)),
+                release_group_mbid: Some(v2_at(b"TXXX", 50)),
+                track_mbid: Some(v2_at(b"TXXX", 70)),
+                artist_mbids: Some(v2_at(b"TXXX", 90)),
+                album_artist_mbids: Some(v2_at(b"TXXX", 110)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -2619,7 +2667,18 @@ mod tests {
             TrackPosition::new(Some(7), None, None, None).unwrap()
         );
         assert_eq!(mapped.tags.genres, ["Rock"]);
-        assert_eq!(mapped.sources.genres, Some(v1_source(Id3v1Field::Genre)));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                title: Some(v2_source(b"TIT2")),
+                artist: Some(v1_source(Id3v1Field::Artist)),
+                album: Some(v1_source(Id3v1Field::Album)),
+                date: Some(v1_source(Id3v1Field::Year)),
+                track: Some(v1_source(Id3v1Field::Track)),
+                genres: Some(v1_source(Id3v1Field::Genre)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -2662,8 +2721,19 @@ mod tests {
             mapped.tags.position,
             TrackPosition::new(Some(7), None, None, None).unwrap()
         );
-        assert_eq!(mapped.sources.track, Some(v1_source(Id3v1Field::Track)));
         assert_eq!(mapped.tags.genres, ["Rock"]);
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                title: Some(v1_source(Id3v1Field::Title)),
+                artist: Some(v1_source(Id3v1Field::Artist)),
+                album: Some(v1_source(Id3v1Field::Album)),
+                date: Some(v1_source(Id3v1Field::Year)),
+                track: Some(v1_source(Id3v1Field::Track)),
+                genres: Some(v1_source(Id3v1Field::Genre)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
