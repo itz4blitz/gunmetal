@@ -23,10 +23,11 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 7] = [
+const SEEDS: [&str; 8] = [
     "empty",
     "host-bits-set",
     "ipv4-mapped-loopback",
+    "ipv4-mapped-network",
     "leading-zero-in-the-prefix",
     "nat64-of-a-private-address",
     "shared-address-space",
@@ -131,7 +132,8 @@ fn replays_a_prefix_with_a_leading_zero() {
 }
 
 /// `::ffff:127.0.0.1` is loopback once it is read as the IPv4 address it
-/// maps.
+/// maps. As a network it is refused: every address is read as IPv4 before
+/// it is compared, so it would contain nothing, not even itself.
 ///
 /// Verifies: SEC-MED-028, SEC-NET-025
 #[test]
@@ -140,11 +142,24 @@ fn replays_an_ipv4_mapped_loopback_address() {
         "ipv4-mapped-loopback",
         b"::ffff:127.0.0.1/128",
         Outcome {
-            network: Ok((
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 1)),
-                128,
-            )),
+            network: Err(NetError::Ipv4Mapped),
             class: Some(AddrClass::Loopback),
+        },
+    );
+}
+
+/// `10.0.0.0/8` written as the IPv4-mapped network `::ffff:10.0.0.0/104`,
+/// which a trusted-proxy list would never match.
+///
+/// Verifies: SEC-MED-028, SEC-NET-025
+#[test]
+fn replays_an_ipv4_mapped_network() {
+    replay(
+        "ipv4-mapped-network",
+        b"::ffff:10.0.0.0/104",
+        Outcome {
+            network: Err(NetError::Ipv4Mapped),
+            class: Some(AddrClass::Private),
         },
     );
 }

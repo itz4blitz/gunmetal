@@ -30,9 +30,15 @@ pub enum PathClass {
     /// gateway, behind which any client may hide. It is treated as
     /// non-local and has its own rate-limit bucket (SEC-NET-068).
     Unknown,
-    /// Anything else: a public peer, a public proxy, or a peer that sent
-    /// forwarding headers without being a trusted proxy.
+    /// Anything else that the server answers: a public peer or a public
+    /// proxy.
     Internet,
+    /// A peer that sent forwarding headers without being a trusted proxy.
+    /// The headers are ignored and the address is the peer's own. It is
+    /// never local, and it is told apart from [`PathClass::Internet`] so
+    /// that the server can record the event and offer the owner the fix,
+    /// which is to trust the proxy (SEC-NET-017).
+    UntrustedProxy,
 }
 
 /// A resolved client address and its path class.
@@ -160,6 +166,11 @@ mod tests {
                 IpAddr::V6(Ipv6Addr::new(0x2001, 0xDB8, 0, 0, 0, 0, 0, 1)),
                 PathClass::Internet,
                 true,
+            ),
+            (
+                IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)),
+                PathClass::UntrustedProxy,
+                false,
             ),
         ];
         for (addr, class, via_proxy) in cases {

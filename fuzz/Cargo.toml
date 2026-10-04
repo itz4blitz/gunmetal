@@ -130,6 +130,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "id"
+path = "fuzz_targets/id.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "id3_structure"
 path = "fuzz_targets/id3_structure.rs"
 test = false
