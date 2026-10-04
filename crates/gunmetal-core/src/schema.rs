@@ -453,23 +453,30 @@ mod tests {
         );
     }
 
-    /// Where each class stands in [`DataClass::ALL`]. The match is
-    /// exhaustive, so a class added to the enum does not compile until it
-    /// has a place here, and the test below fails until `ALL` holds it
-    /// there.
-    const fn place(class: DataClass) -> usize {
+    /// The class the privacy baseline lists after `class`, or `None` after
+    /// the last. The match is exhaustive, so a class added to the enum does
+    /// not compile until it has an arm here and another arm leads to it;
+    /// the list the test below walks then holds it, and the test fails
+    /// until `ALL` holds it at the same place.
+    const fn after(class: DataClass) -> Option<DataClass> {
         match class {
-            DataClass::Public => 0,
-            DataClass::Library => 1,
-            DataClass::Activity => 2,
-            DataClass::Identity => 3,
-            DataClass::Secret => 4,
+            DataClass::Public => Some(DataClass::Library),
+            DataClass::Library => Some(DataClass::Activity),
+            DataClass::Activity => Some(DataClass::Identity),
+            DataClass::Identity => Some(DataClass::Secret),
+            DataClass::Secret => None,
         }
     }
 
     #[test]
     fn all_holds_every_class_once_in_the_order_of_the_privacy_baseline() {
-        assert_eq!(DataClass::ALL.map(place), [0, 1, 2, 3, 4]);
+        let mut walked = Vec::new();
+        let mut next = Some(DataClass::Public);
+        while let Some(class) = next {
+            walked.push(class);
+            next = after(class);
+        }
+        assert_eq!(walked, DataClass::ALL);
     }
 
     #[test]
