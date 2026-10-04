@@ -221,6 +221,11 @@ pub enum NetError {
     /// The address has bits set past the prefix, so it names a host, not
     /// a network.
     HostBitsSet,
+    /// The network lies inside the IPv4-mapped block `::ffff:0:0/96`.
+    /// Every address is read as IPv4 before it is compared, so such a
+    /// network would match nothing; it has to be written as the IPv4
+    /// network it means.
+    Ipv4Mapped,
 }
 
 impl IpNet {
@@ -229,7 +234,9 @@ impl IpNet {
     ///
     /// # Errors
     ///
-    /// A [`NetError`] for anything else.
+    /// A [`NetError`] for anything else, and for a network of IPv4-mapped
+    /// IPv6 addresses such as `::ffff:10.0.0.0/104`, which
+    /// [`IpNet::contains`] could never match.
     pub fn parse(text: Untrusted<&str>) -> Result<Self, NetError> {
         let text = text.into_inner();
         let (addr, prefix) = text.split_once('/').ok_or(NetError::NoPrefix)?;
@@ -252,6 +259,9 @@ impl IpNet {
         };
         if host_bits != 0 {
             return Err(NetError::HostBitsSet);
+        }
+        if addr.to_canonical() != addr {
+            return Err(NetError::Ipv4Mapped);
         }
         Ok(Self { addr, prefix })
     }
@@ -622,6 +632,58 @@ mod tests {
         }
     }
 
+    /// A network inside the IPv4-mapped block could never contain an
+    /// address, because [`IpNet::contains`] reads a mapped address as IPv4
+    /// first. It is refused, so a trusted-proxy entry written that way
+    /// fails when it is read instead of silently matching nothing.
+    #[test]
+    fn refuses_a_network_inside_the_ipv4_mapped_block() {
+        for text in [
+            "::ffff:0:0/96",
+            "::ffff:10.0.0.0/104",
+            "::ffff:192.168.1.0/120",
+            "::ffff:127.0.0.1/128",
+            "::ffff:255.255.255.255/128",
+            "0:0:0:0:0:ffff:a00:0/104",
+        ] {
+            assert_eq!(
+                IpNet::parse(Untrusted::new(text)),
+                Err(NetError::Ipv4Mapped),
+                "{text}"
+            );
+        }
+        // A host written as a network is that mistake first.
+        assert_eq!(
+            IpNet::parse(Untrusted::new("::ffff:10.0.0.1/104")),
+            Err(NetError::HostBitsSet)
+        );
+        assert_eq!(
+            IpNet::parse(Untrusted::new("::ffff:0:0/95")),
+            Err(NetError::HostBitsSet)
+        );
+    }
+
+    /// The blocks on either side of the IPv4-mapped one, and the wider
+    /// networks that hold it, are ordinary IPv6 networks.
+    #[test]
+    fn reads_the_networks_around_the_ipv4_mapped_block() {
+        let cases = [
+            ("::fffe:0:0/96", v6("::fffe:0:0"), 96),
+            ("::1:0:0:0/96", v6("::1:0:0:0"), 96),
+            ("::fffe:10.0.0.0/104", v6("::fffe:a00:0"), 104),
+            ("::10.0.0.0/104", v6("::a00:0"), 104),
+            ("::/80", v6("::"), 80),
+            ("::fffe:0:0/95", v6("::fffe:0:0"), 95),
+        ];
+        for (text, addr, prefix) in cases {
+            assert_eq!(
+                IpNet::parse(Untrusted::new(text)),
+                Ok(IpNet { addr, prefix }),
+                "{text}"
+            );
+        }
+    }
+
     #[test]
     fn contains_exactly_the_addresses_under_its_prefix() {
         let net = |text| IpNet::parse(Untrusted::new(text)).unwrap();
@@ -676,6 +738,30 @@ mod tests {
             let ip = Ipv6Addr::from(v6_ip);
             let expected = ip.to_ipv4_mapped().is_none() && v6_ip & mask == v6_net & mask;
             prop_assert_eq!(parsed.contains(IpAddr::V6(ip)), expected);
+        }
+
+        /// Whatever is read as a network contains its own address, so no
+        /// accepted entry of a trusted-proxy list is one that can match
+        /// nothing; the networks refused for it are exactly those whose
+        /// first 96 bits are eighty zeros and sixteen ones.
+        #[test]
+        fn a_network_contains_its_own_address(
+            high in any::<u128>(),
+            low in any::<u32>(),
+            block in select(vec![0_u128, 0xFFFE, 0xFFFF, 0x1_0000]),
+            prefix in 0_u32..=128,
+        ) {
+            // Addresses in and beside the IPv4-mapped block, and any other.
+            for bits in [high, (block << 32) | u128::from(low)] {
+                let mask = if prefix == 0 { 0 } else { u128::MAX << (128 - prefix) };
+                let network = bits & mask;
+                let text = format!("{}/{prefix}", Ipv6Addr::from(network));
+                let own = IpNet::parse(Untrusted::new(&text)).map(|net| net.contains(net.addr()));
+                let expected = (network >> 32 != 0xFFFF)
+                    .then_some(true)
+                    .ok_or(NetError::Ipv4Mapped);
+                prop_assert_eq!(own, expected);
+            }
         }
     }
 }

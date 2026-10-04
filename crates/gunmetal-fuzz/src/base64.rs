@@ -25,7 +25,8 @@ pub struct Outcome {
 ///
 /// Panics when a result breaks an invariant that holds for every input.
 /// Decoded data must fit [`MAX_OUT`] and encode back to the input, apart
-/// from padding, so each value has one written form. An error must point
+/// from padding, so a value has no written form but its padded and its
+/// unpadded one. An error must point
 /// inside the input: an invalid octet at its offset, the input's own
 /// length, the offset of a character within it, or a size over the cap.
 #[must_use]
