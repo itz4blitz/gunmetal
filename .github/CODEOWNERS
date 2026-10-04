@@ -30,6 +30,7 @@ Cargo.lock @itz4blitz
 /docs/security/ @itz4blitz
 /docs/adr/ @itz4blitz
 /docs/runbooks/ @itz4blitz
+/site/ @itz4blitz
 
 # Release and container files, once they exist.
 /Dockerfile @itz4blitz

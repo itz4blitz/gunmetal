@@ -81,24 +81,31 @@ impl KeySchedule {
         }
     }
 
+    /// The generations that answer at `now`: the number of the one that
+    /// signs and, inside its overlap, the number of the one it replaced.
+    #[must_use]
+    pub fn answering(&self, now: Timestamp) -> (u64, Option<u64>) {
+        let previous = self
+            .previous
+            .filter(|&(_, replaced)| now.millis().saturating_sub(replaced.millis()) < OVERLAP_MS)
+            .map(|(number, _)| number);
+        (self.current, previous)
+    }
+
     /// The number of the generation whose key verifies what key ID `kid`
     /// signed, at `now`, or `None` when no generation answers to it.
     #[must_use]
     pub fn generation(&self, kid: u8, now: Timestamp) -> Option<u64> {
-        if self::kid(self.current) == kid {
-            return Some(self.current);
-        }
-        self.previous
-            .filter(|&(number, replaced)| {
-                self::kid(number) == kid
-                    && now.millis().saturating_sub(replaced.millis()) < OVERLAP_MS
-            })
-            .map(|(number, _)| number)
+        let (current, previous) = self.answering(now);
+        [Some(current), previous]
+            .into_iter()
+            .flatten()
+            .find(|&number| self::kid(number) == kid)
     }
 }
 
 /// The key ID of generation `number`: its low byte.
-const fn kid(number: u64) -> u8 {
+pub(crate) const fn kid(number: u64) -> u8 {
     number.to_le_bytes()[0]
 }
 
@@ -175,6 +182,21 @@ mod tests {
         assert_eq!(schedule.current_kid(), 1);
         schedule.rotate_if_due(at(2 * DAY));
         assert_eq!(answers(&schedule, 2 * DAY), [None, Some(1), Some(2), None]);
+    }
+
+    #[test]
+    fn the_answering_generations_are_the_current_one_and_the_previous_in_its_overlap() {
+        let mut schedule = KeySchedule::new(at(0));
+        assert_eq!(schedule.answering(at(0)), (0, None));
+        assert_eq!(schedule.answering(at(DAY - 1)), (0, None));
+        schedule.rotate_if_due(at(DAY));
+        assert_eq!(schedule.answering(at(DAY)), (1, Some(0)));
+        assert_eq!(schedule.answering(at(DAY + HOURS_4 - 1)), (1, Some(0)));
+        assert_eq!(schedule.answering(at(DAY + HOURS_4)), (1, None));
+        schedule.rotate_if_due(at(2 * DAY));
+        assert_eq!(schedule.answering(at(2 * DAY)), (2, Some(1)));
+        schedule.revoke(1, at(2 * DAY));
+        assert_eq!(schedule.answering(at(2 * DAY)), (2, None));
     }
 
     #[test]

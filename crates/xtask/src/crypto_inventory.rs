@@ -10,7 +10,8 @@
 //!   its own crate depends on, and that crate is not an implementation on
 //!   the allow-list;
 //! - a struct in the secrets crate holds a `Secret`, making it a key
-//!   wrapper type, and its documentation has no `Inventory: <name>` line;
+//!   wrapper type, and its documentation has no `Inventory: <name>` line
+//!   (the name may stand in backticks);
 //! - an `Inventory: <name>` line in the secrets crate names no row of the
 //!   inventory;
 //! - the record, or either table, is missing, so a rewrite of the record
@@ -216,7 +217,7 @@ fn key_types(path: &str, source: &str, keys: &[String]) -> Vec<Finding> {
         if let Some(name) = text
             .strip_prefix("///")
             .and_then(|doc| doc.trim().strip_prefix("Inventory:"))
-            .map(str::trim)
+            .map(|name| name.trim().trim_matches('`'))
         {
             named = true;
             if !keys.iter().any(|key| key == name) {
@@ -451,6 +452,46 @@ rustls-webpki.workspace = true
         assert_eq!(
             check(&tree),
             vec![unlisted(1, "session_hash"), unlisted(3, "identity_pub")]
+        );
+    }
+
+    /// Verifies: SEC-STD-018
+    ///
+    /// A key-ring-shaped struct holds `Secret` in tuple fields. The check
+    /// must see those fields; hiding them behind a type alias would let
+    /// the inventory lines be deleted.
+    #[test]
+    fn a_key_ring_shaped_struct_without_an_inventory_line_fails() {
+        let tree = agreeing().with(
+            "crates/gunmetal-secrets/src/ring.rs",
+            "pub struct KeyRing {\n    current: (u8, Secret<[u8; 32]>),\n    \
+             previous: Option<(u8, Secret<[u8; 32]>)>,\n}\n",
+        );
+        assert_eq!(
+            check(&tree),
+            vec![Finding::Unnamed {
+                path: "crates/gunmetal-secrets/src/ring.rs".to_owned(),
+                line: 1,
+            }]
+        );
+    }
+
+    /// A name may stand in backticks, which rustdoc asks of a name with an
+    /// underscore in it.
+    #[test]
+    fn an_inventory_name_in_backticks_is_read_without_them() {
+        let tree = agreeing().with(
+            "crates/gunmetal-secrets/src/keys.rs",
+            "/// Inventory: `url_signing`\npub struct Ring(Secret<[u8; 32]>);\n\
+             /// Inventory: `session_hash`\npub struct Session(Secret<[u8; 32]>);\n",
+        );
+        assert_eq!(
+            check(&tree),
+            vec![Finding::UnlistedKey {
+                path: "crates/gunmetal-secrets/src/keys.rs".to_owned(),
+                line: 3,
+                name: "session_hash".to_owned(),
+            }]
         );
     }
 
