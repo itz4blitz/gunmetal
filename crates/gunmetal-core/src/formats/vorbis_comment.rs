@@ -1763,9 +1763,11 @@ mod tests {
             let cut = cut_seed % bytes.len();
             let lens: Vec<u64> = charges(&comments).into_iter().map(|(len, _)| len).collect();
             let expected = truncation(vendor.len() as u64, &lens, cut as u64, at);
+            // Every cut is an error with a named part: a parse that succeeds,
+            // or a cut the oracle has no answer for, is unequal here.
             prop_assert_eq!(
-                read_at(&bytes[..cut], at, &Limits::DEFAULT).0.err(),
-                expected
+                read_at(&bytes[..cut], at, &Limits::DEFAULT).0.map_err(Some),
+                Err(expected)
             );
         }
 
