@@ -202,6 +202,208 @@ fn reads_no_further_once_it_holds_the_ogg_header_packets() {
     );
 }
 
+/// An Opus file of 9,171 octets with `head` as its identification header:
+/// pages at 0..47, 47..9,133 and 9,133..9,171. The comment header is 9,023
+/// octets and holds the one comment `NOTE`, of 8,995 letters.
+fn long_tags(head: &OpusHead) -> Vec<u8> {
+    let value: String = (0..8_995).map(|_| 'x').collect();
+    let note = format!("NOTE={value}");
+    [
+        page(0, FIRST, 0, &head.to_bytes()),
+        page(1, 0, 0, &opus::opus_tags(b"ref", &[note.as_bytes()])),
+        page(2, LAST, 48_312, &[0; 10]),
+    ]
+    .concat()
+}
+
+/// What the comment header of [`long_tags`] holds: 9,015 octets.
+fn note() -> Comments {
+    let value: String = (0..8_995).map(|_| 'x').collect();
+    Comments {
+        vendor: text("ref"),
+        fields: vec![Field {
+            key: "NOTE".to_owned(),
+            value: text(&value),
+        }],
+        pictures: vec![],
+        problems: vec![],
+        end: 9_015,
+    }
+}
+
+/// What the probe finds in an Opus file of `file_len` octets when it
+/// cannot tell how long the file plays, after reading `bytes_read`
+/// octets, before its tags and its problems are filled in.
+fn opus_unmeasured(file_len: u64, bytes_read: u64) -> Probed {
+    Probed {
+        format: Format::Ogg,
+        facts: FileFacts {
+            tech: tech(Codec::Opus, Container::Ogg, (48_000, None, 2), None, None),
+            trim: Some(Trim {
+                delay: 312,
+                padding: 0,
+            }),
+            artwork: vec![],
+            lyrics: vec![],
+            identity: IdentityInputs {
+                audio_md5: None,
+                audio_window: range(0, file_len),
+            },
+            parser_version: 1,
+            bytes_read,
+        },
+        tags: vec![],
+        seek: SeekIndex::None,
+        problems: vec![],
+    }
+}
+
+/// The read for the header packets holds a tag block, so it grows no
+/// further than a tag block may be held in memory. The comment header of
+/// [`long_tags`] ends at 9,133. Under a limit of 9,133 octets the read
+/// stops there and holds it: 512 octets to detect the file, those 9,133,
+/// and the 9,171 of the file as its own end are 18,816.
+///
+/// Under a limit of 9,132 the header's page, which needs 9,086 octets
+/// from 47, is one octet short. The file is kept without its comments,
+/// and the page and the limit are both recorded.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn reads_for_the_ogg_header_packets_only_as_far_as_a_tag_may_be_held() {
+    let file = long_tags(&OpusHead::stereo());
+    let probe_under = |max| run_under(&file, Some("opus"), lowered(LimitKind::Id3v2TagBytes, max));
+    let mut held = opus_probed(9_171, 73_368, 18_816);
+    held.tags = vec![TagBlock::Vorbis(note())];
+    assert_eq!(probe_under(9_133), Ok(held));
+    let mut cut = opus_probed(9_171, 73_368, 18_815);
+    cut.tags = vec![];
+    cut.problems = vec![
+        PartProblem::Ogg(PacketError::Page(PageError::Fault(ParseFault::Truncated {
+            offset: 47,
+            needed: 9_086,
+            available: 9_085,
+        }))),
+        PartProblem::Fault(ParseFault::LimitExceeded {
+            limit: LimitKind::Id3v2TagBytes,
+            value: 9_171,
+            max: 9_132,
+            offset: 0,
+        }),
+    ];
+    assert_eq!(probe_under(9_132), Ok(cut));
+}
+
+/// The first read is cut to the limit too. Under a limit of 100 octets
+/// the 146 of [`whole`] are not all held: the comment header's page, which
+/// needs 61 octets from 47, has 53. The file is read to detect it (146),
+/// for its first 100 octets, and as its own end (146): 392.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn reads_the_start_of_an_ogg_file_only_as_far_as_a_tag_may_be_held() {
+    let mut expected = opus_probed(146, 1_168, 392);
+    expected.tags = vec![];
+    expected.problems = vec![
+        PartProblem::Ogg(PacketError::Page(PageError::Fault(ParseFault::Truncated {
+            offset: 47,
+            needed: 61,
+            available: 53,
+        }))),
+        PartProblem::Fault(ParseFault::LimitExceeded {
+            limit: LimitKind::Id3v2TagBytes,
+            value: 146,
+            max: 100,
+            offset: 0,
+        }),
+    ];
+    assert_eq!(
+        run_under(
+            &whole(),
+            Some("opus"),
+            lowered(LimitKind::Id3v2TagBytes, 100)
+        ),
+        Ok(expected)
+    );
+}
+
+/// A read for more of the header packets that the limits refuse ends the
+/// reading, and the file is kept with what the octets in hand hold: the
+/// identification header, which playback needs. Detection reads 512
+/// octets of [`long_tags`] and the first read for the headers 8,192:
+/// 8,704. Under a file cap of 9,000 neither the 979 octets left of the
+/// file nor, afterwards, its 9,171 octets as its own end may be read, so
+/// the file has no comments and no duration, and what kept the probe from
+/// each is recorded.
+///
+/// A file whose identification header is damaged fails, as it does when
+/// no read is refused.
+///
+/// Verifies: SEC-MED-010, SEC-MED-017
+#[test]
+fn keeps_an_ogg_file_when_a_read_for_its_comment_header_is_refused() {
+    let limits = lowered(LimitKind::FileBytes, 9_000);
+    let refused = |offset, len| {
+        PartProblem::Read(DriveError::OverFileCap {
+            offset,
+            len,
+            read: 8_704,
+            max: 9_000,
+        })
+    };
+    let mut expected = opus_unmeasured(9_171, 8_704);
+    expected.problems = vec![
+        PartProblem::Ogg(PacketError::Page(PageError::Fault(ParseFault::Truncated {
+            offset: 47,
+            needed: 9_086,
+            available: 8_145,
+        }))),
+        refused(8_192, 979),
+        refused(0, 9_171),
+    ];
+    assert_eq!(
+        run_under(&long_tags(&OpusHead::stereo()), Some("opus"), limits),
+        Ok(expected)
+    );
+    let damaged = OpusHead {
+        version: 16,
+        ..OpusHead::stereo()
+    };
+    assert_eq!(
+        run_under(&long_tags(&damaged), Some("opus"), limits),
+        Err(ProbeError::Opus(OpusError::Version {
+            offset: 8,
+            version: 16,
+        }))
+    );
+}
+
+/// The stream's two header pages end at 108, and 70,000 octets that are
+/// no page follow them. The last 65,536 octets of the file, from 4,572,
+/// hold no page of the stream, so how long the file plays is not known,
+/// and that is recorded.
+///
+/// Detection reads 512 octets, the headers take the first 8,192 and the
+/// end 65,536: 74,240.
+///
+/// Verifies: SEC-MED-017
+#[test]
+fn records_an_ogg_file_whose_end_holds_no_page_of_its_stream() {
+    let file = [
+        page(0, FIRST, 0, &OpusHead::stereo().to_bytes()),
+        page(1, 0, 0, &opus_tags()),
+        zeros(70_000),
+    ]
+    .concat();
+    let mut expected = opus_unmeasured(70_108, 74_240);
+    expected.tags = vec![TagBlock::Vorbis(title())];
+    expected.problems = vec![PartProblem::NoLastPage {
+        offset: 4_572,
+        serial: SERIAL,
+    }];
+    assert_eq!(run(&file, Some("opus")), Ok(expected));
+}
+
 /// A picture in a comment is found among the file's artwork. The picture
 /// is 45 octets, 41 of fields and four of data, so its base64 value is 60
 /// octets. In the block, the vendor and the count take 11 octets, the

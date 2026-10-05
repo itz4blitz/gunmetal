@@ -71,6 +71,7 @@ pub(super) fn draft(metadata: FlacMetadata, lead: u64, file_len: u64, limits: &L
             })
             .collect(),
         tags: Vec::new(),
+        covers: Vec::new(),
         problems,
         jobs,
     }

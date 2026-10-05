@@ -3,22 +3,23 @@
 //! A container parser's result becomes a [`Draft`]: the facts it gives,
 //! and the reads still to make for the tag blocks. Each read adds its
 //! block or its problem. [`Draft::finish`] then derives what depends on
-//! all of them: the artwork references, the lyrics sources, the average
-//! bitrate and the identity window.
+//! all of them: the tag fields the file may keep, the artwork references,
+//! the lyrics sources, the average bitrate and the identity window.
 
 use std::num::{NonZeroU32, NonZeroU64};
+use std::ops::Range;
 
 use crate::catalog::{
     ArtworkRef, ArtworkSource, AudioFormat, Bitrate, ByteRange, Codec, Container, FileFacts,
     IdentityInputs, LyricsOrigin, LyricsSource, LyricsTiming, PictureType, TechInfo, Trim,
 };
-use crate::formats::ape::ApeValue;
+use crate::formats::ape::{ApeItem, ApeTag, ApeValue};
 use crate::formats::detect::Format;
 use crate::formats::id3v2::{FrameBody, SyncedLyrics};
 use crate::formats::mp4::{FourCc, ItemKey, ItemValue};
 use crate::formats::riff;
 use crate::lyrics::{self, Lyrics, SyltClock};
-use crate::parse::{Budget, LimitKind, Limits, ParseFault, Window};
+use crate::parse::{Budget, LimitKind, Limits, ParseFault, ReadRequest, Window};
 use crate::untrusted::Untrusted;
 use crate::values::Duration;
 
@@ -58,6 +59,10 @@ pub(super) enum Job {
     Info,
     /// The end of an MP3 file: its APE and `ID3v1` tags.
     Tail,
+    /// An APE tag that starts before the end of the file that was read
+    /// for [`Job::Tail`]: the tag again, from its start to the end of the
+    /// file. The `ID3v1` tag was read from the first read.
+    Ape,
     /// The end of an Ogg file: the last page of the stream.
     OggTail {
         /// The stream's serial number.
@@ -77,6 +82,8 @@ pub(super) struct Gather {
     pub(super) end: u64,
     /// The octets read so far, from `start`.
     pub(super) octets: Vec<u8>,
+    /// The read the host was asked for and has not answered yet.
+    pub(super) asked: Option<ReadRequest>,
 }
 
 impl Gather {
@@ -86,6 +93,7 @@ impl Gather {
             start,
             end,
             octets: Vec::new(),
+            asked: None,
         }
     }
 
@@ -127,6 +135,11 @@ pub(super) struct Draft {
     pub(super) pictures: Vec<(u32, u64)>,
     /// The tag blocks read so far.
     pub(super) tags: Vec<TagBlock>,
+    /// The covers of the APE tag among `tags`: the picture type and the
+    /// encoded size of each, in the order of the tag's items. A cover's
+    /// size is measured when the tag is read ([`ape_covers`]), since only
+    /// then are its octets at hand.
+    pub(super) covers: Vec<(u32, u64)>,
     /// The parts skipped so far.
     pub(super) problems: Vec<PartProblem>,
     /// The reads still to make. The last is made first.
@@ -142,8 +155,28 @@ enum Words<'a> {
 }
 
 impl TagBlock {
+    /// Cuts the block to its first `most` tag fields, and returns how
+    /// many it held.
+    ///
+    /// A tag field is a frame of an `ID3v2` tag, an item of an APE tag, a
+    /// comment of a Vorbis comment block that is not a picture, or an item
+    /// of an MP4 item list. An `ID3v1` tag has the same few fields
+    /// whatever it holds, and the sub-chunks of an `INFO` list are not
+    /// read here, so neither counts.
+    fn keep(&mut self, most: u64) -> u64 {
+        match self {
+            Self::Id3v2 { tag, .. } => cut(&mut tag.frames, most),
+            Self::Ape(tag) => cut(&mut tag.items, most),
+            Self::Vorbis(comments) => cut(&mut comments.fields, most),
+            Self::Mp4(items) => cut(items, most),
+            Self::Id3v1(_) | Self::RiffInfo { .. } => 0,
+        }
+    }
+
     /// The picture type and encoded size of every picture in the block.
-    fn pictures(&self) -> Vec<(u32, u64)> {
+    /// Those of an APE tag are `covers`, as many of them as the tag still
+    /// has cover items.
+    fn pictures(&self, covers: &[(u32, u64)]) -> Vec<(u32, u64)> {
         match self {
             Self::Id3v2 { tag, .. } => tag
                 .frames
@@ -159,17 +192,9 @@ impl TagBlock {
             Self::Ape(tag) => tag
                 .items
                 .iter()
-                .filter_map(|item| {
-                    let &(_, kind) = APE_COVERS
-                        .iter()
-                        .find(|(key, _)| key.eq_ignore_ascii_case(&item.key))?;
-                    match &item.value {
-                        ApeValue::Binary(range) => {
-                            Some((kind, range.end.saturating_sub(range.start)))
-                        }
-                        _ => None,
-                    }
-                })
+                .filter_map(cover)
+                .zip(covers)
+                .map(|(_, &found)| found)
                 .collect(),
             Self::Vorbis(comments) => comments
                 .pictures
@@ -239,6 +264,75 @@ impl TagBlock {
     }
 }
 
+/// Cuts `fields` to its first `most`, and returns how many it held.
+fn cut<T>(fields: &mut Vec<T>, most: u64) -> u64 {
+    let held = u64::try_from(fields.len()).unwrap_or(u64::MAX);
+    fields.truncate(usize::try_from(most).unwrap_or(usize::MAX));
+    held
+}
+
+/// Keeps the first tag fields of `tags`, as many as a file may hold.
+///
+/// [`LimitKind::TagFields`] is the file's limit, so the fields of every
+/// block count together, in the order of the blocks. The block in which
+/// the limit is reached is cut there, and every block after it is left
+/// with no field.
+///
+/// # Errors
+///
+/// [`ParseFault::LimitExceeded`] at offset 0, the file's, with how many
+/// fields were found, when that is more than the limit. The blocks are
+/// cut all the same.
+fn cut_fields(tags: &mut [TagBlock], limits: &Limits) -> Result<(), ParseFault> {
+    let max = limits.get(LimitKind::TagFields);
+    let mut found = 0_u64;
+    for block in tags {
+        found = found.saturating_add(block.keep(max.saturating_sub(found)));
+    }
+    limits.check(LimitKind::TagFields, found, 0)
+}
+
+/// The picture type of `item` and where its value lies in the file, when
+/// the item is a cover: a binary item whose key names one.
+fn cover(item: &ApeItem) -> Option<(u32, &Range<u64>)> {
+    let &(_, kind) = APE_COVERS
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(&item.key))?;
+    match &item.value {
+        ApeValue::Binary(range) => Some((kind, range)),
+        _ => None,
+    }
+}
+
+/// The covers of `tag`, an APE tag that `window` holds whole: the picture
+/// type and the encoded size of each, in the order of the tag's items.
+pub(super) fn ape_covers(tag: &ApeTag, window: Window<'_>) -> Vec<(u32, u64)> {
+    tag.items
+        .iter()
+        .filter_map(cover)
+        .map(|(kind, range)| (kind, picture_len(window, range)))
+        .collect()
+}
+
+/// How many octets the picture of the cover at `range` takes, read from
+/// `window`.
+///
+/// A cover's value is a file name, a zero octet, then the picture, so the
+/// picture is what follows the first zero octet. A value with no zero
+/// octet has no file name, and all of it is the picture.
+fn picture_len(window: Window<'_>, range: &Range<u64>) -> u64 {
+    let mut cursor = window.cursor();
+    let value = cursor
+        .skip(range.start.saturating_sub(window.offset))
+        .and_then(|()| cursor.take(range.end.saturating_sub(range.start)))
+        .unwrap_or_default();
+    let name = value
+        .iter()
+        .position(|&octet| octet == 0)
+        .map_or(0, |end| end.saturating_add(1));
+    u64::try_from(value.len().saturating_sub(name)).unwrap_or(u64::MAX)
+}
+
 impl Words<'_> {
     /// Where the lyrics were found.
     const fn origin(&self) -> LyricsOrigin {
@@ -283,9 +377,12 @@ impl Draft {
     /// The result, once every read is made. `budget` pays for reading the
     /// lyrics, and `bytes_read` is how many octets of the file were read.
     ///
-    /// The pictures of the container and of every tag block count together
-    /// against [`LimitKind::Pictures`]: those past it are left out of the
-    /// artwork, and the breach is recorded (SEC-MED-006).
+    /// The fields of every tag block count together against
+    /// [`LimitKind::TagFields`]: those past it are cut from their blocks,
+    /// before the pictures and the lyrics are looked for, and the breach
+    /// is recorded. The pictures of the container and of every tag block
+    /// count together against [`LimitKind::Pictures`]: those past it are
+    /// left out of the artwork, and the breach is recorded (SEC-MED-006).
     ///
     /// # Errors
     ///
@@ -308,7 +405,8 @@ impl Draft {
             window: (start, end),
             seek,
             pictures: mut found,
-            tags,
+            mut tags,
+            covers,
             mut problems,
             jobs: _,
         } = self;
@@ -317,9 +415,10 @@ impl Draft {
         audio.bitrate = audio
             .bitrate
             .or(average(end.saturating_sub(start), audio.duration));
+        problems.extend(cut_fields(&mut tags, limits).err().map(PartProblem::Fault));
         let mut lyrics = Vec::new();
         for block in &tags {
-            found.extend(block.pictures());
+            found.extend(block.pictures(&covers));
             for words in block.lyrics() {
                 match words.timing(limits, budget) {
                     // A source that cannot be: untimed text from a frame

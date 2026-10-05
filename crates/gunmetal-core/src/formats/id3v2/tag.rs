@@ -154,9 +154,10 @@ pub enum TagProblem {
     /// larger than the rest of the tag ([`ParseFault::Truncated`]), a 2.4
     /// frame size that is not syncsafe ([`ParseFault::NotSyncsafe`]) and
     /// the tag-field limit end the frames. A tag over the in-memory limit
-    /// keeps only its frames below the limit. A picture or a list of
-    /// values past its limit is kept raw or cut short
-    /// ([`ParseFault::LimitExceeded`]), and frames nested too deeply in a
+    /// keeps only its frames below the limit. A picture past its limit is
+    /// kept raw, and the values of a frame are cut short where the values
+    /// of the tag's frames, counted together, pass the child limit
+    /// ([`ParseFault::LimitExceeded`]). Frames nested too deeply in a
     /// chapter are not walked ([`ParseFault::TooDeep`]).
     Fault(ParseFault),
     /// The frames end at an identifier that is not made of capital letters
@@ -337,6 +338,8 @@ pub fn parse(tag: &[u8], limits: &Limits, budget: &mut Budget) -> Result<Id3v2Ta
         budget,
         problems,
         pictures: 0,
+        values: 0,
+        lines: 0,
         walked: 0,
     };
     if major == 4 {

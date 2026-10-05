@@ -135,6 +135,7 @@ impl HostAllowList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn host(text: &str, kind: HostKind) -> Host {
         Host {
@@ -287,5 +288,186 @@ mod tests {
             HostAllowList::new(&[]),
             Ok(HostAllowList { hosts: Vec::new() })
         );
+    }
+
+    /// The labels of a name before its last, each with its dot.
+    const LABELS: &str = "([a-z0-9-]{1,8}\\.){0,2}";
+
+    /// A last label that starts with a letter other than `l`, so a name
+    /// that ends with it is neither an address nor a `localhost` name.
+    const LAST_LABEL: &str = "[a-km-z][a-z0-9-]{0,7}";
+
+    /// A whole name of that kind, in the form hosts are compared in.
+    const NAME: &str = "([a-z0-9-]{1,8}\\.){0,2}[a-km-z][a-z0-9-]{0,7}";
+
+    /// How a client may write a host: which of its characters are in upper
+    /// case, whether a dot follows it, and whether a port does.
+    #[derive(Debug, Clone, Copy)]
+    struct Spelling {
+        upper: [bool; 32],
+        dot: bool,
+        with_port: bool,
+        port: u16,
+    }
+
+    /// Any spelling. The port is drawn whether or not it is written, and
+    /// the helpers below choose by position, never by a branch, so every
+    /// line of these tests runs on every case.
+    fn any_spelling() -> impl Strategy<Value = Spelling> {
+        (
+            any::<[bool; 32]>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<u16>(),
+        )
+            .prop_map(|(upper, dot, with_port, port)| Spelling {
+                upper,
+                dot,
+                with_port,
+                port,
+            })
+    }
+
+    /// What follows a host in this spelling: its port, or nothing.
+    fn port_suffix(spelling: Spelling) -> String {
+        let suffixes = [String::new(), format!(":{}", spelling.port)];
+        suffixes[usize::from(spelling.with_port)].clone()
+    }
+
+    /// `host`, which is in the form hosts are compared in and at most 32
+    /// characters long, as this spelling writes it.
+    fn written(host: &str, spelling: Spelling) -> String {
+        let cased: String = host
+            .chars()
+            .zip(spelling.upper)
+            .map(|(character, upper)| {
+                [character, character.to_ascii_uppercase()][usize::from(upper)]
+            })
+            .collect();
+        let dot = ["", "."][usize::from(spelling.dot)];
+        format!("{cased}{dot}{}", port_suffix(spelling))
+    }
+
+    proptest! {
+        /// A name is the same host in any case, with or without a trailing
+        /// dot and with or without a port, and no other name is taken for
+        /// it. `localhost` and the names under it are told apart from
+        /// other names however they are written.
+        ///
+        /// Verifies: SEC-NET-014
+        #[test]
+        fn a_name_is_one_host_however_it_is_written(
+            labels in LABELS,
+            ending in LAST_LABEL,
+            local in any::<bool>(),
+            other in NAME,
+            spelling in any_spelling(),
+        ) {
+            let (ending, kind) = [
+                (ending.as_str(), HostKind::Name),
+                ("localhost", HostKind::Localhost),
+            ][usize::from(local)];
+            let name = format!("{labels}{ending}");
+            let expected = host(&name, kind);
+            let authority = written(&name, spelling);
+            prop_assert_eq!(Host::parse(&authority), Some(expected.clone()));
+            let allowed = HostAllowList::new(&[name.as_str()]).unwrap();
+            prop_assert_eq!(allowed.admit(&authority), Some(expected));
+            // Another name is admitted only when it is the configured one.
+            prop_assert_eq!(
+                allowed.admit(&written(&other, spelling)),
+                (other == name).then_some(host(&other, HostKind::Name))
+            );
+        }
+
+        /// An IPv4 address is the same host with or without a trailing dot
+        /// or a port.
+        ///
+        /// Verifies: SEC-NET-014
+        #[test]
+        fn an_ipv4_address_is_one_host_however_it_is_written(
+            octets in any::<[u8; 4]>(),
+            spelling in any_spelling(),
+        ) {
+            let address = octets.map(|octet| octet.to_string()).join(".");
+            let expected = host(&address, HostKind::Address);
+            let authority = written(&address, spelling);
+            prop_assert_eq!(Host::parse(&authority), Some(expected.clone()));
+            prop_assert_eq!(Host::configured(&address), Some(expected.clone()));
+            let allowed = HostAllowList::new(&[address.as_str()]).unwrap();
+            prop_assert_eq!(allowed.admit(&authority), Some(expected));
+        }
+
+        /// An IPv6 address is the same host in upper or lower case, with or
+        /// without leading zeros and with its zeros written out or as `::`,
+        /// and it is a `Host` value only in brackets. The form hosts are
+        /// compared in is written out here for two shapes: no zero segment,
+        /// which leaves eight segments in lower-case hex without leading
+        /// zeros, and six zero segments in the middle, which become `::`.
+        ///
+        /// Verifies: SEC-NET-014
+        #[test]
+        fn an_ipv6_literal_is_one_host_however_it_is_written(
+            segments in proptest::array::uniform8(1_u16..),
+            first in 1_u16..,
+            last in 1_u16..,
+            padded in any::<bool>(),
+            spelling in any_spelling(),
+        ) {
+            let whole = segments.map(|segment| format!("{segment:x}")).join(":");
+            let whole_padded = segments.map(|segment| format!("{segment:04X}")).join(":");
+            let short = format!("{first:x}::{last:x}");
+            let short_padded = format!("{first:04X}:0:0000:0:0:0000:0:{last:04x}");
+            let port = port_suffix(spelling);
+            for (compared, spellings) in [
+                (&whole, [&whole, &whole_padded]),
+                (&short, [&short, &short_padded]),
+            ] {
+                let expected = host(compared, HostKind::Address);
+                let address = spellings[usize::from(padded)];
+                let authority = format!("[{address}]{port}");
+                prop_assert_eq!(Host::parse(&authority), Some(expected.clone()));
+                prop_assert_eq!(Host::configured(address), Some(expected.clone()));
+                let allowed = HostAllowList::new(&[address.as_str()]).unwrap();
+                prop_assert_eq!(allowed.admit(&authority), Some(expected));
+                // Without brackets its colons would be read as a port, and
+                // an address in brackets takes no trailing dot.
+                prop_assert_eq!(Host::parse(address), None);
+                prop_assert_eq!(Host::parse(&format!("[{address}].{port}")), None);
+            }
+        }
+
+        /// Only a port number from 0 to 65535, with or without leading
+        /// zeros, may follow a host, and a host holds only letters, digits,
+        /// hyphens and dots.
+        ///
+        /// Verifies: SEC-NET-014
+        #[test]
+        fn nothing_but_a_port_number_follows_a_host(
+            name in NAME,
+            port in any::<u16>(),
+            beyond in 65_536_u32..,
+            stray in "[^A-Za-z0-9.:-]",
+        ) {
+            prop_assert_eq!(
+                Host::parse(&format!("{name}:{port:05}")),
+                Some(host(&name, HostKind::Name))
+            );
+            let refused = [
+                format!("{name}:"),
+                format!("{name}:{beyond}"),
+                format!("{name}:+{port}"),
+                format!("{name}:-{port}"),
+                format!("{name}:{port}:{port}"),
+                format!("{name}:{port}."),
+                format!("[::1]:{beyond}"),
+                format!("{name}{stray}"),
+                format!("{stray}{name}"),
+                format!("{name}{stray}{name}"),
+            ];
+            for authority in refused {
+                prop_assert_eq!(Host::parse(&authority), None);
+            }
+        }
     }
 }

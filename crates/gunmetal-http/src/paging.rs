@@ -126,8 +126,8 @@ mod tests {
     #[test]
     fn page_sizes_run_from_one_to_the_cap() {
         let limit = |text: &str| query::<PAGE_CAP>(json!({ "limit": text })).map(|q| q.limit);
-        assert_eq!(limit("1"), Some(PageLimit::new(1)));
-        assert_eq!(limit("500"), Some(PageLimit::new(500)));
+        assert_eq!(limit("1"), Some(Some(PageLimit(1))));
+        assert_eq!(limit("500"), Some(Some(PageLimit(500))));
         assert_eq!(limit("500").flatten().map(PageLimit::get), Some(500));
         for refused in ["0", "501", "-1", "+5", " 5", "5 ", "", "1e2", "99999999999"] {
             assert_eq!(limit(refused), None);
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn a_route_may_declare_a_larger_cap() {
         let limit = |text: &str| query::<2000>(json!({ "limit": text })).map(|q| q.limit);
-        assert_eq!(limit("2000"), Some(PageLimit::new(2000)));
+        assert_eq!(limit("2000"), Some(Some(PageLimit(2000))));
         assert_eq!(limit("2001"), None);
         assert_eq!(PageLimit::<500>::new(0), None);
     }
@@ -167,7 +167,7 @@ mod tests {
             query::<PAGE_CAP>(json!({ "cursor": "abc" })),
             Some(PageQuery {
                 limit: None,
-                cursor: Cursor::new("abc")
+                cursor: Some(Cursor("abc".to_owned()))
             })
         );
         assert_eq!(query::<PAGE_CAP>(json!({ "cursor": "a.b" })), None);

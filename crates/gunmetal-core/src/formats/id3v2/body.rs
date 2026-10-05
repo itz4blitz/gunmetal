@@ -7,6 +7,34 @@
 //! to the end of the body, and the fields after it are empty. A body that
 //! ends before a fixed-size field, or names an encoding that does not
 //! exist, is kept raw and recorded as malformed.
+//!
+//! # What one tag may hold
+//!
+//! A value with no characters takes one octet of the tag and many times
+//! that in memory, and so does a line of synchronised lyrics. So both are
+//! counted across the whole tag, as its frames and its pictures are
+//! (SEC-MED-006, SEC-TM-032):
+//!
+//! - The values of every text, user text and involved people frame count
+//!   together against [`LimitKind::Children`]. The frame that reaches the
+//!   limit keeps the values read before it, and each frame from there on
+//!   keeps none and records a [`ParseFault::LimitExceeded`] of its own.
+//! - The lines of every synchronised lyrics frame count together against
+//!   [`LimitKind::LyricsLines`]. The frame that reaches the limit keeps the
+//!   lines read before it and says so in [`SyncedLyrics::truncated`], as
+//!   does each frame from there on that holds a line.
+//!
+//! Under the default limits one tag therefore yields at most 65,536 values
+//! and 10,000 lines, whatever its frames declare. The limits table has no
+//! row for either total; these are the limits the same counts were already
+//! held to within one frame.
+//!
+//! Reading the values or the lines of a frame takes at least one octet of
+//! the frame per turn, and every octet of a frame is charged to the step
+//! budget before its body is decoded, so the frame's charge covers the
+//! work (SEC-MED-007).
+//!
+//! [`ParseFault::LimitExceeded`]: crate::parse::ParseFault::LimitExceeded
 
 use crate::parse::LimitKind;
 use crate::text::{self, Encoding, Text};
@@ -34,13 +62,16 @@ enum Kind {
     Raw,
 }
 
-/// Which kind of body the frame `id` holds.
+/// Which kind of body the frame `id` holds. A text information frame has
+/// an identifier that starts with `T`, and four more hold the same body
+/// under another letter: `GRP1`, the grouping iTunes writes, and `XSOT`,
+/// `XSOP` and `XSOA`, the sort names 2.3 tags hold.
 fn kind(id: FrameId) -> Kind {
     match id {
         FrameId::Four(id) => match &id {
             b"TXXX" => Kind::UserText,
             b"TIPL" | b"TMCL" | b"IPLS" => Kind::People,
-            [b'T', ..] => Kind::Text,
+            [b'T', ..] | b"GRP1" | b"XSOA" | b"XSOP" | b"XSOT" => Kind::Text,
             b"COMM" => Kind::Comment,
             b"USLT" => Kind::Lyrics,
             b"SYLT" => Kind::SyncedLyrics,
@@ -136,8 +167,10 @@ impl Reader<'_> {
     }
 
     /// The strings of `octets` up to each terminator, every one when `all`
-    /// is set and only the first otherwise, at most the child limit of
-    /// them; reaching the limit is recorded against the frame at `offset`.
+    /// is set and only the first otherwise. The values of every frame of
+    /// the tag count together against the child limit; reaching it is
+    /// recorded against the frame at `offset`, which keeps the values read
+    /// before it.
     fn values(
         &mut self,
         mut octets: &[u8],
@@ -148,15 +181,14 @@ impl Reader<'_> {
     ) -> Vec<Text> {
         let mut values = Vec::new();
         while !octets.is_empty() {
-            let count = u64::try_from(values.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(1);
+            let count = self.values.saturating_add(1);
             if let Err(fault) = self.limits.check(LimitKind::Children, count, offset) {
                 self.problems.push(TagProblem::Fault(fault));
                 break;
             }
             let (value, after) = terminated(octets, width);
             values.push(self.decode(value, encoding, cap));
+            self.values = count;
             match after {
                 Some(after) if all => octets = after,
                 _ => break,
@@ -233,9 +265,11 @@ impl Reader<'_> {
 
     /// Synchronised lyrics: the encoding, the language, the time stamp
     /// format, the content type, the description, then lines of terminated
-    /// text, each followed by its 32-bit time stamp. Lines past the lyrics
-    /// line limit are dropped and the result says so.
-    fn synced_lyrics(&self, data: &[u8]) -> Option<SyncedLyrics> {
+    /// text, each followed by its 32-bit time stamp. The lines of every
+    /// frame of the tag count together against the lyrics line limit; lines
+    /// past it are dropped and the result says so. The lines of a frame
+    /// that is not kept do not count.
+    fn synced_lyrics(&mut self, data: &[u8]) -> Option<SyncedLyrics> {
         let (&octet, rest) = data.split_first()?;
         let (encoding, width) = encoding(octet)?;
         let (&[l0, l1, l2, timestamp_format, content_type], rest) =
@@ -243,11 +277,10 @@ impl Reader<'_> {
         let (description, after) = terminated(rest, width);
         let mut rest = after.unwrap_or_default();
         let mut lines = Vec::new();
+        let mut kept = self.lines;
         let mut truncated = false;
         while !rest.is_empty() {
-            let count = u64::try_from(lines.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(1);
+            let count = kept.saturating_add(1);
             if self.limits.check(LimitKind::LyricsLines, count, 0).is_err() {
                 truncated = true;
                 break;
@@ -258,8 +291,10 @@ impl Reader<'_> {
                 text: self.decode(line, encoding, LimitKind::LyricsLineBytes),
                 time: u32::from_be_bytes(time),
             });
+            kept = count;
             rest = after;
         }
+        self.lines = kept;
         Some(SyncedLyrics {
             language: [l0, l1, l2],
             timestamp_format,
@@ -332,13 +367,14 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::super::testing::{
-        contents, frame, limits, raw, read_with, span, text, text_body, texts,
+        contents, frame, limits, raw, read_with, span, steps, text, text_body, texts,
     };
     use super::super::{
-        Credit, Frame, FrameBody, LanguageText, PictureRef, SyncedLyrics, SyncedText, TagProblem,
+        Credit, Frame, FrameBody, Id3v2Error, LanguageText, PictureRef, SyncedLyrics, SyncedText,
+        TagProblem,
     };
     use super::*;
-    use crate::parse::{LimitKind, Limits, ParseFault};
+    use crate::parse::{Budget, LimitKind, Limits, ParseFault};
     use gunmetal_testkit::bytes::Bytes;
     use gunmetal_testkit::id3v2::{
         self as kit, Encoding as Kit, Tag, Version, comment, picture, picture_v22, synced_lyrics,
@@ -496,6 +532,80 @@ mod tests {
             one(Version::V22, b"TP1", 0, b"\x00A\x00B"),
             (vec![frame(b"TP1", 10, 0, text_body(&["A"]))], vec![])
         );
+    }
+
+    /// `GRP1`, the grouping iTunes writes, and `XSOT`, `XSOP` and `XSOA`,
+    /// the sort names 2.3 tags hold, are text information frames in all but
+    /// the first letter of their identifier, and are read as such: in each
+    /// encoding, with one value before 2.4 and every value from 2.4 on.
+    #[test]
+    fn decodes_the_grouping_and_the_sort_frames_that_do_not_start_with_t() {
+        for id in [b"GRP1", b"XSOT", b"XSOP", b"XSOA"] {
+            for body in [
+                CAFE_LATIN1,
+                CAFE_UTF16_LE,
+                CAFE_UTF16_BE_MARKED,
+                CAFE_UTF16_BE,
+                CAFE_UTF8,
+            ] {
+                assert_eq!(
+                    one(Version::V23, id, 0, body),
+                    alone(id, text_body(&["Café"])),
+                    "{id:?} {body:02X?}"
+                );
+            }
+            assert_eq!(
+                one(Version::V23, id, 0, b"\x00A\x00B"),
+                alone(id, text_body(&["A"])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one(Version::V24, id, 0, b"\x03A\x00B"),
+                alone(id, text_body(&["A", "B"])),
+                "{id:?}"
+            );
+        }
+    }
+
+    /// They are held to what every text frame is held to: a value is cut at
+    /// the short-text limit and says so, the values count against the child
+    /// limit, and a body with an encoding that does not exist is kept raw.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn holds_the_grouping_and_the_sort_frames_to_the_limits_of_a_text_frame() {
+        let short = limits(LimitKind::ShortText, 3);
+        let single = limits(LimitKind::Children, 1);
+        for id in [b"GRP1", b"XSOT", b"XSOP", b"XSOA"] {
+            assert_eq!(
+                one_with(&short, Version::V24, id, b"\x00ABC"),
+                alone(id, text_body(&["ABC"])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one_with(&short, Version::V24, id, b"\x00ABCD"),
+                alone(id, FrameBody::Text(vec![capped("ABC")])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one_with(&single, Version::V24, id, b"\x00A\x00B"),
+                (
+                    vec![frame(id, 10, 0, text_body(&["A"]))],
+                    vec![TagProblem::Fault(ParseFault::LimitExceeded {
+                        limit: LimitKind::Children,
+                        value: 2,
+                        max: 1,
+                        offset: 10,
+                    })]
+                ),
+                "{id:?}"
+            );
+            assert_eq!(
+                one(Version::V24, id, 0, b"\x04A"),
+                malformed(id, 22),
+                "{id:?}"
+            );
+        }
     }
 
     #[test]
@@ -1198,6 +1308,271 @@ mod tests {
                     problems
                 ),
                 "{zeros}"
+            );
+        }
+    }
+
+    /// A tag of six values in three frames: two artists at 10, a user text
+    /// of two values at 24, and the role and the name of one credit at 40.
+    fn six_values() -> Vec<u8> {
+        Tag::new(Version::V24)
+            .frame(b"TPE1", 0, &kit::text(Kit::Latin1, &["A", "B"]))
+            .frame(b"TXXX", 0, &user_text(Kit::Latin1, "k", &["C", "D"]))
+            .frame(b"TIPL", 0, &kit::text(Kit::Latin1, &["mix", "E"]))
+            .build()
+    }
+
+    /// The frames of [`six_values`] when the user text keeps `user` and the
+    /// involved people list keeps `credits`.
+    fn six_values_read(user: &[&str], credits: Vec<Credit>) -> Vec<Frame> {
+        vec![
+            frame(b"TPE1", 10, 0, text_body(&["A", "B"])),
+            frame(
+                b"TXXX",
+                24,
+                0,
+                FrameBody::UserText {
+                    description: text("k"),
+                    values: texts(user),
+                },
+            ),
+            frame(b"TIPL", 40, 0, FrameBody::People(credits)),
+        ]
+    }
+
+    /// The problem recorded at the frame at `offset` for the value that
+    /// would be the tag's `value`th when it may hold `max`.
+    fn too_many_values(value: u64, max: u64, offset: u64) -> TagProblem {
+        TagProblem::Fault(ParseFault::LimitExceeded {
+            limit: LimitKind::Children,
+            value,
+            max,
+            offset,
+        })
+    }
+
+    /// The child limit counts the values of the whole tag, not of one
+    /// frame. A frame that starts at the limit keeps none of its values
+    /// and says so.
+    ///
+    /// Verifies: SEC-MED-006, SEC-TM-032
+    #[test]
+    fn counts_the_values_of_every_frame_against_the_child_limit() {
+        let credit = |name: &str| Credit {
+            role: text("mix"),
+            name: text(name),
+        };
+        let read = |max: u64| {
+            let found = read_with(&six_values(), &limits(LimitKind::Children, max))
+                .expect("the tag is readable");
+            (found.frames, found.problems)
+        };
+        assert_eq!(
+            read(6),
+            (six_values_read(&["C", "D"], vec![credit("E")]), vec![])
+        );
+        assert_eq!(
+            read(5),
+            (
+                six_values_read(&["C", "D"], vec![credit("")]),
+                vec![too_many_values(6, 5, 40)]
+            )
+        );
+        assert_eq!(
+            read(3),
+            (
+                six_values_read(&["C"], vec![]),
+                vec![too_many_values(4, 3, 24), too_many_values(4, 3, 40)]
+            )
+        );
+    }
+
+    /// The lyrics line limit counts the synchronised lines of the whole
+    /// tag, not of one frame. A frame that starts at the limit keeps none
+    /// of its lines and says so.
+    ///
+    /// Verifies: SEC-MED-006, SEC-TM-032
+    #[test]
+    fn counts_the_lines_of_every_frame_against_the_line_limit() {
+        let first: [(&str, u32); 2] = [("La", 1), ("Di", 2)];
+        let second: [(&str, u32); 2] = [("Da", 3), ("Du", 4)];
+        let third: [(&str, u32); 1] = [("Do", 5)];
+        let body = |lines: &[(&str, u32)]| synced_lyrics(Kit::Latin1, *b"eng", [2, 1], "d", lines);
+        // A body of two lines takes 22 octets, so the frames start at 10,
+        // 42 and 74.
+        let tag = Tag::new(Version::V24)
+            .frame(b"SYLT", 0, &body(&first))
+            .frame(b"SYLT", 0, &body(&second))
+            .frame(b"SYLT", 0, &body(&third))
+            .build();
+        let read = |max: u64| {
+            let found =
+                read_with(&tag, &limits(LimitKind::LyricsLines, max)).expect("the tag is readable");
+            (found.frames, found.problems)
+        };
+        let frames = |middle: FrameBody, last: FrameBody| {
+            vec![
+                frame(b"SYLT", 10, 0, synced(&first, false)),
+                frame(b"SYLT", 42, 0, middle),
+                frame(b"SYLT", 74, 0, last),
+            ]
+        };
+        assert_eq!(
+            read(5),
+            (
+                frames(synced(&second, false), synced(&third, false)),
+                vec![]
+            )
+        );
+        assert_eq!(
+            read(4),
+            (frames(synced(&second, false), synced(&[], true)), vec![])
+        );
+        assert_eq!(
+            read(3),
+            (
+                frames(synced(&second[..1], true), synced(&[], true)),
+                vec![]
+            )
+        );
+    }
+
+    /// Only the lines of a frame that is kept count. The first frame here
+    /// has one whole line and then a line with no time stamp, so it is kept
+    /// raw, and the tag still has room for three lines.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn counts_only_the_lines_of_the_frames_it_keeps() {
+        let whole: [(&str, u32); 2] = [("La", 1), ("Di", 2)];
+        let lines = synced_lyrics(Kit::Latin1, *b"eng", [2, 1], "d", &whole);
+        // 20 octets, the last line cut short, then two bodies of 22: the
+        // frames start at 10, 40 and 72.
+        let broken = b"\x00eng\x02\x01d\x00La\x00\x00\x00\x00\x01Di\x00\x00\x00";
+        let tag = Tag::new(Version::V24)
+            .frame(b"SYLT", 0, broken)
+            .frame(b"SYLT", 0, &lines)
+            .frame(b"SYLT", 0, &lines)
+            .build();
+        let read =
+            read_with(&tag, &limits(LimitKind::LyricsLines, 3)).expect("the tag is readable");
+        assert_eq!(
+            (read.frames, read.problems),
+            (
+                vec![
+                    frame(b"SYLT", 10, 0, raw(20, 40)),
+                    frame(b"SYLT", 40, 0, synced(&whole, false)),
+                    frame(b"SYLT", 72, 0, synced(&whole[..1], true)),
+                ],
+                vec![TagProblem::Malformed {
+                    offset: 10,
+                    id: super::super::testing::id(b"SYLT")
+                }]
+            )
+        );
+    }
+
+    /// The worst case under the default limits: one tag holds at most
+    /// 65,536 values and 10,000 synchronised lines, 75,536 decoded elements
+    /// in all, however many frames declare them. Three frames here hold
+    /// 30,000 empty values each, and three more 4,000 empty lines each.
+    ///
+    /// Verifies: SEC-MED-006, SEC-TM-032
+    #[test]
+    fn holds_at_most_75_536_values_and_lines_under_the_default_limits() {
+        let values: Vec<u8> = (0..=30_000).map(|_| 0x00).collect();
+        let lines: Vec<(&str, u32)> = (0..4_000).map(|_| ("", 0)).collect();
+        let lyrics = synced_lyrics(Kit::Latin1, *b"eng", [2, 1], "d", &lines);
+        // A frame of values takes 30,011 octets and a frame of lines
+        // 20,018.
+        let tag = Tag::new(Version::V24)
+            .frame(b"TPE1", 0, &values)
+            .frame(b"TPE1", 0, &values)
+            .frame(b"TPE1", 0, &values)
+            .frame(b"SYLT", 0, &lyrics)
+            .frame(b"SYLT", 0, &lyrics)
+            .frame(b"SYLT", 0, &lyrics)
+            .build();
+        let (frames, problems) = contents(&tag);
+        let values_kept: Vec<usize> = frames
+            .iter()
+            .filter_map(|found| match &found.body {
+                FrameBody::Text(kept) => Some(kept.len()),
+                _ => None,
+            })
+            .collect();
+        let lines_kept: Vec<usize> = frames
+            .iter()
+            .filter_map(|found| match &found.body {
+                FrameBody::SyncedLyrics(kept) => Some(kept.lines.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(values_kept, [30_000, 30_000, 5_536]);
+        assert_eq!(lines_kept, [4_000, 4_000, 2_000]);
+        assert_eq!(values_kept.iter().chain(&lines_kept).sum::<usize>(), 75_536);
+        assert_eq!(problems, [too_many_values(65_537, 65_536, 60_032)]);
+        let artists = |offset: u64, kept: usize| {
+            let empties = (0..kept).map(|_| text("")).collect();
+            frame(b"TPE1", offset, 0, FrameBody::Text(empties))
+        };
+        let words = |offset: u64, kept: usize, truncated: bool| {
+            frame(b"SYLT", offset, 0, synced(&lines[..kept], truncated))
+        };
+        assert_eq!(
+            frames,
+            [
+                artists(10, 30_000),
+                artists(30_021, 30_000),
+                artists(60_032, 5_536),
+                words(90_043, 4_000, false),
+                words(110_061, 4_000, false),
+                words(130_079, 2_000, true),
+            ]
+        );
+    }
+
+    /// Reading the values or the lines of a frame takes at least one octet
+    /// of the frame per turn, and a frame's octets are charged before its
+    /// body is decoded. So the charge covers the work whether the tag has
+    /// room for what the frame holds or not: each 2.4 frame is charged its
+    /// octets twice, once to tell how the sizes are written and once to
+    /// read it, and the parse fails at the frame the budget cannot pay for.
+    ///
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn charges_a_frame_its_octets_whether_its_values_are_kept_or_refused() {
+        // Frames of 14, 16 and 16 octets, at 10, 24 and 40.
+        for max in [6, 3, 0] {
+            assert_eq!(
+                steps(&six_values(), &limits(LimitKind::Children, max)),
+                92,
+                "a child limit of {max}"
+            );
+        }
+        let parse = |allowed: u64| {
+            let mut budget = Budget::for_input(0, 0, allowed);
+            super::super::parse(&six_values(), &Limits::DEFAULT, &mut budget)
+                .map(|tag| tag.frames.len())
+        };
+        assert_eq!(parse(92), Ok(3));
+        assert_eq!(
+            parse(91),
+            Err(Id3v2Error::Fault(ParseFault::BudgetExceeded { offset: 40 }))
+        );
+        // Three frames of 4,000 lines, 20,018 octets each.
+        let lines: Vec<(&str, u32)> = (0..4_000).map(|_| ("", 0)).collect();
+        let lyrics = synced_lyrics(Kit::Latin1, *b"eng", [2, 1], "d", &lines);
+        let tag = Tag::new(Version::V24)
+            .frame(b"SYLT", 0, &lyrics)
+            .frame(b"SYLT", 0, &lyrics)
+            .frame(b"SYLT", 0, &lyrics)
+            .build();
+        for max in [10_000, 4_000, 0] {
+            assert_eq!(
+                steps(&tag, &limits(LimitKind::LyricsLines, max)),
+                120_108,
+                "a line limit of {max}"
             );
         }
     }

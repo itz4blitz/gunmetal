@@ -309,7 +309,7 @@ mod tests {
     }
 
     /// One step of a writer's work.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     enum Step {
         Append(Event),
         Erase(Selector),
@@ -334,6 +334,28 @@ mod tests {
         assert_eq!(replay(&after), expected);
     }
 
+    /// An event is one stream's (ADR 3, section 6): erasing Alice's play
+    /// leaves Bob's play with the same event ID, whatever the order.
+    #[test]
+    fn an_erased_play_leaves_the_same_id_in_another_stream_whatever_the_arrival_order() {
+        let selector = alice(Scope::Event(EventId::new([1; 16])));
+        let mut bobs = play(1, 10);
+        bobs.stream = BOB;
+        let before = [
+            Step::Append(play(1, 10)),
+            Step::Append(bobs.clone()),
+            Step::Erase(selector),
+        ];
+        let after = [
+            Step::Erase(selector),
+            Step::Append(bobs.clone()),
+            Step::Append(play(1, 10)),
+        ];
+        let expected: EventSet = [bobs].into_iter().collect();
+        assert_eq!(replay(&before), expected);
+        assert_eq!(replay(&after), expected);
+    }
+
     fn scope() -> impl Strategy<Value = Scope> {
         prop_oneof![
             strategies::event_id().prop_map(Scope::Event),
@@ -353,16 +375,21 @@ mod tests {
         ]
     }
 
-    /// `steps` with every append of an event ID after its first replaced
-    /// by a retry of the first: the writer refuses a second body under one
-    /// ID (ADR 3, section 6), so a log never holds one.
+    /// `steps` with every append of an event ID in a stream after its
+    /// first replaced by a retry of the first: the writer refuses a second
+    /// body under one stream and event ID (ADR 3, section 6), so a log
+    /// never holds one. The same ID in another stream is another event,
+    /// with a body of its own.
     fn one_body_per_id(steps: Vec<Step>) -> Vec<Step> {
         let mut first: Vec<Event> = Vec::new();
         steps
             .into_iter()
             .map(|step| match step {
                 Step::Append(event) => {
-                    let earlier = first.iter().find(|seen| seen.id == event.id).cloned();
+                    let earlier = first
+                        .iter()
+                        .find(|seen| (seen.stream, seen.id) == (event.stream, event.id))
+                        .cloned();
                     Step::Append(earlier.unwrap_or_else(|| {
                         first.push(event.clone());
                         event
@@ -371,6 +398,34 @@ mod tests {
                 erase @ Step::Erase(_) => erase,
             })
             .collect()
+    }
+
+    /// The helper keys an event as the set does, by stream and event ID:
+    /// a second body under one ID in one stream becomes a retry of the
+    /// first, and the same ID in another stream is another event.
+    #[test]
+    fn one_body_per_id_keeps_the_same_id_in_another_stream() {
+        let first = play(1, 10);
+        let mut bobs = skip(1, 30);
+        bobs.stream = BOB;
+        let erase = Step::Erase(alice(Scope::Stream));
+        let steps = vec![
+            Step::Append(first.clone()),
+            Step::Append(bobs.clone()),
+            erase.clone(),
+            Step::Append(skip(1, 20)),
+            Step::Append(bobs.clone()),
+        ];
+        assert_eq!(
+            one_body_per_id(steps),
+            [
+                Step::Append(first.clone()),
+                Step::Append(bobs.clone()),
+                erase,
+                Step::Append(first),
+                Step::Append(bobs),
+            ]
+        );
     }
 
     proptest! {

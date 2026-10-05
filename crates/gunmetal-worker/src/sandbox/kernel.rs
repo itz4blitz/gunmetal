@@ -14,6 +14,7 @@
 
 use super::limits::Limit;
 use super::syscalls::{ALLOWLIST, Allowed, Check, Test, checks};
+use super::tier::Landlock;
 use landlock::{
     ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreated, RulesetStatus, Scope,
 };
@@ -42,9 +43,9 @@ pub(crate) trait Kernel {
     fn no_new_privs(&mut self) -> io::Result<()>;
     /// Enforces a Landlock ruleset that grants no filesystem access, no
     /// TCP bind or connect, and scopes abstract sockets and signals, as
-    /// far as the kernel's ABI goes. `false` when the kernel has no
-    /// Landlock.
-    fn landlock(&mut self) -> bool;
+    /// far as the kernel's ABI goes, and says how far that is: the whole
+    /// ruleset, part of it, or none where the kernel has no Landlock.
+    fn landlock(&mut self) -> Landlock;
     /// Installs the seccomp allowlist. `false` when the architecture or
     /// the kernel has no seccomp filter.
     fn seccomp(&mut self) -> bool;
@@ -127,9 +128,15 @@ fn require_not_dumpable(behavior: DumpableBehavior) -> io::Result<()> {
 }
 
 /// Builds the Landlock ruleset: every filesystem right is handled and
-/// no path is granted, so all path-based access is denied. TCP, UDP and
-/// the abstract-socket and signal scopes are handled where the ABI has
-/// them (SEC-MED-022).
+/// no path is granted, so all path-based access is denied. TCP bind and
+/// connect are handled and no port is granted, and abstract sockets and
+/// signals are scoped to the worker, each where the kernel's ABI has it
+/// (SEC-MED-022).
+///
+/// Landlock has no rule for UDP, in this ABI or an earlier one. What
+/// keeps a worker from UDP is the seccomp filter, which lists no call
+/// that makes a socket; where the filter is missing nothing does, and the
+/// notice names seccomp.
 fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
     let abi = ABI::V6;
     Ruleset::default()
@@ -137,6 +144,17 @@ fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
         .and_then(|ruleset| ruleset.handle_access(AccessNet::from_all(abi)))
         .and_then(|ruleset| ruleset.scope(Scope::from_all(abi)))
         .and_then(Ruleset::create)
+}
+
+/// What Landlock's own account of a ruleset comes to. A kernel older than
+/// the ruleset enforces the rules it has and says so; that is reported as
+/// it is, not as the whole ruleset (SEC-MED-024).
+fn coverage(status: &RulesetStatus) -> Landlock {
+    match status {
+        RulesetStatus::FullyEnforced => Landlock::Full,
+        RulesetStatus::PartiallyEnforced => Landlock::Partial,
+        RulesetStatus::NotEnforced => Landlock::Missing,
+    }
 }
 
 /// The rules for one allowlist row. A row without checks has no rule,
@@ -223,10 +241,10 @@ impl Kernel for Linux {
         rustix::thread::set_no_new_privs(true).map_err(io::Error::from)
     }
 
-    fn landlock(&mut self) -> bool {
+    fn landlock(&mut self) -> Landlock {
         landlock_ruleset()
             .and_then(RulesetCreated::restrict_self)
-            .is_ok_and(|status| status.ruleset != RulesetStatus::NotEnforced)
+            .map_or(Landlock::Missing, |status| coverage(&status.ruleset))
     }
 
     fn seccomp(&mut self) -> bool {
@@ -240,7 +258,9 @@ impl Kernel for Linux {
 
 #[cfg(test)]
 mod tests {
-    use super::{Kernel, Linux, NativeArch, numbers, program, program_for, rules};
+    use super::{Kernel, Linux, NativeArch, coverage, numbers, program, program_for, rules};
+    use crate::sandbox::tier::Landlock;
+    use landlock::RulesetStatus;
     use seccompiler::{
         SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompRule, TargetArch, sock_filter,
     };
@@ -371,6 +391,14 @@ mod tests {
             // openat and mprotect are not listed.
             (X86_64, 257, [0, 0, 0, 0, 0, 0]),
             (X86_64, 10, [0, 4096, 3, 0, 0, 0]),
+            // Nor are the calls the requirement names as excluded: execve,
+            // clone, clone3, socket, ptrace and mount.
+            (X86_64, 59, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 56, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 435, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 41, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 101, [0, 0, 0, 0, 0, 0]),
+            (X86_64, 165, [0, 0, 0, 0, 0, 0]),
             // write's number from a process of another architecture.
             (AARCH64, 1, [1, 0, 16, 0, 0, 0]),
         ];
@@ -378,13 +406,15 @@ mod tests {
             verdicts(ON_X86_64, &cases),
             [
                 ALLOW, KILL, KILL, KILL, ALLOW, ALLOW, KILL, KILL, KILL, KILL, ALLOW, KILL, KILL,
-                KILL
+                KILL, KILL, KILL, KILL, KILL, KILL, KILL
             ]
         );
     }
 
     /// The same guards on `AArch64`, where `mmap` is 222, `tgkill` 131,
-    /// `write` 64, `openat` 56 and `mprotect` 226.
+    /// `write` 64, `openat` 56 and `mprotect` 226, and the excluded calls
+    /// are `execve` 221, `clone` 220, `clone3` 435, `socket` 198, `ptrace`
+    /// 117 and `mount` 40.
     ///
     /// Verifies: SEC-MED-022, SEC-TM-044
     #[test]
@@ -400,12 +430,19 @@ mod tests {
             (AARCH64, 64, [1, 0, 16, 0, 0, 0]),
             (AARCH64, 56, [0, 0, 0, 0, 0, 0]),
             (AARCH64, 226, [0, 4096, 3, 0, 0, 0]),
+            (AARCH64, 221, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 220, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 435, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 198, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 117, [0, 0, 0, 0, 0, 0]),
+            (AARCH64, 40, [0, 0, 0, 0, 0, 0]),
             (X86_64, 64, [1, 0, 16, 0, 0, 0]),
         ];
         assert_eq!(
             verdicts(ON_AARCH64, &cases),
             [
-                ALLOW, KILL, KILL, KILL, ALLOW, KILL, KILL, ALLOW, KILL, KILL, KILL
+                ALLOW, KILL, KILL, KILL, ALLOW, KILL, KILL, ALLOW, KILL, KILL, KILL, KILL, KILL,
+                KILL, KILL, KILL, KILL
             ]
         );
     }
@@ -480,19 +517,57 @@ mod tests {
         modules.trim().split(',').any(|name| name == "landlock")
     }
 
+    /// Whether the running kernel's Landlock has every rule the worker
+    /// asks for. The newest of them, the signal and abstract-socket
+    /// scopes, came with Linux 6.12. Read from the kernel's release and
+    /// not from the code under test.
+    fn kernel_has_every_landlock_rule() -> bool {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test reads the kernel's release, a fixed path, to know how much of Landlock to expect (SEC-MED-024)"
+        )]
+        let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap();
+        let mut numbers = release
+            .split(|character: char| !character.is_ascii_digit())
+            .map(|number| number.parse::<u32>().unwrap());
+        (numbers.next().unwrap(), numbers.next().unwrap()) >= (6, 12)
+    }
+
+    /// Landlock's three answers about a ruleset are reported as they are:
+    /// one enforced in part is not passed off as enforced.
+    ///
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn a_ruleset_enforced_in_part_is_reported_as_in_part() {
+        assert_eq!(
+            [
+                coverage(&RulesetStatus::FullyEnforced),
+                coverage(&RulesetStatus::PartiallyEnforced),
+                coverage(&RulesetStatus::NotEnforced),
+            ],
+            [Landlock::Full, Landlock::Partial, Landlock::Missing]
+        );
+    }
+
     /// Landlock binds the thread that enforces it, so a thread of its own
     /// can try it and leave the test process free. Where the kernel has
-    /// Landlock every path is refused; where it has none the control is
-    /// reported missing and the path still opens.
+    /// Landlock every path is refused, and the ruleset is reported as
+    /// enforced whole or in part as the kernel's release says; where it
+    /// has none the control is reported missing and the path still opens.
     ///
-    /// Verifies: SEC-MED-022
+    /// Verifies: SEC-MED-022, SEC-MED-024
     #[test]
     fn landlock_refuses_every_path_on_the_thread_that_enforced_it() {
         let offered = kernel_has_landlock();
+        let whole = kernel_has_every_landlock_rule();
         let (enforced, listing) = std::thread::spawn(|| (Linux.landlock(), list_by_path()))
             .join()
             .unwrap();
-        assert_eq!(enforced, offered);
+        assert_eq!(
+            enforced,
+            [Landlock::Missing, Landlock::Partial, Landlock::Full]
+                [usize::from(offered) * (1 + usize::from(whole))]
+        );
         assert_eq!(
             listing,
             [Ok(()), Err(ErrorKind::PermissionDenied)][usize::from(offered)]
@@ -529,7 +604,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        assert!(!enforced);
+        assert_eq!(enforced, Landlock::Missing);
         assert_eq!(listing, Ok(()));
     }
 
@@ -575,12 +650,30 @@ mod tests {
     /// thread installs the worker's filter and then only spins, which
     /// needs no system call, until this thread has read its status.
     ///
+    /// Neither thread can wait for ever. This one gives the helper half a
+    /// minute to say how it did, and lets it go when it leaves the scope,
+    /// by a panic as much as by its last line, so a step that fails on
+    /// either side fails the test instead of hanging it.
+    ///
     /// Verifies: SEC-MED-022
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
     fn seccomp_installs_the_filter_on_the_thread_that_asked() {
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
         use std::time::Duration;
+
+        /// Sets the flag the helper waits for when it is dropped.
+        struct Release<'a>(&'a AtomicBool);
+
+        impl Drop for Release<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        /// How many times this thread sleeps a millisecond and looks for
+        /// the helper's outcome before it gives up.
+        const LOOKS: usize = 30_000;
 
         let tid = AtomicI32::new(0);
         // 0: not done yet. 1: no filter. 2: installed.
@@ -603,13 +696,15 @@ mod tests {
                 })
                 .any(|done| done);
             });
+            let release = Release(&seen);
             let finished = std::iter::repeat_with(|| {
                 std::thread::sleep(Duration::from_millis(1));
                 outcome.load(Ordering::SeqCst)
             })
+            .take(LOOKS)
             .find(|&state| state != 0);
             let mode = seccomp_mode(tid.load(Ordering::SeqCst));
-            seen.store(true, Ordering::SeqCst);
+            drop(release);
             (finished, mode)
         });
         assert_eq!(finished, Some(2));

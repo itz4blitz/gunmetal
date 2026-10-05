@@ -13,6 +13,7 @@ mod ogg;
 mod pcm;
 mod properties;
 mod refusals;
+mod replies;
 
 use crate::catalog::{
     ArtworkRef, ArtworkSource, AudioFormat, Bitrate, ByteRange, Codec, Container, LyricsOrigin,

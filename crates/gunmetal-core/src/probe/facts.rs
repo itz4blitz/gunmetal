@@ -15,7 +15,7 @@ use crate::formats::opus::OpusError;
 use crate::formats::riff::RiffError;
 use crate::formats::vorbis::VorbisError;
 use crate::formats::vorbis_comment::Comments;
-use crate::parse::{DriveError, ParseFault};
+use crate::parse::{DriveError, ParseFault, ReadRequest};
 use crate::problem::{Arg, Describe, Problem, ProblemCode};
 use crate::values::ValueError;
 
@@ -44,6 +44,10 @@ pub struct Probed {
     /// in the order of [`Probed::tags`]. The per-file picture limit counts
     /// them all together: the pictures past it are not listed, and
     /// [`Probed::problems`] holds how many were found.
+    ///
+    /// The size of an APE cover is its picture's alone: the item's value
+    /// without the file name and the zero octet that come before the
+    /// picture in it.
     pub facts: FileFacts,
     /// The raw tag blocks, in their order of precedence: the first block
     /// that holds a field wins.
@@ -59,6 +63,16 @@ pub struct Probed {
     /// A file has at most seven leading `ID3v2` tags, since detection
     /// skips no more. A chunk holds one tag: a tag that follows it in the
     /// chunk is not read, and is recorded in [`Probed::problems`].
+    ///
+    /// The per-file tag-field limit counts the fields of every block
+    /// together, in this order: the frames of an `ID3v2` tag, the items of
+    /// an APE tag, the comments of a Vorbis comment block that are not
+    /// pictures, and the items of an MP4 item list. The fields past the
+    /// limit are cut from their blocks, so a block may be left with none,
+    /// and [`Probed::problems`] holds how many were found. An `ID3v1` tag
+    /// and an `INFO` list do not count: the first has the same few fields
+    /// whatever it holds, and the second is passed on as octets, to be
+    /// counted where it is read.
     pub tags: Vec<TagBlock>,
     /// Where to start reading to play from a given time.
     pub seek: SeekIndex,
@@ -150,18 +164,55 @@ pub enum PartProblem {
     Lyrics(ParseFault),
     /// A value outside its range, such as a duration (SEC-MED-014).
     Value(ValueError),
-    /// A tag block larger than may be held in memory, or the search for an
-    /// Ogg stream's last page.
+    /// A limit of the probe's own was reached. The fault says which.
     ///
-    /// Also a count past what a file may hold. More pictures than the
-    /// per-file limit are [`ParseFault::LimitExceeded`] at offset 0, the
-    /// file's, with how many were found. More `ID3v2` tags in a row than
-    /// are read from one place are [`ParseFault::BudgetExceeded`] where
-    /// the first tag left unread starts, as detection reports more
-    /// leading tags than it skips.
+    /// [`ParseFault::LimitExceeded`] names the limit:
+    ///
+    /// - The in-memory tag limit, where an APE tag or an `INFO` list
+    ///   starts: the block is larger than a tag block may be in memory,
+    ///   and is not read. The fault holds how many octets the read of it
+    ///   would have been: the length of the list, or the octets from the
+    ///   start of the APE tag to the end of the file.
+    /// - The in-memory tag limit, at offset 0 of an Ogg file: the stream's
+    ///   comment header was not found in as many octets of the file's
+    ///   start as a tag block may take in memory, so the file has no
+    ///   comments. The fault holds the length of the file.
+    /// - The tag-field limit or the picture limit, at offset 0, the
+    ///   file's: the tag blocks together hold more fields, or the file
+    ///   more pictures, than a file may. The fault holds how many were
+    ///   found, and those past the limit are left out.
+    ///
+    /// [`ParseFault::BudgetExceeded`] has two meanings, told apart by the
+    /// format of the file:
+    ///
+    /// - In an Ogg file the step budget was spent in the search for the
+    ///   stream's last page, so the file has no duration (SEC-MED-007).
+    /// - In any other file more `ID3v2` tags lie back to back than are
+    ///   read from one place: seven in front of the audio, and one in a
+    ///   chunk of a WAV or AIFF file. The fault's offset is where the
+    ///   first tag left unread starts, and every tag after it is unread
+    ///   too. No step was spent on it. What ran out is the count of tags
+    ///   for that place, which no row of the limits table holds, so the
+    ///   fault that names a limit cannot say it, and this one carries
+    ///   neither how many tags there are nor how many may be read. It is
+    ///   the fault detection gives a file with more leading tags than it
+    ///   skips. A step budget that runs out while a tag is read is
+    ///   [`PartProblem::Id3v2`] instead, with the tag's offset beside the
+    ///   fault.
     Fault(ParseFault),
-    /// A read that the limits refuse (SEC-MED-010).
+    /// A read that the limits refuse (SEC-MED-010): the read of a tag
+    /// block, of the end of an Ogg file, or of more of the start of an Ogg
+    /// file when what was read of it holds no comment header.
     Read(DriveError),
+    /// The end of an Ogg file holds no page of its stream on which a packet
+    /// ends, so how long the file plays is not known.
+    NoLastPage {
+        /// Where the octets that were searched start: the last 64 KiB of
+        /// the file, or the whole file when it is shorter.
+        offset: u64,
+        /// The serial number of the stream.
+        serial: u32,
+    },
 }
 
 impl PartProblem {
@@ -183,6 +234,7 @@ impl PartProblem {
             Self::Value(_) => "value",
             Self::Fault(_) => "limit",
             Self::Read(_) => "read",
+            Self::NoLastPage { .. } => "ogg_last_page",
         }
     }
 }
@@ -238,6 +290,20 @@ pub enum ProbeError {
     Fault(ParseFault),
     /// A read that playback needs is one the limits refuse (SEC-MED-010).
     Read(DriveError),
+    /// The host answered a read of the probe's own with a window that is
+    /// not the octets asked for: it starts somewhere else, it holds more
+    /// octets than were asked for, or it holds none, as when the file was
+    /// cut short after its length was taken. Asking again would get no
+    /// further, so the file fails at once, whatever the read was for
+    /// (SEC-MED-008).
+    Unanswered {
+        /// The read the probe asked for.
+        asked: ReadRequest,
+        /// Where the window it was given starts.
+        offset: u64,
+        /// How many octets that window holds.
+        len: u64,
+    },
     /// The facts found do not make a catalogue value.
     Catalog(CatalogError),
     /// The probe was resumed after it gave its result. A probe reads one
@@ -262,6 +328,7 @@ impl ProbeError {
             Self::Unsupported { .. } => "unsupported_codec",
             Self::Fault(_) => "budget",
             Self::Read(_) => "read",
+            Self::Unanswered { .. } => "unanswered_read",
             Self::Catalog(_) => "catalogue",
             Self::Finished => "finished",
         }
@@ -374,6 +441,13 @@ mod tests {
             (PartProblem::Value(value), "value"),
             (PartProblem::Fault(FAULT), "limit"),
             (PartProblem::Read(drive), "read"),
+            (
+                PartProblem::NoLastPage {
+                    offset: 1,
+                    serial: 7,
+                },
+                "ogg_last_page",
+            ),
         ];
         for (problem, part) in cases {
             assert_eq!(
@@ -422,6 +496,14 @@ mod tests {
                     max: LimitKind::ReadBytes.ceiling(),
                 }),
                 "read",
+            ),
+            (
+                ProbeError::Unanswered {
+                    asked: ReadRequest { offset: 4, len: 2 },
+                    offset: 4,
+                    len: 0,
+                },
+                "unanswered_read",
             ),
             (ProbeError::Catalog(CatalogError::ZeroBitrate), "catalogue"),
             (ProbeError::Finished, "finished"),

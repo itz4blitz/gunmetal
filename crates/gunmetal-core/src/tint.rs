@@ -57,9 +57,22 @@ pub struct OnSurface {
 }
 
 /// The colour shared by the header wash and player backdrop.
+///
+/// Every token given to [`surfaces`] meets its contrast floor against
+/// `surface` as it is here: three numbers that have not been rounded. A
+/// display colour has 8 bits a channel, and [`surfaces`] does not round
+/// before it checks. Rounding each channel to the nearest of its 256
+/// levels moves the surface's luminance a little, which can lower a
+/// contrast ratio by up to about 0.6 %: a token that sits exactly at 4.5
+/// can measure about 4.475 against the rounded colour, and one at 3.0
+/// about 2.98. A client, and the WASM facade that hands these numbers to
+/// one (WP-237), must not take a floor as met for the rounded colour. It
+/// checks the contrast again after rounding, or keeps to tokens that clear
+/// their floors by 1 % or more.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Surfaces {
-    /// Gamut-reduced and contrast-checked sRGB surface.
+    /// Gamut-reduced and contrast-checked sRGB surface, not rounded to 8
+    /// bits a channel.
     pub surface: Srgb,
     /// Actual OKLCH coordinates used to produce `surface`.
     pub oklch: Oklch,
@@ -70,9 +83,30 @@ pub type Hue = u16;
 
 /// Derives a surface from an artwork candidate and client token colours.
 ///
+/// `canvas` is the client's page background, the colour the tinted surface
+/// lies on, as nonlinear sRGB. Only its `OKLab` lightness is used, and only
+/// as the far end of the search. The surface starts at lightness 0.26 for
+/// [`Theme::Dark`] and [`Theme::Oled`] and at 0.95 for [`Theme::Light`].
+/// While a token misses its floor the lightness steps by 0.01 toward the
+/// canvas's, down for the dark themes and up for the light one, and the
+/// search stops before a step would pass the canvas: a surface may be as
+/// dark or as light as its canvas, never more. The search does not turn
+/// round, so a canvas lighter than 0.26 under a dark theme, or darker than
+/// 0.95 under the light one, gets no tint even with no token to satisfy.
+/// The canvas takes no part in the contrast check, and its hue and chroma
+/// change nothing.
+///
+/// [`Theme::Light`] never reaches lightness 1. The lightness of white
+/// computes to 0.999 999 993 5, just under 1, so the candidate at 1.00 is
+/// past every canvas and the lightest surface that is tried is 0.99. A
+/// token that only a pure white surface would satisfy gets no tint. Black
+/// computes to exactly 0, so the dark themes can reach it.
+///
 /// Returns `None` for invalid numeric input, base chroma below 0.04,
 /// high contrast, an inconsistent canvas direction, or unsatisfied contrast.
 /// Gamut reduction preserves hue and lightness; the client owns gradients.
+/// The floors are checked on the surface before any rounding to 8 bits:
+/// see [`Surfaces`].
 #[must_use]
 pub fn surfaces(
     base: Oklch,
@@ -281,6 +315,44 @@ mod tests {
         let a = luminance(a);
         let b = luminance(b);
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    // Independent OKLab lightness oracle, from Ottosson's sRGB to OKLab
+    // matrices; never calls a production colour helper.
+    fn oklab_lightness(colour: Srgb) -> f64 {
+        let linear = [colour.red, colour.green, colour.blue].map(|v| {
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        let cone = |weights: [f64; 3]| {
+            linear
+                .into_iter()
+                .zip(weights)
+                .map(|(v, weight)| v * weight)
+                .sum::<f64>()
+                .cbrt()
+        };
+        0.210_454_255_3 * cone([0.412_221_470_8, 0.536_332_536_3, 0.051_445_992_9])
+            + 0.793_617_785 * cone([0.211_903_498_2, 0.680_699_545_1, 0.107_396_956_6])
+            - 0.004_072_046_8 * cone([0.088_302_461_9, 0.281_718_837_6, 0.629_978_700_5])
+    }
+
+    #[test]
+    fn the_lightness_oracle_agrees_with_known_values() {
+        near(oklab_lightness(BLACK), 0.0);
+        near(oklab_lightness(WHITE), 0.999_999_993_473_546_2);
+        // The chromatic colours `canvas_lightness` is held to below.
+        for (colour, expected) in [
+            ([0.0, 0.0, 1.0], 0.452_013_718_385_342_8),
+            ([0.2, 0.5, 0.9], 0.604_309_296_227_169),
+            ([0.9, 0.6, 0.1], 0.741_572_686_146_229_8),
+        ] {
+            let [red, green, blue] = colour;
+            near(oklab_lightness(Srgb { red, green, blue }), expected);
+        }
     }
 
     fn grey(value: f64) -> Srgb {
@@ -589,6 +661,68 @@ mod tests {
     }
 
     #[test]
+    fn light_never_tries_lightness_one_because_white_computes_to_just_under_it() {
+        near(canvas_lightness(WHITE), 0.999_999_993_473_546_2);
+        assert!(canvas_lightness(WHITE) < 1.0);
+        let base = Oklch { hue: 90.0, ..BASE };
+        // This grey reaches 4.5:1 against white itself, and only 4.46:1
+        // against the lightest surface that is tried, at lightness 0.99.
+        let token = OnSurface {
+            colour: grey(0.46),
+            role: ContrastRole::Text,
+        };
+        near(contrast(WHITE, token.colour), 4.587_807_276_493_149);
+        assert_eq!(surfaces(base, Theme::Light, WHITE, &[token]), None);
+        // A grey a little darker is satisfied there, four steps from the
+        // start: 4.41:1 at lightness 0.98, and 4.54:1 at 0.99.
+        let darker = OnSurface {
+            colour: grey(0.455),
+            ..token
+        };
+        let result = surfaces(base, Theme::Light, WHITE, &[darker]).unwrap();
+        near(result.oklch.lightness, 0.99);
+        near(
+            contrast(result.surface, darker.colour),
+            4.542_018_145_042_492,
+        );
+    }
+
+    #[test]
+    fn rounding_a_surface_to_8_bits_can_take_it_under_a_floor_it_met() {
+        let base = Oklch {
+            chroma: 0.07,
+            hue: 180.0,
+            ..BASE
+        };
+        let token = OnSurface {
+            colour: grey(0.538),
+            role: ContrastRole::Text,
+        };
+        // One step from the start, where the token first reaches 4.5:1.
+        let result = surfaces(base, Theme::Dark, BLACK, &[token]).unwrap();
+        near(result.oklch.lightness, 0.25);
+        colour_near(
+            result.surface,
+            [0.0, 0.158_951_209_546_558_11, 0.134_888_911_166_814],
+        );
+        near(
+            contrast(result.surface, token.colour),
+            4.510_422_946_846_828,
+        );
+        // To the nearest of 256 levels a channel the surface is #002922:
+        // green goes up from 40.53 to 41 and blue down from 34.40 to 34.
+        let [red, green, blue] = [
+            result.surface.red,
+            result.surface.green,
+            result.surface.blue,
+        ]
+        .map(|channel| (channel * 255.0).round() / 255.0);
+        let rounded = Srgb { red, green, blue };
+        assert_eq!(rounded, hex([0, 41, 34]));
+        near(contrast(rounded, token.colour), 4.490_339_934_410_53);
+    }
+
+    #[test]
     fn rejects_nonfinite_and_out_of_range_inputs_without_sanitising_them() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.001] {
             for base in [
@@ -801,21 +935,119 @@ mod tests {
         }
     }
 
+    /// The themes that tint, each with design-language's starting
+    /// lightness and chroma cap for it and the way its lightness steps:
+    /// down for the dark themes, up for the light one.
+    const TINTED: [(Theme, f64, f64, f64); 3] = [
+        (Theme::Dark, 0.26, 0.07, -1.0),
+        (Theme::Oled, 0.26, 0.07, -1.0),
+        (Theme::Light, 0.95, 0.04, 1.0),
+    ];
+
+    /// A colour with every channel from `low` to `high`.
+    fn shade(low: f64, high: f64) -> impl Strategy<Value = Srgb> {
+        (low..=high, low..=high, low..=high).prop_map(|(red, green, blue)| Srgb {
+            red,
+            green,
+            blue,
+        })
+    }
+
+    /// A canvas: black, white, any colour at all, one dark enough for the
+    /// dark themes to step toward, or one pale enough for the light theme.
+    fn canvas() -> impl Strategy<Value = Srgb> {
+        prop_oneof![
+            Just(BLACK),
+            Just(WHITE),
+            shade(0.0, 1.0),
+            shade(0.0, 0.14),
+            shade(0.94, 1.0),
+        ]
+    }
+
+    /// A token of any colour and either role.
+    fn token() -> impl Strategy<Value = OnSurface> {
+        (
+            shade(0.0, 1.0),
+            prop_oneof![
+                Just(ContrastRole::Text),
+                Just(ContrastRole::ControlOrLargeText)
+            ],
+        )
+            .prop_map(|(colour, role)| OnSurface { colour, role })
+    }
+
+    /// What `surfaces` must give for one input, whatever the input: the
+    /// same answer when asked again and, when it tints, a colour in gamut
+    /// with the candidate's hue, no more chroma than the candidate's or
+    /// the theme's cap, a lightness from the theme's start to the canvas's,
+    /// and every token's floor by the WCAG oracle.
+    fn holds(
+        base: Oklch,
+        (theme, start, cap, direction): (Theme, f64, f64, f64),
+        canvas: Srgb,
+        tokens: &[OnSurface],
+    ) -> Result<(), TestCaseError> {
+        let result = surfaces(base, theme, canvas, tokens);
+        prop_assert_eq!(result, surfaces(base, theme, canvas, tokens));
+        if let Some(Surfaces { surface, oklch }) = result {
+            let channels = [surface.red, surface.green, surface.blue];
+            prop_assert!(
+                channels
+                    .into_iter()
+                    .all(|channel| (0.0..=1.0).contains(&channel)),
+                "out of gamut"
+            );
+            prop_assert!(
+                oklch.chroma <= base.chroma.min(cap),
+                "theme chroma cap exceeded"
+            );
+            prop_assert_eq!(oklch.hue, base.hue);
+            // The lightness has moved from the start toward the canvas or
+            // not at all, and has not passed the canvas.
+            prop_assert!(
+                direction * (oklch.lightness - start) >= 0.0,
+                "lightness on the far side of the start"
+            );
+            prop_assert!(
+                direction * (oklab_lightness(canvas) - oklch.lightness) >= -1e-9,
+                "lightness past the canvas"
+            );
+            prop_assert!(
+                meets_every_floor(surface, tokens),
+                "token contrast floor failed"
+            );
+        }
+        Ok(())
+    }
+
+    /// The check the property makes runs both ways on every run: on a tint
+    /// that has stepped once toward the canvas, and on a refusal.
+    #[test]
+    fn the_property_check_takes_a_tint_and_a_refusal() {
+        let token = OnSurface {
+            colour: grey(0.53),
+            role: ContrastRole::Text,
+        };
+        let tint = surfaces(BASE, Theme::Dark, BLACK, &[token]).unwrap();
+        near(tint.oklch.lightness, 0.25);
+        holds(BASE, TINTED[0], BLACK, &[token]).unwrap();
+        // A white canvas is on the wrong side of a dark theme's start.
+        assert_eq!(surfaces(BASE, Theme::Dark, WHITE, &[token]), None);
+        holds(BASE, TINTED[0], WHITE, &[token]).unwrap();
+    }
+
     proptest! {
         #[test]
-        fn valid_results_are_deterministic_in_gamut_and_meet_every_floor(l in 0.0..=1.0, c in 0.0..=0.5, h in 0.0..360.0, light in any::<bool>(), r in 0.0..=1.0, g in 0.0..=1.0, b in 0.0..=1.0, text in any::<bool>()) {
-            let base = Oklch { lightness: l, chroma: c, hue: h };
-            let theme = if light { Theme::Light } else { Theme::Dark };
-            let canvas = if light { WHITE } else { BLACK };
-            let token = OnSurface { colour: Srgb { red: r, green: g, blue: b }, role: if text { ContrastRole::Text } else { ContrastRole::ControlOrLargeText } };
-            let result = surfaces(base, theme, canvas, &[token]);
-            prop_assert_eq!(result, surfaces(base, theme, canvas, &[token]));
-            if let Some(result) = result {
-                for channel in [result.surface.red, result.surface.green, result.surface.blue] { prop_assert!((0.0..=1.0).contains(&channel)); }
-                prop_assert!(result.oklch.chroma <= c.min(if light { 0.04 } else { 0.07 }), "theme chroma cap exceeded");
-                prop_assert_eq!(result.oklch.hue, h);
-                prop_assert!(contrast(result.surface, token.colour) >= if text { 4.5 } else { 3.0 }, "token contrast floor failed");
-            }
+        fn valid_results_are_deterministic_in_gamut_and_meet_every_floor(
+            lightness in 0.0_f64..=1.0,
+            chroma in 0.0_f64..=0.5,
+            hue in 0.0_f64..360.0,
+            themed in prop::sample::select(TINTED.to_vec()),
+            canvas in canvas(),
+            tokens in prop::collection::vec(token(), 0..4),
+        ) {
+            holds(Oklch { lightness, chroma, hue }, themed, canvas, &tokens)?;
         }
     }
 }

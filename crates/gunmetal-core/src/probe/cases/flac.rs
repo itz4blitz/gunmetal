@@ -466,6 +466,93 @@ fn keeps_sixteen_pictures_of_a_flac_file_and_its_leading_tag() {
     );
 }
 
+/// The comments of the file's own block and the frames of a tag in front
+/// of it count together against the tag-field limit, the comments first.
+/// The file is laid out as:
+///
+/// | Octets | What |
+/// |---|---|
+/// | 0..23 | `ID3v2.4`: header, and a `TIT2` frame at 10 |
+/// | 23..27 | `fLaC` |
+/// | 27..65 | STREAMINFO |
+/// | 65..110 | `VORBIS_COMMENT`: header and the 41 octets of [`comment`] |
+/// | 110..130 | audio |
+///
+/// Under a limit of three fields the two comments and the frame are kept.
+/// Under a limit of two the frame is the third: the tag is kept without
+/// it, and the three that were found are recorded against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_the_tag_fields_of_a_flac_file_up_to_the_limit_across_its_tags() {
+    let mut file = Tag::new(Version::V24)
+        .frame(b"TIT2", 0, &id3v2::text(Encoding::Utf8, &["Hi"]))
+        .build();
+    file.extend(flac::stream(&[
+        Block::StreamInfo(stream_info()),
+        Block::VorbisComment(comment()),
+    ]));
+    file.extend(AUDIO);
+    let found_under = |max| {
+        let limits = lowered(LimitKind::TagFields, max);
+        let probed = run_under(&file, Some("flac"), limits).unwrap();
+        (probed.tags, probed.problems)
+    };
+    let comments = TagBlock::Vorbis(Comments {
+        vendor: text("ref"),
+        fields: vec![
+            Field {
+                key: "TITLE".to_owned(),
+                value: text("Song"),
+            },
+            Field {
+                key: "LYRICS".to_owned(),
+                value: text("la la"),
+            },
+        ],
+        pictures: vec![],
+        problems: vec![],
+        end: 110,
+    });
+    let tag_with = |frames| TagBlock::Id3v2 {
+        offset: 0,
+        tag: Id3v2Tag {
+            header: Header {
+                major: 4,
+                revision: 0,
+                flags: 0,
+                size: 13,
+                len: 23,
+            },
+            extended: None,
+            frames,
+            problems: vec![],
+        },
+    };
+    let title = Frame {
+        id: FrameId::Four(*b"TIT2"),
+        offset: 10,
+        flags: 0,
+        body: FrameBody::Text(vec![text("Hi")]),
+    };
+    assert_eq!(
+        found_under(3),
+        (vec![comments.clone(), tag_with(vec![title])], vec![])
+    );
+    assert_eq!(
+        found_under(2),
+        (
+            vec![comments, tag_with(vec![])],
+            vec![PartProblem::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::TagFields,
+                value: 3,
+                max: 2,
+                offset: 0,
+            })]
+        )
+    );
+}
+
 /// The comment block declares a vendor string longer than the block.
 ///
 /// Verifies: SEC-MED-017
