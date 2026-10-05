@@ -20,6 +20,17 @@
 //! [`DataRoot::replace`] interrupted by a crash left in `secrets/` is
 //! removed and reported the same way. Anything else is refused. Files are
 //! created with mode 0600 and directories with mode 0700.
+//!
+//! The user log names its directories and segments at run time, one
+//! directory for each stream and one segment for each month (ADR 3,
+//! section 3), so it gets three operations no other store has:
+//! [`DataRoot::log_streams`] and [`DataRoot::log_segments`] list what is
+//! there, reading at most [`LIST_MAX`] entries of a directory, and
+//! [`DataRoot::remove_log_stream`] removes one stream's directory. Each
+//! takes typed values and builds the names itself, lists only what is
+//! itself a directory or a file of such a name, and removes only what
+//! [`DataPath::log_stream`] and [`DataPath::log_segment`] can name. A
+//! symbolic link is never followed, listed or removed through.
 #![expect(
     clippy::disallowed_methods,
     reason = "the data-root handle is the workspace's filesystem door: it opens the root by path once and works beneath its handle (SEC-MED-033, SEC-HIS-016)"
@@ -35,13 +46,22 @@ use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions,
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
-use crate::path::{self, DataDir, DataPath};
+use crate::path::{self, DataDir, DataPath, LogMonth, LogStream, USER_LOG};
 
 /// The mode of every directory in the data directory.
 pub const DIR_MODE: u32 = 0o700;
 
 /// The mode of every file the data root creates.
 pub const FILE_MODE: u32 = 0o600;
+
+/// The most entries a listing of one of the user log's directories reads.
+///
+/// `durable/log` holds one directory for each profile and one for the
+/// household, and a stream's directory one segment for each month it was
+/// written in: 4,096 entries are more profiles than a household's server
+/// has, and the months of 341 years. A directory that holds more was not
+/// filled by the server, and is refused rather than read to its end.
+pub const LIST_MAX: usize = 4_096;
 
 /// How the data directory itself is opened: a readable descriptor rather
 /// than `cap-std`'s `O_PATH` one, so the root's own mode can be repaired
@@ -141,7 +161,8 @@ pub enum Op {
     Rename,
     /// Syncing the directory that holds a renamed file.
     Sync,
-    /// Removing a temporary file that an interrupted replace left behind.
+    /// Removing a temporary file that an interrupted replace left behind,
+    /// or a stream's directory and segments from the user log.
     Remove,
 }
 
@@ -245,6 +266,38 @@ pub struct Refused {
     pub error: DataRootError,
     /// The repairs made before it, in order.
     pub repairs: Vec<Repair>,
+}
+
+/// What a listing of one of the user log's directories found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listing<T> {
+    /// What belongs there, in the order of the names: the streams whose
+    /// directory is itself a directory, or the months whose segment is
+    /// itself a regular file. Segment names sort by time, so months come
+    /// oldest first.
+    pub entries: Vec<T>,
+    /// The names of everything else, in order: an entry whose name no
+    /// typed constructor builds, and an entry of such a name that is not
+    /// the kind of object that belongs there, such as a symbolic link.
+    /// The temporary file a [`DataRoot::replace`] of a segment left when a
+    /// crash interrupted it is among them.
+    pub foreign: Vec<OsString>,
+}
+
+/// Why one of the user log's directories could not be listed or removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogDirError {
+    /// The data root refused: the directory is missing, is not itself a
+    /// directory, or an operating-system call on it failed.
+    Root(DataRootError),
+    /// The directory holds more than `max` entries, so it was not read to
+    /// its end, and nothing in it was listed or removed.
+    TooMany {
+        /// The directory.
+        item: Item,
+        /// The most entries a listing reads, [`LIST_MAX`].
+        max: usize,
+    },
 }
 
 /// Maps an operating-system error about `item` during `op`.
@@ -712,6 +765,92 @@ impl DataRoot {
             .map_err(io_error(Item::Path(path.clone()), Op::CreateDir))
     }
 
+    /// The streams that have a directory in the user log, `durable/log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when `durable/log` does not exist, is
+    /// not itself a directory or cannot be read, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_streams(&self) -> Result<Listing<LogStream>, LogDirError> {
+        let item = Item::Path(USER_LOG);
+        self.log_dir()
+            .map_err(LogDirError::Root)
+            .and_then(|log| listing(&log, &item, Kind::Dir, LogStream::named))
+    }
+
+    /// The months `stream` has a segment for in the user log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when the stream's directory does not
+    /// exist, is not itself a directory or cannot be read, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_segments(&self, stream: LogStream) -> Result<Listing<LogMonth>, LogDirError> {
+        let item = Item::Path(DataPath::log_stream(stream));
+        self.log_dir()
+            .and_then(|log| real_dir(&log, &stream.name(), &item))
+            .map_err(LogDirError::Root)
+            .and_then(|dir| listing(&dir, &item, Kind::File, LogMonth::named))
+    }
+
+    /// Removes `stream` from the user log: every segment in its directory,
+    /// every temporary file a [`DataRoot::replace`] of a segment left
+    /// beside one, then the directory itself, and syncs `durable/log` so
+    /// that a crash does not bring the stream back. A stream that has no
+    /// directory is already removed.
+    ///
+    /// Nothing else is removed. An entry of any other name stays, and the
+    /// directory with it, which the error reports. A symbolic link named
+    /// like a segment is removed itself; what it leads to is not touched.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when `durable/log` does not exist,
+    /// when the stream's name is taken by something that is not itself a
+    /// directory, or when an entry or the directory cannot be removed, and
+    /// [`LogDirError::TooMany`] when the directory holds more than
+    /// [`LIST_MAX`] entries, in which case nothing is removed.
+    pub fn remove_log_stream(&self, stream: LogStream) -> Result<(), LogDirError> {
+        let item = Item::Path(DataPath::log_stream(stream));
+        let name = stream.name();
+        let log = self.log_dir().map_err(LogDirError::Root)?;
+        let dir = match real_dir(&log, &name, &item) {
+            Err(DataRootError::Io {
+                op: Op::Inspect,
+                kind: io::ErrorKind::NotFound,
+                ..
+            }) => return Ok(()),
+            found => found.map_err(LogDirError::Root)?,
+        };
+        names(&dir, &item)?
+            .iter()
+            .filter(|entry| removable(entry))
+            .try_for_each(|entry| rustix::fs::unlinkat(&dir, entry.as_os_str(), AtFlags::empty()))
+            .and_then(|()| rustix::fs::unlinkat(&log, name.as_str(), AtFlags::REMOVEDIR))
+            .map_err(io::Error::from)
+            .map_err(io_error(item, Op::Remove))
+            .and_then(|()| {
+                // The removal is durable once `durable/log` is synced.
+                self.dir
+                    .open_with(USER_LOG.beneath(), OpenOptions::new().read(true))
+                    .and_then(|parent| parent.sync_all())
+                    .map_err(io_error(Item::Path(USER_LOG), Op::Sync))
+            })
+            .map_err(LogDirError::Root)
+    }
+
+    /// Opens `durable/log`, which must itself be a directory.
+    fn log_dir(&self) -> Result<Dir, DataRootError> {
+        let item = Item::Path(USER_LOG);
+        self.dir
+            .open_dir(DataDir::Durable.name())
+            .map_err(io_error(item.clone(), Op::List))
+            .and_then(|durable| real_dir(&durable, path::LOG, &item))
+    }
+
     /// Opens `rel`, a path relative to the root, beneath the handle. Every
     /// file the data root opens goes through here, and the handle refuses a
     /// path that would leave the root even when `rel` was not built from a
@@ -770,6 +909,96 @@ impl DataRoot {
             .zip(by_path(&parent).zip(by_path(&file)))
             .is_some_and(|(held, named)| held == named)
     }
+}
+
+/// Opens the entry `name` of `parent`, which must itself be a directory: a
+/// symbolic link to one is refused, never followed.
+fn real_dir(parent: &Dir, name: &str, item: &Item) -> Result<Dir, DataRootError> {
+    rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(io::Error::from)
+        .map_err(io_error(item.clone(), Op::Inspect))
+        .and_then(|stat| match Facts::of(&stat).kind {
+            Kind::Dir => Ok(()),
+            found => Err(DataRootError::WrongKind {
+                item: item.clone(),
+                found,
+            }),
+        })
+        .and_then(|()| {
+            parent
+                .open_dir(name)
+                .map_err(io_error(item.clone(), Op::List))
+        })
+}
+
+/// The names of the entries of `dir`, in order, when it holds at most
+/// [`LIST_MAX`] of them. It reads one entry more than that and no further,
+/// so a directory someone else filled cannot make the server hold a list
+/// without end.
+fn names(dir: &Dir, item: &Item) -> Result<Vec<OsString>, LogDirError> {
+    dir.entries()
+        .and_then(|entries| {
+            entries
+                .take(LIST_MAX.saturating_add(1))
+                .map(|entry| entry.map(|entry| entry.file_name()))
+                .collect::<io::Result<Vec<OsString>>>()
+        })
+        .map_err(io_error(item.clone(), Op::List))
+        .map_err(LogDirError::Root)
+        .and_then(|mut names| {
+            if names.len() > LIST_MAX {
+                Err(LogDirError::TooMany {
+                    item: item.clone(),
+                    max: LIST_MAX,
+                })
+            } else {
+                names.sort();
+                Ok(names)
+            }
+        })
+}
+
+/// Lists `dir`: the entries whose name `named` reads and that are
+/// themselves a `wanted`, and the names of the rest.
+fn listing<T>(
+    dir: &Dir,
+    item: &Item,
+    wanted: Kind,
+    named: fn(&str) -> Option<T>,
+) -> Result<Listing<T>, LogDirError> {
+    names(dir, item).map(|names| {
+        let mut entries = Vec::new();
+        let mut foreign = Vec::new();
+        for name in names {
+            let entry = name
+                .to_str()
+                .and_then(named)
+                .filter(|_| is_kind(dir, &name, wanted));
+            match entry {
+                Some(entry) => entries.push(entry),
+                None => foreign.push(name),
+            }
+        }
+        Listing { entries, foreign }
+    })
+}
+
+/// Whether the entry `name` of `dir` is itself a `wanted`. A symbolic link
+/// is a link, whatever it leads to.
+fn is_kind(dir: &Dir, name: &OsStr, wanted: Kind) -> bool {
+    rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
+        .is_ok_and(|stat| Facts::of(&stat).kind == wanted)
+}
+
+/// Whether the removal of a stream may remove the entry called `name` from
+/// the stream's directory: a segment, or the temporary file a replace of a
+/// segment writes beside it.
+fn removable(name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        LogMonth::named(name)
+            .or_else(|| path::replaced_by(name).and_then(LogMonth::named))
+            .is_some()
+    })
 }
 
 #[cfg(test)]
