@@ -29,6 +29,24 @@
 //! Every box's size must be the octets its fields took, so a box with
 //! anything after its last field is refused too.
 
+/// The `tfhd` flag `default-base-is-moof`: data offsets count from the
+/// first octet of the enclosing `moof` box.
+const BASE_IS_MOOF: u32 = 0x02_0000;
+/// The `tfhd` flag that says a default sample duration follows.
+const DEFAULT_DURATION: u32 = 0x00_0008;
+/// The `tfhd` flag that says a default sample size follows.
+const DEFAULT_SIZE: u32 = 0x00_0010;
+/// Every `tfhd` flag this reader takes.
+const TFHD_TAKEN: u32 = 0x02_0018;
+/// The `trun` flag that says a data offset follows the sample count.
+const DATA_OFFSET: u32 = 0x00_0001;
+/// The `trun` flag that says every sample gives its duration.
+const SAMPLE_DURATION: u32 = 0x00_0100;
+/// The `trun` flag that says every sample gives its size.
+const SAMPLE_SIZE: u32 = 0x00_0200;
+/// Every `trun` flag this reader takes.
+const TRUN_TAKEN: u32 = 0x00_0301;
+
 /// One sample of a fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sample {
@@ -112,6 +130,183 @@ pub enum FragmentError {
     },
 }
 
+/// A box whose header has been read.
+struct Open {
+    /// Where the box starts.
+    offset: usize,
+    /// The size its header declares.
+    size: u32,
+}
+
+/// What a `tfhd` box says about the samples of its fragment.
+struct Defaults {
+    /// The track the samples belong to.
+    track: u32,
+    /// The duration of a sample whose run gives none.
+    duration: Option<u32>,
+    /// The size of a sample whose run gives none.
+    size: Option<u32>,
+}
+
+/// `value` as a count of octets.
+fn width(value: u32) -> usize {
+    // No target of this workspace has a usize narrower than 32 bits.
+    usize::try_from(value).unwrap_or(usize::MAX)
+}
+
+/// The octets of a segment not yet read.
+struct Reader<'a> {
+    /// The octets left.
+    bytes: &'a [u8],
+    /// Where the first of them lies in the segment.
+    at: usize,
+}
+
+impl<'a> Reader<'a> {
+    /// The next `len` octets.
+    fn take(&mut self, len: usize) -> Result<&'a [u8], FragmentError> {
+        let Some((head, rest)) = self.bytes.split_at_checked(len) else {
+            return Err(FragmentError::Truncated { offset: self.at });
+        };
+        self.bytes = rest;
+        self.at += len;
+        Ok(head)
+    }
+
+    /// The next `N` octets.
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], FragmentError> {
+        let mut octets = [0; N];
+        octets.copy_from_slice(self.take(N)?);
+        Ok(octets)
+    }
+
+    /// A 32-bit integer, most significant octet first.
+    fn u32(&mut self) -> Result<u32, FragmentError> {
+        self.array().map(u32::from_be_bytes)
+    }
+
+    /// A 64-bit integer, most significant octet first.
+    fn u64(&mut self) -> Result<u64, FragmentError> {
+        self.array().map(u64::from_be_bytes)
+    }
+
+    /// A 32-bit integer when `present`, and nothing otherwise.
+    fn optional(&mut self, present: bool) -> Result<Option<u32>, FragmentError> {
+        if present {
+            self.u32().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Reads the header of the box that starts here, which must be of type
+    /// `kind`.
+    fn open(&mut self, kind: [u8; 4]) -> Result<Open, FragmentError> {
+        let offset = self.at;
+        let size = self.u32()?;
+        let found = self.array()?;
+        if found != kind {
+            return Err(FragmentError::Kind {
+                offset,
+                expected: kind,
+                found,
+            });
+        }
+        Ok(Open { offset, size })
+    }
+
+    /// Reads the header of the full box that starts here, which must be of
+    /// type `kind` and of version `newest` or older. Returns the box, its
+    /// version and its flags.
+    fn full(&mut self, kind: [u8; 4], newest: u8) -> Result<(Open, u8, u32), FragmentError> {
+        let open = self.open(kind)?;
+        let [version, high, middle, low] = self.array()?;
+        if version > newest {
+            return Err(FragmentError::Version { kind, version });
+        }
+        Ok((open, version, u32::from_be_bytes([0, high, middle, low])))
+    }
+
+    /// Checks that `open` ends here: that its size is the octets read since
+    /// it started.
+    fn close(&self, open: &Open) -> Result<(), FragmentError> {
+        let held = self.at - open.offset;
+        if width(open.size) == held {
+            Ok(())
+        } else {
+            Err(FragmentError::Size {
+                offset: open.offset,
+                size: open.size,
+                held,
+            })
+        }
+    }
+
+    /// Reads the `tfhd` box that starts here.
+    fn track_header(&mut self) -> Result<Defaults, FragmentError> {
+        let (tfhd, _, flags) = self.full(*b"tfhd", 0)?;
+        if flags & !TFHD_TAKEN != 0 || flags & BASE_IS_MOOF == 0 {
+            return Err(FragmentError::Flags {
+                kind: *b"tfhd",
+                flags,
+            });
+        }
+        let track = self.u32()?;
+        let duration = self.optional(flags & DEFAULT_DURATION != 0)?;
+        let size = self.optional(flags & DEFAULT_SIZE != 0)?;
+        self.close(&tfhd)?;
+        Ok(Defaults {
+            track,
+            duration,
+            size,
+        })
+    }
+
+    /// Reads the `tfdt` box that starts here: the decode time of the
+    /// fragment's first sample, 32 bits wide in version 0 and 64 in
+    /// version 1.
+    fn decode_time(&mut self) -> Result<u64, FragmentError> {
+        let (tfdt, version, _) = self.full(*b"tfdt", 1)?;
+        let time = if version == 1 {
+            self.u64()?
+        } else {
+            u64::from(self.u32()?)
+        };
+        self.close(&tfdt)?;
+        Ok(time)
+    }
+
+    /// Reads the `trun` box that starts here: its data offset, and the
+    /// duration and size of each sample, from the run or from `defaults`.
+    fn run(&mut self, defaults: &Defaults) -> Result<(usize, Vec<(u32, u32)>), FragmentError> {
+        let (trun, _, flags) = self.full(*b"trun", 0)?;
+        if flags & !TRUN_TAKEN != 0 || flags & DATA_OFFSET == 0 {
+            return Err(FragmentError::Flags {
+                kind: *b"trun",
+                flags,
+            });
+        }
+        let count = self.u32()?;
+        let data = width(self.u32()?);
+        let mut spans = Vec::new();
+        for _ in 0..count {
+            let duration = self.optional(flags & SAMPLE_DURATION != 0)?;
+            let size = self.optional(flags & SAMPLE_SIZE != 0)?;
+            let (Some(duration), Some(size)) =
+                (duration.or(defaults.duration), size.or(defaults.size))
+            else {
+                return Err(FragmentError::Flags {
+                    kind: *b"trun",
+                    flags,
+                });
+            };
+            spans.push((duration, size));
+        }
+        self.close(&trun)?;
+        Ok((data, spans))
+    }
+}
+
 /// Reads the media segment `segment`: one movie fragment and its media
 /// data.
 ///
@@ -122,12 +317,55 @@ pub enum FragmentError {
 ///
 /// Returns the [`FragmentError`] for the first thing that is not the shape
 /// the module documentation describes.
-pub fn read_fragment(_segment: &[u8]) -> Result<Fragment, FragmentError> {
+pub fn read_fragment(segment: &[u8]) -> Result<Fragment, FragmentError> {
+    let mut reader = Reader {
+        bytes: segment,
+        at: 0,
+    };
+    let moof = reader.open(*b"moof")?;
+    let (mfhd, _, _) = reader.full(*b"mfhd", 0)?;
+    let sequence = reader.u32()?;
+    reader.close(&mfhd)?;
+    let traf = reader.open(*b"traf")?;
+    let defaults = reader.track_header()?;
+    let decode_time = reader.decode_time()?;
+    let (data, spans) = reader.run(&defaults)?;
+    reader.close(&traf)?;
+    reader.close(&moof)?;
+    let mdat = reader.open(*b"mdat")?;
+    let payload = reader.at;
+    let total = spans.iter().fold(0_usize, |total, &(_, size)| {
+        total.saturating_add(width(size))
+    });
+    let mut rest = reader.take(total)?;
+    reader.close(&mdat)?;
+    if data != payload {
+        return Err(FragmentError::Offset { data, payload });
+    }
+    if !reader.bytes.is_empty() {
+        return Err(FragmentError::Trailing {
+            offset: reader.at,
+            len: reader.bytes.len(),
+        });
+    }
+    let nothing: &[u8] = &[];
+    let mut samples = Vec::new();
+    for (duration, size) in spans {
+        // The sizes add up to the octets taken, so every split succeeds.
+        let (octets, after) = rest
+            .split_at_checked(width(size))
+            .unwrap_or((rest, nothing));
+        samples.push(Sample {
+            duration,
+            data: octets.to_vec(),
+        });
+        rest = after;
+    }
     Ok(Fragment {
-        sequence: 0,
-        track: 0,
-        decode_time: 0,
-        samples: Vec::new(),
+        sequence,
+        track: defaults.track,
+        decode_time,
+        samples,
     })
 }
 

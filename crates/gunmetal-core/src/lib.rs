@@ -23,6 +23,7 @@ pub mod logframe;
 pub mod lyrics;
 pub mod net;
 pub mod otp;
+pub mod package;
 pub mod parse;
 pub mod path;
 pub mod player;
