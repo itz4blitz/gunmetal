@@ -599,7 +599,7 @@ mod tests {
         let mut probe = probe(None, Limits::DEFAULT, &mut budget);
         probe.work = Budget::for_input(0, 0, steps);
         let mut draft = empty_draft();
-        let octets = b"ID3\x03\0\0\0\0\0\0".repeat(count);
+        let octets: Vec<u8> = (0..count).flat_map(|_| *b"ID3\x03\0\0\0\0\0\0").collect();
         let gather = Gather {
             start: 0,
             end: u64::try_from(octets.len()).unwrap(),

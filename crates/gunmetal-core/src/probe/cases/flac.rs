@@ -348,7 +348,7 @@ fn keeps_a_flac_file_whose_leading_tag_cannot_be_read() {
 /// octets each. After them come `fLaC` and STREAMINFO, 42 octets, and the
 /// 20 octets of audio.
 fn after_empty_tags(count: usize) -> Vec<u8> {
-    let mut file = b"ID3\x03\0\0\0\0\0\0".repeat(count);
+    let mut file = empty_tags(count);
     file.extend(flac::stream(&[Block::StreamInfo(stream_info())]));
     file.extend(AUDIO);
     file
@@ -438,7 +438,7 @@ fn keeps_sixteen_pictures_of_a_flac_file_and_its_leading_tag() {
             )
             .build();
         let mut metadata = vec![Block::StreamInfo(stream_info())];
-        metadata.extend(std::iter::repeat_with(|| Block::Picture(cover())).take(blocks));
+        metadata.extend((0..blocks).map(|_| Block::Picture(cover())));
         file.extend(flac::stream(&metadata));
         file.extend(AUDIO);
         let probed = run(&file, Some("flac")).unwrap();

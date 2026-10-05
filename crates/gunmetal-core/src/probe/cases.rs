@@ -69,6 +69,11 @@ fn zeros(count: usize) -> Vec<u8> {
     octets.into_vec()
 }
 
+/// `count` `ID3v2.3` tags with no frames, back to back: ten octets each.
+fn empty_tags(count: usize) -> Vec<u8> {
+    (0..count).flat_map(|_| *b"ID3\x03\0\0\0\0\0\0").collect()
+}
+
 /// The default limits with `kind` lowered to `value`.
 fn lowered(kind: LimitKind, value: u64) -> Limits {
     Limits::DEFAULT.with_override(kind, value).unwrap()

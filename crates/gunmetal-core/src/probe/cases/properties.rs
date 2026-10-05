@@ -253,24 +253,22 @@ fn returns_for_every_budget_a_valid_file_can_run_out_of() {
 /// that detection skips in front of an MP3 stream. With each, how many
 /// tag blocks the probe keeps of it.
 fn repeats() -> Vec<(Vec<u8>, &'static str, usize)> {
-    let tags = |count: usize| b"ID3\x03\0\0\0\0\0\0".repeat(count);
-
     let mut chunks = Bytes::new();
     chunks
         .riff_chunk(*b"fmt ", &riff::format(1, 1, 8_000, 8))
         .riff_chunk(*b"data", &[0x80; 16])
-        .riff_chunk(*b"id3 ", &tags(300));
+        .riff_chunk(*b"id3 ", &empty_tags(300));
     let wav = riff::wave(chunks.as_slice());
 
     let mut chunks = Bytes::new();
     chunks
         .aiff_chunk(*b"COMM", &riff::comm(1, 16, 8, 8_000))
         .aiff_chunk(*b"SSND", &riff::ssnd(0, 0, &[0x80; 16]))
-        .aiff_chunk(*b"ID3 ", &tags(300));
+        .aiff_chunk(*b"ID3 ", &empty_tags(300));
     let aiff = riff::aiff(*b"AIFF", chunks.as_slice());
 
     let frame = Frame::layer3(mpa::Version::Mpeg2, 1, 1, Mode::Mono);
-    let mp3 = [tags(7), mpa::stream(&[frame, frame, frame])].concat();
+    let mp3 = [empty_tags(7), mpa::stream(&[frame, frame, frame])].concat();
 
     vec![(wav, "wav", 1), (aiff, "aiff", 1), (mp3, "mp3", 7)]
 }

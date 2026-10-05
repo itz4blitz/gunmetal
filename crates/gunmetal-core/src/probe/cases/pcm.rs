@@ -160,11 +160,6 @@ fn skips_an_info_list_larger_than_a_tag_may_be_in_memory() {
     );
 }
 
-/// `count` `ID3v2.3` tags with no frames, back to back: ten octets each.
-fn empty_tags(count: usize) -> Vec<u8> {
-    b"ID3\x03\0\0\0\0\0\0".repeat(count)
-}
-
 /// What one of the tags of [`empty_tags`] is read as, when it starts at
 /// `offset`.
 fn empty_tag_at(offset: u64) -> TagBlock {
@@ -211,23 +206,19 @@ fn aiff_with_tags(count: usize) -> Vec<u8> {
 /// Verifies: SEC-MED-017, SEC-TM-032
 #[test]
 fn reads_one_tag_from_a_chunk_and_records_a_second() {
-    let cases: [(fn(usize) -> Vec<u8>, &str, u64, u64); 2] = [
-        (wav_with_tags, "wav", 68, 78),
-        (aiff_with_tags, "aiff", 78, 88),
-    ];
-    for (file_with, ext, first, second) in cases {
-        let tags_of = |count| {
-            let probed = run(&file_with(count), Some(ext)).unwrap();
-            (probed.tags, probed.problems)
-        };
-        let one = vec![empty_tag_at(first)];
-        let unread = vec![PartProblem::Fault(ParseFault::BudgetExceeded {
-            offset: second,
-        })];
-        assert_eq!(tags_of(1), (one.clone(), vec![]), "{ext}");
-        assert_eq!(tags_of(2), (one.clone(), unread.clone()), "{ext}");
-        assert_eq!(tags_of(300), (one, unread), "{ext}");
-    }
+    let found = |file: &[u8], ext| {
+        let probed = run(file, Some(ext)).unwrap();
+        (probed.tags, probed.problems)
+    };
+    let unread = |offset| vec![PartProblem::Fault(ParseFault::BudgetExceeded { offset })];
+    let in_wav = |count| found(&wav_with_tags(count), "wav");
+    assert_eq!(in_wav(1), (vec![empty_tag_at(68)], vec![]));
+    assert_eq!(in_wav(2), (vec![empty_tag_at(68)], unread(78)));
+    assert_eq!(in_wav(300), (vec![empty_tag_at(68)], unread(78)));
+    let in_aiff = |count| found(&aiff_with_tags(count), "aiff");
+    assert_eq!(in_aiff(1), (vec![empty_tag_at(78)], vec![]));
+    assert_eq!(in_aiff(2), (vec![empty_tag_at(78)], unread(88)));
+    assert_eq!(in_aiff(300), (vec![empty_tag_at(78)], unread(88)));
 }
 
 /// The chunk walk is given its allowance of one step an octet, 78 for
