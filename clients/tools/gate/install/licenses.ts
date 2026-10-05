@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { collectInstalled, Refusal } from './verify.ts';
 import { inspect } from './policy.ts';
@@ -54,12 +54,14 @@ async function check(directory: string): Promise<unknown> {
   if (result.status !== 0) throw new Refusal([{ rule: 'SEC-SUP-029', path: 'licenses', message: 'invalid licence report' }]);
   const report: unknown = JSON.parse(result.stdout);
   if (!object(report)) throw new Refusal([{ rule: 'SEC-SUP-029', path: 'licenses', message: 'invalid licence report' }]);
-  const managerPackage = packages.find(entry => installed.find(item => item.name === entry.name && item.version === entry.version)?.path === dirname(manager));
+  // Installed paths are real paths, so the manager's package root is resolved the same way before it is matched.
+  const managerRoot = await realpath(dirname(manager));
+  const managerPackage = packages.find(entry => installed.find(item => item.name === entry.name && item.version === entry.version)?.path === managerRoot);
   if (managerPackage === undefined) throw new Refusal([{ rule: 'SEC-SUP-029', path: 'licenses.inventory', message: 'licence report must exactly cover every installed package version' }]);
   const group = report[managerPackage.license];
   if (group !== undefined && !Array.isArray(group)) throw new Refusal([{ rule: 'SEC-SUP-029', path: 'licenses', message: 'invalid licence report' }]);
   report[managerPackage.license] = [...(Array.isArray(group) ? group : []), {
-    name: managerPackage.name, versions: [managerPackage.version], paths: [dirname(manager)], license: managerPackage.license,
+    name: managerPackage.name, versions: [managerPackage.version], paths: [managerRoot], license: managerPackage.license,
   }];
   for (const [kind, input] of [
     ['licenses', { allowed, report }],

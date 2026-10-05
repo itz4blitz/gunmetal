@@ -24,21 +24,35 @@ multi-document lockfile and workspace settings. Importing it from the project
 only after an unchecked install would make that first validation circular.
 The tested remote bootstrap extracts the checksum-verified parser into an
 isolated temporary `node_modules/yaml`; copy only the reviewed `installation.ts`,
-`policy.ts` and `verify.ts` check modules beside it; execute the initial check
-against the real `clients/` directory. It must place native pnpm in this exact
-layout and export `GUNMETAL_NATIVE_PNPM_ROOT` to it; the check does not discover
-pnpm from `PATH`:
+`native-pnpm.ts`, `policy.ts` and `verify.ts` check modules beside it; execute
+the initial check against the real `clients/` directory. It must place native
+pnpm in this exact layout and export `GUNMETAL_NATIVE_PNPM_ROOT` to it; the
+check does not discover pnpm from `PATH`:
 
 ```
 $GUNMETAL_NATIVE_PNPM_ROOT/pnpm.tgz
-$GUNMETAL_NATIVE_PNPM_ROOT/node_modules/@pnpm/exe.linux-x64/{package.json,pnpm}
+$GUNMETAL_NATIVE_PNPM_ROOT/node_modules/@pnpm/exe.linux-x64/{package.json,pnpm,...}
 $GUNMETAL_NATIVE_PNPM_ROOT/bin/pnpm -> ../node_modules/@pnpm/exe.linux-x64/pnpm
 ```
 
-The retained archive is re-hashed before every use, the package metadata must
-be `@pnpm/exe.linux-x64@12.7.0`, and the bin entry must resolve to that exact
-executable. TeamCity may prepend the bin directory to `PATH` for tools that
-need it, but the policy and verification code use the verified path directly.
+Build that layout with the committed builder, which needs only the pinned Node
+and no project install. It refuses any archive but the pinned one and never
+writes into a root that already exists:
+
+```bash
+node clients/tools/gate/install/native-pnpm-layout.ts "$downloaded_pnpm_tgz" "$GUNMETAL_NATIVE_PNPM_ROOT"
+```
+
+Before every use `native-pnpm.ts` re-hashes the retained archive against the
+pinned SHA-512, requires the bin entry to resolve to the package executable,
+compares that executable and its `package.json` byte for byte with the entries
+of the archive it has just checked, and requires the metadata to be
+`@pnpm/exe.linux-x64@12.7.0`. It does not check the other files beside the
+executable or the Node runtime, and it cannot stop a writer that replaces the
+executable between the comparison and the exec, so the layout root must not be
+writable by anything else during a run. TeamCity may prepend the bin directory
+to `PATH` for tools that need it, but the policy and verification code use the
+verified path directly and never run a `pnpm` found on `PATH`.
 This temporary tool copy has no alternate lockfile, installation or supplied
 dependency graph. Its parser is the same provisional dependency/version.
 The `bootstrap.ts` entrypoint uses only Node builtins until that extraction.

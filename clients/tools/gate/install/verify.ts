@@ -4,16 +4,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAllDocuments } from 'yaml';
-import { inspect, type Finding } from './policy.ts';
-import { nativePnpm } from './native-pnpm.ts';
+import { inspect } from './policy.ts';
+import { nativePnpm, Refusal } from './native-pnpm.ts';
 
+export { Refusal };
 type Identity = { name: string; version: string; integrity: string };
 export type Installed = Identity & { path: string };
 type ObjectValue = Record<string, unknown>;
-export class Refusal extends Error {
-  findings: Finding[];
-  constructor(findings: Finding[]) { super('installation verification refused'); this.findings = findings; }
-}
 function object(value: unknown): value is ObjectValue {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

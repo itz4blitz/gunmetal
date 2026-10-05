@@ -1,5 +1,6 @@
 import { parseAllDocuments, visit } from 'yaml';
 import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
 
 type ObjectValue = Record<string, unknown>;
 export type Finding = { rule: string; path: string; message: string };
@@ -70,12 +71,13 @@ export function lockfile(input: unknown): Finding[] {
   const findings: Finding[] = [];
   for (const [index, value] of values.entries()) {
     if (!object(value) || value.lockfileVersion !== '9.0' || !object(value.packages)) return invalid();
-    if (unsupportedProtocol(value.importers, true)) {
+    const importers = withoutWorkspaceMembers(value.importers);
+    if (unsupportedProtocol(importers)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'unsupported dependency protocol is forbidden'));
-    } else if (exoticSource(value.importers)) {
+    } else if (exoticSource(importers)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'exotic dependency sources are forbidden'));
     }
-    if (unsupportedProtocol(value.snapshots, false)) {
+    if (unsupportedProtocol(value.snapshots)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'unsupported dependency protocol is forbidden'));
     } else if (exoticSource(value.snapshots)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'exotic dependency sources are forbidden'));
@@ -115,14 +117,24 @@ function exoticSource(value: unknown): boolean {
   return false;
 }
 
-function unsupportedProtocol(value: unknown, allowWorkspace: boolean): boolean {
-  if (typeof value === 'string') {
-    if (/^(?:npm:|catalog:)/i.test(value)) return true;
-    return /^workspace:/i.test(value) && (!allowWorkspace || value !== 'workspace:*');
-  }
-  if (Array.isArray(value)) return value.some(entry => unsupportedProtocol(entry, allowWorkspace));
-  if (object(value)) return Object.values(value).some(entry => unsupportedProtocol(entry, allowWorkspace));
+function unsupportedProtocol(value: unknown): boolean {
+  if (typeof value === 'string') return /^(?:npm:|catalog:|workspace:)/i.test(value);
+  if (Array.isArray(value)) return value.some(unsupportedProtocol);
+  if (object(value)) return Object.values(value).some(unsupportedProtocol);
   return false;
+}
+
+// pnpm records a dependency on another project of the same workspace as `specifier: workspace:*`
+// with `version: link:<path to that project>`. Those entries are the one non-registry source, so they
+// are dropped here and every importer string that remains has to be a registry one.
+function withoutWorkspaceMembers(importers: unknown): unknown {
+  if (!object(importers)) return importers;
+  const registry = (project: string, entries: unknown): unknown => !object(entries) ? entries :
+    Object.fromEntries(Object.entries(entries).filter(([, entry]) => !(object(entry) && entry.specifier === 'workspace:*' &&
+      typeof entry.version === 'string' && entry.version.startsWith('link:') &&
+      Object.hasOwn(importers, posix.join(project, entry.version.slice(5))))));
+  return Object.fromEntries(Object.entries(importers).map(([project, groups]) => [project, !object(groups) ? groups :
+    Object.fromEntries(Object.entries(groups).map(([group, entries]) => [group, registry(project, entries)]))]));
 }
 
 export function manifest(input: unknown): Finding[] {
