@@ -162,6 +162,16 @@ pub enum TagProblem {
         /// The count that exceeded the limit.
         count: u64,
     },
+    /// A text was longer than its limit and was cut to fit, here or by the
+    /// parser that decoded it (SEC-MED-006).
+    Truncated {
+        /// Where the text was read.
+        source: FieldSource,
+        /// The limit the text is kept under: [`LimitKind::ShortText`] for
+        /// one line of text, [`LimitKind::LyricsBytes`] for lyrics and
+        /// [`LimitKind::LyricsLineBytes`] for one line of a `SYLT` frame.
+        limit: LimitKind,
+    },
 }
 
 /// Maps `v2` and `v1` onto [`TrackTags`]. `v1` fills only fields `v2` left
@@ -1645,7 +1655,11 @@ mod tests {
     use std::num::NonZeroU8;
 
     use crate::catalog::{GainTags, LyricsOrigin, LyricsTiming};
-    use crate::formats::id3v2::Header;
+    use crate::formats::id3v1::find_v1;
+    use crate::formats::id3v2::{BUDGET_FIXED, BUDGET_PER_OCTET, Header, parse};
+    use crate::parse::{Budget, Window};
+    use gunmetal_testkit::id3v1::Id3v1;
+    use gunmetal_testkit::id3v2::{self as kit, Encoding as Kit, Tag as TagBytes, Version};
 
     use super::{Kind, add_release_tokens, kind, parse_decimal_genre};
 
@@ -1755,6 +1769,51 @@ mod tests {
 
     fn map_text(major: u8, id: &[u8], value: &str) -> Mapped {
         map_frames(major, vec![text_frame(id, &[value])])
+    }
+
+    /// The tag the `ID3v2` parser reads from `bytes` under `limits`, with
+    /// the budget the parser documents for a tag of that length.
+    fn parsed(bytes: &[u8], limits: &Limits) -> Id3v2Tag {
+        let len = u64::try_from(bytes.len()).unwrap();
+        let mut budget = Budget::for_input(len, BUDGET_PER_OCTET, BUDGET_FIXED);
+        parse(bytes, limits, &mut budget).unwrap()
+    }
+
+    /// What the mapper makes, under `mapping`, of the tag the parser reads
+    /// from `bytes` under `parsing`.
+    fn map_bytes(bytes: &[u8], parsing: &Limits, mapping: &Limits) -> Mapped {
+        from_id3(Some(&parsed(bytes, parsing)), None, mapping)
+    }
+
+    /// The octets of a 2.4 tag that holds the one frame `id` with `body`,
+    /// so that the frame's header is at 10.
+    fn one_frame(id: &[u8], body: &[u8]) -> Vec<u8> {
+        TagBytes::new(Version::V24).frame(id, 0, body).build()
+    }
+
+    /// The octets of a 2.4 tag whose one frame is the title `title`.
+    fn title_tag(title: &str) -> Vec<u8> {
+        one_frame(b"TIT2", &kit::text(Kit::Utf8, &[title]))
+    }
+
+    /// The default limits with `kind` lowered to `value`.
+    fn lowered(kind: LimitKind, value: u64) -> Limits {
+        Limits::DEFAULT.with_override(kind, value).unwrap()
+    }
+
+    /// The title `title` read from the `TIT2` frame at 10, with `problems`.
+    fn titled(title: &str, problems: Vec<TagProblem>) -> Mapped {
+        Mapped {
+            tags: TrackTags {
+                title: Some(title.to_owned()),
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                title: Some(v2_at(b"TIT2", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        }
     }
 
     /// `frames` with frame `i` at offset `10 + 20 * i`, so that two frames
@@ -4139,6 +4198,390 @@ mod tests {
                 source: v2_source(b"TDAT"),
                 error: ValueError::Malformed { field: Field::Day },
             }]
+        );
+    }
+
+    /// The parser keeps tabs, line feeds, separators and bidirectional
+    /// controls in the text of a frame. None of them may reach a field
+    /// that is shown as one line (CVE-2021-42574).
+    #[test]
+    fn cleans_each_single_name_to_one_line() {
+        // Every body is 9 octets, so every frame is 19.
+        let bytes = TagBytes::new(Version::V24)
+            .frame(b"TIT2", 0, &kit::text(Kit::Utf8, &["Star\nman"]))
+            .frame(b"TSOT", 0, &kit::text(Kit::Utf8, &["St\u{202E}ars"]))
+            .frame(b"TALB", 0, &kit::text(Kit::Utf8, &["Low\tlife"]))
+            .frame(b"TSOA", 0, &kit::text(Kit::Utf8, &["Li\u{2028}fes"]))
+            .frame(b"TSST", 0, &kit::text(Kit::Utf8, &["Si\u{2066}de1"]))
+            .build();
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &Limits::DEFAULT),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Starman")),
+                    title_sort: Some(String::from("Stars")),
+                    album: Some(String::from("Lowlife")),
+                    album_sort: Some(String::from("Lifes")),
+                    disc_subtitle: Some(String::from("Side1")),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    title: Some(v2_at(b"TIT2", 10)),
+                    title_sort: Some(v2_at(b"TSOT", 29)),
+                    album: Some(v2_at(b"TALB", 48)),
+                    album_sort: Some(v2_at(b"TSOA", 67)),
+                    disc_subtitle: Some(v2_at(b"TSST", 86)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn cleans_each_listed_name_to_one_line() {
+        // Every body but the last is 9 octets, so those frames are 19 each.
+        let bytes = TagBytes::new(Version::V24)
+            .frame(b"TPE1", 0, &kit::text(Kit::Utf8, &["Art\nists"]))
+            .frame(b"TSOP", 0, &kit::text(Kit::Utf8, &["So\u{202E}rts"]))
+            .frame(b"TPE2", 0, &kit::text(Kit::Utf8, &["Alb\tarts"]))
+            .frame(b"TSO2", 0, &kit::text(Kit::Utf8, &["Al\u{2029}bso"]))
+            .frame(b"TMOO", 0, &kit::text(Kit::Utf8, &["Moo\ndier"]))
+            .frame(b"TPUB", 0, &kit::text(Kit::Utf8, &["La\u{2067}bel"]))
+            .frame(b"TIT1", 0, &kit::text(Kit::Utf8, &["Gro\tuped"]))
+            .frame(b"TCON", 0, &kit::text(Kit::Utf8, &["Jaz\nzier"]))
+            .frame(
+                b"TXXX",
+                0,
+                &kit::user_text(Kit::Utf8, "MOOD", &["Ten\u{202D}se"]),
+            )
+            .build();
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &Limits::DEFAULT),
+            Mapped {
+                tags: TrackTags {
+                    artist: vec![String::from("Artists")],
+                    artist_sort: vec![String::from("Sorts")],
+                    album_artist: vec![String::from("Albarts")],
+                    album_artist_sort: vec![String::from("Albso")],
+                    genres: vec![String::from("Jazzier")],
+                    moods: vec![String::from("Moodier"), String::from("Tense")],
+                    labels: vec![String::from("Label")],
+                    grouping: vec![String::from("Grouped")],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    artist: Some(v2_at(b"TPE1", 10)),
+                    artist_sort: Some(v2_at(b"TSOP", 29)),
+                    album_artist: Some(v2_at(b"TPE2", 48)),
+                    album_artist_sort: Some(v2_at(b"TSO2", 67)),
+                    moods: Some(v2_at(b"TMOO", 86)),
+                    labels: Some(v2_at(b"TPUB", 105)),
+                    grouping: Some(v2_at(b"TIT1", 124)),
+                    genres: Some(v2_at(b"TCON", 143)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
+    /// A role is cleaned before it is read, so `pro`, a line feed and
+    /// `ducer` is the producer.
+    #[test]
+    fn cleans_credited_names_and_roles_to_one_line() {
+        let bytes = TagBytes::new(Version::V24)
+            .frame(b"TCOM", 0, &kit::text(Kit::Utf8, &["Bri\tanna"]))
+            .frame(
+                b"TIPL",
+                0,
+                &kit::text(Kit::Utf8, &["pro\nducer", "Vis\u{202E}conti"]),
+            )
+            .frame(
+                b"TMCL",
+                0,
+                &kit::text(Kit::Utf8, &["gui\ttar", "Alo\u{2066}mar"]),
+            )
+            .build();
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &Limits::DEFAULT),
+            Mapped {
+                tags: TrackTags {
+                    credits: vec![
+                        credit("Brianna", Role::Composer),
+                        credit("Visconti", Role::Producer),
+                        performer("Alomar", "guitar"),
+                    ],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    credits: Some(v2_at(b"TCOM", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
+    /// A value that holds only what one line of text may not hold is not
+    /// there, and the value after it is read.
+    #[test]
+    fn skips_a_name_that_is_blank_once_cleaned() {
+        // Every body is 9 octets, so every frame is 19.
+        let bytes = TagBytes::new(Version::V24)
+            .frame(b"TIT2", 0, &kit::text(Kit::Utf8, &["\u{202E}", "Kept"]))
+            .frame(b"TPE1", 0, &kit::text(Kit::Utf8, &["\u{202E}", "Solo"]))
+            .frame(b"TCON", 0, &kit::text(Kit::Utf8, &["\u{202E}", "Jazz"]))
+            .frame(b"TCOM", 0, &kit::text(Kit::Utf8, &["\u{202E}", "Enos"]))
+            .frame(b"TIPL", 0, &kit::text(Kit::Utf8, &["mix", "\u{202E}"]))
+            .build();
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &Limits::DEFAULT),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Kept")),
+                    artist: vec![String::from("Solo")],
+                    genres: vec![String::from("Jazz")],
+                    credits: vec![credit("Enos", Role::Composer)],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    title: Some(v2_at(b"TIT2", 10)),
+                    artist: Some(v2_at(b"TPE1", 29)),
+                    genres: Some(v2_at(b"TCON", 48)),
+                    credits: Some(v2_at(b"TCOM", 67)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
+    /// The parser read the title whole, and the mapper's own limit cuts it.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_a_title_at_the_short_text_limit_and_cuts_one_past_it() {
+        let four = lowered(LimitKind::ShortText, 4);
+        assert_eq!(
+            map_bytes(&title_tag("abcd"), &Limits::DEFAULT, &four),
+            titled("abcd", vec![])
+        );
+        assert_eq!(
+            map_bytes(&title_tag("abcde"), &Limits::DEFAULT, &four),
+            titled(
+                "abcd",
+                vec![TagProblem::Truncated {
+                    source: v2_at(b"TIT2", 10),
+                    limit: LimitKind::ShortText,
+                }]
+            )
+        );
+    }
+
+    /// The parser cut the title and said so; the mapper has nothing left
+    /// to cut, and still reports it.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reports_a_title_the_parser_cut_at_the_short_text_limit() {
+        let four = lowered(LimitKind::ShortText, 4);
+        assert_eq!(
+            map_bytes(&title_tag("abcd"), &four, &four),
+            titled("abcd", vec![])
+        );
+        assert_eq!(
+            map_bytes(&title_tag("abcde"), &four, &four),
+            titled(
+                "abcd",
+                vec![TagProblem::Truncated {
+                    source: v2_at(b"TIT2", 10),
+                    limit: LimitKind::ShortText,
+                }]
+            )
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reports_a_title_cut_by_the_parser_and_again_here_once() {
+        let six = lowered(LimitKind::ShortText, 6);
+        let four = lowered(LimitKind::ShortText, 4);
+        assert_eq!(
+            map_bytes(&title_tag("abcdefg"), &six, &four),
+            titled(
+                "abcd",
+                vec![TagProblem::Truncated {
+                    source: v2_at(b"TIT2", 10),
+                    limit: LimitKind::ShortText,
+                }]
+            )
+        );
+    }
+
+    /// A `TXXX` value reaches the mapper at the long-text limit; a mood is
+    /// one line of short text.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn cuts_a_mood_from_user_text_at_the_short_text_limit() {
+        let four = lowered(LimitKind::ShortText, 4);
+        let mood = |value: &str| one_frame(b"TXXX", &kit::user_text(Kit::Latin1, "MOOD", &[value]));
+        let expected = |problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                moods: vec![String::from("Tens")],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                moods: Some(v2_at(b"TXXX", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        assert_eq!(map_bytes(&mood("Tens"), &four, &four), expected(vec![]));
+        assert_eq!(
+            map_bytes(&mood("Tense"), &four, &four),
+            expected(vec![TagProblem::Truncated {
+                source: v2_at(b"TXXX", 10),
+                limit: LimitKind::ShortText,
+            }])
+        );
+    }
+
+    /// Lyrics keep their lines. One octet past the lyrics limit they are
+    /// cut and reported, whether the mapper cuts them or the parser did.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_unsynced_lyrics_at_the_lyrics_limit_and_cuts_one_past_it() {
+        let seven = lowered(LimitKind::LyricsBytes, 7);
+        let words = |text: &str| one_frame(b"USLT", &kit::comment(Kit::Utf8, *b"eng", "", text));
+        let expected = |problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                lyrics: vec![lyrics(
+                    LyricsOrigin::Id3Unsynced,
+                    LyricsTiming::Plain,
+                    "one\ntwo",
+                )],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                lyrics: Some(v2_at(b"USLT", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        let cut = TagProblem::Truncated {
+            source: v2_at(b"USLT", 10),
+            limit: LimitKind::LyricsBytes,
+        };
+        assert_eq!(
+            map_bytes(&words("one\ntwo"), &Limits::DEFAULT, &seven),
+            expected(vec![])
+        );
+        assert_eq!(
+            map_bytes(&words("one\ntwo"), &seven, &seven),
+            expected(vec![])
+        );
+        assert_eq!(
+            map_bytes(&words("one\ntwo!"), &Limits::DEFAULT, &seven),
+            expected(vec![cut.clone()])
+        );
+        assert_eq!(
+            map_bytes(&words("one\ntwo!"), &seven, &seven),
+            expected(vec![cut])
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reports_a_synced_line_the_parser_cut_at_the_line_limit() {
+        let two = lowered(LimitKind::LyricsLineBytes, 2);
+        let lines = |second: &str| {
+            one_frame(
+                b"SYLT",
+                &kit::synced_lyrics(
+                    Kit::Latin1,
+                    *b"eng",
+                    [2, 1],
+                    "",
+                    &[("ab", 0), (second, 100)],
+                ),
+            )
+        };
+        let expected = |problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                lyrics: vec![lyrics(
+                    LyricsOrigin::Id3Synced,
+                    LyricsTiming::Line,
+                    "ab\ncd",
+                )],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                lyrics: Some(v2_at(b"SYLT", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        assert_eq!(map_bytes(&lines("cd"), &two, &two), expected(vec![]));
+        assert_eq!(
+            map_bytes(&lines("cde"), &two, &two),
+            expected(vec![TagProblem::Truncated {
+                source: v2_at(b"SYLT", 10),
+                limit: LimitKind::LyricsLineBytes,
+            }])
+        );
+    }
+
+    /// The `ID3v1` parser keeps a tab or a line feed inside a field and
+    /// caps the field at the short-text limit: here the title and the
+    /// artist are one octet too long, and the album fits exactly.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn cleans_id3v1_names_and_reports_those_the_parser_cut() {
+        let five = lowered(LimitKind::ShortText, 5);
+        let bytes = Id3v1::new()
+            .title(b"Ti\ntle")
+            .artist(b"Ar\ttis")
+            .album(b"Album")
+            .genre(255)
+            .build();
+        let window = Window {
+            offset: 0,
+            bytes: &bytes,
+            file_len: 128,
+        };
+        let v1 = find_v1(window, &five, &mut Budget::for_input(0, 0, 1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            from_id3(None, Some(&v1), &five),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("Titl")),
+                    artist: vec![String::from("Arti")],
+                    album: Some(String::from("Album")),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    title: Some(v1_source(Id3v1Field::Title)),
+                    artist: Some(v1_source(Id3v1Field::Artist)),
+                    album: Some(v1_source(Id3v1Field::Album)),
+                    ..FieldSources::default()
+                },
+                problems: vec![
+                    TagProblem::Truncated {
+                        source: v1_source(Id3v1Field::Title),
+                        limit: LimitKind::ShortText,
+                    },
+                    TagProblem::Truncated {
+                        source: v1_source(Id3v1Field::Artist),
+                        limit: LimitKind::ShortText,
+                    },
+                ],
+            }
         );
     }
 
