@@ -489,6 +489,88 @@ mod tests {
     }
 
     #[test]
+    fn stepping_stops_at_a_canvas_that_lies_before_the_first_passing_step() {
+        let token = OnSurface {
+            colour: grey(0.52),
+            role: ContrastRole::Text,
+        };
+        // Against a black canvas the third step, lightness 0.23, is the
+        // first that reaches 4.5:1.
+        let result = surfaces(BASE, Theme::Dark, BLACK, &[token]).unwrap();
+        near(result.oklch.lightness, 0.23);
+        colour_near(
+            result.surface,
+            [
+                0.172_575_959_656_687_12,
+                0.080_235_981_922_731_63,
+                0.110_106_479_901_619_06,
+            ],
+        );
+        near(
+            contrast(result.surface, token.colour),
+            4.612_077_414_455_852,
+        );
+        // This grey canvas has lightness 0.2376, between the second and
+        // third steps, so the third step would cross it.
+        assert_eq!(surfaces(BASE, Theme::Dark, grey(0.12), &[token]), None);
+    }
+
+    #[test]
+    fn a_surface_may_sit_exactly_at_the_canvas_lightness() {
+        // This grey reaches 4.5:1 only against a black surface: 4.50004 at
+        // lightness 0, and 4.49996 one step lighter.
+        let token = OnSurface {
+            colour: grey(0.455_333),
+            role: ContrastRole::Text,
+        };
+        assert_eq!(
+            surfaces(BASE, Theme::Dark, BLACK, &[token]),
+            Some(Surfaces {
+                surface: BLACK,
+                oklch: Oklch {
+                    lightness: 0.0,
+                    chroma: 0.0,
+                    hue: 0.0
+                },
+            })
+        );
+        near(contrast(BLACK, token.colour), 4.500_038_794_375_35);
+    }
+
+    #[test]
+    fn canvas_lightness_is_the_oklab_lightness_of_chromatic_colours() {
+        // Ottosson's sRGB to OKLab matrices, evaluated independently.
+        for (colour, expected) in [
+            (
+                Srgb {
+                    red: 0.0,
+                    green: 0.0,
+                    blue: 1.0,
+                },
+                0.452_013_718_385_342_8,
+            ),
+            (
+                Srgb {
+                    red: 0.2,
+                    green: 0.5,
+                    blue: 0.9,
+                },
+                0.604_309_296_227_169,
+            ),
+            (
+                Srgb {
+                    red: 0.9,
+                    green: 0.6,
+                    blue: 0.1,
+                },
+                0.741_572_686_146_229_8,
+            ),
+        ] {
+            near(canvas_lightness(colour), expected);
+        }
+    }
+
+    #[test]
     fn rejects_nonfinite_and_out_of_range_inputs_without_sanitising_them() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.001] {
             for base in [
