@@ -266,14 +266,19 @@ fn emulate(_position: usize) -> (bool, bool) {
 /// securityfs, which a kernel can be built without and a container is
 /// usually not shown.
 const MODULE_LIST: &str = "/sys/kernel/security/lsm";
+/// Yama's one setting, which the kernel publishes exactly where Yama is
+/// active: the module registers the setting when it starts.
+const YAMA_SETTING: &str = "/proc/sys/kernel/yama/ptrace_scope";
 
 /// The text of a file the kernel publishes, or `None` where the kernel
 /// publishes no file by that name. Any other failure to read it is an
 /// error, never taken for a missing file.
 fn published(path: &str) -> Result<Option<String>, io::ErrorKind> {
-    fs::read_to_string(path)
-        .map(Some)
-        .map_err(|error| error.kind())
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.kind()),
+    }
 }
 
 /// Whether a security module is active on the running kernel. Where the
@@ -281,8 +286,10 @@ fn published(path: &str) -> Result<Option<String>, io::ErrorKind> {
 /// module is one whole name in it. Where it publishes none, `answered`
 /// decides: what the kernel said when it was asked about that module
 /// directly.
-fn active(list: Option<&str>, module: &str, _answered: bool) -> bool {
-    list.is_some_and(|names| names.trim().split(',').any(|name| name == module))
+fn active(list: Option<&str>, module: &str, answered: bool) -> bool {
+    list.map_or(answered, |names| {
+        names.trim().split(',').any(|name| name == module)
+    })
 }
 
 /// Whether the running kernel answers the Landlock version query with a
@@ -298,13 +305,19 @@ fn active(list: Option<&str>, module: &str, _answered: bool) -> bool {
 /// alone asks for the version and does nothing else. None of the sandbox's
 /// own code is involved.
 fn landlock_answers() -> bool {
-    false
+    let answer = landlock::RestrictSelf::default()
+        .no_new_privs(false)
+        .apply()
+        .expect("the kernel's answer about Landlock");
+    landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported
 }
 
-/// Whether the kernel publishes Yama's one setting, which it does exactly
-/// where Yama is active: the module registers the setting when it starts.
+/// Whether the kernel publishes Yama's setting, and so whether Yama is
+/// active.
 fn yama_answers() -> bool {
-    false
+    published(YAMA_SETTING)
+        .expect("the kernel's answer about Yama")
+        .is_some()
 }
 
 impl Host {
