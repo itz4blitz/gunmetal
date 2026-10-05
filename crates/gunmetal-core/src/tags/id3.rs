@@ -213,7 +213,9 @@ pub enum TagProblem {
     LimitExceeded {
         /// Which limit was hit.
         limit: LimitKind,
-        /// The count that exceeded the limit.
+        /// The count that exceeded the limit. For the line limit it counts
+        /// the lines of every `SYLT` frame of the tag up to the first one
+        /// dropped, as the parser does.
         count: u64,
     },
     /// A value was longer than its limit (SEC-MED-006): a text, which was
@@ -497,6 +499,9 @@ struct Mapper<'a> {
     original_year: Option<(PartialDate, FieldSource)>,
     pending_track_peak: Option<PeakRatio>,
     pending_album_peak: Option<PeakRatio>,
+    /// The lines of every `SYLT` frame seen so far, mapped or not, which is
+    /// how the parser counts them against the lyrics line limit.
+    synced_lines: u64,
 }
 
 impl<'a> Mapper<'a> {
@@ -511,6 +516,7 @@ impl<'a> Mapper<'a> {
             original_year: None,
             pending_track_peak: None,
             pending_album_peak: None,
+            synced_lines: 0,
         }
     }
 
@@ -1240,6 +1246,11 @@ impl<'a> Mapper<'a> {
     /// lyrics limit, and each kept line the parser cut at the line length
     /// limit are reported (SEC-MED-006).
     fn sylt(&mut self, body: &SyncedLyrics, source: FieldSource) {
+        // The parser counts the lines of every `SYLT` frame of the tag
+        // against the line limit, so the line it dropped is counted from
+        // the tag's first line, whatever the frames before this one hold.
+        let lines = u64::try_from(body.lines.len()).unwrap_or(u64::MAX);
+        self.synced_lines = self.synced_lines.saturating_add(lines);
         // Content type 1 is lyrics and 2 a transcription; writers that
         // leave it unset write 0. Movement names, events, chords, trivia
         // and links are not the words of the recording.
@@ -1247,9 +1258,7 @@ impl<'a> Mapper<'a> {
             return;
         }
         if body.truncated {
-            let count = u64::try_from(body.lines.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(1);
+            let count = self.synced_lines.saturating_add(1);
             self.report(TagProblem::LimitExceeded {
                 limit: LimitKind::LyricsLines,
                 count,
