@@ -60,10 +60,22 @@ for (const [name, code] of [
 }
 
 for (const [name, code] of [
-  ['an added arrow function', "window.addEventListener('message', event => { if (event.origin !== expected) return; act(event.data); });"],
-  ['an added function', "window.addEventListener('message', function (event) { if (!allowed.has(event.origin)) return; act(event.data); });"],
-  ['an assigned arrow function', 'window.onmessage = event => { if (event.origin !== expected) return; act(event.data); };'],
-  ['an assigned function', 'window.onmessage = function (event) { if (event.origin !== expected) return; act(event.data); };'],
+  [
+    'an added arrow function',
+    "window.addEventListener('message', event => { if (event.origin !== expected) return; act(event.data); });",
+  ],
+  [
+    'an added function',
+    "window.addEventListener('message', function (event) { if (!allowed.has(event.origin)) return; act(event.data); });",
+  ],
+  [
+    'an assigned arrow function',
+    'window.onmessage = event => { if (event.origin !== expected) return; act(event.data); };',
+  ],
+  [
+    'an assigned function',
+    'window.onmessage = function (event) { if (event.origin !== expected) return; act(event.data); };',
+  ],
 ] as const) {
   test(`${name} that reads the origin passes`, () => {
     expect(lint(code)).toStrictEqual([]);

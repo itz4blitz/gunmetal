@@ -77,11 +77,18 @@ test('the lint skips the planted-fault fixtures and nothing else', () => {
     { name: 'gunmetal/everywhere', files: ['**/*.{js,ts,tsx}'], ignores: undefined },
     { name: 'gunmetal/tests', files: ['**/*.test.{ts,tsx}'], ignores: undefined },
   ]);
-  expect((lint as { name?: string; ignores?: unknown }[]).filter((entry) => entry.name?.startsWith('gunmetal') !== true && entry.ignores !== undefined)).toStrictEqual([]);
+  expect(
+    (lint as { name?: string; ignores?: unknown }[]).filter(
+      (entry) => entry.name?.startsWith('gunmetal') !== true && entry.ignores !== undefined,
+    ),
+  ).toStrictEqual([]);
 });
 
 test('inline lint switches have no effect and are reported', () => {
-  expect((lint as { name?: string; linterOptions?: unknown }[]).find((entry) => entry.name === 'gunmetal/everywhere')?.linterOptions).toStrictEqual({
+  expect(
+    (lint as { name?: string; linterOptions?: unknown }[]).find((entry) => entry.name === 'gunmetal/everywhere')
+      ?.linterOptions,
+  ).toStrictEqual({
     noInlineConfig: true,
     reportUnusedDisableDirectives: 'error',
   });

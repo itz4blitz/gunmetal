@@ -43,7 +43,10 @@ for (const [name, code] of [
   ['a soft expectation', "test('it counts', () => { expect.soft(position(0, 12)).toStrictEqual('1 of 12'); });"],
   ['an assertion from node:assert', "it('counts', () => { assert.deepEqual(position(0, 12), '1 of 12'); });"],
   ['a bare assert call', "it('counts', () => { assert(position(0, 12) === '1 of 12'); });"],
-  ['an expectation inside a callback of the test', "test('it counts', () => { rows.forEach(row => { expect(row).toStrictEqual(1); }); });"],
+  [
+    'an expectation inside a callback of the test',
+    "test('it counts', () => { rows.forEach(row => { expect(row).toStrictEqual(1); }); });",
+  ],
 ] as const) {
   test(`a test with ${name} passes`, () => {
     expect(lint(code)).toStrictEqual([]);

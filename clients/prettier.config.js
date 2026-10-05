@@ -1,2 +1,2 @@
-// Stub: configuration.test.ts comes first and must fail on its assertions.
-export default {};
+// The formatter's whole configuration. `prettier --check` is a step of the gate, as `cargo fmt` is.
+export default { printWidth: 120, singleQuote: true };

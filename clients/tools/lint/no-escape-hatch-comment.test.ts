@@ -48,6 +48,8 @@ test('every such comment in a file is reported', () => {
 
 test('a comment that only mentions such a switch, or explains the code, passes', () => {
   expect(
-    lint('// The v8 ignore comment is refused here.\n// Verifies: SEC-CLI-001\n/* Stryker is the mutation tool. */\nexport const one = 1;'),
+    lint(
+      '// The v8 ignore comment is refused here.\n// Verifies: SEC-CLI-001\n/* Stryker is the mutation tool. */\nexport const one = 1;',
+    ),
   ).toStrictEqual([]);
 });

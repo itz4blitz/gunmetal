@@ -85,11 +85,26 @@ for (const [name, value] of [
   ['a mutant without a location', { files: { 'position.ts': { mutants: [{ ...killed, location: undefined }] } } }],
   ['a mutant whose location is a list', { files: { 'position.ts': { mutants: [{ ...killed, location: [] }] } } }],
   ['a mutant without a start', { files: { 'position.ts': { mutants: [{ ...killed, location: {} }] } } }],
-  ['a mutant whose start is nothing', { files: { 'position.ts': { mutants: [{ ...killed, location: { start: null } }] } } }],
-  ['a mutant without a line', { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { column: 13 } } }] } } }],
-  ['a mutant whose line is text', { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: '4', column: 13 } } }] } } }],
-  ['a mutant without a column', { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: 4 } } }] } } }],
-  ['a mutant whose column is text', { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: 4, column: '13' } } }] } } }],
+  [
+    'a mutant whose start is nothing',
+    { files: { 'position.ts': { mutants: [{ ...killed, location: { start: null } }] } } },
+  ],
+  [
+    'a mutant without a line',
+    { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { column: 13 } } }] } } },
+  ],
+  [
+    'a mutant whose line is text',
+    { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: '4', column: 13 } } }] } } },
+  ],
+  [
+    'a mutant without a column',
+    { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: 4 } } }] } } },
+  ],
+  [
+    'a mutant whose column is text',
+    { files: { 'position.ts': { mutants: [{ ...killed, location: { start: { line: 4, column: '13' } } }] } } },
+  ],
 ] as const) {
   test(`a report that is ${name} fails closed`, () => {
     expect(inspect(value)).toStrictEqual(unreadable);
@@ -97,7 +112,9 @@ for (const [name, value] of [
 }
 
 test('one unreadable mutant fails the whole report, whatever the others say', () => {
-  expect(inspect({ files: { 'position.ts': { mutants: [{ ...killed, status: 'Survived' }, null] } } })).toStrictEqual(unreadable);
+  expect(inspect({ files: { 'position.ts': { mutants: [{ ...killed, status: 'Survived' }, null] } } })).toStrictEqual(
+    unreadable,
+  );
 });
 
 // The command line's whole answer: what it prints and the status it exits with.
@@ -118,7 +135,8 @@ test('the command prints no finding and succeeds when every mutant was killed', 
 
 test('the command prints each finding as JSON and fails when a mutant survived', () => {
   expect(verdict('survived.json', read)).toStrictEqual({
-    output: '[{"rule":"testing-rule-6","path":"packages/canary/src/position.ts:4:13","message":"ArithmeticOperator mutant survived"}]\n',
+    output:
+      '[{"rule":"testing-rule-6","path":"packages/canary/src/position.ts:4:13","message":"ArithmeticOperator mutant survived"}]\n',
     status: 1,
   });
 });

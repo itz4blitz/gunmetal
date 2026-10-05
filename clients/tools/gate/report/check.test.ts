@@ -45,7 +45,8 @@ test('the command reads the report it is given and succeeds when every mutant wa
 
 test('the command prints the survivor and exits with a failure', async () => {
   expect(await command(mutant('Survived'))).toStrictEqual({
-    output: '[{"rule":"testing-rule-6","path":"tools/lint/no-danger.ts:9:27","message":"StringLiteral mutant survived"}]\n',
+    output:
+      '[{"rule":"testing-rule-6","path":"tools/lint/no-danger.ts:9:27","message":"StringLiteral mutant survived"}]\n',
     status: 1,
   });
 });
