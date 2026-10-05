@@ -243,14 +243,10 @@ impl ItemList {
         Ok(())
     }
 
-    /// The cap on the current item's text: long for lyrics, comments,
-    /// descriptions and freeform values, short for everything else.
+    /// The cap on the text of the current item's values: see
+    /// [`text_limit`].
     fn cap(&self, limits: &Limits) -> u32 {
-        let kind = match &self.current.kind.0 {
-            b"\xA9lyr" | b"\xA9cmt" | b"desc" | b"ldes" | b"----" => LimitKind::LongText,
-            _ => LimitKind::ShortText,
-        };
-        u32::try_from(limits.get(kind)).unwrap_or(u32::MAX)
+        u32::try_from(limits.get(text_limit(self.current.kind))).unwrap_or(u32::MAX)
     }
 
     /// Ends the current item and keeps it, unless it is a freeform item
@@ -297,12 +293,30 @@ fn skip(fault: crate::parse::ParseFault) -> Stop {
     Stop::Skip(fault.into())
 }
 
+/// The limit the text of an item list is cut at, by the type of the box
+/// that says what the text is. For the text of an item's values that is the
+/// item's own type, `----` for a freeform item: the long-text limit for
+/// lyrics, comments, descriptions and freeform values, and the short-text
+/// limit for every other item. For the text of a `mean` or a `name` box it
+/// is the type of that box, and the limit is the short-text limit.
+///
+/// The parser cuts at this limit, and the tag mapper
+/// ([`crate::tags::mp4`]) names it when it reports the cut, so the two
+/// cannot disagree.
+#[must_use]
+pub(crate) fn text_limit(kind: FourCc) -> LimitKind {
+    match &kind.0 {
+        b"\xA9lyr" | b"\xA9cmt" | b"desc" | b"ldes" | b"----" => LimitKind::LongText,
+        _ => LimitKind::ShortText,
+    }
+}
+
 /// The UTF-8 text of a `mean` or `name` box, after its version and flags,
-/// capped as a short text.
+/// capped as [`text_limit`] says for its type: as a short text.
 fn full_text(child: Mp4Box<'_>, limits: &Limits) -> Result<Text, Stop> {
     let mut body = child.body;
     body.skip(4).map_err(skip)?; // version and flags
-    let cap = u32::try_from(limits.get(LimitKind::ShortText)).unwrap_or(u32::MAX);
+    let cap = u32::try_from(limits.get(text_limit(child.kind))).unwrap_or(u32::MAX);
     Ok(text::decode(
         Untrusted::new(body.rest()),
         Encoding::Utf8,

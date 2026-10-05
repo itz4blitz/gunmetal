@@ -22,4 +22,4 @@ pub use launch::{Child, Inherited, SpawnError, launch};
 pub use limits::Profile;
 pub use programs::Program;
 pub use self_test::{answer_self_test, self_test};
-pub use tier::{Enforced, Tier, TierReport};
+pub use tier::{Enforced, Landlock, Tier, TierReport};

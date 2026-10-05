@@ -6,6 +6,14 @@
 //! well-formed answer, no answer in time, and a worker that could not be
 //! started all count as nothing enforced, which the tier table turns into
 //! "off".
+//!
+//! The first octet is a mark and one bit per control. The second is its
+//! complement, with one exception that carries Landlock's third state. In
+//! the first octet Landlock's bit says that the ruleset is enforced, in
+//! whole or in part; the second octet is the complement of the first as
+//! it would be if that bit stood for the whole ruleset only. So both
+//! octets have Landlock's bit when the ruleset is enforced in part, and
+//! any other answer is an octet and its complement.
 
 use super::args::{Job, TypedArgs};
 use super::confine::ConfineError;
@@ -13,17 +21,18 @@ use super::confine::confine;
 use super::launch::{Inherited, launch};
 use super::limits::Profile;
 use super::programs::Program;
-use super::tier::{Enforced, TierReport};
+use super::tier::{Enforced, Landlock, TierReport};
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// The high bits of an answer's first octet. The second octet is the
-/// first's complement, so it is below `0x20`. No text is like that: in
-/// ASCII the first octet never has these bits, and in UTF-8 an octet that
-/// has them is a lead octet (or none at all) that must be followed by a
-/// continuation octet, `0x80` to `0xBF`. So a message a broken worker
-/// prints, in any language, is not mistaken for an answer.
+/// first's complement but for Landlock's bit, so it is below `0x20`. No
+/// text is like that: in ASCII the first octet never has these bits, and
+/// in UTF-8 an octet that has them is a lead octet (or none at all) that
+/// must be followed by a continuation octet, `0x80` to `0xBF`. So a
+/// message a broken worker prints, in any language, is not mistaken for an
+/// answer.
 const MARK: u8 = 0b1110_0000;
 /// The answer's bit for the resource limits.
 const LIMITS: u8 = 0b0_0001;
@@ -31,7 +40,9 @@ const LIMITS: u8 = 0b0_0001;
 const NO_NEW_PRIVS: u8 = 0b0_0010;
 /// The answer's bit for seccomp.
 const SECCOMP: u8 = 0b0_0100;
-/// The answer's bit for Landlock.
+/// The answer's bit for Landlock. The first octet has it when any of the
+/// ruleset is enforced. The second octet lacks it only when all of the
+/// ruleset is.
 const LANDLOCK: u8 = 0b0_1000;
 /// The answer's bit for namespaces.
 const NAMESPACES: u8 = 0b1_0000;
@@ -39,36 +50,58 @@ const NAMESPACES: u8 = 0b1_0000;
 /// How long the server waits for a worker's answer.
 const WAIT: Duration = Duration::from_secs(30);
 
-/// The answer for the outcome of confinement: the mark with one bit per
-/// control, then its complement. A worker that could not confine itself
-/// answers that nothing is enforced.
-fn encode(outcome: &Result<Enforced, ConfineError>) -> [u8; 2] {
-    let enforced = outcome
-        .as_ref()
-        .map_or(Enforced::NONE, |&enforced| enforced);
-    let first = [
+/// The mark with one bit per control that holds, Landlock's bit set as
+/// `landlock` says.
+fn octet(enforced: Enforced, landlock: bool) -> u8 {
+    [
         (enforced.limits, LIMITS),
         (enforced.no_new_privs, NO_NEW_PRIVS),
         (enforced.seccomp, SECCOMP),
-        (enforced.landlock, LANDLOCK),
+        (landlock, LANDLOCK),
         (enforced.namespaces, NAMESPACES),
     ]
     .into_iter()
     .filter(|(holds, _)| *holds)
     .map(|(_, bit)| bit)
-    .fold(MARK, u8::saturating_add);
-    [first, !first]
+    .fold(MARK, u8::saturating_add)
+}
+
+/// The answer for the outcome of confinement: the mark with one bit per
+/// control, Landlock's set when any of its ruleset is enforced; then the
+/// complement of the same octet with Landlock's bit set only when the
+/// whole ruleset is. A worker that could not confine itself answers that
+/// nothing is enforced.
+fn encode(outcome: &Result<Enforced, ConfineError>) -> [u8; 2] {
+    let enforced = outcome
+        .as_ref()
+        .map_or(Enforced::NONE, |&enforced| enforced);
+    [
+        octet(enforced, enforced.landlock != Landlock::Missing),
+        !octet(enforced, enforced.landlock == Landlock::Full),
+    ]
 }
 
 /// Reads an answer back. The process is separate by the fact that it
 /// answered over the launcher's socket.
 fn decode([first, second]: [u8; 2]) -> Option<Enforced> {
-    (first & MARK == MARK && second == !first).then_some(Enforced {
+    // What the second octet is the complement of: the first, with
+    // Landlock's bit standing for the whole ruleset.
+    let whole = !second;
+    let landlock = match (first & LANDLOCK != 0, whole & LANDLOCK != 0) {
+        (true, true) => Landlock::Full,
+        (true, false) => Landlock::Partial,
+        (false, false) => Landlock::Missing,
+        // The whole ruleset enforced and none of it: not an answer.
+        (false, true) => return None,
+    };
+    // Apart from Landlock's bit, the second octet is the first's
+    // complement.
+    (first & MARK == MARK && (first | LANDLOCK) == (whole | LANDLOCK)).then_some(Enforced {
         process: true,
         limits: first & LIMITS != 0,
         no_new_privs: first & NO_NEW_PRIVS != 0,
         seccomp: first & SECCOMP != 0,
-        landlock: first & LANDLOCK != 0,
+        landlock,
         namespaces: first & NAMESPACES != 0,
     })
 }
@@ -138,7 +171,7 @@ mod tests {
     use super::{answer, answer_self_test, decode, encode, read_answer, self_test};
     use crate::sandbox::confine::{ConfineError, Step};
     use crate::sandbox::limits::Profile;
-    use crate::sandbox::tier::{Enforced, Tier, TierReport};
+    use crate::sandbox::tier::{Enforced, Landlock, Tier, TierReport};
 
     /// What a worker on a current kernel enforces.
     const TYPICAL: Enforced = Enforced {
@@ -146,7 +179,7 @@ mod tests {
         limits: true,
         no_new_privs: true,
         seccomp: true,
-        landlock: true,
+        landlock: Landlock::Full,
         namespaces: false,
     };
 
@@ -169,7 +202,7 @@ mod tests {
         );
         assert_eq!(
             encode(&Ok(Enforced {
-                landlock: false,
+                landlock: Landlock::Missing,
                 ..TYPICAL
             })),
             [0b1110_0111, 0b0001_1000]
@@ -187,6 +220,42 @@ mod tests {
                 ..TYPICAL
             })),
             [0b1110_1101, 0b0001_0010]
+        );
+    }
+
+    /// Landlock has its bit in both octets. The first says that the
+    /// ruleset is enforced, in whole or in part; the second is the
+    /// complement of what the first would be if the bit stood for the whole
+    /// ruleset only. So a ruleset enforced in part sets the bit in both,
+    /// and every other answer is an octet and its complement.
+    ///
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn an_answer_tells_landlock_in_part_from_whole_and_from_missing() {
+        let with = |landlock| {
+            encode(&Ok(Enforced {
+                landlock,
+                ..TYPICAL
+            }))
+        };
+        assert_eq!(
+            [
+                with(Landlock::Full),
+                with(Landlock::Partial),
+                with(Landlock::Missing),
+            ],
+            [
+                [0b1110_1111, 0b0001_0000],
+                [0b1110_1111, 0b0001_1000],
+                [0b1110_0111, 0b0001_1000],
+            ]
+        );
+        assert_eq!(
+            encode(&Ok(Enforced {
+                landlock: Landlock::Partial,
+                ..Enforced::NONE
+            })),
+            [0b1110_1000, 0b0001_1111]
         );
     }
 
@@ -246,14 +315,49 @@ mod tests {
             decode([0b1110_1000, 0b0001_0111]),
             Some(Enforced {
                 process: true,
-                landlock: true,
+                landlock: Landlock::Full,
                 ..Enforced::NONE
             })
         );
     }
 
-    /// Of all 65,536 pairs of octets, exactly the 32 whose first octet has
-    /// the whole mark and whose second is its complement are answers.
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn an_answer_reads_back_landlock_in_part_whole_or_missing() {
+        assert_eq!(
+            [
+                decode([0b1110_1111, 0b0001_0000]),
+                decode([0b1110_1111, 0b0001_1000]),
+                decode([0b1110_0111, 0b0001_1000]),
+                decode([0b1110_1000, 0b0001_1111]),
+                // The second octet says the whole ruleset is enforced and
+                // the first that none of it is: not an answer.
+                decode([0b1110_0111, 0b0001_0000]),
+            ],
+            [
+                Some(TYPICAL),
+                Some(Enforced {
+                    landlock: Landlock::Partial,
+                    ..TYPICAL
+                }),
+                Some(Enforced {
+                    landlock: Landlock::Missing,
+                    ..TYPICAL
+                }),
+                Some(Enforced {
+                    process: true,
+                    landlock: Landlock::Partial,
+                    ..Enforced::NONE
+                }),
+                None,
+            ]
+        );
+    }
+
+    /// Of all 65,536 pairs of octets, exactly 48 are answers: the 32
+    /// whose first octet has the whole mark and whose second is its
+    /// complement, and, for the 16 of those first octets with Landlock's
+    /// bit, the same pair with that bit set in the second octet too.
     #[test]
     fn only_the_mark_and_its_complement_is_an_answer() {
         let mut answers = Vec::new();
@@ -264,7 +368,15 @@ mod tests {
                 }
             }
         }
-        let expected: Vec<[u8; 2]> = (0xe0..=0xff_u8).map(|first| [first, !first]).collect();
+        let expected: Vec<[u8; 2]> = (0xe0..=0xff_u8)
+            .flat_map(|first| {
+                let in_part = usize::from(first & 0b1000 != 0);
+                [[first, !first], [first, !first | 0b1000]]
+                    .into_iter()
+                    .take(1 + in_part)
+            })
+            .collect();
+        assert_eq!(expected.len(), 48);
         assert_eq!(answers, expected);
     }
 
