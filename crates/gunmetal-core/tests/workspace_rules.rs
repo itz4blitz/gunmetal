@@ -2040,9 +2040,17 @@ fi
     // Shards 0 to 9 of 10 run for every event: each index once, and a failed
     // shard does not cancel the others, so one run reports every missed
     // mutant. A pull request into a wave branch scopes them to its diff,
-    // which needs the base branch's history.
+    // which needs the base branch's history. Where a shard runs and how long
+    // it may take are one condition, written twice (record 15): a pull
+    // request into a wave branch, from a fork or opened by a bot stays on
+    // GitHub's runners with 75 minutes, and every other event goes to the
+    // project's own runners with 15 hours. The bot term is the only thing
+    // that keeps an app's pull request off the project's hardware, so both
+    // lines are pinned whole.
     let mutants = workflow_job(CI, "mutants");
     for line in [
+        r#"runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot') && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}"#,
+        "timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot') && 75 || 900 }}",
         "fail-fast: false",
         "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
         "fetch-depth: 0",
