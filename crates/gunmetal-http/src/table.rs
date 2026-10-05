@@ -296,7 +296,9 @@ mod tests {
     use super::*;
     use crate::client::block_on;
     use crate::request::{NoBody, NoQuery};
-    use crate::route::{Access, BodyRule, Effect, RateClass, RouteTag};
+    use crate::route::{
+        Access, AdminEffect, BodyRule, Capability, Effect, RateClass, RouteTag, Target,
+    };
     use axum::http::Extensions;
     use gunmetal_core::problem::ProblemCode;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -419,14 +421,15 @@ mod tests {
             .map(|_| ()),
             Err(TableError::Overlap("/api/v1/a/{id}", "/api/v1/a/{key}"))
         );
-        assert!(
+        assert_eq!(
             table(&[
                 (Method::Get, "/api/v1/a/{id}"),
                 (Method::Get, "/api/v1/a/{id}/b"),
                 (Method::Get, "/api/v1/b/{id}"),
                 (Method::Get, "/api/v1/a"),
             ])
-            .is_ok()
+            .map(|_| ()),
+            Ok(())
         );
     }
 
@@ -445,7 +448,7 @@ mod tests {
             spec(Method::Post, "/api/v1/a", Effect::Reads),
             handler,
         )];
-        assert!(Table::new(entries).is_ok());
+        assert_eq!(Table::new(entries).map(|_| ()), Ok(()));
     }
 
     /// A request type that names `id` and `name`.
@@ -621,6 +624,87 @@ mod tests {
                 Err(TableError::NamesPrincipal(path, "user_id")),
                 Err(TableError::NamesPrincipal(path, "user_id")),
                 Ok(()),
+            ]
+        );
+    }
+
+    /// A request type that names `owner`.
+    #[derive(serde::Deserialize)]
+    struct Owned {}
+
+    impl Fields for Owned {
+        const FIELDS: &'static [&'static str] = &["name", "owner"];
+    }
+
+    /// A request type that names `user_id`.
+    #[derive(serde::Deserialize)]
+    struct ForUser {}
+
+    impl Fields for ForUser {
+        const FIELDS: &'static [&'static str] = &["limit", "user_id"];
+    }
+
+    /// A route whose query or body type names a principal is refused when
+    /// the table is built, not at its first request, unless it is an admin
+    /// route that acts on other principals. When both types name one, the
+    /// query's is reported.
+    ///
+    /// Verifies: SEC-API-013
+    #[test]
+    fn refuses_a_request_type_that_names_a_principal() {
+        let path = "/api/v1/notes";
+        let user = Access::User {
+            capability: Capability::new("library.write"),
+            effect: Effect::Mutates,
+        };
+        let admin = |target| Access::Admin {
+            capability: Capability::new("accounts.manage"),
+            effect: AdminEffect::Reads,
+            target,
+        };
+        let body = |access| {
+            one(typed_entry::<NoQuery, Owned>(
+                Method::Post,
+                path,
+                access,
+                JSON,
+            ))
+        };
+        let query = |access| {
+            one(typed_entry::<ForUser, NoBody>(
+                Method::Post,
+                path,
+                access,
+                BodyRule::None,
+            ))
+        };
+        assert_eq!(
+            [
+                body(MUTATES),
+                body(user),
+                body(admin(Target::Caller)),
+                body(admin(Target::OtherPrincipals)),
+                query(MUTATES),
+                query(user),
+                query(admin(Target::Caller)),
+                query(admin(Target::OtherPrincipals)),
+                one(typed_entry::<ForUser, Owned>(
+                    Method::Post,
+                    path,
+                    user,
+                    JSON
+                )),
+            ],
+            [
+                Err(TableError::NamesPrincipal(path, "owner")),
+                Err(TableError::NamesPrincipal(path, "owner")),
+                Err(TableError::NamesPrincipal(path, "owner")),
+                Ok(()),
+                Err(TableError::NamesPrincipal(path, "user_id")),
+                Err(TableError::NamesPrincipal(path, "user_id")),
+                Err(TableError::NamesPrincipal(path, "user_id")),
+                Ok(()),
+                Err(TableError::NamesPrincipal(path, "user_id")),
             ]
         );
     }
