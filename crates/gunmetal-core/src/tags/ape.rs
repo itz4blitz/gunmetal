@@ -13,7 +13,11 @@
 //! The values follow the field rules in [`super::mp4`]: text is cleaned and
 //! cut to its limit, lists stop at the tag-field limit (SEC-MED-006), and a
 //! number, date, identifier or gain outside its range is dropped with the
-//! reason (SEC-MED-014).
+//! reason (SEC-MED-014). The APE parser has already cut every text value to
+//! the long-text limit and flagged what it cut. A value it cut is recorded
+//! as cut to that limit before the field rules read what is left, so the
+//! cut is reported whatever becomes of the rest ("Text that was cut" in
+//! [`super::mp4`]).
 //!
 //! # Work
 //!
@@ -23,10 +27,10 @@
 //! one, so a tag of `n` octets costs at most `n` steps. When the budget is
 //! spent the mapping stops and says where.
 
-use super::mp4::{Fields, ItemIndex, Mapped, TagField, lookup};
+use super::mp4::{Fields, ItemIndex, Mapped, Reason, TagField, lookup};
 use crate::catalog::{LyricsOrigin, Role};
 use crate::formats::ape::{ApeTag, ApeValue};
-use crate::parse::{Budget, Limits};
+use crate::parse::{Budget, LimitKind, Limits};
 
 /// The keys that are mapped.
 const KEYS: &[(&str, TagField)] = &[
@@ -95,6 +99,9 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
         }
         if let Some(field) = lookup(KEYS, &item.key) {
             for value in values {
+                if value.truncated {
+                    fields.note(field, source, Reason::Truncated(LimitKind::LongText));
+                }
                 fields.set(field, &value.value, source);
             }
         }
@@ -104,14 +111,14 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
 
 #[cfg(test)]
 mod tests {
-    use super::super::mp4::{Reason, TagProblem};
+    use super::super::mp4::TagProblem;
     use super::*;
     use crate::catalog::{
         Credit, Gain, GainScale, GainTags, LyricsSource, LyricsTiming, MbIds, PrimaryType,
         ReleaseType, SecondaryType, TagLyrics, TrackPosition, TrackTags,
     };
     use crate::formats::ape::{ApeItem, parse_ape};
-    use crate::parse::{LimitKind, Window};
+    use crate::parse::Window;
     use crate::text::Text;
     use crate::untrusted::Untrusted;
     use crate::values::{GainDb, Isrc, Mbid, PartialDate, PeakRatio};

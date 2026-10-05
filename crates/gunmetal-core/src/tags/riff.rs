@@ -26,7 +26,9 @@
 //! and what was read before is kept, with the reason in
 //! [`InfoTags::stopped`]. A missing pad octet after the last value is not
 //! an error. A value longer than the long-text limit is dropped before it
-//! is decoded, with a recorded problem.
+//! is decoded, with a recorded problem. No parser decodes these values
+//! before this mapper does, so none arrives already cut: a value is dropped
+//! whole here, or it is cut by the field rules, which record the cut.
 //!
 //! # Work
 //!

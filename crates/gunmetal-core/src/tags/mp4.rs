@@ -28,6 +28,37 @@
 //! - Artist strings are kept as tagged. Splitting them is the credit
 //!   splitter's job (WP-053).
 //!
+//! # Text that was cut
+//!
+//! Every cut is one [`Reason::Truncated`] problem that names the limit the
+//! text was cut to, against the field and the source of the value
+//! (SEC-MED-006). A value can be cut in two places:
+//!
+//! - The MP4 and APE parsers cap the text they decode and flag what they
+//!   cut ([`Text::truncated`](crate::text::Text::truncated)). The mapper
+//!   records that cut first, with the parser's limit: the short-text limit
+//!   for an MP4 atom, and the long-text limit for `©lyr`, for a freeform
+//!   MP4 item and for every APE value.
+//! - The field rules then cut what is left to the field's own limit, and
+//!   record that cut.
+//!
+//! So a value cut once has one problem, whoever cut it. Under one set of
+//! limits no cut is recorded twice: text the parser cut to a limit is no
+//! longer than that limit, so the field rules cannot cut it to the same
+//! limit again. A value cut twice has two problems, the parser's first: a
+//! freeform MP4 item or an APE value that is not lyrics, cut to the
+//! long-text limit by the parser and, when the short-text limit is the
+//! smaller, cut again to it by the field rules.
+//!
+//! A cut is recorded whatever becomes of what was left. Text that is then
+//! blank is left out, and text that is malformed, out of range or past a
+//! list's limit is dropped with its reason, as a second problem after the
+//! cut. Text the parser cut in an item that holds a number, such as
+//! `trkn`, records the cut and then [`Reason::Unreadable`].
+//!
+//! The `INFO` mapper reads its values from the octets of the list itself,
+//! so no value reaches it already cut.
+//!
 //! # MP4
 //!
 //! [`from_ilst`] maps the items the MP4 parser read from `ilst`
@@ -56,7 +87,7 @@ use crate::catalog::{
     Advisory, Credit, Gain, GainScale, GainTags, LyricsOrigin, LyricsSource, LyricsTiming,
     PrimaryType, ReleaseType, Role, SecondaryType, TagLyrics, TrackPosition, TrackTags, Trim,
 };
-use crate::formats::mp4::{IlstItem, ItemKey, ItemValue};
+use crate::formats::mp4::{FourCc, IlstItem, ItemKey, ItemValue};
 use crate::parse::{Budget, Cursor, LimitKind, Limits};
 use crate::text::{self, Lines};
 use crate::untrusted::Untrusted;
@@ -185,8 +216,10 @@ pub enum Reason {
     /// A count or size limit was reached, and it was dropped
     /// (SEC-MED-006).
     Limit(LimitKind),
-    /// It was longer than this text limit and was cut to it. What was left
-    /// was kept (SEC-MED-006).
+    /// It was longer than this text limit and was cut to it, by the parser
+    /// that read the tag or by the field rules (SEC-MED-006). What was left
+    /// was kept, unless it was blank or a later problem for the same value
+    /// says why it was dropped.
     Truncated(LimitKind),
     /// It means something only beside a value the tag did not give, such
     /// as a `ReplayGain` peak without its gain, and it was dropped.
@@ -607,6 +640,9 @@ enum Atom {
     Genre,
 }
 
+/// The box type of the lyrics item, `©lyr`.
+const LYRICS: [u8; 4] = *b"\xA9lyr";
+
 /// The items named by their box type.
 const ATOMS: &[([u8; 4], Atom)] = &[
     (*b"\xA9nam", Atom::Text(TagField::Title)),
@@ -617,10 +653,7 @@ const ATOMS: &[([u8; 4], Atom)] = &[
     (*b"\xA9gen", Atom::Text(TagField::Genres)),
     (*b"\xA9wrt", Atom::Text(TagField::Credit(Role::Composer))),
     (*b"\xA9grp", Atom::Text(TagField::Grouping)),
-    (
-        *b"\xA9lyr",
-        Atom::Text(TagField::Lyrics(LyricsOrigin::Mp4Item)),
-    ),
+    (LYRICS, Atom::Text(TagField::Lyrics(LyricsOrigin::Mp4Item))),
     (*b"sonm", Atom::Text(TagField::TitleSort)),
     (*b"soar", Atom::Text(TagField::ArtistSort)),
     (*b"soaa", Atom::Text(TagField::AlbumArtistSort)),
@@ -871,8 +904,12 @@ pub fn from_ilst(items: &[IlstItem], limits: &Limits, budget: &mut Budget) -> Ma
             break;
         }
         if let Some(atom) = atom(&item.key) {
+            let cut_to = parser_limit(&item.key);
             for value in &item.values {
                 let (field, text) = reading(atom, value);
+                if cut_by_parser(value) {
+                    fields.note(field, source, Reason::Truncated(cut_to));
+                }
                 match text {
                     Some(text) => fields.set(field, &text, source),
                     None => fields.note(field, source, Reason::Unreadable),
@@ -893,6 +930,21 @@ fn atom(key: &ItemKey) -> Option<Atom> {
             .map(|(_, atom)| *atom),
         ItemKey::Freeform { name, .. } => lookup(FREEFORM, &name.value).map(Atom::Text),
     }
+}
+
+/// The limit the MP4 parser cut the text of the item named `key` to: the
+/// long-text limit for lyrics and for a freeform item, and the short-text
+/// limit for every other item that is mapped.
+fn parser_limit(key: &ItemKey) -> LimitKind {
+    match key {
+        ItemKey::Atom(FourCc(LYRICS)) | ItemKey::Freeform { .. } => LimitKind::LongText,
+        ItemKey::Atom(_) => LimitKind::ShortText,
+    }
+}
+
+/// Whether `value` is text the parser cut to its limit.
+fn cut_by_parser(value: &ItemValue) -> bool {
+    matches!(value, ItemValue::Text(text) if text.truncated)
 }
 
 /// The field `atom` fills, and `value` as that field's text, or `None`
@@ -957,7 +1009,7 @@ fn genre(number: u64) -> Option<String> {
 mod tests {
     use super::*;
     use crate::catalog::MbIds;
-    use crate::formats::mp4::{FourCc, PictureRef, Probe};
+    use crate::formats::mp4::{PictureRef, Probe};
     use crate::parse::drive;
     use crate::text::Text;
     use gunmetal_testkit::mp4 as kit;
