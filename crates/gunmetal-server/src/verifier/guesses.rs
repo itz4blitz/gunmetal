@@ -160,11 +160,11 @@ mod tests {
         Timestamp::from_millis(ms).expect("in range")
     }
 
-    fn failed(count: u32, ms: i64) -> Result<Option<Failures>, Fault> {
-        Ok(Some(Failures {
+    fn counted(count: u32, ms: i64) -> Failures {
+        Failures {
             count,
             last_at: at(ms),
-        }))
+        }
     }
 
     /// The key for guesses at the claim code from `addr`.
@@ -207,13 +207,13 @@ mod tests {
         let key = claim_from("192.168.1.66");
         assert_eq!(log.read(&lookup, &key), Ok(None));
         assert_eq!(log.record(&store, &key, at(NOON)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), failed(1, NOON));
+        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(1, NOON))));
         assert_eq!(log.record(&store, &key, at(NOON + 30_000)), Ok(()));
         assert_eq!(log.record(&store, &key, at(NOON + 90_000)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), failed(3, NOON + 90_000));
+        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(3, NOON + 90_000))));
         // Moving the time keeps the count.
         assert_eq!(log.rebase(&store, &key, at(NOON - 5)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), failed(3, NOON - 5));
+        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(3, NOON - 5))));
         assert_eq!(log.clear(&store, &key), Ok(()));
         assert_eq!(log.read(&lookup, &key), Ok(None));
         // Forgetting, or moving, what is not there is not a fault.
@@ -248,10 +248,10 @@ mod tests {
         assert_eq!(
             read,
             [
-                failed(1, NOON),
-                failed(2, NOON + 11),
-                failed(3, NOON + 22),
-                failed(4, NOON + 33),
+                Ok(Some(counted(1, NOON))),
+                Ok(Some(counted(2, NOON + 11))),
+                Ok(Some(counted(3, NOON + 22))),
+                Ok(Some(counted(4, NOON + 33))),
             ]
         );
         let home = "192.168.1.66";
@@ -271,10 +271,10 @@ mod tests {
         assert_eq!(
             read,
             [
-                failed(1, NOON),
-                failed(2, NOON + 11),
+                Ok(Some(counted(1, NOON))),
+                Ok(Some(counted(2, NOON + 11))),
                 Ok(None),
-                failed(4, NOON + 33),
+                Ok(Some(counted(4, NOON + 33))),
             ]
         );
     }
@@ -291,7 +291,7 @@ mod tests {
         let reopened = open(&data.root, &[GUESS_DELAYS]);
         assert_eq!(
             log.read(&PreAuth::new(&reopened), &key),
-            failed(2, NOON + 30_000)
+            Ok(Some(counted(2, NOON + 30_000)))
         );
     }
 
@@ -331,19 +331,28 @@ mod tests {
             lookup.lookup(&ROWS),
             Ok(vec![claim_row("192.0.2.1", 1, NOON + 5)])
         );
-        assert_eq!(none.read(&lookup, &first), failed(1, NOON + 5));
+        assert_eq!(none.read(&lookup, &first), Ok(Some(counted(1, NOON + 5))));
     }
 
     #[test]
     fn reads_only_one_row_of_a_count_and_a_time() {
         let row = |count: i64, ms: i64| Row(vec![Value::Integer(count), Value::Integer(ms)]);
         assert_eq!(decode(&[]), Ok(None));
-        assert_eq!(decode(&[row(3, NOON)]), failed(3, NOON));
+        assert_eq!(decode(&[row(3, NOON)]), Ok(Some(counted(3, NOON))));
         // A count past what the schedule's type holds is its largest.
-        assert_eq!(decode(&[row(i64::MAX, NOON)]), failed(u32::MAX, NOON));
-        assert_eq!(decode(&[row(4_294_967_296, NOON)]), failed(u32::MAX, NOON));
-        assert_eq!(decode(&[row(4_294_967_295, NOON)]), failed(u32::MAX, NOON));
-        assert_eq!(decode(&[row(-1, NOON)]), failed(u32::MAX, NOON));
+        assert_eq!(
+            decode(&[row(i64::MAX, NOON)]),
+            Ok(Some(counted(u32::MAX, NOON)))
+        );
+        assert_eq!(
+            decode(&[row(4_294_967_296, NOON)]),
+            Ok(Some(counted(u32::MAX, NOON)))
+        );
+        assert_eq!(
+            decode(&[row(4_294_967_295, NOON)]),
+            Ok(Some(counted(u32::MAX, NOON)))
+        );
+        assert_eq!(decode(&[row(-1, NOON)]), Ok(Some(counted(u32::MAX, NOON))));
         for unreadable in [
             vec![row(1, NOON), row(1, NOON)],
             vec![Row(vec![Value::Integer(1)])],
@@ -424,6 +433,9 @@ mod tests {
         assert_eq!(log.clear(&store, &key), busy());
         other.execute(&Query::new("ROLLBACK")).expect("released");
         // None of the refused writes took.
-        assert_eq!(log.read(&PreAuth::new(&store), &key), failed(1, NOON));
+        assert_eq!(
+            log.read(&PreAuth::new(&store), &key),
+            Ok(Some(counted(1, NOON)))
+        );
     }
 }

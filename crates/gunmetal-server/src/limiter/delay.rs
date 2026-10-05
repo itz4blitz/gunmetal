@@ -53,11 +53,11 @@ mod tests {
         Timestamp::from_millis(ms).expect("in range")
     }
 
-    fn failed(count: u32, ms: i64) -> Option<Failures> {
-        Some(Failures {
+    fn failed(count: u32, ms: i64) -> Failures {
+        Failures {
             count,
             last_at: at(ms),
-        })
+        }
     }
 
     #[test]
@@ -82,7 +82,7 @@ mod tests {
             (u32::MAX, 900_000),
         ];
         for (count, wait) in schedule {
-            let failures = failed(count, NOON);
+            let failures = Some(failed(count, NOON));
             assert_eq!(
                 guess_allowed(failures, at(NOON)),
                 Decision::Deny {
@@ -115,7 +115,7 @@ mod tests {
             count in any::<u32>(),
             since in 0_i64..2_000_000,
         ) {
-            let failures = failed(count, NOON);
+            let failures = Some(failed(count, NOON));
             let waited = match guess_allowed(failures, at(NOON + since)) {
                 Decision::Allow => 0,
                 Decision::Deny { retry_after_ms } => retry_after_ms,

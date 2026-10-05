@@ -233,11 +233,11 @@ mod tests {
     }
 
     /// What verifying ada's credential on `pathway` answers.
-    fn verified(pathway: Pathway) -> Result<Verified, SignInError> {
-        Ok(Verified {
+    fn verified(pathway: Pathway) -> Verified {
+        Verified {
             pathway,
             account: Some(account()),
-        })
+        }
     }
 
     const REFUSED: Result<Verified, SignInError> = Err(SignInError::Refused);
@@ -355,7 +355,7 @@ mod tests {
             bench
                 .verifier
                 .verify(&check, &Presented::new(b"right"), &home),
-            verified(Pathway::Passkey)
+            Ok(verified(Pathway::Passkey))
         );
         // The lookup ran through the handle, and the comparison once,
         // against what is stored.
@@ -377,16 +377,15 @@ mod tests {
         // The name the request gives, what is stored for ada, what is
         // presented, the material the comparison must have run against and
         // the account the event names.
-        let cases: [(&str, Script, &[u8], &[u8], Option<PublicId>); 3] = [
-            ("nobody", ada(Pathway::Passkey), b"right", b"decoy", None),
-            ("ada", disabled, b"right", b"right", Some(account())),
-            (
-                "ada",
-                ada(Pathway::Passkey),
-                b"wrong",
-                b"right",
-                Some(account()),
-            ),
+        let (right, wrong, decoy) = (
+            b"right".as_slice(),
+            b"wrong".as_slice(),
+            b"decoy".as_slice(),
+        );
+        let cases = [
+            ("nobody", ada(Pathway::Passkey), right, decoy, None),
+            ("ada", disabled, right, right, Some(account())),
+            ("ada", ada(Pathway::Passkey), wrong, right, Some(account())),
         ];
         let mut answers = Vec::new();
         for (name, stored, presented, compared, named) in cases {
@@ -496,7 +495,7 @@ mod tests {
                 let from = source(&format!("198.51.{row}.{column}"));
                 // Every kind against every pathway: only its own verifies.
                 let expected = if row == column {
-                    verified(pathway)
+                    Ok(verified(pathway))
                 } else {
                     REFUSED
                 };
@@ -639,7 +638,7 @@ mod tests {
         // right code is accepted.
         assert_eq!(guess(b"right"), wait(900_000));
         bench.clock.advance(900_000);
-        assert_eq!(guess(b"right"), verified(Pathway::ClaimCode));
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::ClaimCode)));
         // And it ended the count: the next wrong guess is a first one.
         assert_eq!(guess(b"wrong"), REFUSED);
         assert_eq!(guess(b"right"), wait(30_000));
@@ -693,13 +692,13 @@ mod tests {
         let host = source("127.0.0.1");
         assert_eq!(
             guess(b"right", &source("192.168.1.20")),
-            verified(Pathway::ClaimCode)
+            Ok(verified(Pathway::ClaimCode))
         );
-        assert_eq!(guess(b"right", &host), verified(Pathway::ClaimCode));
+        assert_eq!(guess(b"right", &host), Ok(verified(Pathway::ClaimCode)));
         // And the host is never delayed, whatever it has got wrong itself.
         let at_host: Vec<_> = (0..50).map(|_| guess(b"wrong", &host)).collect();
         assert_eq!(at_host, [REFUSED; 50]);
-        assert_eq!(guess(b"right", &host), verified(Pathway::ClaimCode));
+        assert_eq!(guess(b"right", &host), Ok(verified(Pathway::ClaimCode)));
         assert_eq!(seen.finds.get(), 54);
     }
 
@@ -723,7 +722,7 @@ mod tests {
         assert_eq!(guess(b"right", &late), wait(600));
         assert_eq!(bench.new_events(), [limited(&late)]);
         bench.clock.advance(600);
-        assert_eq!(guess(b"right", &late), verified(Pathway::Invitation));
+        assert_eq!(guess(b"right", &late), Ok(verified(Pathway::Invitation)));
         assert_eq!(seen.finds.get(), 101);
     }
 
@@ -864,14 +863,14 @@ mod tests {
             bench
                 .verifier
                 .verify(&passkey, &Presented::new(b"right"), &from),
-            verified(Pathway::Passkey)
+            Ok(verified(Pathway::Passkey))
         );
         let host = source("127.0.0.1");
         assert_eq!(
             bench
                 .verifier
                 .verify(&claim, &Presented::new(b"right"), &host),
-            verified(Pathway::ClaimCode)
+            Ok(verified(Pathway::ClaimCode))
         );
     }
 
@@ -889,7 +888,7 @@ mod tests {
         };
         let lock = lock_writes(&bench.data.root);
         // A first right guess has nothing to clear, so it needs no write.
-        assert_eq!(guess(b"right"), verified(Pathway::PairingCode));
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::PairingCode)));
         // A wrong guess is refused although it could not be counted.
         assert_eq!(guess(b"wrong"), REFUSED);
         unlock_writes(&lock);
@@ -913,7 +912,7 @@ mod tests {
             )]
         );
         unlock_writes(&lock);
-        assert_eq!(guess(b"right"), verified(Pathway::PairingCode));
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::PairingCode)));
     }
 
     /// Verifies: SEC-API-056
@@ -937,7 +936,7 @@ mod tests {
         bench.clock.advance(29_999);
         assert_eq!(guess(b"right"), wait(1));
         bench.clock.advance(1);
-        assert_eq!(guess(b"right"), verified(Pathway::ClaimCode));
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::ClaimCode)));
     }
 
     /// Verifies: SEC-IAM-069
@@ -1054,7 +1053,7 @@ mod tests {
             again
                 .verifier
                 .verify(&check, &Presented::new(b"right"), &from),
-            verified(Pathway::ClaimCode)
+            Ok(verified(Pathway::ClaimCode))
         );
     }
 }
