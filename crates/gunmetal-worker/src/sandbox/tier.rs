@@ -4,10 +4,11 @@
 //! Memory-safe parsing needs a floor: a separate process, resource limits
 //! and `no_new_privs`. Above the floor, seccomp, Landlock and namespaces
 //! are added where the system has them, and the report carries a "reduced
-//! isolation" notice when any of the three is missing. Below the floor the
-//! work is off. Native decoders need every control, so they are on only at
-//! the full tier. Nothing here, and no argument anywhere in the sandbox,
-//! lets work run with less (SEC-TM-045).
+//! isolation" notice when any of the three is missing, or when the kernel
+//! enforces only part of the Landlock ruleset ([`Landlock::Partial`]).
+//! Below the floor the work is off. Native decoders need every control, so
+//! they are on only at the full tier. Nothing here, and no argument
+//! anywhere in the sandbox, lets work run with less (SEC-TM-045).
 
 /// How much of the worker's Landlock ruleset the kernel enforces.
 ///
@@ -56,10 +57,10 @@ pub struct Enforced {
 /// The isolation tier a worker reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// Every control holds.
+    /// Every control holds, the whole Landlock ruleset among them.
     Full,
     /// The floor holds, and at least one of seccomp, Landlock and
-    /// namespaces is missing.
+    /// namespaces is missing, or Landlock is enforced only in part.
     Reduced,
     /// The floor does not hold, so no media is read.
     Off,
@@ -128,9 +129,20 @@ impl Enforced {
             (self.limits, "resource limits"),
             (self.no_new_privs, "the no-new-privileges flag"),
         ]);
+        // Whether Landlock holds, and what the notice calls it when it
+        // does not. A ruleset enforced in part does not hold: the notice
+        // names it apart from a kernel with no Landlock at all.
+        let landlock = match self.landlock {
+            Landlock::Full => (true, "Landlock"),
+            Landlock::Partial => (
+                false,
+                "full Landlock (this kernel enforces only some of its rules)",
+            ),
+            Landlock::Missing => (false, "Landlock"),
+        };
         let above = missing([
             (self.seccomp, "system call filtering (seccomp)"),
-            (self.landlock != Landlock::Missing, "Landlock"),
+            landlock,
             (self.namespaces, "namespaces"),
         ]);
         if !floor.is_empty() {

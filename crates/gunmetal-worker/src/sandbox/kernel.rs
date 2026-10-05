@@ -43,7 +43,8 @@ pub(crate) trait Kernel {
     fn no_new_privs(&mut self) -> io::Result<()>;
     /// Enforces a Landlock ruleset that grants no filesystem access, no
     /// TCP bind or connect, and scopes abstract sockets and signals, as
-    /// far as the kernel's ABI goes, and says how much of it that is.
+    /// far as the kernel's ABI goes, and says how far that is: the whole
+    /// ruleset, part of it, or none where the kernel has no Landlock.
     fn landlock(&mut self) -> Landlock;
     /// Installs the seccomp allowlist. `false` when the architecture or
     /// the kernel has no seccomp filter.
@@ -127,9 +128,15 @@ fn require_not_dumpable(behavior: DumpableBehavior) -> io::Result<()> {
 }
 
 /// Builds the Landlock ruleset: every filesystem right is handled and
-/// no path is granted, so all path-based access is denied. TCP, UDP and
-/// the abstract-socket and signal scopes are handled where the ABI has
-/// them (SEC-MED-022).
+/// no path is granted, so all path-based access is denied. TCP bind and
+/// connect are handled and no port is granted, and abstract sockets and
+/// signals are scoped to the worker, each where the kernel's ABI has it
+/// (SEC-MED-022).
+///
+/// Landlock has no rule for UDP, in this ABI or an earlier one. What
+/// keeps a worker from UDP is the seccomp filter, which lists no call
+/// that makes a socket; where the filter is missing nothing does, and the
+/// notice names seccomp.
 fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
     let abi = ABI::V6;
     Ruleset::default()
@@ -139,10 +146,13 @@ fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
         .and_then(Ruleset::create)
 }
 
-/// What Landlock's own account of a ruleset comes to.
+/// What Landlock's own account of a ruleset comes to. A kernel older than
+/// the ruleset enforces the rules it has and says so; that is reported as
+/// it is, not as the whole ruleset (SEC-MED-024).
 fn coverage(status: &RulesetStatus) -> Landlock {
     match status {
-        RulesetStatus::FullyEnforced | RulesetStatus::PartiallyEnforced => Landlock::Full,
+        RulesetStatus::FullyEnforced => Landlock::Full,
+        RulesetStatus::PartiallyEnforced => Landlock::Partial,
         RulesetStatus::NotEnforced => Landlock::Missing,
     }
 }
