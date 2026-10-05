@@ -10,6 +10,11 @@
 //! [`MAX_QUERY_CHARS`] characters and [`MAX_TERMS`] terms are used
 //! (SEC-API-063).
 //!
+//! A text with no letter or digit folds to no token. In the index and in a
+//! query alike it is cut into its whitespace-separated words as they are
+//! written instead, so that "÷", "!!!" and "( )" are found by their own
+//! names ([`index`] has the rule).
+//!
 //! [`Index::to_bytes`] writes the compact segment the server can ship when
 //! a device is too slow to build its own (API-SYNC-07), and
 //! [`Index::from_bytes`] reads one back as untrusted input.

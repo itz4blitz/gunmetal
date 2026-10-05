@@ -5,8 +5,29 @@
 //! is a hit when every term matches one of its tokens: as the whole token,
 //! as its beginning, or, for a term of [`MIN_TYPO_CHARS`] characters or
 //! more, within one edit (a letter missing, added or wrong, or two
-//! neighbours swapped). The comparison is of folded text only; no
-//! character of a query has a special meaning (SEC-STD-011).
+//! neighbours swapped). The comparison is of tokens only; no character of
+//! a query has a special meaning (SEC-STD-011).
+//!
+//! # A query with no letter or digit
+//!
+//! The characters that are read are cut into tokens the way an indexed
+//! text is ([`index`](super::index)): into folded words, or, when they
+//! fold to none, into their whitespace-separated words as they are
+//! written, so the query "÷" finds the album named "÷". That choice is made
+//! once, for the characters read and not word by word:
+//!
+//! - A letter or digit among the first [`MAX_QUERY_CHARS`] characters
+//!   makes the query its folded words, and every other character is
+//!   dropped, a word of punctuation included: "!!! live" is the query
+//!   "live". A letter after those characters is not read, and changes
+//!   nothing.
+//! - Otherwise each whitespace-separated word is a term as it is written,
+//!   cut to 32 characters, and only the first [`MAX_TERMS`] are used. A
+//!   query of nothing but whitespace has no term and finds nothing.
+//! - Such a term matches like any other: a whole token, the beginning of
+//!   one ("!!" finds "!!!"), or, from [`MIN_TYPO_CHARS`] characters on,
+//!   within one edit ("!!!!" finds "!!!"). It is compared character for
+//!   character, with nothing folded.
 //!
 //! How well a document matched is its [`Match`], which depends on that
 //! document alone. Hits are ranked by their match, then by the person's
@@ -147,8 +168,9 @@ impl Index {
     /// The documents that match `q`, of the kinds `kind` lets through,
     /// with at most `limit` of each kind.
     ///
-    /// A query with no letter or digit in its first [`MAX_QUERY_CHARS`]
-    /// characters finds nothing.
+    /// A query whose first [`MAX_QUERY_CHARS`] characters are all
+    /// whitespace finds nothing. One with no letter or digit among them is
+    /// matched by its words as they are written.
     #[must_use]
     pub fn query(&self, q: &str, kind: KindFilter, limit: u16) -> Vec<Hit> {
         let read: String = q.chars().take(MAX_QUERY_CHARS).collect();
@@ -1015,9 +1037,12 @@ mod tests {
         assert_eq!(signed(".*"), []);
         assert_eq!(signed("^.+$"), []);
         assert_eq!(signed("[!÷+=]"), []);
-        assert_eq!(signed("!{3}"), []);
+        assert_eq!(signed("!+"), []);
         assert_eq!(signed("(|)"), []);
         assert_eq!(signed("\\(|\\)"), []);
+        // The digit makes this one the query "3", which is in no document
+        // either.
+        assert_eq!(signed("!{3}"), []);
     }
 
     #[test]

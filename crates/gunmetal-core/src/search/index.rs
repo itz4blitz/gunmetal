@@ -1,5 +1,5 @@
-//! The index itself: every document, and for every folded token the
-//! documents that hold it.
+//! The index itself: every document, and for every token the documents
+//! that hold it.
 //!
 //! A token is one whitespace-separated word of a text after
 //! [`fold`], cut to [`MAX_TOKEN_CHARS`] characters, so "Amélie" and
@@ -8,6 +8,27 @@
 //! the title, or [`ELSEWHERE`] for the artist, album, credits, genres and
 //! labels (MUS-061). The title positions are what lets a query tell a whole
 //! title from a title that merely holds its words.
+//!
+//! # Text with no letter or digit
+//!
+//! Folding drops everything but letters, digits and the kana voicing
+//! marks, so a text such as "÷", "!!!", "( )" or a row of emoji folds to no
+//! token, and a document named so could not be found by its own name. The
+//! tokens of a text that folds to none are therefore its
+//! whitespace-separated words as they are written:
+//!
+//! - Whitespace parts the words and is never kept, so "( )" is the two
+//!   tokens "(" and ")", at the title positions 0 and 1, and "()" is one.
+//!   A text that is empty or all whitespace still has no token.
+//! - Each word is cut to [`MAX_TOKEN_CHARS`] characters, like any token.
+//! - Nothing in such a word is folded. It is compared character for
+//!   character, so a fullwidth "！" is not "!", and "’" is not "'".
+//!
+//! The rule is about a whole text, never about one word of it. A text that
+//! folds to any token keeps exactly its folded tokens, so "Go!" is `go`,
+//! and "Simon & Garfunkel" is `simon` and `garfunkel` with no token for
+//! the "&". A query is cut into tokens by the same rule
+//! ([`query`](super::query)).
 
 use std::collections::BTreeMap;
 
@@ -45,8 +66,8 @@ pub(super) struct Posting {
 
 /// A search index over one profile's synced library.
 ///
-/// It holds no text but the folded tokens, so it is small, and nothing in
-/// it says which field a token came from beyond the title's positions.
+/// It holds no text but the tokens, so it is small, and nothing in it says
+/// which field a token came from beyond the title's positions.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Index {
     /// Every document, in the order it was given.
@@ -110,12 +131,21 @@ impl Index {
     }
 }
 
-/// The tokens of `text`: its folded words, each cut to
-/// [`MAX_TOKEN_CHARS`] characters.
+/// The tokens of `text`: its folded words or, when it folds to none, its
+/// words as they are written; each cut to [`MAX_TOKEN_CHARS`] characters.
 pub(super) fn tokens(text: &str) -> Vec<String> {
-    fold(text)
-        .split(' ')
-        .filter(|word| !word.is_empty())
+    let folded = words(&fold(text));
+    if folded.is_empty() {
+        words(text)
+    } else {
+        folded
+    }
+}
+
+/// The whitespace-separated words of `text`, each cut to
+/// [`MAX_TOKEN_CHARS`] characters.
+fn words(text: &str) -> Vec<String> {
+    text.split_whitespace()
         .map(|word| word.chars().take(MAX_TOKEN_CHARS).collect())
         .collect()
 }
