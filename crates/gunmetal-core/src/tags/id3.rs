@@ -23,13 +23,34 @@
 //!   joined under.
 //! - A text that is empty or only white space once cleaned is not there.
 //! - A text cut here, or already cut by the parser that decoded it, is
-//!   recorded once as [`TagProblem::Truncated`], against the frame or the
-//!   `ID3v1` field it was read from and with the limit the field is kept
-//!   under (SEC-MED-006). A line of a `SYLT` frame that the parser cut is
-//!   recorded when the line is kept.
-//! - Text read as a number, a date, an identifier, a gain, a peak or a
-//!   flag is not kept as text. It becomes a typed value, or is dropped
-//!   with its reason.
+//!   kept and recorded once as [`TagProblem::Truncated`], against the frame
+//!   or the `ID3v1` field it was read from, with the limit it was last cut
+//!   at: the field's own limit when it is cut here, and otherwise the
+//!   parser's (SEC-MED-006). A line of a `SYLT` frame that the parser cut
+//!   is recorded when the line is kept.
+//!
+//! # Values the parser cut
+//!
+//! Text read as a number, a date, an identifier, a gain, a peak or a flag
+//! is not kept as text: it becomes a typed value, or is dropped with its
+//! reason. What is left of such a value after the parser cut it is not the
+//! value that was written, so a cut value is never read as one
+//! (SEC-MED-006):
+//!
+//! - A value the parser cut is skipped and recorded as
+//!   [`TagProblem::Truncated`] with the limit the parser applied:
+//!   [`LimitKind::ShortText`] for a text information frame and an `ID3v1`
+//!   field, [`LimitKind::LongText`] for the value of a `TXXX` frame.
+//!   Nothing else is recorded for it. A field that takes one value takes
+//!   the first one the parser kept whole, and a list goes on with the next.
+//! - A `TXXX` frame whose description was cut and a `UFID` frame whose
+//!   owner was cut are not read, and are recorded the same way.
+//! - What is left of a genre that was cut, by the parser or here, is kept
+//!   as text and not read as a reference to the Winamp list. What is left
+//!   of a role that was cut is kept as the detail of a performer and not
+//!   looked up.
+//! - Only a value that would be read is recorded: a frame for a field that
+//!   is already filled is not looked at.
 //!
 //! # Frames the parser keeps raw
 //!
@@ -195,14 +216,18 @@ pub enum TagProblem {
         /// The count that exceeded the limit.
         count: u64,
     },
-    /// A text was longer than its limit and was cut to fit, here or by the
-    /// parser that decoded it (SEC-MED-006).
+    /// A value was longer than its limit (SEC-MED-006): a text, which was
+    /// cut to fit and kept; or a value of another kind that the parser cut,
+    /// which was not read.
     Truncated {
-        /// Where the text was read.
+        /// Where the value was read.
         source: FieldSource,
-        /// The limit the text is kept under: [`LimitKind::ShortText`] for
-        /// one line of text, [`LimitKind::LyricsBytes`] for lyrics and
-        /// [`LimitKind::LyricsLineBytes`] for one line of a `SYLT` frame.
+        /// The limit it was last cut at. A text that the mapper cut names
+        /// the limit it is kept under: [`LimitKind::ShortText`] for one
+        /// line of text and [`LimitKind::LyricsBytes`] for lyrics. Anything
+        /// only the parser cut names the limit the parser applied, which
+        /// for one line of a `SYLT` frame is
+        /// [`LimitKind::LyricsLineBytes`].
         limit: LimitKind,
     },
 }
@@ -213,6 +238,15 @@ pub enum TagProblem {
 pub fn from_id3(v2: Option<&Id3v2Tag>, v1: Option<&Id3v1Tag>, limits: &Limits) -> Mapped {
     Mapper::new(limits).run(v2, v1)
 }
+
+/// The limit the `ID3v2` parser cuts each value of a text information
+/// frame at, each role and name of an involved people list, the
+/// description of a `TXXX` frame and the owner of a `UFID` frame. The
+/// `ID3v1` parser cuts its fields at it too.
+const FRAME_TEXT: LimitKind = LimitKind::ShortText;
+
+/// The limit the `ID3v2` parser cuts each value of a `TXXX` frame at.
+const USER_TEXT: LimitKind = LimitKind::LongText;
 
 /// The Winamp `ID3v1` genre list, as mutagen-specs records it: indices
 /// 0 to 191. 255 means unset.
@@ -518,10 +552,10 @@ impl<'a> Mapper<'a> {
                 description,
                 values,
             } if kind(frame.id) == Kind::UserText => {
-                self.user_text(&description.value, values, source);
+                self.user_text(description, values, source);
             }
             FrameBody::Ufid { owner, id } if kind(frame.id) == Kind::Ufid => {
-                self.ufid(&owner.value, id, source);
+                self.ufid(owner, id, source);
             }
             FrameBody::Lyrics(body) if kind(frame.id) == Kind::Lyrics => {
                 self.uslt(body, source);
@@ -616,6 +650,7 @@ impl<'a> Mapper<'a> {
             list,
             origin,
             values,
+            FRAME_TEXT,
             source,
             self.limits,
             &mut self.problems,
@@ -623,13 +658,15 @@ impl<'a> Mapper<'a> {
     }
 
     fn track(&mut self, values: &[Text], source: FieldSource) {
-        if let Some(value) = first_present(values) {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        if let Some(value) = value {
             self.position(value, source, true);
         }
     }
 
     fn disc(&mut self, values: &[Text], source: FieldSource) {
-        if let Some(value) = first_present(values) {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        if let Some(value) = value {
             self.position(value, source, false);
         }
     }
@@ -716,7 +753,8 @@ impl<'a> Mapper<'a> {
         if slot.is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match PartialDate::parse(Untrusted::new(value)) {
@@ -731,7 +769,8 @@ impl<'a> Mapper<'a> {
     }
 
     fn year_text(&mut self, values: &[Text], source: FieldSource, original: bool) {
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match PartialDate::parse(Untrusted::new(value)) {
@@ -754,7 +793,8 @@ impl<'a> Mapper<'a> {
         if self.date_part.is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match parse_tdat(value) {
@@ -791,12 +831,25 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// The genres each value names. What is left of a value that was cut
+    /// may hold half a reference to the Winamp list, so it is kept as the
+    /// text it is.
     fn genres(&mut self, values: &[Text], source: FieldSource) {
         for value in values {
-            let Some(value) = one_line(value, source, self.limits, &mut self.problems) else {
+            let (kept, cut) = clean(
+                value,
+                Lines::Single,
+                LimitKind::ShortText,
+                FRAME_TEXT,
+                source,
+                self.limits,
+                &mut self.problems,
+            );
+            let Some(kept) = kept else {
                 continue;
             };
-            for genre in expand_genre(&value) {
+            let names = if cut { vec![kept] } else { expand_genre(&kept) };
+            for genre in names {
                 if !push(
                     &mut self.tags.genres,
                     genre,
@@ -814,7 +867,7 @@ impl<'a> Mapper<'a> {
 
     fn credits(&mut self, values: &[Text], role: Role, source: FieldSource) {
         for value in values {
-            let credit = one_line(value, source, self.limits, &mut self.problems)
+            let credit = one_line(value, FRAME_TEXT, source, self.limits, &mut self.problems)
                 .and_then(|credited| Credit::new(credited, role, None, None).ok());
             let Some(credit) = credit else {
                 continue;
@@ -833,16 +886,33 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// The credits of an involved people list. A musician's role is the
+    /// instrument. So is what is left of a role that was cut, which may not
+    /// be the role that was written and is not looked up.
     fn people(&mut self, people: &[PeopleCredit], musician: bool, source: FieldSource) {
         for person in people {
-            let said = one_line(&person.role, source, self.limits, &mut self.problems);
-            let (role, detail) = if musician {
+            let (said, cut) = clean(
+                &person.role,
+                Lines::Single,
+                LimitKind::ShortText,
+                FRAME_TEXT,
+                source,
+                self.limits,
+                &mut self.problems,
+            );
+            let (role, detail) = if musician || cut {
                 (Role::Performer, said)
             } else {
                 people_role(said.as_deref().unwrap_or_default())
             };
-            let credit = one_line(&person.name, source, self.limits, &mut self.problems)
-                .and_then(|credited| Credit::new(credited, role, detail, None).ok());
+            let named = one_line(
+                &person.name,
+                FRAME_TEXT,
+                source,
+                self.limits,
+                &mut self.problems,
+            );
+            let credit = named.and_then(|credited| Credit::new(credited, role, detail, None).ok());
             let Some(credit) = credit else {
                 continue;
             };
@@ -864,7 +934,8 @@ impl<'a> Mapper<'a> {
         if self.tags.compilation.is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match value.trim() {
@@ -880,10 +951,14 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// Reads every code of the frame, until the codes or the problems are
-    /// full.
+    /// Reads every code of the frame that the parser kept whole, until the
+    /// codes or the problems are full.
     fn isrcs(&mut self, values: &[Text], source: FieldSource) {
-        for value in present(values) {
+        for value in values {
+            let value = uncut(value, FRAME_TEXT, source, self.limits, &mut self.problems);
+            let Some(value) = value else {
+                continue;
+            };
             let room = match Isrc::parse(Untrusted::new(value)) {
                 Ok(isrc) => {
                     let room = push(&mut self.tags.isrc, isrc, self.limits, &mut self.problems);
@@ -900,7 +975,20 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    fn user_text(&mut self, description: &str, values: &[Text], source: FieldSource) {
+    /// Reads a `TXXX` frame by what its description names. What is left of
+    /// a description the parser cut may not be the one that was written, so
+    /// such a frame is not read.
+    fn user_text(&mut self, description: &Text, values: &[Text], source: FieldSource) {
+        let description = uncut(
+            description,
+            FRAME_TEXT,
+            source,
+            self.limits,
+            &mut self.problems,
+        );
+        let Some(description) = description else {
+            return;
+        };
         match txxx_key(description).as_str() {
             "musicbrainz_album_id" => self.one_mbid(values, source, MbidSlot::Release),
             "musicbrainz_release_group_id" => self.one_mbid(values, source, MbidSlot::ReleaseGroup),
@@ -920,6 +1008,7 @@ impl<'a> Mapper<'a> {
                     &mut self.tags.moods,
                     &mut self.sources.moods,
                     values,
+                    USER_TEXT,
                     source,
                     self.limits,
                     &mut self.problems,
@@ -933,7 +1022,8 @@ impl<'a> Mapper<'a> {
         if mbid_slot(&self.tags.musicbrainz, slot).is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, USER_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match Mbid::parse(Untrusted::new(value)) {
@@ -947,45 +1037,59 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// Reads every identifier of the frame, until the identifiers or the
-    /// problems are full. A 2.3 tag holds one value per frame, and Picard
-    /// joins several identifiers in it with `/`; an identifier holds
-    /// neither `/` nor `;`, so the values are split on both.
+    /// Reads every identifier of each value the parser kept whole, until
+    /// the identifiers or the problems are full. A 2.3 tag holds one value
+    /// per frame, and Picard joins several identifiers in it with `/`; an
+    /// identifier holds neither `/` nor `;`, so the values are split on
+    /// both.
     fn many_mbids(&mut self, values: &[Text], source: FieldSource, album: bool) {
-        let ids = present(values)
-            .flat_map(|value| value.split(['/', ';']))
-            .map(str::trim)
-            .filter(|id| !id.is_empty());
-        for value in ids {
-            let room = match Mbid::parse(Untrusted::new(value)) {
-                Ok(mbid) => {
-                    let (list, origin) = if album {
-                        (
-                            &mut self.tags.musicbrainz.album_artists,
-                            &mut self.sources.album_artist_mbids,
-                        )
-                    } else {
-                        (
-                            &mut self.tags.musicbrainz.artists,
-                            &mut self.sources.artist_mbids,
-                        )
-                    };
-                    let room = push(list, mbid, self.limits, &mut self.problems);
-                    if room {
-                        remember(origin, source);
-                    }
-                    room
-                }
-                Err(error) => self.report(TagProblem::InvalidValue { source, error }),
+        for value in values {
+            let value = uncut(value, USER_TEXT, source, self.limits, &mut self.problems);
+            let Some(value) = value else {
+                continue;
             };
-            if !room {
-                break;
+            let ids = value
+                .split(['/', ';'])
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            for id in ids {
+                let room = match Mbid::parse(Untrusted::new(id)) {
+                    Ok(mbid) => {
+                        let (list, origin) = if album {
+                            (
+                                &mut self.tags.musicbrainz.album_artists,
+                                &mut self.sources.album_artist_mbids,
+                            )
+                        } else {
+                            (
+                                &mut self.tags.musicbrainz.artists,
+                                &mut self.sources.artist_mbids,
+                            )
+                        };
+                        let room = push(list, mbid, self.limits, &mut self.problems);
+                        if room {
+                            remember(origin, source);
+                        }
+                        room
+                    }
+                    Err(error) => self.report(TagProblem::InvalidValue { source, error }),
+                };
+                if !room {
+                    return;
+                }
             }
         }
     }
 
-    fn ufid(&mut self, owner: &str, id: &[u8], source: FieldSource) {
-        if self.tags.musicbrainz.recording.is_some() || !is_mb_owner(owner) {
+    /// Reads the recording identifier `MusicBrainz` files under its own
+    /// owner. What is left of an owner the parser cut may not be the one
+    /// that was written, so such a frame is not read.
+    fn ufid(&mut self, owner: &Text, id: &[u8], source: FieldSource) {
+        if self.tags.musicbrainz.recording.is_some() {
+            return;
+        }
+        let owner = uncut(owner, FRAME_TEXT, source, self.limits, &mut self.problems);
+        if !is_mb_owner(owner.unwrap_or_default()) {
             return;
         }
         let Some(text) = core::str::from_utf8(id).ok() else {
@@ -1016,7 +1120,8 @@ impl<'a> Mapper<'a> {
         if slot.is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, USER_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match GainDb::parse(Untrusted::new(value)) {
@@ -1044,7 +1149,8 @@ impl<'a> Mapper<'a> {
     }
 
     fn peak(&mut self, values: &[Text], source: FieldSource, track: bool) {
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, USER_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         match PeakRatio::parse(Untrusted::new(value)) {
@@ -1076,7 +1182,8 @@ impl<'a> Mapper<'a> {
         if self.tags.advisory.is_some() {
             return;
         }
-        let Some(value) = first_present(values) else {
+        let value = first_uncut(values, USER_TEXT, source, self.limits, &mut self.problems);
+        let Some(value) = value else {
             return;
         };
         let advisory = match value.trim() {
@@ -1095,8 +1202,9 @@ impl<'a> Mapper<'a> {
             return;
         }
         let mut release = ReleaseType::default();
-        for value in present(values) {
-            add_release_tokens(value, &mut release);
+        for value in values {
+            let value = uncut(value, USER_TEXT, source, self.limits, &mut self.problems);
+            add_release_tokens(value.unwrap_or_default(), &mut release);
         }
         if release.primary.is_some() || !release.secondary.is_empty() {
             self.tags.release_type = Some(release);
@@ -1106,9 +1214,12 @@ impl<'a> Mapper<'a> {
 
     /// The text of a `USLT` frame with its lines, up to the lyrics limit.
     fn uslt(&mut self, body: &LanguageText, source: FieldSource) {
-        let words = clean(
+        // The parser caps the text of a `USLT` frame at the lyrics limit
+        // too.
+        let (words, _) = clean(
             &body.text,
             Lines::Multi,
+            LimitKind::LyricsBytes,
             LimitKind::LyricsBytes,
             source,
             self.limits,
@@ -1219,6 +1330,7 @@ impl<'a> Mapper<'a> {
                 &mut self.tags.artist,
                 &mut self.sources.artist,
                 std::slice::from_ref(&tag.artist),
+                FRAME_TEXT,
                 FieldSource::Id3v1 {
                     field: Id3v1Field::Artist,
                 },
@@ -1236,18 +1348,26 @@ impl<'a> Mapper<'a> {
             self.limits,
             &mut self.problems,
         );
-        if self.tags.date.is_none() && !tag.year.value.trim().is_empty() {
+        if self.tags.date.is_none() {
             let source = FieldSource::Id3v1 {
                 field: Id3v1Field::Year,
             };
-            match PartialDate::parse(Untrusted::new(&tag.year.value)) {
-                Ok(date) => {
+            let year = uncut(
+                &tag.year,
+                FRAME_TEXT,
+                source,
+                self.limits,
+                &mut self.problems,
+            );
+            match year.map(|year| PartialDate::parse(Untrusted::new(year))) {
+                Some(Ok(date)) => {
                     self.tags.date = Some(date);
                     self.sources.date = Some(source);
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     self.report(TagProblem::InvalidValue { source, error });
                 }
+                None => {}
             }
         }
         if self.tags.position.track().is_none() {
@@ -1268,6 +1388,7 @@ impl<'a> Mapper<'a> {
                         truncated: false,
                         replaced: false,
                     }],
+                    FRAME_TEXT,
                     FieldSource::Id3v1 {
                         field: Id3v1Field::Genre,
                     },
@@ -1301,7 +1422,7 @@ fn set_one(
     }
     let found = values
         .iter()
-        .find_map(|value| one_line(value, source, limits, problems));
+        .find_map(|value| one_line(value, FRAME_TEXT, source, limits, problems));
     if let Some(value) = found {
         *slot = Some(value);
         *origin = Some(source);
@@ -1309,17 +1430,19 @@ fn set_one(
 }
 
 /// Appends each of `values` that is not blank as one line of text to
-/// `list`, stopping at the tag-field limit.
+/// `list`, stopping at the tag-field limit. The parser cut the values at
+/// `cut_at`.
 fn extend_text(
     list: &mut Vec<String>,
     origin: &mut Option<FieldSource>,
     values: &[Text],
+    cut_at: LimitKind,
     source: FieldSource,
     limits: &Limits,
     problems: &mut Vec<TagProblem>,
 ) {
     for value in values {
-        let Some(value) = one_line(value, source, limits, problems) else {
+        let Some(value) = one_line(value, cut_at, source, limits, problems) else {
             continue;
         };
         if !push(list, value, limits, problems) {
@@ -1334,39 +1457,83 @@ fn extend_text(
 /// `raw` as one line of short text, the way a name or a title is kept.
 fn one_line(
     raw: &Text,
+    cut_at: LimitKind,
     source: FieldSource,
     limits: &Limits,
     problems: &mut Vec<TagProblem>,
 ) -> Option<String> {
-    clean(
+    let (kept, _) = clean(
         raw,
         Lines::Single,
         LimitKind::ShortText,
+        cut_at,
         source,
         limits,
         problems,
-    )
+    );
+    kept
 }
 
-/// `raw` as the catalogue keeps it: without what `lines` forbids, and cut
-/// at `limit` octets. A text that is cut here, or that the parser already
-/// cut, is recorded once against `source` (SEC-MED-006). `None` when
-/// nothing but white space is left.
+/// What the catalogue keeps of the text `raw`, and whether any of it was
+/// cut away. The text is kept without what `lines` forbids and cut at
+/// `limit` octets; `None` when nothing but white space is left. A text that
+/// is cut here, or that the parser already cut at `cut_at`, is recorded
+/// once against `source`, with the limit it was last cut at (SEC-MED-006).
 fn clean(
     raw: &Text,
     lines: Lines,
     limit: LimitKind,
+    cut_at: LimitKind,
     source: FieldSource,
     limits: &Limits,
     problems: &mut Vec<TagProblem>,
-) -> Option<String> {
+) -> (Option<String>, bool) {
     // Every text limit's ceiling fits 32 bits.
     let cap = u32::try_from(limits.get(limit)).unwrap_or(u32::MAX);
     let cleaned = text::normalise(Untrusted::new(raw.value.as_bytes()), lines, cap);
-    if raw.truncated || cleaned.truncated {
+    let cut = raw.truncated || cleaned.truncated;
+    if cut {
+        let limit = if cleaned.truncated { limit } else { cut_at };
         report(problems, limits, TagProblem::Truncated { source, limit });
     }
-    Some(cleaned.value).filter(|value| !value.trim().is_empty())
+    let kept = Some(cleaned.value).filter(|value| !value.trim().is_empty());
+    (kept, cut)
+}
+
+/// The value `raw` when it is not blank and the parser kept all of it. What
+/// is left of a value the parser cut is not the value that was written: it
+/// is not read, and the cut is recorded against `source` with `cut_at`, the
+/// limit the parser applied (SEC-MED-006).
+fn uncut<'t>(
+    raw: &'t Text,
+    cut_at: LimitKind,
+    source: FieldSource,
+    limits: &Limits,
+    problems: &mut Vec<TagProblem>,
+) -> Option<&'t str> {
+    if raw.truncated {
+        let problem = TagProblem::Truncated {
+            source,
+            limit: cut_at,
+        };
+        report(problems, limits, problem);
+        return None;
+    }
+    Some(raw.value.as_str()).filter(|value| !value.trim().is_empty())
+}
+
+/// The first of `values` that [`uncut`] reads, for a field that takes one
+/// value. The values after it are not looked at.
+fn first_uncut<'t>(
+    values: &'t [Text],
+    cut_at: LimitKind,
+    source: FieldSource,
+    limits: &Limits,
+    problems: &mut Vec<TagProblem>,
+) -> Option<&'t str> {
+    values
+        .iter()
+        .find_map(|value| uncut(value, cut_at, source, limits, problems))
 }
 
 /// Pushes `item` when `list` is still under the tag-field limit.
@@ -1524,19 +1691,6 @@ fn kind3(id: [u8; 3]) -> Kind {
         b"SLT" => Kind::SyncedLyrics,
         _ => Kind::Ignore,
     }
-}
-
-/// The first value that is not empty or only white space.
-fn first_present(values: &[Text]) -> Option<&str> {
-    present(values).next()
-}
-
-/// The values that are not empty or only white space.
-fn present(values: &[Text]) -> impl Iterator<Item = &str> {
-    values
-        .iter()
-        .map(|text| text.value.as_str())
-        .filter(|value| !value.trim().is_empty())
 }
 
 /// A track or disc number and optional total, allowing a number above its
@@ -5202,6 +5356,56 @@ mod tests {
                 }]
             )
         );
+    }
+
+    /// In a list of musician credits the role is the instrument, also when
+    /// it is a word that an involved people list reads as a role.
+    #[test]
+    fn keeps_a_musician_role_as_the_instrument() {
+        let bytes = one_frame(b"TMCL", &kit::text(Kit::Latin1, &["producer", "Tony"]));
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &Limits::DEFAULT),
+            Mapped {
+                tags: TrackTags {
+                    credits: vec![performer("Tony", "producer")],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    credits: Some(v2_at(b"TMCL", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+    }
+
+    /// Only a value that would be read is recorded. The second date frame
+    /// is cut, and the date is already known; the second track number is
+    /// cut, and the first one was usable.
+    #[test]
+    fn does_not_record_a_cut_value_it_would_not_read() {
+        let four = lowered(LimitKind::ShortText, 4);
+        let dates = TagBytes::new(Version::V24)
+            .frame(b"TDRC", 0, &kit::text(Kit::Latin1, &["2016"]))
+            .frame(b"TDRC", 0, &kit::text(Kit::Latin1, &["2017-01"]))
+            .build();
+        assert_eq!(
+            map_bytes(&dates, &four, &four),
+            Mapped {
+                tags: TrackTags {
+                    date: Some(date(2016, None, None)),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    date: Some(v2_at(b"TDRC", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+        let one = lowered(LimitKind::ShortText, 1);
+        let track = one_frame(b"TRCK", &kit::text(Kit::Latin1, &["7", "31"]));
+        assert_eq!(map_bytes(&track, &one, &one), tracked(7, vec![]));
     }
 
     #[test]
