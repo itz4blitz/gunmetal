@@ -5,6 +5,7 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -92,25 +93,18 @@ impl Fields for Disable {
     const FIELDS: &'static [&'static str] = &["user"];
 }
 
-/// A note. `owner` is the mistake SEC-API-013 guards against: a field that
-/// names a principal, declared on a route that may not name one.
+/// A note. `extra` takes any object of strings, and serde does not look at
+/// the keys inside it, so a key in there that names a principal is refused
+/// only by the pipeline's own check (SEC-API-013). The type cannot declare
+/// `owner` itself: the table refuses a route whose types name a principal.
 #[derive(Deserialize)]
 struct Note {
     text: Option<String>,
     tags: Option<Vec<u8>>,
-    owner: Option<String>,
+    extra: Option<BTreeMap<String, String>>,
 }
 impl Fields for Note {
-    const FIELDS: &'static [&'static str] = &["owner", "tags", "text"];
-}
-
-/// The notes route's query, with the same mistake.
-#[derive(Deserialize)]
-struct NoteQuery {
-    user_id: Option<String>,
-}
-impl Fields for NoteQuery {
-    const FIELDS: &'static [&'static str] = &["user_id"];
+    const FIELDS: &'static [&'static str] = &["extra", "tags", "text"];
 }
 
 #[derive(Serialize)]
@@ -165,11 +159,23 @@ impl Future for YieldOnce {
 /// An access record, with the principal and peer the log hook was given.
 pub type Logged = (AccessRecord, Option<String>, Option<Peer>);
 
+/// The credential the access hook was handed, with the token's bytes copied
+/// out so that a test can compare them: a token has no `==` (SEC-OPS-013).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sent {
+    /// No credential.
+    None,
+    /// The session cookie's value.
+    Cookie(Vec<u8>),
+    /// The `Authorization` header's value.
+    Header(Vec<u8>),
+}
+
 /// What the stand-in hooks and handlers saw.
 #[derive(Default)]
 pub struct Seen {
     next: AtomicU64,
-    access: Mutex<Vec<(&'static str, Credential, Option<Peer>)>>,
+    access: Mutex<Vec<(&'static str, Sent, Option<Peer>)>>,
     rate: Mutex<Vec<(RateClass, Option<String>)>>,
     log: Mutex<Vec<Logged>>,
     handled: Mutex<Vec<&'static str>>,
@@ -189,7 +195,7 @@ fn taken<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
 impl Seen {
     /// Each call of the access hook: the route's template, the credential
     /// and what the listener attached.
-    pub fn accessed(&self) -> Vec<(&'static str, Credential, Option<Peer>)> {
+    pub fn accessed(&self) -> Vec<(&'static str, Sent, Option<Peer>)> {
         taken(&self.access)
     }
 
@@ -325,13 +331,8 @@ pub fn entries(seen: &Arc<Seen>) -> Vec<RouteEntry> {
                 ids: &[],
                 rate: RateClass::Write,
             },
-            |call: Call<NoteQuery, Note>| async move {
-                drop((
-                    call.query.user_id,
-                    call.body.text,
-                    call.body.tags,
-                    call.body.owner,
-                ));
+            |call: Call<NoQuery, Note>| async move {
+                drop((call.body.text, call.body.tags, call.body.extra));
                 Ok(Reply::empty())
             },
         ),
@@ -472,11 +473,16 @@ pub fn hooks(seen: &Arc<Seen>, https: bool) -> Hooks {
             }
         }),
         access: Arc::new(move |attempt: Attempt| {
+            let sent = match &attempt.credential {
+                Credential::None => Sent::None,
+                Credential::Cookie(token) => Sent::Cookie(token.as_bytes().to_vec()),
+                Credential::Header(token) => Sent::Header(token.as_bytes().to_vec()),
+            };
             push(
                 &access_seen.access,
                 (
                     attempt.spec.path,
-                    attempt.credential.clone(),
+                    sent,
                     attempt.context.get::<Peer>().copied(),
                 ),
             );

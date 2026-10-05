@@ -4,10 +4,30 @@
 //! Memory-safe parsing needs a floor: a separate process, resource limits
 //! and `no_new_privs`. Above the floor, seccomp, Landlock and namespaces
 //! are added where the system has them, and the report carries a "reduced
-//! isolation" notice when any of the three is missing. Below the floor the
-//! work is off. Native decoders need every control, so they are on only at
-//! the full tier. Nothing here, and no argument anywhere in the sandbox,
-//! lets work run with less (SEC-TM-045).
+//! isolation" notice when any of the three is missing, or when the kernel
+//! enforces only part of the Landlock ruleset ([`Landlock::Partial`]).
+//! Below the floor the work is off. Native decoders need every control, so
+//! they are on only at the full tier. Nothing here, and no argument
+//! anywhere in the sandbox, lets work run with less (SEC-TM-045).
+
+/// How much of the worker's Landlock ruleset the kernel enforces.
+///
+/// The ruleset asks for everything Landlock can do for a worker: no
+/// filesystem access, no TCP bind or connect, and abstract sockets and
+/// signals scoped to the worker. A kernel enforces the rules its own
+/// Landlock has and passes over the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Landlock {
+    /// The whole ruleset.
+    Full,
+    /// Part of it: the kernel has Landlock, but an older one than the
+    /// ruleset is written for. Its TCP rules need Linux 6.7 and its signal
+    /// and abstract-socket scopes Linux 6.12; of the filesystem rights,
+    /// truncating needs 6.2 and device `ioctl` 6.10.
+    Partial,
+    /// None of it: the kernel has no Landlock, or it is switched off.
+    Missing,
+}
 
 /// Which isolation controls hold for a worker.
 ///
@@ -27,8 +47,9 @@ pub struct Enforced {
     pub no_new_privs: bool,
     /// The seccomp allowlist is installed.
     pub seccomp: bool,
-    /// A Landlock ruleset that grants no filesystem access is enforced.
-    pub landlock: bool,
+    /// How much of the Landlock ruleset, which grants no filesystem
+    /// access, is enforced.
+    pub landlock: Landlock,
     /// The worker runs in namespaces of its own.
     pub namespaces: bool,
 }
@@ -36,10 +57,10 @@ pub struct Enforced {
 /// The isolation tier a worker reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// Every control holds.
+    /// Every control holds, the whole Landlock ruleset among them.
     Full,
     /// The floor holds, and at least one of seccomp, Landlock and
-    /// namespaces is missing.
+    /// namespaces is missing, or Landlock is enforced only in part.
     Reduced,
     /// The floor does not hold, so no media is read.
     Off,
@@ -96,7 +117,7 @@ impl Enforced {
         limits: false,
         no_new_privs: false,
         seccomp: false,
-        landlock: false,
+        landlock: Landlock::Missing,
         namespaces: false,
     };
 
@@ -108,9 +129,20 @@ impl Enforced {
             (self.limits, "resource limits"),
             (self.no_new_privs, "the no-new-privileges flag"),
         ]);
+        // Whether Landlock holds, and what the notice calls it when it
+        // does not. A ruleset enforced in part does not hold: the notice
+        // names it apart from a kernel with no Landlock at all.
+        let landlock = match self.landlock {
+            Landlock::Full => (true, "Landlock"),
+            Landlock::Partial => (
+                false,
+                "full Landlock (this kernel enforces only some of its rules)",
+            ),
+            Landlock::Missing => (false, "Landlock"),
+        };
         let above = missing([
             (self.seccomp, "system call filtering (seccomp)"),
-            (self.landlock, "Landlock"),
+            landlock,
             (self.namespaces, "namespaces"),
         ]);
         if !floor.is_empty() {
@@ -143,7 +175,7 @@ impl Enforced {
 
 #[cfg(test)]
 mod tests {
-    use super::{Enforced, Tier, TierReport, prose};
+    use super::{Enforced, Landlock, Tier, TierReport, prose};
 
     /// Every control holds.
     const ALL: Enforced = Enforced {
@@ -151,7 +183,7 @@ mod tests {
         limits: true,
         no_new_privs: true,
         seccomp: true,
-        landlock: true,
+        landlock: Landlock::Full,
         namespaces: true,
     };
 
@@ -208,7 +240,7 @@ mod tests {
             ),
             (
                 Enforced {
-                    landlock: false,
+                    landlock: Landlock::Missing,
                     ..ALL
                 },
                 "Reduced isolation: media workers run without Landlock. \
@@ -235,12 +267,59 @@ mod tests {
             (
                 Enforced {
                     seccomp: false,
-                    landlock: false,
+                    landlock: Landlock::Missing,
                     namespaces: false,
                     ..ALL
                 },
                 "Reduced isolation: media workers run without system call filtering (seccomp), \
                  Landlock and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+        ];
+        for (enforced, notice) in cases {
+            let report = enforced.report();
+            assert_eq!(report, reduced(notice));
+            assert!(report.memory_safe_parsing());
+            assert!(!report.native_decoders());
+        }
+    }
+
+    /// A kernel whose Landlock is older than the ruleset enforces part of
+    /// it. That is not the full tier, and the notice says so in its own
+    /// words, apart from a kernel with no Landlock at all.
+    ///
+    /// Verifies: SEC-MED-024, SEC-TM-045
+    #[test]
+    fn landlock_enforced_in_part_is_the_reduced_tier_with_its_own_notice() {
+        let cases = [
+            (
+                Enforced {
+                    landlock: Landlock::Partial,
+                    ..ALL
+                },
+                "Reduced isolation: media workers run without full Landlock \
+                 (this kernel enforces only some of its rules). \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                Enforced {
+                    landlock: Landlock::Partial,
+                    namespaces: false,
+                    ..ALL
+                },
+                "Reduced isolation: media workers run without full Landlock \
+                 (this kernel enforces only some of its rules) and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                Enforced {
+                    seccomp: false,
+                    landlock: Landlock::Partial,
+                    namespaces: false,
+                    ..ALL
+                },
+                "Reduced isolation: media workers run without system call filtering (seccomp), \
+                 full Landlock (this kernel enforces only some of its rules) and namespaces. \
                  They still run in a separate process with resource limits and no new privileges.",
             ),
         ];
@@ -308,25 +387,35 @@ mod tests {
     /// Verifies: SEC-MED-024, SEC-TM-045
     #[test]
     fn the_table_holds_for_every_combination_of_controls() {
-        for bits in 0_u8..64 {
-            let bit = |n: u8| bits & (1 << n) != 0;
-            let enforced = Enforced {
-                process: bit(0),
-                limits: bit(1),
-                no_new_privs: bit(2),
-                seccomp: bit(3),
-                landlock: bit(4),
-                namespaces: bit(5),
-            };
-            // The table again, written as arithmetic on the bits: the
-            // floor is the low three, the full tier is all six.
-            let expected = [Tier::Off, Tier::Reduced, Tier::Full]
-                [usize::from(bits & 0b111 == 0b111) + usize::from(bits == 0b11_1111)];
-            let report = enforced.report();
-            assert_eq!(report.tier, expected);
-            assert_eq!(report.notice.is_none(), bits == 0b11_1111);
-            assert_eq!(report.memory_safe_parsing(), bits & 0b111 == 0b111);
-            assert_eq!(report.native_decoders(), bits == 0b11_1111);
+        // Landlock counts as a control that holds, bit 4, only when its
+        // whole ruleset is enforced.
+        let states = [
+            (Landlock::Missing, 0_u8),
+            (Landlock::Partial, 0),
+            (Landlock::Full, 1 << 4),
+        ];
+        for (landlock, landlock_bit) in states {
+            for others in (0_u8..64).filter(|others| others & (1 << 4) == 0) {
+                let bits = others | landlock_bit;
+                let bit = |n: u8| bits & (1 << n) != 0;
+                let enforced = Enforced {
+                    process: bit(0),
+                    limits: bit(1),
+                    no_new_privs: bit(2),
+                    seccomp: bit(3),
+                    landlock,
+                    namespaces: bit(5),
+                };
+                // The table again, written as arithmetic on the bits: the
+                // floor is the low three, the full tier is all six.
+                let expected = [Tier::Off, Tier::Reduced, Tier::Full]
+                    [usize::from(bits & 0b111 == 0b111) + usize::from(bits == 0b11_1111)];
+                let report = enforced.report();
+                assert_eq!(report.tier, expected);
+                assert_eq!(report.notice.is_none(), bits == 0b11_1111);
+                assert_eq!(report.memory_safe_parsing(), bits & 0b111 == 0b111);
+                assert_eq!(report.native_decoders(), bits == 0b11_1111);
+            }
         }
     }
 }

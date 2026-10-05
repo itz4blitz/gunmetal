@@ -15,6 +15,10 @@
 //! the specification uses it for who supplied the file. The values follow
 //! the field rules in [`super::mp4`].
 //!
+//! An ID is matched octet for octet, as the WAV parser matches the chunk
+//! IDs it knows: the four octets are the ID, and the same letters in
+//! another case are another ID. So `inam` is not mapped as `INAM` is.
+//!
 //! An `id3 ` or `ID3 ` chunk in a WAV or AIFF file is not read here: the
 //! probe hands it to the `ID3v2` parser like any other `ID3v2` tag.
 //!
@@ -28,7 +32,9 @@
 //! an error. A value longer than the long-text limit is dropped before it
 //! is decoded, with a recorded problem. No parser decodes these values
 //! before this mapper does, so none arrives already cut: a value is dropped
-//! whole here, or it is cut by the field rules, which record the cut.
+//! whole here, or it is cut by the field rules, which record the cut once.
+//! They keep what is left of a text, and do not read a date or a track
+//! number they cut ("Values that were cut" in [`super::mp4`]).
 //!
 //! # Work
 //!
@@ -40,7 +46,7 @@
 //! at least its header (SEC-MED-008), and nothing is allocated from a
 //! declared size: a value is a slice of the list (SEC-MED-003).
 
-use super::mp4::{Fields, Mapped, Reason, TagField, lookup};
+use super::mp4::{Fields, Mapped, Reason, TagField};
 use crate::catalog::Role;
 use crate::parse::{Budget, Cursor, LimitKind, Limits, ParseFault};
 
@@ -69,15 +75,16 @@ pub struct InfoTags {
     pub stopped: Option<ParseFault>,
 }
 
-/// The sub-chunks that are mapped.
-const KEYS: &[(&str, TagField)] = &[
-    ("INAM", TagField::Title),
-    ("IART", TagField::Artist),
-    ("IPRD", TagField::Album),
-    ("ICRD", TagField::Date),
-    ("IGNR", TagField::Genres),
-    ("ITRK", TagField::Track),
-    ("IMUS", TagField::Credit(Role::Composer)),
+/// The sub-chunks that are mapped, by their IDs exactly as a file holds
+/// them.
+const KEYS: &[([u8; 4], TagField)] = &[
+    (*b"INAM", TagField::Title),
+    (*b"IART", TagField::Artist),
+    (*b"IPRD", TagField::Album),
+    (*b"ICRD", TagField::Date),
+    (*b"IGNR", TagField::Genres),
+    (*b"ITRK", TagField::Track),
+    (*b"IMUS", TagField::Credit(Role::Composer)),
 ];
 
 /// Maps the sub-chunks of an `INFO` list onto
@@ -109,17 +116,14 @@ fn walk(
         budget.charge(1, offset)?;
         count = count.saturating_add(1);
         limits.check(LimitKind::TagFields, count, offset)?;
-        let id = list.array()?;
+        let id: [u8; 4] = list.array()?;
         let size = u64::from(list.u32_le()?);
         let body = list.take(size)?;
         // The pad octet after a value of odd length. The last value of a
         // list may lack it.
         let _ = list.skip(size & 1);
-        let field = core::str::from_utf8(&id)
-            .ok()
-            .and_then(|id| lookup(KEYS, id));
-        if let Some(field) = field {
-            value(fields, field, body, InfoChunk { id, offset }, limits);
+        if let Some((_, field)) = KEYS.iter().find(|(key, _)| *key == id) {
+            value(fields, *field, body, InfoChunk { id, offset }, limits);
         }
     }
     Ok(())
@@ -143,10 +147,10 @@ fn value(
         return;
     }
     if let Ok(text) = core::str::from_utf8(octets) {
-        fields.set(field, text, source);
+        fields.set(field, text, None, source);
     } else {
         let text: String = octets.iter().copied().map(char::from).collect();
-        fields.set(field, &text, source);
+        fields.set(field, &text, None, source);
     }
 }
 
@@ -334,6 +338,21 @@ mod tests {
         ]
         .concat();
         assert_eq!(read(&list), titled("ef", 28));
+    }
+
+    /// An ID is matched octet for octet, as the WAV parser matches the
+    /// chunk IDs it knows: in another case it is another ID.
+    #[test]
+    fn matches_ids_exactly_so_another_case_is_another_id() {
+        let list = [
+            chunk(*b"inam", b"ab"),
+            chunk(*b"Inam", b"cd"),
+            chunk(*b"iart", b"ef"),
+            chunk(*b"INAm", b"gh"),
+            chunk(*b"INAM", b"ij"),
+        ]
+        .concat();
+        assert_eq!(read(&list), titled("ij", 40));
     }
 
     #[test]
