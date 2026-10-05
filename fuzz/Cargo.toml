@@ -256,8 +256,29 @@ doc = false
 bench = false
 
 [[bin]]
+name = "probe"
+path = "fuzz_targets/probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "riff"
 path = "fuzz_targets/riff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_segment"
+path = "fuzz_targets/search_segment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tags_riff"
+path = "fuzz_targets/tags_riff.rs"
 test = false
 doc = false
 bench = false
@@ -279,6 +300,13 @@ bench = false
 [[bin]]
 name = "token"
 path = "fuzz_targets/token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "userdata_codec"
+path = "fuzz_targets/userdata_codec.rs"
 test = false
 doc = false
 bench = false
