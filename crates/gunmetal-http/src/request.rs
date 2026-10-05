@@ -34,6 +34,11 @@ use crate::problem::ApiError;
 /// here that the type does not have would be accepted and ignored.
 /// `FIELDS` covers the top level only; every struct nested inside a body
 /// type must carry `#[serde(deny_unknown_fields)]` (SEC-API-067).
+///
+/// A name in `FIELDS` that names a principal, such as `owner` or
+/// `user_id`, makes [`crate::table::Table::new`] refuse the route, unless
+/// it is an admin route that acts on other principals: the acting
+/// principal comes only from the credential (SEC-API-013).
 pub trait Fields: DeserializeOwned + 'static {
     /// Every query parameter, or every top-level body key, the action takes.
     const FIELDS: &'static [&'static str];
