@@ -85,6 +85,10 @@ problems! {
     CrossSiteRequest = ("cross_site_request", Some(403), "This request was refused because it didn't come from this server's own pages."),
     /// An `ID3v1` or APE tag at the end of a file could not be read and was skipped; the rest of the file was kept (SEC-MED-017).
     EndTagSkipped = ("end_tag_skipped", None, "We couldn't read a tag at the end of this file, so we skipped it."),
+    /// A user event's clock is further ahead of the server's time than the skew bound allows, so the event was refused (ADR 3, section 6).
+    EventClockAhead = ("event_clock_ahead", Some(400), "This device's clock is set ahead of the server's, so the change wasn't recorded. Check the device's date and time."),
+    /// A stored user event could not be read: its bytes are damaged or are not an event. It is reported, never guessed at (ADR 3, section 4).
+    EventMalformed = ("event_malformed", None, "A saved listening or library change is damaged and couldn't be read."),
     /// The caller is signed in but may not do this (SEC-IAM-068).
     Forbidden = ("forbidden", Some(403), "You don't have permission to do that."),
     /// Request handling failed unexpectedly. Nothing about the failure reaches the client (SEC-API-073, SEC-TM-040).
@@ -160,7 +164,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 28] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 30] = [
         (
             "aiff_unreadable",
             None,
@@ -196,6 +200,16 @@ mod tests {
             "end_tag_skipped",
             None,
             "We couldn't read a tag at the end of this file, so we skipped it.",
+        ),
+        (
+            "event_clock_ahead",
+            Some(400),
+            "This device's clock is set ahead of the server's, so the change wasn't recorded. Check the device's date and time.",
+        ),
+        (
+            "event_malformed",
+            None,
+            "A saved listening or library change is damaged and couldn't be read.",
         ),
         (
             "forbidden",
