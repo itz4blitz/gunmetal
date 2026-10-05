@@ -64,11 +64,11 @@ fn plant(dir: &TempDir, name: &str, files: &[(&str, &[u8])]) -> PathBuf {
 }
 
 /// A listing that found `entries` and the names `foreign`.
-fn listed<T>(entries: Vec<T>, foreign: &[&str]) -> Result<Listing<T>, LogDirError> {
-    Ok(Listing {
+fn listed<T>(entries: Vec<T>, foreign: &[&str]) -> Listing<T> {
+    Listing {
         entries,
         foreign: foreign.iter().copied().map(OsString::from).collect(),
-    })
+    }
 }
 
 fn io(item: Item, op: Op, kind: ErrorKind) -> LogDirError {
@@ -174,6 +174,7 @@ fn a_month_is_a_year_to_9999_and_a_month_of_the_calendar() {
     assert_eq!(parts(2026, 13), None);
     assert_eq!(parts(u16::MAX, u8::MAX), None);
     assert_eq!(LogMonth::MAX_YEAR, 9999);
+    assert_eq!(Some(LogMonth::MIN), LogMonth::new(0, 1));
     let mut months = vec![
         month(2026, 2),
         month(2025, 12),
@@ -228,13 +229,13 @@ fn creates_a_stream_s_directory_and_segments_by_their_typed_paths() {
 fn lists_the_streams_that_have_a_directory_in_name_order() {
     let dir = TempDir::new();
     let root = log_root(&dir);
-    assert_eq!(root.log_streams(), listed(vec![], &[]));
+    assert_eq!(root.log_streams(), Ok(listed(vec![], &[])));
     for name in [BOB_DIR, "household", ALICE_DIR] {
         plant(&dir, name, &[]);
     }
     assert_eq!(
         root.log_streams(),
-        listed(vec![LogStream::Household, ALICE, BOB], &[])
+        Ok(listed(vec![LogStream::Household, ALICE, BOB], &[]))
     );
 }
 
@@ -357,9 +358,15 @@ fn never_lists_a_symbolic_link_as_a_stream_or_a_segment() {
     symlink(ALICE_DIR, log_path(&dir).join(CAROL_DIR)).expect("plant a link to another stream");
     assert_eq!(
         root.log_segments(ALICE),
-        listed(vec![month(2026, 10)], &["2026-11.seg", "2026-12.seg"])
+        Ok(listed(
+            vec![month(2026, 10)],
+            &["2026-11.seg", "2026-12.seg"]
+        ))
     );
-    assert_eq!(root.log_streams(), listed(vec![ALICE, BOB], &[CAROL_DIR]));
+    assert_eq!(
+        root.log_streams(),
+        Ok(listed(vec![ALICE, BOB], &[CAROL_DIR]))
+    );
     assert_eq!(
         root.log_segments(CAROL),
         Err(wrong_kind(
@@ -432,7 +439,7 @@ fn lists_a_log_of_the_most_streams_and_refuses_one_more() {
     }
     assert_eq!(
         root.log_streams(),
-        listed(ids().map(LogStream::Profile).collect(), &[])
+        Ok(listed(ids().map(LogStream::Profile).collect(), &[]))
     );
     plant(&dir, "one-more", &[]);
     assert_eq!(
@@ -464,10 +471,10 @@ fn lists_a_stream_of_the_most_segments_and_refuses_one_more() {
     }
     assert_eq!(
         root.log_segments(ALICE),
-        listed(
+        Ok(listed(
             months().map(|(year, number)| month(year, number)).collect(),
             &[]
-        )
+        ))
     );
     fs::write(alice.join("one-more"), b"").expect("write the file");
     let too_many = LogDirError::TooMany {
@@ -505,7 +512,7 @@ fn removes_a_stream_s_directory_with_its_segments_and_what_a_replace_left() {
         fs::read(bob.join("2026-10.seg")).expect("read the segment"),
         b"bob"
     );
-    assert_eq!(root.log_streams(), listed(vec![BOB], &[]));
+    assert_eq!(root.log_streams(), Ok(listed(vec![BOB], &[])));
     // A stream with no directory is already removed.
     assert_eq!(root.remove_log_stream(ALICE), Ok(()));
     assert_eq!(names(&log), [BOB_DIR]);
@@ -594,6 +601,34 @@ fn leaves_a_stream_s_directory_that_holds_anything_else() {
             "2026-10.tmp",
             "notes.txt"
         ]
+    );
+}
+
+#[test]
+fn leaves_a_link_and_a_directory_whose_names_no_segment_has() {
+    let dir = TempDir::new();
+    let root = log_root(&dir);
+    let alice = plant(&dir, ALICE_DIR, &[("2026-10.seg", b"october")]);
+    let bob = plant(&dir, BOB_DIR, &[("2026-10.seg", b"bob")]);
+    symlink(format!("../{BOB_DIR}"), alice.join("link")).expect("plant a link to another stream");
+    fs::create_dir(alice.join("sub")).expect("create the directory");
+    fs::write(alice.join("sub").join("2026-11.seg"), b"kept").expect("write a file");
+    assert_eq!(
+        root.remove_log_stream(ALICE),
+        Err(io(
+            Item::Path(DataPath::log_stream(ALICE)),
+            Op::Remove,
+            ErrorKind::DirectoryNotEmpty
+        ))
+    );
+    // The segment is gone; the link, the directory and what they hold stay,
+    // and a listing reports both by name.
+    assert_eq!(names(&alice), ["link", "sub"]);
+    assert_eq!(names(&alice.join("sub")), ["2026-11.seg"]);
+    assert_eq!(names(&bob), ["2026-10.seg"]);
+    assert_eq!(
+        root.log_segments(ALICE),
+        Ok(listed(vec![], &["link", "sub"]))
     );
 }
 

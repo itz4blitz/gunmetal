@@ -347,6 +347,9 @@ impl LogMonth {
     /// The latest year a segment can be named for.
     pub const MAX_YEAR: u16 = 9999;
 
+    /// January of year 0, the earliest month a segment can be named for.
+    pub const MIN: Self = Self { year: 0, month: 1 };
+
     /// Month `month` of year `year`, or `None` unless the year is at most
     /// [`LogMonth::MAX_YEAR`] and the month is 1 to 12.
     #[must_use]
