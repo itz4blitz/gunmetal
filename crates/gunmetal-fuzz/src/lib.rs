@@ -47,6 +47,8 @@ pub mod otp;
 pub mod path;
 pub mod registry;
 pub mod riff;
+pub mod search_segment;
+pub mod tags_riff;
 pub mod text;
 pub mod time;
 pub mod token;
