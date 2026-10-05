@@ -97,6 +97,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the one place a data-directory path is built (SEC-MED-033, WP-126)",
     },
     Exception {
+        path: "crates/gunmetal-fs/src/root.rs",
+        lint: LINTS[1],
+        reason: "a library root is resolved and opened by path once; everything else is opened beneath its handle (SEC-MED-033, WP-060)",
+    },
+    Exception {
         path: "crates/gunmetal-fs/src/sqlite.rs",
         lint: LINTS[1],
         reason: "the one SQLite opener and statement door (SEC-HIS-016, WP-126)",
