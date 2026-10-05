@@ -66,17 +66,15 @@ pub fn compose(
     wall_ms: u64,
     entropy: [u8; 16],
 ) -> Result<(Event, Hlc), ClockError> {
-    // Red step: an event that holds the body and nothing else the caller
-    // gave, at a clock that does not move.
-    let _ = (by, wall_ms, entropy);
+    let next = clock.send(wall_ms)?;
     let event = Event {
-        id: EventId::new([0; 16]),
-        clock,
-        device: DeviceId::new([0; 16]),
-        stream: Stream::Household,
+        id: EventId::new(entropy),
+        clock: next,
+        device: by.device,
+        stream: Stream::Profile(by.profile),
         body,
     };
-    Ok((event, clock))
+    Ok((event, next))
 }
 
 #[cfg(test)]

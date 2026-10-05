@@ -32,7 +32,7 @@
 //! from a private session whatever a client sends (WP-086), because a
 //! client is never trusted to enforce a rule (boundary TB4).
 
-use super::event::Event;
+use super::event::{Body, Event};
 
 /// Whether the session an event comes from is recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,17 +53,26 @@ pub enum Mode {
 /// and a body of a type this version does not know.
 #[must_use]
 pub fn admit(event: Event, mode: Mode) -> Option<Event> {
-    // Red step: the two modes the wrong way round, and no rule for the body.
     match mode {
-        Mode::Normal => None,
-        Mode::Private => Some(event),
+        Mode::Normal => Some(event),
+        // Every body type is named, with no catch-all arm, so a type a
+        // later package adds does not compile until that package says
+        // whether a private session records it.
+        Mode::Private => match event.body {
+            Body::Love(_)
+            | Body::Unlove(_)
+            | Body::Setting(_)
+            | Body::DocumentOp(_)
+            | Body::DocumentSnapshot(_) => Some(event),
+            Body::Play(_) | Body::Skip(_) | Body::Position(_) | Body::Unknown(_) => None,
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::event::{
-        Body, BodyType, ContentId, DeviceId, DocumentId, DocumentKind, DocumentOp, DocumentRef,
+        BodyType, ContentId, DeviceId, DocumentId, DocumentKind, DocumentOp, DocumentRef,
         DocumentSnapshot, EventId, ItemRef, Place, Play, Position, ProfileId, Setting, SettingKey,
         SettingScope, SettingValue, Skip, Stream, UnknownBody,
     };
