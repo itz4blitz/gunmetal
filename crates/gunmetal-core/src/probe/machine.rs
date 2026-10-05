@@ -15,11 +15,12 @@
 //!
 //! The probe checks what a host answers its own reads with, those for a
 //! tag block and for the start of an Ogg file. The window must start
-//! where the read does and hold at least one octet of it. A window
-//! shorter than the read is taken, and the rest is asked for. Any other
-//! answer fails the file at once with [`ProbeError::Unanswered`]: a file
-//! cut short after its length was taken answers with no octets, and
-//! asking again would get no further (SEC-MED-008).
+//! where the read does, hold at least one octet, and hold no more octets
+//! than the read asked for. A window shorter than the read is taken, and
+//! the rest is asked for. Any other answer fails the file at once with
+//! [`ProbeError::Unanswered`]: a file cut short after its length was
+//! taken answers with no octets, and asking again would get no further
+//! (SEC-MED-008).
 //!
 //! The media itself is not read: the probe reads headers, tags and, for
 //! an MP3 file without a table of contents, the four-octet header of each
@@ -465,8 +466,10 @@ impl<'b> Probe<'b> {
     ///
     /// An answer must start where the read does and hold at least one
     /// octet, so every answer moves the read on and the same read is
-    /// never asked for twice in a row. An answer shorter than the read is
-    /// taken, and the rest is asked for.
+    /// never asked for twice in a row. It must hold no more octets than
+    /// the read asked for, so the octets held are ones the guard
+    /// admitted. An answer shorter than the read is taken, and the rest
+    /// is asked for.
     ///
     /// # Errors
     ///
@@ -479,11 +482,12 @@ impl<'b> Probe<'b> {
         window: Window<'_>,
     ) -> Result<Result<Option<ReadRequest>, DriveError>, ProbeError> {
         if let Some(asked) = gather.asked.take() {
-            if window.offset != asked.offset || window.bytes.is_empty() {
+            let len = u64::try_from(window.bytes.len()).unwrap_or(u64::MAX);
+            if window.offset != asked.offset || len == 0 || len > u64::from(asked.len) {
                 return Err(ProbeError::Unanswered {
                     asked,
                     offset: window.offset,
-                    len: u64::try_from(window.bytes.len()).unwrap_or(u64::MAX),
+                    len,
                 });
             }
             gather.octets.extend_from_slice(window.bytes);

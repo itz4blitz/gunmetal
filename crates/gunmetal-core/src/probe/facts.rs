@@ -291,10 +291,11 @@ pub enum ProbeError {
     /// A read that playback needs is one the limits refuse (SEC-MED-010).
     Read(DriveError),
     /// The host answered a read of the probe's own with a window that is
-    /// not the octets asked for: it starts somewhere else, or it holds no
-    /// octet, as when the file was cut short after its length was taken.
-    /// Asking again would get no further, so the file fails at once,
-    /// whatever the read was for (SEC-MED-008).
+    /// not the octets asked for: it starts somewhere else, it holds more
+    /// octets than were asked for, or it holds none, as when the file was
+    /// cut short after its length was taken. Asking again would get no
+    /// further, so the file fails at once, whatever the read was for
+    /// (SEC-MED-008).
     Unanswered {
         /// The read the probe asked for.
         asked: ReadRequest,

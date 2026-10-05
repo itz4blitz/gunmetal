@@ -5,11 +5,16 @@ use gunmetal_testkit::ogg::{self, FIRST, LAST, Page};
 use gunmetal_testkit::opus::{self, OpusHead};
 
 use super::*;
+use crate::catalog::{FileFacts, IdentityInputs, Trim};
+use crate::formats::detect::Format;
+use crate::formats::vorbis_comment::{Comments, Field};
 use crate::parse::{ReadRequest, SansIo, Step, Window};
+use crate::probe::{SeekIndex, TagBlock};
 
-/// The reads a probe of [`file`] makes: one to detect it, one for its
-/// header packets and one for its end.
-const READS: usize = 3;
+/// The most reads a probe of [`file`] makes here: one to detect it, one
+/// for its header packets and one for its end, and one more when an
+/// answer held only a part of its read.
+const READS: usize = 4;
 
 /// Each of those reads: the whole file.
 const WHOLE: ReadRequest = ReadRequest {
@@ -40,7 +45,7 @@ fn file() -> Vec<u8> {
 
 /// Probes [`file`] as a host that answers read number `bad`, counting
 /// from 0, with the window that starts at `offset` and holds `bytes`, and
-/// every read before it with the octets asked for. Returns the reads the
+/// every other read with the octets asked for. Returns the reads the
 /// probe asked for and its answer.
 ///
 /// A probe that asks for more than [`READS`] reads fails the test instead
@@ -118,6 +123,61 @@ fn fails_a_file_whose_read_is_answered_from_another_offset() {
     assert_eq!(
         answered(2, late),
         (vec![WHOLE, WHOLE, WHOLE], unanswered(1, 145))
+    );
+}
+
+/// An answer that holds a part of its read is taken, and the probe asks
+/// for the rest: here 100 of the 146 octets read for the header packets,
+/// then the 46 that are left. The file is probed as it is when every read
+/// is answered whole, but for the octets read: 146 to detect it, 146 and
+/// 46 for its header packets and 146 for its end are 484.
+#[test]
+fn asks_for_the_rest_of_a_read_that_is_answered_in_part() {
+    let file = file();
+    let part: (u64, &[u8]) = (0, &file[..100]);
+    let rest = ReadRequest {
+        offset: 100,
+        len: 46,
+    };
+    let probed = Probed {
+        format: Format::Ogg,
+        facts: FileFacts {
+            tech: tech(
+                Codec::Opus,
+                Container::Ogg,
+                (48_000, None, 2),
+                Some(1_168),
+                Some(1_000),
+            ),
+            trim: Some(Trim {
+                delay: 312,
+                padding: 0,
+            }),
+            artwork: vec![],
+            lyrics: vec![],
+            identity: IdentityInputs {
+                audio_md5: None,
+                audio_window: range(0, 146),
+            },
+            parser_version: 1,
+            bytes_read: 484,
+        },
+        tags: vec![TagBlock::Vorbis(Comments {
+            vendor: text("ref"),
+            fields: vec![Field {
+                key: "TITLE".to_owned(),
+                value: text("Song"),
+            }],
+            pictures: vec![],
+            problems: vec![],
+            end: 25,
+        })],
+        seek: SeekIndex::None,
+        problems: vec![],
+    };
+    assert_eq!(
+        answered(1, part),
+        (vec![WHOLE, WHOLE, rest, WHOLE], Ok(probed))
     );
 }
 
