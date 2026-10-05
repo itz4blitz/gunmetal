@@ -1001,6 +1001,34 @@ mod tests {
         );
     }
 
+    /// A title is indexed whole and a query is read to its 256th
+    /// character, so the two are cut by different rules when a title's
+    /// first letter comes after 256 characters with none.
+    #[test]
+    fn a_title_whose_first_letter_follows_256_marks_is_not_found_by_itself() {
+        // A title of `marks` marks and then "go", indexed alone, and what
+        // a query of the title itself and a query of "go" find in it.
+        let found = |marks: usize| {
+            let title: String = (0..marks).map(|_| '!').chain("go".chars()).collect();
+            let index = Index::build([titled(Track, 1, &title)].into_iter());
+            (
+                index.query(&title, KindFilter::All, u16::MAX),
+                index.query("go", KindFilter::All, u16::MAX),
+            )
+        };
+        let whole = vec![hit(Track, 1, Match::WholeTitle)];
+        // 254 marks: every character is read, and the query folds to "go".
+        assert_eq!(found(254), (whole.clone(), whole.clone()));
+        // 255 marks: the "g" is the last character read, and begins "go".
+        assert_eq!(
+            found(255),
+            (vec![hit(Track, 1, Match::TitleStart)], whole.clone())
+        );
+        // 256 marks: no letter is read, so the query is 32 marks as they
+        // are written, and the index holds the title as "go" alone.
+        assert_eq!(found(256), (Vec::new(), whole));
+    }
+
     #[test]
     fn matches_a_long_word_of_marks_on_its_first_32_characters() {
         let index = long_signs();
