@@ -1,0 +1,28 @@
+---
+lockfileVersion: '9.0'
+importers:
+  .:
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.7.0
+        version: 12.7.0
+packages:
+  pnpm@12.7.0:
+    resolution: {integrity: sha512-manager}
+snapshots:
+  pnpm@12.7.0: {}
+---
+lockfileVersion: '9.0'
+settings:
+  autoInstallPeers: false
+importers:
+  .:
+    devDependencies:
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+packages:
+  yaml@2.9.1:
+    resolution: {integrity: sha512-yaml}
+snapshots:
+  yaml@2.9.1: {}

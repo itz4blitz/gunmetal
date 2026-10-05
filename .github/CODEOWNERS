@@ -21,6 +21,12 @@
 /rust-toolchain.toml @itz4blitz
 Cargo.lock @itz4blitz
 
+# Client dependency policy, lockfile and install verification.
+/clients/package.json @itz4blitz
+/clients/pnpm-lock.yaml @itz4blitz
+/clients/pnpm-workspace.yaml @itz4blitz
+/clients/tools/gate/install/ @itz4blitz
+
 # Lint bans, workspace lints and the release profile.
 /clippy.toml @itz4blitz
 /Cargo.toml @itz4blitz

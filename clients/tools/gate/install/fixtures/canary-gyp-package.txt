@@ -1,0 +1,5 @@
+{
+  "name": "gunmetal-implicit-gyp-canary",
+  "version": "1.0.0",
+  "license": "ISC"
+}
