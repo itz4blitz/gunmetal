@@ -57,9 +57,7 @@ proptest! {
             .map(|file| contents(&file));
         prop_assert!(
             read.is_none() || read == Some(b"inside".to_vec()),
-            "{:?} read {:?}",
-            pieces,
-            read
+            "{pieces:?} read {read:?}"
         );
     }
 }

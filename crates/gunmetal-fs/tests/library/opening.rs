@@ -76,6 +76,7 @@ fn opens_read_only_without_blocking_and_closed_on_exec() {
     assert_eq!(rustix::io::fcntl_getfd(&file), Ok(FdFlags::CLOEXEC));
     // Whoever holds the descriptor, it cannot write.
     assert_eq!(rustix::io::write(&file, b"x"), Err(Errno::BADF));
+    assert_eq!(contents(&file), b"fLaC");
     assert_eq!(
         fs::read(scratch.path("music/track.flac")).expect("read the file back"),
         b"fLaC"

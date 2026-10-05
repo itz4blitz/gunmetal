@@ -225,10 +225,10 @@ fn follows_a_link_that_stays_inside_and_lists_the_ones_it_refuses() {
 fn walks_names_that_are_not_utf8_or_hold_controls_by_their_bytes() {
     let scratch = Scratch::new("fs-walk-bytes");
     let music = scratch.path("music");
-    let folder = music.join(OsStr::from_bytes(b"Bj\xF6rk"));
-    let inner = folder.join(OsStr::from_bytes(b"two\nlines.flac"));
+    let artist = music.join(OsStr::from_bytes(b"Bj\xF6rk"));
+    let inner = artist.join(OsStr::from_bytes(b"two\nlines.flac"));
     let outer = music.join(OsStr::from_bytes(b"\x1B[31mred.flac"));
-    fs::create_dir(&folder).expect("create the folder");
+    fs::create_dir(artist).expect("create the folder");
     fs::write(&inner, b"fLaC").expect("write a file");
     fs::write(&outer, b"fLaC").expect("write a file");
     let deep = rel(&[b"Bj\xF6rk", b"two\nlines.flac"]);

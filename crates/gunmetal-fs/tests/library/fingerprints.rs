@@ -168,7 +168,7 @@ fn a_summary_changes_with_every_part_of_a_listing() {
         change(&mut identity);
         vec![(b"a".as_slice(), Mark::File(identity))]
     };
-    let listings: Vec<Vec<(&[u8], Mark)>> = vec![
+    let listings: [Vec<(&[u8], Mark)>; 13] = [
         with(|_| ()),
         with(|identity| identity.device = 9),
         with(|identity| identity.inode = 9),
