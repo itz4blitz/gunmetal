@@ -23,10 +23,20 @@ use crate::problem::{Arg, Describe, Problem, ProblemCode};
 ///
 /// Devices that keep network time are within a second or two of the
 /// server; five minutes also tolerates a device whose clock was set by hand.
-/// A clock further ahead is refused rather than adopted, so the server's own
-/// clock never moves more than this past its wall time on a client's word.
-/// The server package that enforces it registers it in the limits register
-/// (SEC-STD-030).
+/// A clock further ahead is refused rather than adopted, and so is a clock
+/// whose adoption would leave the server's clock at the bound with a full
+/// counter ([`Hlc::receive`]). So the clock the server adopts on a
+/// client's word is never past the bound, and neither is the next clock
+/// it issues.
+///
+/// That is all the bound promises. The counter still ticks once for every
+/// later event at that wall time, whoever sent it, and a full counter
+/// carries into the wall time. A clock adopted at the bound with its
+/// counter a few ticks short of full is therefore filled by that many
+/// more events and carried one millisecond past the bound by the one
+/// after them, and each millisecond after that takes 2^32 events. The
+/// server package that enforces the bound registers it in the limits
+/// register (SEC-STD-030).
 pub const MAX_SKEW_MS: u64 = 300_000;
 
 /// A hybrid logical clock value: wall time in milliseconds since the Unix
@@ -79,10 +89,12 @@ impl Hlc {
     ///
     /// Returns [`ClockError::Ahead`] when `remote` is more than
     /// [`MAX_SKEW_MS`] ahead of `now_ms`, or when adopting `remote` would
-    /// move this node's clock past that bound (a full counter at the bound
-    /// carries one millisecond on); `self` is then unchanged, and the
-    /// event is refused. Returns [`ClockError::Exhausted`] only when the
-    /// later of the two clocks is the last clock there is.
+    /// leave this node's clock past that bound, or at it with a full
+    /// counter, which the next clock issued would carry past it; `self`
+    /// is then unchanged, and the event is refused. A clock that is this
+    /// node's own, later than `remote`, is not held to the bound. Returns
+    /// [`ClockError::Exhausted`] only when the later of the two clocks is
+    /// the last clock there is.
     pub fn receive(self, remote: Self, now_ms: u64) -> Result<Self, ClockError> {
         let bound_ms = now_ms.saturating_add(MAX_SKEW_MS);
         if remote.wall_ms > bound_ms {
@@ -92,10 +104,12 @@ impl Hlc {
             });
         }
         let next = self.max(remote).advance(now_ms)?;
-        // When the remote clock is the one adopted, a full counter at the
-        // bound carries one millisecond past it. Refuse that as Ahead: the
-        // server's clock must stay at or before the bound on a client's word.
-        if remote >= self && next.wall_ms > bound_ms {
+        // When the remote clock is the one adopted, the clock it leaves must
+        // have a tick to spare at the bound. A clock past the bound has
+        // carried a full counter over it already, and a clock at the bound
+        // with a full counter would on the next clock issued, so both are
+        // refused as Ahead.
+        if remote >= self && next >= Self::new(bound_ms, u32::MAX) {
             return Err(ClockError::Ahead {
                 wall_ms: remote.wall_ms,
                 bound_ms,
@@ -293,6 +307,64 @@ mod tests {
         assert_eq!(full.receive(full, now), ahead);
     }
 
+    /// A remote clock at the bound, one tick short of a full counter,
+    /// would be adopted with a full counter, and the next clock this node
+    /// issued would carry one millisecond past the bound: two steps where
+    /// the test above refuses one.
+    #[test]
+    fn receive_refuses_a_clock_that_would_leave_a_full_counter_at_the_skew_bound() {
+        let now = 1_000_000;
+        let nearly_full = Hlc::new(1_300_000, u32::MAX - 1);
+        let ahead = Err(ClockError::Ahead {
+            wall_ms: 1_300_000,
+            bound_ms: 1_300_000,
+        });
+        assert_eq!(Hlc::ZERO.receive(nearly_full, now), ahead);
+        assert_eq!(nearly_full.receive(nearly_full, now), ahead);
+    }
+
+    #[test]
+    fn receive_adopts_a_clock_that_leaves_a_tick_to_spare_at_the_skew_bound() {
+        let now = 1_000_000;
+        // Two ticks short of full at the bound: adopted one tick short,
+        // and the next clock this node issues is at the bound still.
+        assert_eq!(
+            Hlc::ZERO.receive(Hlc::new(1_300_000, u32::MAX - 2), now),
+            Ok(Hlc::new(1_300_000, u32::MAX - 1))
+        );
+        assert_eq!(
+            Hlc::new(1_300_000, u32::MAX - 1).send(now),
+            Ok(Hlc::new(1_300_000, u32::MAX))
+        );
+        // One millisecond inside the bound the counter may fill, and a
+        // full one carries to the bound itself with nothing counted.
+        assert_eq!(
+            Hlc::ZERO.receive(Hlc::new(1_299_999, u32::MAX - 1), now),
+            Ok(Hlc::new(1_299_999, u32::MAX))
+        );
+        assert_eq!(
+            Hlc::ZERO.receive(Hlc::new(1_299_999, u32::MAX), now),
+            Ok(Hlc::new(1_300_000, 0))
+        );
+    }
+
+    /// The bound is on what a client's clock makes this node adopt. A
+    /// clock that is this node's own, later than the remote one, still
+    /// ticks at the bound and carries past it.
+    #[test]
+    fn receive_ticks_this_nodes_own_clock_at_the_skew_bound() {
+        let now = 1_000_000;
+        let behind = Hlc::new(1_300_000, 5);
+        assert_eq!(
+            Hlc::new(1_300_000, u32::MAX - 1).receive(behind, now),
+            Ok(Hlc::new(1_300_000, u32::MAX))
+        );
+        assert_eq!(
+            Hlc::new(1_300_000, u32::MAX).receive(behind, now),
+            Ok(Hlc::new(1_300_001, 0))
+        );
+    }
+
     #[test]
     fn receive_of_the_last_clock_is_exhausted() {
         assert_eq!(
@@ -372,6 +444,45 @@ mod tests {
             })
     }
 
+    /// What `receive` must do for one input that does not exhaust the
+    /// clock: return a clock later than both and not behind the wall time,
+    /// from a remote clock within the skew bound, and, when the remote
+    /// clock is the one adopted, a clock short of a full counter at the
+    /// bound; or refuse the remote clock as ahead.
+    fn receive_holds(local: Hlc, remote: Hlc, now: u64) -> Result<(), TestCaseError> {
+        let bound_ms = now.saturating_add(MAX_SKEW_MS);
+        match local.receive(remote, now) {
+            Ok(next) => {
+                prop_assert!(
+                    next > local
+                        && next > remote
+                        && next.wall_ms() >= now
+                        && remote.wall_ms() <= bound_ms
+                );
+                prop_assert!(remote < local || next < Hlc::new(bound_ms, u32::MAX));
+            }
+            Err(error) => prop_assert_eq!(
+                error,
+                ClockError::Ahead {
+                    wall_ms: remote.wall_ms(),
+                    bound_ms
+                }
+            ),
+        }
+        Ok(())
+    }
+
+    /// The check the property makes runs every way on every run: on a
+    /// clock that is adopted, on one this node's own clock is ahead of,
+    /// and on one that is refused.
+    #[test]
+    fn the_receive_check_takes_an_adoption_a_tick_and_a_refusal() {
+        let now = 1_000_000;
+        receive_holds(Hlc::ZERO, Hlc::new(1_300_000, 0), now).unwrap();
+        receive_holds(Hlc::new(1_300_000, 9), Hlc::new(1_300_000, 0), now).unwrap();
+        receive_holds(Hlc::ZERO, Hlc::new(1_300_001, 0), now).unwrap();
+    }
+
     proptest! {
         #[test]
         fn send_is_later_than_the_clock_and_never_behind_the_wall_time(
@@ -387,23 +498,18 @@ mod tests {
             local in clock(),
             remote in clock(),
             now in wall(),
+            early in 0_u64..2_000,
+            past in 0_u64..3,
+            counter in logical(),
         ) {
-            let bound_ms = now.saturating_add(MAX_SKEW_MS);
-            match local.receive(remote, now) {
-                Ok(next) => {
-                    prop_assert!(
-                        next > local && next > remote && next.wall_ms() >= now
-                            && remote.wall_ms() <= bound_ms
-                    );
-                    if remote >= local {
-                        prop_assert!(next.wall_ms() <= bound_ms);
-                    }
-                }
-                Err(error) => prop_assert_eq!(
-                    error,
-                    ClockError::Ahead { wall_ms: remote.wall_ms(), bound_ms }
-                ),
-            }
+            receive_holds(local, remote, now)?;
+            // A remote clock one millisecond inside the skew bound, at it
+            // and one past it (the bound is 300,000 ms after `early`),
+            // with a counter near empty or near full: against a clock
+            // behind it, and against itself.
+            let edge = Hlc::new(early.saturating_add(299_999).saturating_add(past), counter);
+            receive_holds(Hlc::ZERO, edge, early)?;
+            receive_holds(edge, edge, early)?;
         }
     }
 }

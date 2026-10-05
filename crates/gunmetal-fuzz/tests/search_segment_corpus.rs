@@ -24,12 +24,15 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 7] = [
+const SEEDS: [&str; 10] = [
+    "backwards-posting",
     "empty",
     "four-billion-docs",
     "long-number",
     "no-docs",
+    "no-postings",
     "not-a-segment",
+    "repeated-posting",
     "two-docs",
     "unknown-doc",
 ];
@@ -165,6 +168,56 @@ fn replays_a_posting_for_a_document_that_is_not_there() {
         "unknown-doc",
         b"GMSI\x01\x00\x01\x01a\x01\x00\x00",
         &Err(IndexError::UnknownDoc { offset: 10 }),
+    );
+}
+
+/// One track, and a term "a" with a count of no postings.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_term_with_no_postings() {
+    replay(
+        "no-postings",
+        b"GMSI\x01\
+          \x01\
+          trk_00000000000000000000000001\x00\x01\
+          \x01\
+          \x01a\x00",
+        &Err(IndexError::NoPostings { offset: 39 }),
+    );
+}
+
+/// One track "Go", and the term "go" with the posting for the title's
+/// first place written twice.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_a_posting_written_twice() {
+    replay(
+        "repeated-posting",
+        b"GMSI\x01\
+          \x01\
+          trk_00000000000000000000000001\x00\x01\
+          \x01\
+          \x02go\x02\x00\x00\x00\x00",
+        &Err(IndexError::PostingOrder { offset: 45 }),
+    );
+}
+
+/// One track "Go Go", and the term "go" with the posting for the title's
+/// second place before the posting for its first.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_postings_that_go_backwards() {
+    replay(
+        "backwards-posting",
+        b"GMSI\x01\
+          \x01\
+          trk_00000000000000000000000001\x00\x02\
+          \x01\
+          \x02go\x02\x00\x01\x00\x00",
+        &Err(IndexError::PostingOrder { offset: 45 }),
     );
 }
 
