@@ -6,6 +6,30 @@
 //! outside its range is dropped with a reason (SEC-MED-014). Multi-valued
 //! lists stop at the tag-field limit (SEC-MED-006). Artist strings are not
 //! split here (WP-053).
+//!
+//! # Text
+//!
+//! Text lands in the catalogue cleaned and capped here, whatever the parser
+//! that decoded it kept (SEC-MED-013):
+//!
+//! - A title, a name, a sort name, a disc subtitle, a genre, a mood, a
+//!   label, a grouping, and the name and the role of a credit are each one
+//!   line of text. Control characters, tabs and line feeds among them, the
+//!   line and paragraph separators and the bidirectional controls are
+//!   removed, and the text is cut at [`LimitKind::ShortText`] octets.
+//! - Lyrics keep their tabs and line feeds, and are cut at
+//!   [`LimitKind::LyricsBytes`] octets: the limit the `ID3v2` parser reads
+//!   a `USLT` frame under, and the one the lines of a `SYLT` frame are
+//!   joined under.
+//! - A text that is empty or only white space once cleaned is not there.
+//! - A text cut here, or already cut by the parser that decoded it, is
+//!   recorded once as [`TagProblem::Truncated`], against the frame or the
+//!   `ID3v1` field it was read from and with the limit the field is kept
+//!   under (SEC-MED-006). A line of a `SYLT` frame that the parser cut is
+//!   recorded when the line is kept.
+//! - Text read as a number, a date, an identifier, a gain, a peak or a
+//!   flag is not kept as text. It becomes a typed value, or is dropped
+//!   with its reason.
 
 use crate::catalog::{
     Advisory, CatalogError, Credit, Gain, GainScale, LyricsOrigin, LyricsSource, LyricsTiming,
@@ -16,19 +40,19 @@ use crate::formats::id3v2::{
     Credit as PeopleCredit, Frame, FrameBody, FrameId, Id3v2Tag, LanguageText, SyncedLyrics,
 };
 use crate::parse::{LimitKind, Limits};
-use crate::text::Text;
+use crate::text::{self, Lines, Text};
 use crate::untrusted::Untrusted;
 use crate::values::{Field, GainDb, Isrc, Mbid, PartialDate, PeakRatio, ValueError};
 
 /// The mapped tags, the source of each field, and the values that were
-/// dropped.
+/// dropped or cut.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Mapped {
     /// The canonical tags.
     pub tags: TrackTags,
     /// Where each filled field was read.
     pub sources: FieldSources,
-    /// Values that were dropped, in the order found.
+    /// Values that were dropped or cut, in the order found.
     pub problems: Vec<TagProblem>,
 }
 
@@ -137,7 +161,7 @@ pub enum Id3v1Field {
     Genre,
 }
 
-/// A value that was dropped while mapping.
+/// A value that was dropped or cut while mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TagProblem {
     /// A typed value could not be read (SEC-MED-014).
@@ -514,30 +538,40 @@ impl<'a> Mapper<'a> {
                 &mut self.sources.title,
                 values,
                 source,
+                self.limits,
+                &mut self.problems,
             ),
             Kind::TitleSort => set_one(
                 &mut self.tags.title_sort,
                 &mut self.sources.title_sort,
                 values,
                 source,
+                self.limits,
+                &mut self.problems,
             ),
             Kind::Album => set_one(
                 &mut self.tags.album,
                 &mut self.sources.album,
                 values,
                 source,
+                self.limits,
+                &mut self.problems,
             ),
             Kind::AlbumSort => set_one(
                 &mut self.tags.album_sort,
                 &mut self.sources.album_sort,
                 values,
                 source,
+                self.limits,
+                &mut self.problems,
             ),
             Kind::DiscSubtitle => set_one(
                 &mut self.tags.disc_subtitle,
                 &mut self.sources.disc_subtitle,
                 values,
                 source,
+                self.limits,
+                &mut self.problems,
             ),
             Kind::Track => self.track(values, source),
             Kind::Disc => self.disc(values, source),
@@ -749,9 +783,17 @@ impl<'a> Mapper<'a> {
     }
 
     fn genres(&mut self, values: &[Text], source: FieldSource) {
-        for value in present(values) {
-            for name in expand_genre(value) {
-                if !push(&mut self.tags.genres, name, self.limits, &mut self.problems) {
+        for value in values {
+            let Some(value) = one_line(value, source, self.limits, &mut self.problems) else {
+                continue;
+            };
+            for genre in expand_genre(&value) {
+                if !push(
+                    &mut self.tags.genres,
+                    genre,
+                    self.limits,
+                    &mut self.problems,
+                ) {
                     return;
                 }
                 if self.sources.genres.is_none() {
@@ -763,7 +805,9 @@ impl<'a> Mapper<'a> {
 
     fn credits(&mut self, values: &[Text], role: Role, source: FieldSource) {
         for value in values {
-            let Some(credit) = Credit::new(value.value.clone(), role, None, None).ok() else {
+            let credit = one_line(value, source, self.limits, &mut self.problems)
+                .and_then(|credited| Credit::new(credited, role, None, None).ok());
+            let Some(credit) = credit else {
                 continue;
             };
             if !push(
@@ -782,17 +826,15 @@ impl<'a> Mapper<'a> {
 
     fn people(&mut self, people: &[PeopleCredit], musician: bool, source: FieldSource) {
         for person in people {
+            let said = one_line(&person.role, source, self.limits, &mut self.problems);
             let (role, detail) = if musician {
-                let detail = person.role.value.trim();
-                (
-                    Role::Performer,
-                    (!detail.is_empty()).then(|| person.role.value.clone()),
-                )
+                (Role::Performer, said)
             } else {
-                people_role(&person.role.value)
+                people_role(said.as_deref().unwrap_or_default())
             };
-            let Some(credit) = Credit::new(person.name.value.clone(), role, detail, None).ok()
-            else {
+            let credit = one_line(&person.name, source, self.limits, &mut self.problems)
+                .and_then(|credited| Credit::new(credited, role, detail, None).ok());
+            let Some(credit) = credit else {
                 continue;
             };
             if !push(
@@ -1053,21 +1095,30 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// The text of a `USLT` frame with its lines, up to the lyrics limit.
     fn uslt(&mut self, body: &LanguageText, source: FieldSource) {
-        if body.text.value.trim().is_empty() {
-            return;
-        }
-        self.embed_lyrics(
-            LyricsOrigin::Id3Unsynced,
-            LyricsTiming::Plain,
-            &body.text.value,
+        let words = clean(
+            &body.text,
+            Lines::Multi,
+            LimitKind::LyricsBytes,
             source,
+            self.limits,
+            &mut self.problems,
         );
+        if let Some(words) = words {
+            self.embed_lyrics(
+                LyricsOrigin::Id3Unsynced,
+                LyricsTiming::Plain,
+                &words,
+                source,
+            );
+        }
     }
 
     /// The lines of a `SYLT` frame joined by newlines, up to the lyrics
-    /// limit. Lines the parser dropped at the line limit, and lines past
-    /// the lyrics limit, are each reported (SEC-MED-006).
+    /// limit. Lines the parser dropped at the line limit, lines past the
+    /// lyrics limit, and each kept line the parser cut at the line length
+    /// limit are reported (SEC-MED-006).
     fn sylt(&mut self, body: &SyncedLyrics, source: FieldSource) {
         // Content type 1 is lyrics and 2 a transcription; writers that
         // leave it unset write 0. Movement names, events, chords, trivia
@@ -1101,6 +1152,12 @@ impl<'a> Mapper<'a> {
             }
             text.push_str(separator);
             text.push_str(&line.text.value);
+            if line.text.truncated {
+                self.report(TagProblem::Truncated {
+                    source,
+                    limit: LimitKind::LyricsLineBytes,
+                });
+            }
         }
         if text.trim().is_empty() {
             return;
@@ -1145,6 +1202,8 @@ impl<'a> Mapper<'a> {
             FieldSource::Id3v1 {
                 field: Id3v1Field::Title,
             },
+            self.limits,
+            &mut self.problems,
         );
         if self.tags.artist.is_empty() {
             extend_text(
@@ -1165,6 +1224,8 @@ impl<'a> Mapper<'a> {
             FieldSource::Id3v1 {
                 field: Id3v1Field::Album,
             },
+            self.limits,
+            &mut self.problems,
         );
         if self.tags.date.is_none() && !tag.year.value.trim().is_empty() {
             let source = FieldSource::Id3v1 {
@@ -1216,23 +1277,30 @@ fn remember(slot: &mut Option<FieldSource>, source: FieldSource) {
     }
 }
 
-/// Sets `slot` from the first present value when it is still empty.
+/// Sets `slot`, when it is still empty, from the first of `values` that is
+/// not blank as one line of text.
 fn set_one(
     slot: &mut Option<String>,
     origin: &mut Option<FieldSource>,
     values: &[Text],
     source: FieldSource,
+    limits: &Limits,
+    problems: &mut Vec<TagProblem>,
 ) {
     if slot.is_some() {
         return;
     }
-    if let Some(value) = first_present(values) {
-        *slot = Some(value.to_owned());
+    let found = values
+        .iter()
+        .find_map(|value| one_line(value, source, limits, problems));
+    if let Some(value) = found {
+        *slot = Some(value);
         *origin = Some(source);
     }
 }
 
-/// Appends each present value to `list`, stopping at the tag-field limit.
+/// Appends each of `values` that is not blank as one line of text to
+/// `list`, stopping at the tag-field limit.
 fn extend_text(
     list: &mut Vec<String>,
     origin: &mut Option<FieldSource>,
@@ -1241,14 +1309,55 @@ fn extend_text(
     limits: &Limits,
     problems: &mut Vec<TagProblem>,
 ) {
-    for value in present(values) {
-        if !push(list, value.to_owned(), limits, problems) {
+    for value in values {
+        let Some(value) = one_line(value, source, limits, problems) else {
+            continue;
+        };
+        if !push(list, value, limits, problems) {
             break;
         }
         if origin.is_none() {
             *origin = Some(source);
         }
     }
+}
+
+/// `raw` as one line of short text, the way a name or a title is kept.
+fn one_line(
+    raw: &Text,
+    source: FieldSource,
+    limits: &Limits,
+    problems: &mut Vec<TagProblem>,
+) -> Option<String> {
+    clean(
+        raw,
+        Lines::Single,
+        LimitKind::ShortText,
+        source,
+        limits,
+        problems,
+    )
+}
+
+/// `raw` as the catalogue keeps it: without what `lines` forbids, and cut
+/// at `limit` octets. A text that is cut here, or that the parser already
+/// cut, is recorded once against `source` (SEC-MED-006). `None` when
+/// nothing but white space is left.
+fn clean(
+    raw: &Text,
+    lines: Lines,
+    limit: LimitKind,
+    source: FieldSource,
+    limits: &Limits,
+    problems: &mut Vec<TagProblem>,
+) -> Option<String> {
+    // Every text limit's ceiling fits 32 bits.
+    let cap = u32::try_from(limits.get(limit)).unwrap_or(u32::MAX);
+    let cleaned = text::normalise(Untrusted::new(raw.value.as_bytes()), lines, cap);
+    if raw.truncated || cleaned.truncated {
+        report(problems, limits, TagProblem::Truncated { source, limit });
+    }
+    Some(cleaned.value).filter(|value| !value.trim().is_empty())
 }
 
 /// Pushes `item` when `list` is still under the tag-field limit.
@@ -4531,6 +4640,36 @@ mod tests {
                 source: v2_at(b"SYLT", 10),
                 limit: LimitKind::LyricsLineBytes,
             }])
+        );
+    }
+
+    /// A line the parser cut that the lyrics limit then drops is reported
+    /// as dropped, and not as cut as well.
+    #[test]
+    fn reports_a_cut_synced_line_only_when_it_is_kept() {
+        let limits = lowered(LimitKind::LyricsLineBytes, 2)
+            .with_override(LimitKind::LyricsBytes, 2)
+            .unwrap();
+        let bytes = one_frame(
+            b"SYLT",
+            &kit::synced_lyrics(Kit::Latin1, *b"eng", [2, 1], "", &[("ab", 0), ("cde", 100)]),
+        );
+        assert_eq!(
+            map_bytes(&bytes, &limits, &limits),
+            Mapped {
+                tags: TrackTags {
+                    lyrics: vec![lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, "ab")],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    lyrics: Some(v2_at(b"SYLT", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![TagProblem::LimitExceeded {
+                    limit: LimitKind::LyricsBytes,
+                    count: 5,
+                }],
+            }
         );
     }
 
