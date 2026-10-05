@@ -30,6 +30,13 @@
 //! - Text read as a number, a date, an identifier, a gain, a peak or a
 //!   flag is not kept as text. It becomes a typed value, or is dropped
 //!   with its reason.
+//!
+//! # Frames the parser keeps raw
+//!
+//! The `ID3v2` parser decodes text only for identifiers that start with
+//! `T`, and keeps every other frame as raw octets. So the grouping iTunes
+//! writes as `GRP1` and the sort names 2.3 tags hold as `XSOT`, `XSOP` and
+//! `XSOA` are not mapped; `TIT1`, `TSOT`, `TSOP` and `TSOA` are.
 
 use crate::catalog::{
     Advisory, CatalogError, Credit, Gain, GainScale, LyricsOrigin, LyricsSource, LyricsTiming,
@@ -1448,13 +1455,13 @@ fn kind(id: FrameId) -> Kind {
 fn kind4(id: [u8; 4]) -> Kind {
     match &id {
         b"TIT2" => Kind::Title,
-        b"TSOT" | b"XSOT" => Kind::TitleSort,
+        b"TSOT" => Kind::TitleSort,
         b"TPE1" => Kind::Artist,
-        b"TSOP" | b"XSOP" => Kind::ArtistSort,
+        b"TSOP" => Kind::ArtistSort,
         b"TPE2" => Kind::AlbumArtist,
         b"TSO2" => Kind::AlbumArtistSort,
         b"TALB" => Kind::Album,
-        b"TSOA" | b"XSOA" => Kind::AlbumSort,
+        b"TSOA" => Kind::AlbumSort,
         b"TRCK" => Kind::Track,
         b"TPOS" => Kind::Disc,
         b"TSST" => Kind::DiscSubtitle,
@@ -1466,7 +1473,7 @@ fn kind4(id: [u8; 4]) -> Kind {
         b"TCON" => Kind::Genre,
         b"TMOO" => Kind::Mood,
         b"TPUB" => Kind::Label,
-        b"TIT1" | b"GRP1" => Kind::Grouping,
+        b"TIT1" => Kind::Grouping,
         b"TCOM" => Kind::Credit(Role::Composer),
         b"TPE3" => Kind::Credit(Role::Conductor),
         b"TEXT" => Kind::Credit(Role::Lyricist),
@@ -1765,7 +1772,7 @@ mod tests {
 
     use crate::catalog::{GainTags, LyricsOrigin, LyricsTiming};
     use crate::formats::id3v1::find_v1;
-    use crate::formats::id3v2::{BUDGET_FIXED, BUDGET_PER_OCTET, Header, parse};
+    use crate::formats::id3v2::{BUDGET_FIXED, BUDGET_PER_OCTET, Header, Span, parse};
     use crate::parse::{Budget, Window};
     use gunmetal_testkit::id3v1::Id3v1;
     use gunmetal_testkit::id3v2::{self as kit, Encoding as Kit, Tag as TagBytes, Version};
@@ -1898,6 +1905,21 @@ mod tests {
     /// so that the frame's header is at 10.
     fn one_frame(id: &[u8], body: &[u8]) -> Vec<u8> {
         TagBytes::new(Version::V24).frame(id, 0, body).build()
+    }
+
+    /// A frame as the parser keeps it raw: its header at `offset`, and its
+    /// body from `start` to `end`.
+    fn raw_frame(id: &[u8], offset: u64, start: u64, end: u64) -> Frame {
+        Frame {
+            id: frame_id(id),
+            offset,
+            flags: 0,
+            body: FrameBody::Raw(Span {
+                start,
+                end,
+                unsynchronised: false,
+            }),
+        }
     }
 
     /// The octets of a 2.4 tag whose one frame is the title `title`.
@@ -2219,7 +2241,7 @@ mod tests {
 
     #[test]
     fn maps_title_sort_from_each_sort_frame() {
-        for id in [&b"TSOT"[..], &b"XSOT"[..], &b"TST"[..]] {
+        for id in [&b"TSOT"[..], &b"TST"[..]] {
             let mapped = map_text(4, id, "Blackstar");
             assert_eq!(mapped.tags.title_sort.as_deref(), Some("Blackstar"));
             assert_eq!(mapped.sources.title_sort, Some(v2_source(id)));
@@ -2617,23 +2639,22 @@ mod tests {
             4,
             spaced(vec![
                 text_frame(b"TCMP", &["1"]),
-                text_frame(b"GRP1", &["Work"]),
                 text_frame(b"TIT1", &["Movement"]),
                 text_frame(b"TMOO", &["Nocturnal"]),
                 text_frame(b"TPUB", &["ISO"]),
             ]),
         );
         assert_eq!(mapped.tags.compilation, Some(true));
-        assert_eq!(mapped.tags.grouping, ["Work", "Movement"]);
+        assert_eq!(mapped.tags.grouping, ["Movement"]);
         assert_eq!(mapped.tags.moods, ["Nocturnal"]);
         assert_eq!(mapped.tags.labels, ["ISO"]);
         assert_eq!(
             mapped.sources,
             FieldSources {
                 compilation: Some(v2_at(b"TCMP", 10)),
-                grouping: Some(v2_at(b"GRP1", 30)),
-                moods: Some(v2_at(b"TMOO", 70)),
-                labels: Some(v2_at(b"TPUB", 90)),
+                grouping: Some(v2_at(b"TIT1", 30)),
+                moods: Some(v2_at(b"TMOO", 50)),
+                labels: Some(v2_at(b"TPUB", 70)),
                 ..FieldSources::default()
             }
         );
@@ -3541,17 +3562,31 @@ mod tests {
         );
     }
 
+    /// The `ID3v2` parser decodes text only for identifiers that start
+    /// with `T`. It keeps the grouping iTunes writes as `GRP1` and the 2.3
+    /// sort names `XSOT`, `XSOP` and `XSOA` as raw octets, so nothing is
+    /// mapped from them and nothing is reported. Once the parser decodes
+    /// them, the frames here stop being raw and they can be mapped.
     #[test]
-    fn maps_v2_3_sort_frames() {
-        let mapped = map_frames(
-            3,
-            vec![
-                text_frame(b"XSOP", &["Bowie, David"]),
-                text_frame(b"XSOA", &["Low"]),
-            ],
+    fn maps_nothing_from_the_grouping_and_sort_frames_the_parser_keeps_raw() {
+        let bytes = TagBytes::new(Version::V23)
+            .frame(b"GRP1", 0, &kit::text(Kit::Latin1, &["Work"]))
+            .frame(b"XSOT", 0, &kit::text(Kit::Latin1, &["Blackstar"]))
+            .frame(b"XSOP", 0, &kit::text(Kit::Latin1, &["Bowie, David"]))
+            .frame(b"XSOA", 0, &kit::text(Kit::Latin1, &["Low"]))
+            .build();
+        let v2 = parsed(&bytes, &Limits::DEFAULT);
+        assert_eq!(
+            v2.frames,
+            [
+                raw_frame(b"GRP1", 10, 20, 25),
+                raw_frame(b"XSOT", 25, 35, 45),
+                raw_frame(b"XSOP", 45, 55, 68),
+                raw_frame(b"XSOA", 68, 78, 82),
+            ]
         );
-        assert_eq!(mapped.tags.artist_sort, ["Bowie, David"]);
-        assert_eq!(mapped.tags.album_sort.as_deref(), Some("Low"));
+        assert_eq!(v2.problems, []);
+        assert_eq!(map(Some(&v2), None), Mapped::default());
     }
 
     #[test]
