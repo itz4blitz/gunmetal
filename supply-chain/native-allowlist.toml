@@ -76,6 +76,11 @@ reason = "Detects the SHA CPU extensions sha2 uses (WP-122, D-02). Unsafe to run
 requirement = "SEC-STD-018"
 
 [[crate]]
+name = "enumflags2"
+reason = "Flag sets for landlock's access rights and scopes (WP-045, D-02). Unsafe to build a flag set from bits it has already masked to the known flags, and the `RawBitFlags` trait its derive implements."
+requirement = "SEC-MED-022"
+
+[[crate]]
 name = "errno"
 reason = "Reads and sets the thread's `errno` for rustix, on the targets where rustix goes through libc (WP-126). Unsafe calls into libc."
 requirement = "SEC-MED-033"
@@ -104,6 +109,11 @@ requirement = "SEC-API-001"
 name = "getrandom"
 reason = "The operating system's CSPRNG, called by the one randomness function in gunmetal-secrets (WP-047). Unsafe for the `getrandom` system call and for the uninitialised buffers it fills."
 requirement = "SEC-STD-022"
+
+[[crate]]
+name = "gunmetal-worker"
+reason = "Gunmetal's own worker crate holds the one `unsafe` block in Gunmetal's crates (ADR 13, WP-045): in src/sandbox/descriptors.rs, `BorrowedFd::borrow_raw` on a descriptor number this process listed from `/proc/self/fd`, for one `fcntl(F_SETFD, FD_CLOEXEC)` call, so a launched worker inherits only its socket. The owner chose this over the single-publisher close_fds on 2026-10-04. `xtask lint-exceptions` keeps it to that one statement."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "http"
@@ -144,6 +154,11 @@ requirement = "SEC-MED-033"
 name = "itoa"
 reason = "Integer formatting for http (status codes), axum and serde_json, under gunmetal-http (WP-044, D-68). Unsafe writes into an uninitialised stack buffer and `from_utf8_unchecked` on the ASCII digits it wrote."
 requirement = "SEC-API-001"
+
+[[crate]]
+name = "landlock"
+reason = "The Landlock ruleset a media worker enforces on itself, which grants no path (WP-045, D-02). Unsafe calls of the three Landlock system calls through libc, taking ownership of the ruleset descriptor, and building access sets from checked bits."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "libc"
@@ -214,6 +229,11 @@ requirement = "SEC-MED-033, SEC-HIS-016"
 name = "rustix-linux-procfs"
 reason = "Opens `/proc` safely for cap-primitives, which reads a descriptor's path through it (WP-126). One unsafe transmute of an initialised byte buffer."
 requirement = "SEC-MED-033"
+
+[[crate]]
+name = "seccompiler"
+reason = "Compiles the media worker's seccomp allowlist to BPF and installs it (WP-045, D-02). Unsafe calls of `prctl(PR_SET_NO_NEW_PRIVS)` and the `seccomp` system call through libc."
+requirement = "SEC-MED-022"
 
 [[crate]]
 name = "serde"

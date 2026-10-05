@@ -20,6 +20,13 @@
 //!   deny-level lints a table of their own. The core's tests
 //!   (`tests/workspace_rules.rs`) check that both repeat every workspace
 //!   rule, and the gate allows no third `clippy.toml`;
+//! - in the one crate that may hold `unsafe` ([`UNSAFE_DOOR`], ADR 13), a
+//!   line that names the [`UNSAFE`] lint outside the module listed for it,
+//!   or a second such line in that module, and a manifest whose lint
+//!   tables are not the workspace's with exactly one change: that lint
+//!   denied instead of forbidden. Everywhere else the workspace forbids it,
+//!   and no attribute can lift a `forbid`, so a second `unsafe` block
+//!   anywhere fails the build or this check;
 //! - a cargo configuration file, `.cargo/config.toml` or the older
 //!   `.cargo/config`, anywhere in the repository. `rustflags` in its
 //!   `[build]` or `[target]` table turn a ban off for the whole build, and
@@ -130,6 +137,26 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "test scratch directories (owner decision 33, WP-007)",
     },
     Exception {
+        path: "crates/gunmetal-worker/src/sandbox/descriptors.rs",
+        lint: UNSAFE,
+        reason: "the one unsafe block in Gunmetal's crates: borrow a descriptor number listed from /proc/self/fd to set close-on-exec on it (ADR 13, SEC-MED-022, WP-045)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/src/sandbox/kernel.rs",
+        lint: LINTS[1],
+        reason: "the worker lists its own /proc/self entries before it gives up the filesystem; its tests read the kernel's module list and a thread's status (SEC-MED-022, WP-045)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/src/sandbox/launch.rs",
+        lint: LINTS[1],
+        reason: "the sandbox launcher, the one door that starts a process (SEC-MED-063, WP-045)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/tests/",
+        lint: LINTS[1],
+        reason: "the hostile test worker tries each forbidden action by path, socket and Command (SEC-MED-022, WP-045)",
+    },
+    Exception {
         path: "crates/xtask/src/tree.rs",
         lint: LINTS[1],
         reason: "the xtask's one filesystem module (WP-008)",
@@ -139,6 +166,14 @@ pub const EXCEPTIONS: &[Exception] = &[
 /// The one crate that keeps its own `clippy.toml` and lint tables, because
 /// it adds rules to the workspace's (WP-001).
 pub const STRICTER: &str = "crates/gunmetal-core/";
+
+/// The one crate whose manifest may deny the [`UNSAFE`] lint instead of
+/// forbidding it, so that one listed module can allow one `unsafe` block
+/// (ADR 13).
+pub const UNSAFE_DOOR: &str = "crates/gunmetal-worker/";
+
+/// The lint that forbids `unsafe`, searched for in [`UNSAFE_DOOR`] only.
+pub const UNSAFE: &str = concat!("unsafe", "_code");
 
 /// The ban lints, and the clippy lint groups that hold them.
 pub const LINTS: [&str; 5] = [
@@ -154,6 +189,15 @@ pub const LINTS: [&str; 5] = [
 pub enum Finding {
     /// A source line names a ban lint in a module not listed for it.
     Unlisted {
+        /// The module's path from the repository root.
+        path: String,
+        /// The line, counted from 1.
+        line: usize,
+        /// The lint the line names.
+        lint: &'static str,
+    },
+    /// A second line that names [`UNSAFE`] in the module listed for it.
+    Repeated {
         /// The module's path from the repository root.
         path: String,
         /// The line, counted from 1.
@@ -193,6 +237,7 @@ pub enum Finding {
 pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut used = vec![false; exceptions.len()];
+    let workspace = tree.read("Cargo.toml").unwrap_or_default();
     for file in tree.files("crates") {
         let path = format!("crates/{file}");
         let name = file.rsplit('/').next().unwrap_or_default();
@@ -201,18 +246,32 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
             if !stricter {
                 findings.push(Finding::LocalConfig { path });
             }
-        } else if name == "Cargo.toml"
-            && !stricter
-            && !takes_workspace_lints(&tree.read(&path).unwrap_or_default())
-        {
-            findings.push(Finding::OwnLints { path });
+        } else if name == "Cargo.toml" && !stricter {
+            let manifest = tree.read(&path).unwrap_or_default();
+            let door = path.strip_prefix(UNSAFE_DOOR) == Some(name)
+                && denies_only_unsafe(&manifest, &workspace);
+            if !door && !takes_workspace_lints(&manifest) {
+                findings.push(Finding::OwnLints { path });
+            }
         } else if is_rust(name) {
             let source = tree.read(&path).unwrap_or_default();
+            let searched = if path.starts_with(UNSAFE_DOOR) {
+                [&LINTS[..], &[UNSAFE]].concat()
+            } else {
+                LINTS.to_vec()
+            };
             for (index, line) in source.lines().enumerate() {
-                for lint in LINTS.into_iter().filter(|lint| line.contains(lint)) {
+                for &lint in searched.iter().filter(|lint| line.contains(*lint)) {
                     match exceptions.iter().position(|exception| {
                         covers(exception.path, &path) && exception.lint == lint
                     }) {
+                        Some(listed) if lint == UNSAFE && used[listed] => {
+                            findings.push(Finding::Repeated {
+                                path: path.clone(),
+                                line: index + 1,
+                                lint,
+                            });
+                        }
                         Some(listed) => used[listed] = true,
                         None => findings.push(Finding::Unlisted {
                             path: path.clone(),
@@ -253,6 +312,42 @@ fn covers(entry: &str, path: &str) -> bool {
     }
 }
 
+/// The lines of the lint tables in `manifest` whose headers start with
+/// `[` and `prefix`, headers shortened by the prefix, without blank lines
+/// or comments.
+fn lint_lines(manifest: &str, prefix: &str) -> Vec<String> {
+    let opening = format!("[{prefix}");
+    let mut inside = false;
+    let mut lines = Vec::new();
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line.starts_with(&opening);
+        }
+        if inside && !line.is_empty() && !line.starts_with('#') {
+            lines.push(line.replacen(&opening, "[", 1));
+        }
+    }
+    lines
+}
+
+/// Whether the door crate's `manifest` repeats the `workspace` manifest's
+/// lint tables with one change, [`UNSAFE`] denied instead of forbidden.
+fn denies_only_unsafe(manifest: &str, workspace: &str) -> bool {
+    let forbidden = format!("{UNSAFE} = \"forbid\"");
+    let denied = format!("{UNSAFE} = \"deny\"");
+    let expected: Vec<String> = lint_lines(workspace, "workspace.lints.")
+        .into_iter()
+        .map(|line| {
+            if line == forbidden {
+                denied.clone()
+            } else {
+                line
+            }
+        })
+        .collect();
+    expected.contains(&denied) && lint_lines(manifest, "lints.") == expected
+}
+
 /// Whether a crate `manifest` takes the workspace lints and sets none of its
 /// own.
 fn takes_workspace_lints(manifest: &str) -> bool {
@@ -264,7 +359,7 @@ fn takes_workspace_lints(manifest: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Exception, Finding, LINTS, check};
+    use super::{Exception, Finding, LINTS, UNSAFE, check};
     use crate::tree::memory::Memory;
 
     /// The workspace-lints table every crate manifest carries.
@@ -517,6 +612,107 @@ mod tests {
                 config(".cargo/config.toml"),
                 config("crates/demo/.cargo/config.toml"),
                 config("fuzz/.cargo/config"),
+            ]
+        );
+    }
+
+    /// The workspace's lint tables, as the root manifest writes them.
+    const WORKSPACE: &str = "[workspace]\nmembers = []\n\n[workspace.lints.rust]\n\
+        unsafe_code = \"forbid\"\nmissing_docs = \"warn\"\n\n[workspace.lints.clippy]\n\
+        # Comments do not count.\npedantic = { level = \"warn\", priority = -1 }\n\
+        await_holding_lock = \"deny\"\n\n[profile.release]\noverflow-checks = true\n";
+
+    /// A manifest for the unsafe door with the workspace's tables, `rust`
+    /// first holding the lines `rust` and then the workspace's other one.
+    fn door_manifest(rust: &str) -> String {
+        format!(
+            "[package]\nname = \"door\"\n\n[lints.rust]\n{rust}missing_docs = \"warn\"\n\n\
+             [lints.clippy]\npedantic = {{ level = \"warn\", priority = -1 }}\n\
+             await_holding_lock = \"deny\"\n"
+        )
+    }
+
+    #[test]
+    fn only_the_unsafe_door_may_deny_unsafe_code_instead_of_forbidding_it() {
+        let denied = door_manifest(&format!("{UNSAFE} = \"deny\"\n"));
+        let tree = Memory::default()
+            .with("Cargo.toml", WORKSPACE)
+            .with("crates/gunmetal-worker/Cargo.toml", &denied)
+            .with("crates/other/Cargo.toml", &denied);
+        assert_eq!(
+            check(&tree, &[]),
+            [Finding::OwnLints {
+                path: "crates/other/Cargo.toml".to_owned()
+            }]
+        );
+    }
+
+    #[test]
+    fn the_unsafe_door_may_change_nothing_else_in_the_workspace_lints() {
+        let paths = ["crates/gunmetal-worker/Cargo.toml".to_owned()];
+        let own_lints = |manifest: &str| {
+            let tree = Memory::default()
+                .with("Cargo.toml", WORKSPACE)
+                .with(&paths[0], manifest);
+            check(&tree, &[])
+        };
+        let failed = [Finding::OwnLints {
+            path: paths[0].clone(),
+        }];
+        // Allowed outright, or a lint dropped, added or weakened.
+        assert_eq!(
+            own_lints(&door_manifest(&format!("{UNSAFE} = \"allow\"\n"))),
+            failed
+        );
+        assert_eq!(own_lints(&door_manifest("")), failed);
+        assert_eq!(
+            own_lints(&door_manifest(&format!(
+                "{UNSAFE} = \"deny\"\nunused = \"allow\"\n"
+            ))),
+            failed
+        );
+        assert_eq!(
+            own_lints(&door_manifest(&format!("{UNSAFE} = \"deny\"\n")).replace(
+                "await_holding_lock = \"deny\"",
+                "await_holding_lock = \"warn\""
+            )),
+            failed
+        );
+        // Taking the workspace's tables unchanged is fine too.
+        assert_eq!(own_lints(MANIFEST), []);
+        // Without a root manifest to compare with, nothing passes.
+        let alone =
+            Memory::default().with(&paths[0], &door_manifest(&format!("{UNSAFE} = \"deny\"\n")));
+        assert_eq!(check(&alone, &[]), failed);
+    }
+
+    #[test]
+    fn the_unsafe_door_names_its_lint_on_one_listed_line_only() {
+        let listed = [Exception {
+            path: "crates/gunmetal-worker/src/door.rs",
+            lint: UNSAFE,
+            reason: "the one unsafe block",
+        }];
+        let allow = format!("#[expect(\n    {UNSAFE},\n    reason = \"the one\"\n)]\n");
+        let tree = Memory::default()
+            .with("crates/gunmetal-worker/src/door.rs", &allow.repeat(2))
+            .with("crates/gunmetal-worker/src/other.rs", &allow)
+            // Outside the door crate the workspace forbids it, which no
+            // attribute can lift, so the name is not searched for there.
+            .with("crates/elsewhere/src/lib.rs", &allow);
+        assert_eq!(
+            check(&tree, &listed),
+            [
+                Finding::Repeated {
+                    path: "crates/gunmetal-worker/src/door.rs".to_owned(),
+                    line: 6,
+                    lint: UNSAFE,
+                },
+                Finding::Unlisted {
+                    path: "crates/gunmetal-worker/src/other.rs".to_owned(),
+                    line: 2,
+                    lint: UNSAFE,
+                },
             ]
         );
     }
