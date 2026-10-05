@@ -1,4 +1,4 @@
-# 13. Deterministic artwork tint derivation
+# 14. Deterministic artwork tint derivation
 
 Date: 2026-10-04
 Status: proposed implementation ruling for WP-238 under the approved plan.
