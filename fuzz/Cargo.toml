@@ -284,6 +284,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "userdata_codec"
+path = "fuzz_targets/userdata_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "values"
 path = "fuzz_targets/values.rs"
 test = false

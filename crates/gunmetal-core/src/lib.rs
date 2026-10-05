@@ -37,6 +37,7 @@ pub mod time;
 pub mod tint;
 pub mod token;
 pub mod untrusted;
+pub mod userdata;
 pub mod values;
 pub mod webauthn;
 pub mod wire;

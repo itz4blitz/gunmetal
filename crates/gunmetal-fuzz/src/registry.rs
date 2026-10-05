@@ -82,6 +82,7 @@ harnesses! {
     text,
     time,
     token,
+    userdata_codec,
     values,
     vorbis,
     vorbis_comment,
