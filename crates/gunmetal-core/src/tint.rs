@@ -388,8 +388,10 @@ mod tests {
         near(result.oklch.chroma, 0.047_171_778_751_727_5);
         assert_eq!(result.oklch.lightness, 0.26);
         assert_eq!(result.oklch.hue, 180.0);
-        near(result.surface.red, 0.0);
-        assert!(result.surface.green > result.surface.blue);
+        colour_near(
+            result.surface,
+            [0.0, 0.169_701_732_112_226_58, 0.144_430_362_360_627_98],
+        );
     }
 
     #[test]
@@ -402,7 +404,15 @@ mod tests {
         }
         let result = surfaces(BASE, Theme::Light, WHITE, &[]).unwrap();
         assert_eq!(result.oklch.lightness, 0.95);
-        assert!(result.oklch.chroma > 0.0 && result.oklch.chroma < 0.04);
+        near(result.oklch.chroma, 0.026_856_563_109_904_533);
+        colour_near(
+            result.surface,
+            [
+                0.999_999_999_981_085_5,
+                0.907_657_970_174_959_4,
+                0.931_674_682_090_440_2,
+            ],
+        );
     }
 
     #[test]
@@ -486,6 +496,14 @@ mod tests {
             None
         );
         assert_eq!(surfaces(BASE, Theme::HighContrast, BLACK, &[]), None);
+        // A canvas on the wrong side of the starting lightness refuses even
+        // with no token to satisfy: lightness 0.9351 under Light's 0.95, and
+        // 0.2648 over Dark's 0.26.
+        assert_eq!(
+            surfaces(BASE, Theme::Light, hex([230, 234, 238]), &[]),
+            None
+        );
+        assert_eq!(surfaces(BASE, Theme::Dark, hex([31, 38, 45]), &[]), None);
     }
 
     #[test]
@@ -665,9 +683,10 @@ mod tests {
 
     #[test]
     fn every_degree_meets_the_design_table_floors_at_zero_half_and_full_caps() {
-        for (theme, cap, canvas, colours) in [
+        for (theme, start, cap, canvas, colours) in [
             (
                 Theme::Dark,
+                0.26,
                 0.07,
                 hex([15, 19, 23]),
                 [
@@ -682,6 +701,7 @@ mod tests {
             ),
             (
                 Theme::Light,
+                0.95,
                 0.04,
                 hex([243, 245, 247]),
                 [
@@ -711,34 +731,63 @@ mod tests {
                     role,
                 })
                 .collect();
-            for chroma in [0.0, cap / 2.0, cap] {
-                for hue in 0..360 {
+            let meets_every_floor = |surface: Srgb| {
+                tokens.iter().all(|token| {
+                    let floor = match token.role {
+                        ContrastRole::Text => 4.5,
+                        ContrastRole::ControlOrLargeText => 3.0,
+                    };
+                    contrast(surface, token.colour) >= floor
+                })
+            };
+            for hue in (0..360).map(f64::from) {
+                // The table's three rows: the band at its fixed lightness
+                // with no chroma, half the cap and the whole cap.
+                for chroma in [0.0, cap / 2.0, cap] {
+                    let band = in_gamut(Oklch {
+                        lightness: start,
+                        chroma,
+                        hue,
+                    });
+                    assert!(
+                        meets_every_floor(band.surface),
+                        "{theme:?}, {hue}, {chroma}"
+                    );
+                }
+                // Through the public function, from the floor to far past
+                // the cap: a tint, and no step away from the start.
+                for chroma in [0.04, 0.055, 0.07, 0.5] {
                     let result = surfaces(
                         Oklch {
                             chroma,
-                            hue: f64::from(hue),
+                            hue,
                             ..BASE
                         },
                         theme,
                         canvas,
                         &tokens,
+                    )
+                    .unwrap();
+                    assert_eq!(result.oklch.lightness, start, "{theme:?}, {hue}, {chroma}");
+                    assert!(
+                        meets_every_floor(result.surface),
+                        "{theme:?}, {hue}, {chroma}"
                     );
-                    if chroma < 0.04 {
-                        assert_eq!(result, None);
-                        continue;
-                    }
-                    let result = result.unwrap();
-                    for token in &tokens {
-                        let floor = match token.role {
-                            ContrastRole::Text => 4.5,
-                            ContrastRole::ControlOrLargeText => 3.0,
-                        };
-                        assert!(
-                            contrast(result.surface, token.colour) >= floor,
-                            "{theme:?}, {hue}, {chroma}, {token:?}"
-                        );
-                    }
                 }
+                // Just under the floor there is no tint.
+                assert_eq!(
+                    surfaces(
+                        Oklch {
+                            chroma: 0.039,
+                            hue,
+                            ..BASE
+                        },
+                        theme,
+                        canvas,
+                        &tokens
+                    ),
+                    None
+                );
             }
         }
     }
