@@ -2935,8 +2935,9 @@ mod tests {
         }
     }
 
-    /// A key the mapper knows or any other, and any text as its value.
-    fn any_field() -> impl Strategy<Value = (String, String)> {
+    /// A key the mapper knows or any other, any text as its value, and
+    /// whether the comment parser cut the value.
+    fn any_field() -> impl Strategy<Value = (String, String, bool)> {
         let known = prop::sample::select(vec![
             "TITLE",
             "ARTIST",
@@ -2966,26 +2967,34 @@ mod tests {
             Just(String::from(ARTIST_A)),
             Just(String::from("USS1Z9900001")),
         ];
-        (prop_oneof![known, "[ -~]{0,8}"], value)
+        let cut = prop::bool::weighted(0.25);
+        (prop_oneof![known, "[ -~]{0,8}"], value, cut)
     }
 
     proptest! {
-        /// Whatever the fields hold, no list is longer than the tag-field
-        /// limit, no text is longer than its limit, every source names a
-        /// comment of the block, and no comment gives more than two
-        /// problems.
+        /// Whatever the fields hold and whichever of them the comment
+        /// parser cut, no list is longer than the tag-field limit, no text
+        /// is longer than its limit, every source names a comment of the
+        /// block, and no comment gives more than two problems.
         #[test]
         fn any_fields_map_within_the_limits(fields in vec(any_field(), 0..12)) {
+            // The lyrics limit is below the long-text limit, so that the
+            // lyrics parser refuses some of the lyrics it is given.
             let limits = limits(&[
                 (LimitKind::TagFields, 2),
                 (LimitKind::ShortText, 6),
                 (LimitKind::LongText, 12),
+                (LimitKind::LyricsBytes, 9),
             ]);
             let borrowed: Vec<(&str, &str)> = fields
                 .iter()
-                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .map(|(key, value, _)| (key.as_str(), value.as_str()))
                 .collect();
-            let mapped = from_vorbis(&block(&borrowed), &limits);
+            let mut comments = block(&borrowed);
+            for (field, (_, _, cut)) in comments.fields.iter_mut().zip(&fields) {
+                field.value.truncated = *cut;
+            }
+            let mapped = from_vorbis(&comments, &limits);
             let tags = &mapped.tags;
             let lists = [
                 tags.artist.len(),
