@@ -120,3 +120,19 @@ fn fails_a_file_whose_read_is_answered_from_another_offset() {
         (vec![WHOLE, WHOLE, WHOLE], unanswered(1, 145))
     );
 }
+
+/// A window that holds more octets than the read asked for is no answer
+/// to it either: the probe holds no octet that it did not ask for, and
+/// that its own guard did not admit. Here one octet follows the 146 of
+/// the file.
+#[test]
+fn fails_a_file_whose_read_is_answered_with_more_than_it_asked_for() {
+    let mut long = file();
+    long.push(0);
+    let more: (u64, &[u8]) = (0, &long);
+    assert_eq!(answered(1, more), (vec![WHOLE, WHOLE], unanswered(0, 147)));
+    assert_eq!(
+        answered(2, more),
+        (vec![WHOLE, WHOLE, WHOLE], unanswered(0, 147))
+    );
+}
