@@ -203,8 +203,10 @@ struct Host {
     landlock_signals: bool,
     /// The Yama module is active, so `PR_SET_PTRACER` exists.
     yama: bool,
-    /// Some seccomp filter binds the worker: its own, or the one this
-    /// executable installed to take calls away.
+    /// Some seccomp filter binds the worker: its own, or one it inherits
+    /// from this process. That is the one this executable installed to
+    /// take calls away, or one this process itself started under, as in a
+    /// container with a seccomp profile.
     filtered: bool,
 }
 
@@ -309,8 +311,7 @@ fn landlock_version() -> landlock::ABI {
         .no_new_privs(false)
         .apply()
         .expect("the kernel's answer about Landlock");
-    let answers = landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported;
-    landlock::ABI::from(i32::from(answers))
+    landlock::ABI::from(answer.landlock)
 }
 
 /// Whether the kernel publishes Yama's setting, and so whether Yama is
@@ -360,7 +361,9 @@ impl Host {
             landlock_network: version >= (6, 7),
             landlock_signals: version >= (6, 12),
             yama,
-            filtered: emulated.is_some(),
+            // Read after anything was taken away, and from the kernel, so
+            // no start is assumed for this process.
+            filtered: status(process::id(), "Seccomp:").as_deref() == Some("2"),
         }
     }
 }
