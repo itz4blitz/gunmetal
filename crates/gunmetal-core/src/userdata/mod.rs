@@ -11,9 +11,11 @@
 //! This file is a registry: it holds only module lines.
 
 pub mod codec;
+pub mod compose;
 pub mod erasure;
 pub mod event;
 pub mod hlc;
 pub mod merge;
+pub mod sink;
 #[cfg(test)]
 mod strategies;
