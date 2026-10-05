@@ -7,6 +7,11 @@
 //! else in the workspace.
 
 pub mod dataroot;
+pub mod fingerprint;
 pub mod host;
+pub mod open;
 pub mod path;
+pub mod pool;
+pub mod root;
 pub mod sqlite;
+pub mod walk;

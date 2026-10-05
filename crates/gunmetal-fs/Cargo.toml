@@ -10,10 +10,12 @@ homepage.workspace = true
 
 [dependencies]
 cap-std.workspace = true
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
 rusqlite = { workspace = true, features = ["hooks", "limits"] }
 rustix = { workspace = true, features = ["fs", "process", "std"] }
 
 [dev-dependencies]
+gunmetal-testkit.workspace = true
 proptest.workspace = true
 
 [lints]

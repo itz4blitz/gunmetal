@@ -392,6 +392,8 @@ name = "gunmetal-fs"
 version = "0.0.0"
 dependencies = [
  "cap-std",
+ "gunmetal-core",
+ "gunmetal-testkit",
  "proptest",
  "rusqlite",
  "rustix",
