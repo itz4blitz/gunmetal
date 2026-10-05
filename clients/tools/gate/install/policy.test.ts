@@ -206,6 +206,7 @@ test('lockfile accepts workspace members as the pinned manager records them', as
 for (const [name, original, replacement, message] of [
   ['a workspace link to a project the lockfile does not record', 'link:../member', 'link:../outside', 'unsupported dependency protocol is forbidden'],
   ['a workspace link that leaves the workspace', 'link:../member', 'link:../../../member', 'unsupported dependency protocol is forbidden'],
+  ['a workspace link from a project to itself', 'link:../member', 'link:.', 'unsupported dependency protocol is forbidden'],
   ['a workspace specifier recorded with a registry version', 'version: link:../member', 'version: 1.0.0', 'unsupported dependency protocol is forbidden'],
   ['a workspace specifier recorded without a version', '        version: link:../member\n', '', 'unsupported dependency protocol is forbidden'],
   ['a workspace range recorded with a link', 'specifier: workspace:*', 'specifier: workspace:^', 'unsupported dependency protocol is forbidden'],

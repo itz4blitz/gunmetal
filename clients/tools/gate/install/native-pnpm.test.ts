@@ -9,7 +9,7 @@ import { nativePnpm } from './native-pnpm.ts';
 
 type Entry = { name: string; data: Buffer; type?: string; size?: string };
 // An independent reference writer for the ustar layout npm package archives use.
-function tarball(entries: Entry[]): Buffer {
+function tarball(entries: Entry[], end = Buffer.alloc(1024)): Buffer {
   const blocks: Buffer[] = [];
   for (const entry of entries) {
     const header = Buffer.alloc(512);
@@ -27,7 +27,7 @@ function tarball(entries: Entry[]): Buffer {
     header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'latin1');
     blocks.push(header, entry.data, Buffer.alloc((512 - entry.data.length % 512) % 512));
   }
-  return gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]));
+  return gzipSync(Buffer.concat([...blocks, end]));
 }
 
 const program = Buffer.from('#!/bin/sh\nexit 0\n');
@@ -145,6 +145,15 @@ test('native pnpm rejects a retained archive that is not a gzip archive', async 
   await refuses(await layout(Buffer.from('verified native pnpm fixture')), unverifiable);
 });
 
+// Verifies: SEC-SUP-011. An archive is read to its end marker or not trusted at all.
+test('native pnpm rejects a verified archive that stops without its end marker', async () => {
+  await refuses(await layout(tarball(packed, Buffer.alloc(0))), unverifiable);
+});
+
+test('native pnpm rejects a verified archive that holds nothing', async () => {
+  await refuses(await layout(gzipSync(Buffer.alloc(0))), unverifiable);
+});
+
 for (const [name, entry] of [
   ['a directory entry', { name: 'package/extra', data: Buffer.alloc(0), type: '5' }],
   ['a symbolic link entry', { name: 'package/extra', data: Buffer.alloc(0), type: '2' }],
@@ -152,6 +161,7 @@ for (const [name, entry] of [
   ['a nested entry', { name: 'package/bin/pnpm', data: program }],
   ['an entry of another package root', { name: 'other/pnpm', data: program }],
   ['an entry with an unreadable size', { name: 'package/extra', data: program, size: 'zzzzzzzzzzz\0' }],
+  ['an entry with a negative size', { name: 'package/extra', data: program, size: '-0000000001\0' }],
   ['an entry longer than the archive', { name: 'package/extra', data: program, size: '00000010000\0' }],
 ] as const) {
   test(`native pnpm rejects a verified archive with ${name}`, async () => {
