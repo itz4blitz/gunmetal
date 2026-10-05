@@ -46,6 +46,11 @@ reason = "Block buffering for sha2, through digest (WP-122, D-02). Unsafe reads 
 requirement = "SEC-STD-018"
 
 [[crate]]
+name = "bytes"
+reason = "The shared byte buffers that http, http-body and axum carry request and response bodies in, under gunmetal-http (WP-044, D-68). Unsafe for its reference-counted buffers: raw pointers, a hand-written vtable per buffer kind and uninitialised spare capacity."
+requirement = "SEC-API-001"
+
+[[crate]]
 name = "cap-primitives"
 reason = "The path resolution beneath a directory handle that cap-std is built on (WP-126). Unsafe around raw file descriptors and `openat2`."
 requirement = "SEC-MED-033, SEC-HIS-016"
@@ -86,6 +91,21 @@ reason = "Sets file times for cap-primitives (WP-126). Its only unsafe is the `S
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "futures-core"
+reason = "The `Stream` trait and `AtomicWaker` for axum, tower, http-body-util and futures-util, under gunmetal-http (WP-044, D-68). Unsafe pin projection in `Stream` for `AssertUnwindSafe`, and the cell, `Send` and `Sync` implementations of `AtomicWaker`."
+requirement = "SEC-API-001"
+
+[[crate]]
+name = "futures-task"
+reason = "Waker and task helpers for futures-util, under axum and tower in gunmetal-http (WP-044, D-68). Unsafe building `Waker`s from raw pointers and vtables, and type-erased future objects."
+requirement = "SEC-API-001"
+
+[[crate]]
+name = "futures-util"
+reason = "Future and stream combinators axum and tower use, with only its `alloc` feature on, under gunmetal-http (WP-044, D-68). Unsafe pin projections in its combinators (`Either`, `MaybeDone`, `JoinAll`); its `compat`, `io` and `BiLock` code, which also uses unsafe, is behind features that are off."
+requirement = "SEC-API-001"
+
+[[crate]]
 name = "getrandom"
 reason = "The operating system's CSPRNG, called by the one randomness function in gunmetal-secrets (WP-047). Unsafe for the `getrandom` system call and for the uninitialised buffers it fills."
 requirement = "SEC-STD-022"
@@ -94,6 +114,21 @@ requirement = "SEC-STD-022"
 name = "gunmetal-worker"
 reason = "Gunmetal's own worker crate holds the one `unsafe` block in Gunmetal's crates (ADR 13, WP-045): in src/sandbox/descriptors.rs, `BorrowedFd::borrow_raw` on a descriptor number this process listed from `/proc/self/fd`, for one `fcntl(F_SETFD, FD_CLOEXEC)` call, so a launched worker inherits only its socket. The owner chose this over the single-publisher close_fds on 2026-10-04. `xtask lint-exceptions` keeps it to that one statement."
 requirement = "SEC-MED-022"
+
+[[crate]]
+name = "http"
+reason = "The request, response, method, status, URI and header types axum and gunmetal-http's pipeline are written against (WP-044, D-68). Unsafe `from_utf8_unchecked` on header names, values, URI parts and methods it has already checked byte by byte, and unchecked reads of initialised header-name buffers."
+requirement = "SEC-API-001, SEC-API-007"
+
+[[crate]]
+name = "http-body"
+reason = "The `Body` trait axum's request and response bodies implement, under gunmetal-http (WP-044, D-68). Unsafe pin projection from a pinned `Request` or `Response` to its body."
+requirement = "SEC-API-001"
+
+[[crate]]
+name = "http-body-util"
+reason = "Body helpers under axum: axum's `to_bytes`, which gunmetal-http's pipeline reads each capped body through, is `Limited` and `collect` from here (WP-044, D-68). Unsafe pin projection in its `Either` body."
+requirement = "SEC-API-001, SEC-API-060"
 
 [[crate]]
 name = "hybrid-array"
@@ -116,6 +151,11 @@ reason = "Owned and borrowed file-descriptor types for cap-std, cap-primitives a
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "itoa"
+reason = "Integer formatting for http (status codes), axum and serde_json, under gunmetal-http (WP-044, D-68). Unsafe writes into an uninitialised stack buffer and `from_utf8_unchecked` on the ASCII digits it wrote."
+requirement = "SEC-API-001"
+
+[[crate]]
 name = "landlock"
 reason = "The Landlock ruleset a media worker enforces on itself, which grants no path (WP-045, D-02). Unsafe calls of the three Landlock system calls through libc, taking ownership of the ruleset descriptor, and building access sets from checked bits."
 requirement = "SEC-MED-022"
@@ -136,9 +176,34 @@ reason = "Linux system-call numbers and structure layouts for rustix (WP-126). G
 requirement = "SEC-MED-033"
 
 [[crate]]
+name = "matchit"
+reason = "The path router inside axum that gunmetal-http's route table is turned into, matched exactly (WP-044, D-68). Unsafe reads through the `UnsafeCell` that holds each route's value, and `Send` and `Sync` implementations for its tree node."
+requirement = "SEC-API-001, SEC-API-055"
+
+[[crate]]
+name = "memchr"
+reason = "Byte search for serde_json, which finds the end of a string and counts lines for an error position with it, and for axum (WP-044, D-68). Unsafe for its SSE2, AVX2, NEON and wasm SIMD searchers and raw-pointer loops."
+requirement = "SEC-API-067"
+
+[[crate]]
+name = "mime"
+reason = "Media-type values for axum's content-type handling, under gunmetal-http (WP-044, D-68). The library has no unsafe; the only use is `String::as_mut_vec` in its benchmark file benches/fmt.rs, which is not built into what ships."
+requirement = "SEC-API-001"
+
+[[crate]]
 name = "once_cell"
 reason = "Caches the `/proc` handle rustix-linux-procfs opens, for cap-primitives (WP-126). Unsafe in its cell: `Send` and `Sync` implementations and unchecked reads."
 requirement = "SEC-MED-033"
+
+[[crate]]
+name = "percent-encoding"
+reason = "Percent-decoding of path parameters in axum, under gunmetal-http (WP-044, D-68). Unsafe `from_utf8_unchecked` on bytes it has checked are ASCII, or on a string it decoded and checked."
+requirement = "SEC-API-001, SEC-API-055"
+
+[[crate]]
+name = "pin-project-lite"
+reason = "Pin projection for axum, axum-core, tower, futures-util and http-body-util, under gunmetal-http (WP-044, D-68). A `macro_rules!` crate: its unsafe is the projection code its macro expands to in those crates."
+requirement = "SEC-API-001"
 
 [[crate]]
 name = "poly1305"
@@ -181,14 +246,29 @@ reason = "serde's data model and traits, behind serde (WP-039, D-02). Unsafe `fr
 requirement = "SEC-MED-023"
 
 [[crate]]
+name = "serde_json"
+reason = "The JSON decoder and encoder of gunmetal-http: typed request bodies after the pipeline's own duplicate-key, depth and size checks, and problem and response bodies (WP-044, D-02). Unsafe `from_utf8_unchecked` on input it has already validated as UTF-8, a pointer offset inside the slice it reads, and transmutes between `str` and the `RawValue` wrapper of the same layout."
+requirement = "SEC-API-067, SEC-API-073"
+
+[[crate]]
 name = "sha2"
 reason = "SHA-256 in the core's src/crypto.rs only: the schema digest and content identity (WP-122, D-02). Unsafe for the CPU's SHA instructions."
 requirement = "SEC-STD-018"
 
 [[crate]]
+name = "slab"
+reason = "Pre-allocated storage futures-util depends on, under axum and tower in gunmetal-http (WP-044, D-68). Unsafe unchecked indexing and building an array of disjoint mutable references."
+requirement = "SEC-API-001"
+
+[[crate]]
 name = "smallvec"
 reason = "Small inline vectors inside rusqlite (WP-126). Unsafe managing its inline and heap storage."
 requirement = "SEC-PRV-050"
+
+[[crate]]
+name = "sync_wrapper"
+reason = "Makes axum's and tower's `Send` bodies and futures `Sync`, under gunmetal-http (WP-044, D-68). Unsafe `Sync` implementation, sound because it hands out only exclusive access, and pin projections."
+requirement = "SEC-API-001"
 
 [[crate]]
 name = "toml_parser"
@@ -209,3 +289,8 @@ requirement = "SEC-HIS-004, SEC-HIS-021, SEC-TM-046"
 name = "zeroize"
 reason = "Wipes key material from memory in gunmetal-secrets and the cipher, MAC and hash crates under it (WP-047). Unsafe volatile writes and zeroed SIMD registers, so the compiler cannot remove the wipe."
 requirement = "SEC-STD-018, SEC-STD-019"
+
+[[crate]]
+name = "zmij"
+reason = "serde_json's floating-point formatter, used when a JSON body holds a float (WP-044, D-02). Unsafe unchecked reads of its power-of-ten tables and the SSE intrinsics of its x86 fast path."
+requirement = "SEC-API-067"
