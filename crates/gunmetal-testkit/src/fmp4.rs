@@ -736,16 +736,16 @@ mod tests {
             defaults_segment(),
             mixed_segment(0x08, 40, 0x02, 1, 3),
         ] {
-            for cut in 0..segment.len() {
-                assert!(
-                    matches!(
+            // The lengths at which the prefix is anything but cut short.
+            let others: Vec<usize> = (0..segment.len())
+                .filter(|&cut| {
+                    !matches!(
                         read_fragment(&segment[..cut]),
                         Err(FragmentError::Truncated { .. })
-                    ),
-                    "{cut} of {}",
-                    segment.len()
-                );
-            }
+                    )
+                })
+                .collect();
+            assert_eq!(others, Vec::<usize>::new());
         }
     }
 
