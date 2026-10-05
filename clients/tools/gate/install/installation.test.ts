@@ -162,15 +162,12 @@ test('actual workspace check accepts a project document with importers only', as
 
 // Runs the exported check in a child process with stand-ins for the registry request and for the manager's
 // own `--version` and `config list`, answers the real registry and the verified manager cannot be made to give.
-function seamed(seams: string): unknown {
-  const script = [
-    `const { check } = await import(${JSON.stringify(new URL('installation.ts', import.meta.url).href)});`,
-    "const { spawnSync } = await import('node:child_process');",
-    `const seams = ${seams};`,
-    `try { process.stdout.write(JSON.stringify(await check(${JSON.stringify(client)}, seams))); }`,
-    'catch (error) { process.stdout.write(JSON.stringify(error.findings ?? String(error))); }',
-  ].join('\n');
-  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8', timeout: 120000 });
+// The child is the fixed program fixtures/seamed-check.ts. Each test's stand-ins are data, handed to it as
+// one JSON argument; no program text is assembled here.
+type Answer = { status: number | null; signal: string | null; stdout: string; stderr: string };
+function seamed(standIns: { request?: { status: number; body: unknown }; run?: { argument: string; answer: Answer } } = {}): unknown {
+  const harness = fileURLToPath(new URL('fixtures/seamed-check.ts', import.meta.url));
+  const result = spawnSync(process.execPath, [harness, JSON.stringify({ directory: client, ...standIns })], { encoding: 'utf8', timeout: 120000 });
   let value: unknown = result.stdout;
   try { value = JSON.parse(result.stdout); } catch { /* Left as text, so a failure shows what was printed. */ }
   return { status: result.status, signal: result.signal, stderr: result.stderr, result: value };
@@ -180,31 +177,30 @@ function reported(rule: string, path: string, message: string): unknown {
 }
 // Positive control: with nothing replaced, the same harness reports the real workspace as passing.
 test('the exported workspace check passes the real workspace when nothing is replaced', () => {
-  assert.deepEqual(seamed('{}'), { status: 0, signal: null, stderr: '', result: passed.result });
+  assert.deepEqual(seamed(), { status: 0, signal: null, stderr: '', result: passed.result });
 });
 // Verifies: SEC-SUP-034. The manager's publication time must be known from the registry and old enough.
 for (const [name, request] of [
-  ['a registry that fails', "async () => new Response('', { status: 503 })"],
-  ['registry metadata without publication times', 'async () => Response.json({ time: {} })'],
-  ['registry metadata that is not an object', 'async () => Response.json([])'],
-  ['a publication time in the future', "async () => Response.json({ time: { '12.7.0': '2999-01-01T00:00:00.000Z' } })"],
+  ['a registry that fails', { status: 503, body: null }],
+  ['registry metadata without publication times', { status: 200, body: { time: {} } }],
+  ['registry metadata that is not an object', { status: 200, body: [] }],
+  ['a publication time in the future', { status: 200, body: { time: { '12.7.0': '2999-01-01T00:00:00.000Z' } } }],
 ] as const) {
   test(`workspace check refuses ${name}`, () => {
-    assert.deepEqual(seamed(`{ request: ${request} }`), reported('SEC-SUP-034', 'pnpm.publication', 'publication must be known and at least seven days old'));
+    assert.deepEqual(seamed({ request }), reported('SEC-SUP-034', 'pnpm.publication', 'publication must be known and at least seven days old'));
   });
 }
 // Verifies: SEC-SUP-011, SEC-SUP-033. What the manager cannot report is never assumed.
 for (const [name, argument, answer, rule, path, message] of [
-  ['a manager whose version command fails', '--version', "{ status: 1, signal: null, stdout: '12.7.0\\n', stderr: '' }", 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
-  ['a manager whose version command reports a signal', '--version', "{ status: 0, signal: 'SIGKILL', stdout: '12.7.0\\n', stderr: '' }", 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
-  ['a manager that reports another version', '--version', "{ status: 0, signal: null, stdout: '12.7.1\\n', stderr: '' }", 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
-  ['effective settings the manager fails to list', 'config', "{ status: 1, signal: null, stdout: '{}', stderr: '' }", 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
-  ['effective settings from a manager that reports a signal', 'config', "{ status: 0, signal: 'SIGKILL', stdout: '{}', stderr: '' }", 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
-  ['effective settings that are not JSON', 'config', "{ status: 0, signal: null, stdout: 'not json', stderr: '' }", 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
-  ['effective settings that are not an object', 'config', "{ status: 0, signal: null, stdout: '[]', stderr: '' }", 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
+  ['a manager whose version command fails', '--version', { status: 1, signal: null, stdout: '12.7.0\n', stderr: '' }, 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
+  ['a manager whose version command reports a signal', '--version', { status: 0, signal: 'SIGKILL', stdout: '12.7.0\n', stderr: '' }, 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
+  ['a manager that reports another version', '--version', { status: 0, signal: null, stdout: '12.7.1\n', stderr: '' }, 'SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin'],
+  ['effective settings the manager fails to list', 'config', { status: 1, signal: null, stdout: '{}', stderr: '' }, 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
+  ['effective settings from a manager that reports a signal', 'config', { status: 0, signal: 'SIGKILL', stdout: '{}', stderr: '' }, 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
+  ['effective settings that are not JSON', 'config', { status: 0, signal: null, stdout: 'not json', stderr: '' }, 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
+  ['effective settings that are not an object', 'config', { status: 0, signal: null, stdout: '[]', stderr: '' }, 'SEC-SUP-033', 'effective', 'effective settings could not be read'],
 ] as const) {
   test(`workspace check refuses ${name}`, () => {
-    assert.deepEqual(seamed(`{ run: (command, args, options) => args.includes(${JSON.stringify(argument)}) ? ${answer} : spawnSync(command, args, options) }`),
-      reported(rule, path, message));
+    assert.deepEqual(seamed({ run: { argument, answer } }), reported(rule, path, message));
   });
 }

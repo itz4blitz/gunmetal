@@ -23,6 +23,8 @@ test('a canonical template plus an appended declaration still refuses the declar
   const template = await readFile(new URL('fixtures/mpl-2.0.txt', import.meta.url), 'utf8');
   assert.deepEqual(inspect('licenses', report(`${template}\n${notice}\n`)), refusal);
 });
+// The applied declaration as a source comment: fixed text, written out as it stands.
+const declared = '/* This Source Code Form is \u201cIncompatible With Secondary Licenses\u201d */\n';
 for (const file of ['NOTICE.txt', 'src/module.js', 'linked-source']) {
   test(`actual installed MPL declaration in ${file} is collected and refused`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'gunmetal-mpl-notice-'));
@@ -42,9 +44,9 @@ for (const file of ['NOTICE.txt', 'src/module.js', 'linked-source']) {
       if (file === 'linked-source') {
         const source = join(directory, 'source');
         await mkdir(source);
-        await writeFile(join(source, 'module.js'), `/* ${notice} */\n`);
+        await writeFile(join(source, 'module.js'), declared);
         await symlink(source, join(packageDirectory, file));
-      } else await writeFile(join(packageDirectory, file), `/* ${notice} */\n`);
+      } else await writeFile(join(packageDirectory, file), declared);
       const result = spawnSync(process.execPath, [fileURLToPath(new URL('licenses.ts', import.meta.url)), project], { encoding: 'utf8', timeout: 120000 });
       assert.deepEqual({ status: result.status, signal: result.signal, stderr: result.stderr,
         result: result.stdout.trim() === '' ? null : JSON.parse(result.stdout) }, { status: 1, signal: null, stderr: '', result:
