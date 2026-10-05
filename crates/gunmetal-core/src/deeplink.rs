@@ -305,6 +305,11 @@ mod tests {
         }
     }
 
+    /// `count` copies of `symbol`.
+    fn run_of(symbol: char, count: usize) -> String {
+        (0..count).map(|_| symbol).collect()
+    }
+
     /// Verifies: SEC-CLI-025
     #[test]
     fn reads_a_claim_link() {
@@ -765,14 +770,14 @@ mod tests {
     /// Verifies: SEC-TM-032
     #[test]
     fn reads_nothing_longer_than_512_octets() {
-        let name = "a".repeat(465);
+        let name = run_of('a', 465);
         let longest = format!("https://{name}/claim#{CODE}");
         assert_eq!(longest.len(), 512);
         assert_eq!(parse(&longest), claim_on(&format!("https://{name}")));
         let longer = format!("https://a{name}/claim#{CODE}");
         assert_eq!(longer.len(), 513);
         assert_eq!(parse(&longer), Route::NotRecognised);
-        let far_longer = format!("https://music.example/claim#{}", "0".repeat(65_536));
+        let far_longer = format!("https://music.example/claim#{}", run_of('0', 65_536));
         assert_eq!(parse(&far_longer), Route::NotRecognised);
     }
 
