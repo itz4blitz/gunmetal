@@ -44,7 +44,9 @@ pub enum FrameBody {
     /// A text information frame (`T***` and 2.2's `T**`): its values. A 2.4
     /// frame holds every value separated by a terminator; 2.2 and 2.3 hold
     /// one value and ignore whatever follows its terminator, as their
-    /// specifications say.
+    /// specifications say. `GRP1`, the grouping iTunes writes, and `XSOT`,
+    /// `XSOP` and `XSOA`, the sort names 2.3 tags hold, are read as text
+    /// information frames too.
     Text(Vec<Text>),
     /// A user-defined text frame (`TXXX`, `TXX`).
     UserText {

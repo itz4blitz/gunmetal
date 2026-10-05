@@ -62,13 +62,16 @@ enum Kind {
     Raw,
 }
 
-/// Which kind of body the frame `id` holds.
+/// Which kind of body the frame `id` holds. A text information frame has
+/// an identifier that starts with `T`, and four more hold the same body
+/// under another letter: `GRP1`, the grouping iTunes writes, and `XSOT`,
+/// `XSOP` and `XSOA`, the sort names 2.3 tags hold.
 fn kind(id: FrameId) -> Kind {
     match id {
         FrameId::Four(id) => match &id {
             b"TXXX" => Kind::UserText,
             b"TIPL" | b"TMCL" | b"IPLS" => Kind::People,
-            [b'T', ..] => Kind::Text,
+            [b'T', ..] | b"GRP1" | b"XSOA" | b"XSOP" | b"XSOT" => Kind::Text,
             b"COMM" => Kind::Comment,
             b"USLT" => Kind::Lyrics,
             b"SYLT" => Kind::SyncedLyrics,

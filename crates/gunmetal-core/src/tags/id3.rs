@@ -3,9 +3,20 @@
 //! Every filled field records where it was read (API-CAT-08). `ID3v1` fills
 //! only fields `ID3v2` left empty. Identifiers, dates, numbers and
 //! `ReplayGain` values are parsed into the typed catalogue values; a value
-//! outside its range is dropped with a reason (SEC-MED-014). Multi-valued
-//! lists stop at the tag-field limit (SEC-MED-006). Artist strings are not
-//! split here (WP-053).
+//! outside its range is dropped with a reason (SEC-MED-014), and a track or
+//! disc number is kept when only the total written after it is unusable.
+//! Multi-valued lists stop at the tag-field limit (SEC-MED-006). Artist
+//! strings are not split here (WP-053); recording codes and `MusicBrainz`
+//! identifiers joined in one value are, because neither holds a separator.
+//!
+//! # The tag-field limit
+//!
+//! Every list in the result, the list of problems among them, holds at
+//! most [`LimitKind::TagFields`] entries. What does not fit a list is
+//! dropped and recorded as [`TagProblem::LimitExceeded`], and when the
+//! problems themselves are full their last entry becomes that record. A
+//! limit of zero leaves no entry to hold it: the lists stay empty and
+//! nothing in the result says so.
 //!
 //! # Text
 //!
@@ -43,22 +54,30 @@
 //!   field, [`LimitKind::LongText`] for the value of a `TXXX` frame.
 //!   Nothing else is recorded for it. A field that takes one value takes
 //!   the first one the parser kept whole, and a list goes on with the next.
+//!   A cut value says nothing about what was written, so the value after
+//!   it takes its place, whereas a value that was read whole and is
+//!   malformed is what the tag says: it is recorded, and the values after
+//!   it are not tried.
 //! - A `TXXX` frame whose description was cut and a `UFID` frame whose
 //!   owner was cut are not read, and are recorded the same way.
 //! - What is left of a genre that was cut, by the parser or here, is kept
 //!   as text and not read as a reference to the Winamp list. What is left
 //!   of a role that was cut is kept as the detail of a performer and not
 //!   looked up.
-//! - Only a value that would be read is recorded: a frame for a field that
-//!   is already filled is not looked at.
+//! - Only a value that would be read is recorded. A frame for a field that
+//!   takes one value and already has it is not looked at: a title, a date,
+//!   a year or a date part once the date is known, an identifier, a gain,
+//!   a peak. A track or a disc frame is always read, because it may bring
+//!   the total an earlier frame lacked, and so is a frame that adds to a
+//!   list.
 //!
-//! # Frames the parser keeps raw
+//! # Grouping and sort names
 //!
-//! The `ID3v2` parser reads a frame as text information only when its
-//! identifier starts with `T`. `GRP1`, the grouping iTunes writes, and
-//! `XSOT`, `XSOP` and `XSOA`, the sort names 2.3 tags hold, do not, so the
-//! parser keeps them as raw octets and they are not mapped; `TIT1`, `TSOT`,
-//! `TSOP` and `TSOA` are.
+//! `GRP1`, the grouping iTunes writes, is read as `TIT1` is, and `XSOT`,
+//! `XSOP` and `XSOA`, the sort names 2.3 tags hold, as `TSOT`, `TSOP` and
+//! `TSOA` are. Neither identifier of a pair outranks the other: a field
+//! that takes one value takes the first frame in the tag, and a list takes
+//! every frame in the order written.
 
 use crate::catalog::{
     Advisory, CatalogError, Credit, Gain, GainScale, LyricsOrigin, LyricsSource, LyricsTiming,
@@ -685,7 +704,8 @@ impl<'a> Mapper<'a> {
                 return;
             }
         };
-        let parsed = (number, self.checked_total(total, source, track));
+        let total = total.and_then(|read| self.checked_total(read, source, track));
+        let parsed = (Some(number), total);
         let current = self.tags.position;
         let (track_n, track_total, disc_n, disc_total) = if track {
             (
@@ -723,16 +743,22 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// `total` when the catalogue accepts it as a track or disc total.
-    /// Otherwise the reason is recorded, and the number it came with is
-    /// kept without a total (SEC-MED-014).
+    /// The total `read` when it could be read and the catalogue accepts it
+    /// as a track or disc total. Otherwise the reason is recorded, and the
+    /// number it came with is kept without a total (SEC-MED-014).
     fn checked_total(
         &mut self,
-        total: Option<u16>,
+        read: Result<u16, ValueError>,
         source: FieldSource,
         track: bool,
     ) -> Option<u16> {
-        let total = total?;
+        let total = match read {
+            Ok(total) => total,
+            Err(error) => {
+                self.report(TagProblem::InvalidValue { source, error });
+                return None;
+            }
+        };
         let alone = if track {
             TrackPosition::new(None, Some(total), None, None)
         } else {
@@ -774,29 +800,34 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// A year frame, which holds the date when no timestamp frame does. It
+    /// is not looked at once the date it would fill is known or an earlier
+    /// year frame was read.
     fn year_text(&mut self, values: &[Text], source: FieldSource, original: bool) {
+        let (slot, dated) = if original {
+            (&mut self.original_year, self.tags.original_date.is_some())
+        } else {
+            (&mut self.year, self.tags.date.is_some())
+        };
+        if dated || slot.is_some() {
+            return;
+        }
         let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
         let Some(value) = value else {
             return;
         };
         match PartialDate::parse(Untrusted::new(value)) {
-            Ok(date) => {
-                if original {
-                    if self.original_year.is_none() {
-                        self.original_year = Some((date, source));
-                    }
-                } else if self.year.is_none() {
-                    self.year = Some((date, source));
-                }
-            }
+            Ok(date) => *slot = Some((date, source)),
             Err(error) => {
                 self.report(TagProblem::InvalidValue { source, error });
             }
         }
     }
 
+    /// The day and the month that go with a year frame. They are not looked
+    /// at once the date is known or an earlier date part was read.
     fn date_part(&mut self, values: &[Text], source: FieldSource) {
-        if self.date_part.is_some() {
+        if self.tags.date.is_some() || self.date_part.is_some() {
             return;
         }
         let value = first_uncut(values, FRAME_TEXT, source, self.limits, &mut self.problems);
@@ -814,13 +845,20 @@ impl<'a> Mapper<'a> {
     fn finish_dates(&mut self) {
         if self.tags.date.is_none() {
             if let Some((written, source)) = self.year {
-                let combined = self.date_part.map(|(month, day, _)| {
-                    PartialDate::new(written.year(), Some(month), Some(day))
+                let combined = self.date_part.map(|(month, day, part)| {
+                    let date = PartialDate::new(written.year(), Some(month), Some(day));
+                    (date, part)
                 });
+                // A day and a month that the year does not have are the
+                // date part's fault: the year is kept, and the problem
+                // names the date part's frame.
                 let date = match combined {
-                    Some(Ok(date)) => date,
-                    Some(Err(error)) => {
-                        self.report(TagProblem::InvalidValue { source, error });
+                    Some((Ok(date), _)) => date,
+                    Some((Err(error), part)) => {
+                        self.report(TagProblem::InvalidValue {
+                            source: part,
+                            error,
+                        });
                         written
                     }
                     None => written,
@@ -839,7 +877,7 @@ impl<'a> Mapper<'a> {
 
     /// The genres each value names. What is left of a value that was cut
     /// may hold half a reference to the Winamp list, so it is kept as the
-    /// text it is.
+    /// text it is, without the white space around it.
     fn genres(&mut self, values: &[Text], source: FieldSource) {
         for value in values {
             let (kept, cut) = clean(
@@ -854,7 +892,11 @@ impl<'a> Mapper<'a> {
             let Some(kept) = kept else {
                 continue;
             };
-            let names = if cut { vec![kept] } else { expand_genre(&kept) };
+            let names = if cut {
+                vec![kept.trim().to_owned()]
+            } else {
+                expand_genre(&kept)
+            };
             for genre in names {
                 if !push(
                     &mut self.tags.genres,
@@ -957,26 +999,35 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// Reads every code of the frame that the parser kept whole, until the
-    /// codes or the problems are full.
+    /// Reads every code of each value the parser kept whole, until the
+    /// codes or the problems are full. A 2.3 tag holds one value per frame,
+    /// and Picard joins several codes in it with `/`; a code holds neither
+    /// `/` nor `;`, so the values are split on both, as a list of
+    /// identifiers is.
     fn isrcs(&mut self, values: &[Text], source: FieldSource) {
         for value in values {
             let value = uncut(value, FRAME_TEXT, source, self.limits, &mut self.problems);
             let Some(value) = value else {
                 continue;
             };
-            let room = match Isrc::parse(Untrusted::new(value)) {
-                Ok(isrc) => {
-                    let room = push(&mut self.tags.isrc, isrc, self.limits, &mut self.problems);
-                    if room {
-                        remember(&mut self.sources.isrc, source);
+            let codes = value
+                .split(['/', ';'])
+                .map(str::trim)
+                .filter(|code| !code.is_empty());
+            for code in codes {
+                let room = match Isrc::parse(Untrusted::new(code)) {
+                    Ok(isrc) => {
+                        let room = push(&mut self.tags.isrc, isrc, self.limits, &mut self.problems);
+                        if room {
+                            remember(&mut self.sources.isrc, source);
+                        }
+                        room
                     }
-                    room
+                    Err(error) => self.report(TagProblem::InvalidValue { source, error }),
+                };
+                if !room {
+                    return;
                 }
-                Err(error) => self.report(TagProblem::InvalidValue { source, error }),
-            };
-            if !room {
-                break;
             }
         }
     }
@@ -1032,7 +1083,7 @@ impl<'a> Mapper<'a> {
         let Some(value) = value else {
             return;
         };
-        match Mbid::parse(Untrusted::new(value)) {
+        match Mbid::parse(Untrusted::new(value.trim())) {
             Ok(mbid) => {
                 *mbid_slot_mut(&mut self.tags.musicbrainz, slot) = Some(mbid);
                 *mbid_source_mut(&mut self.sources, slot) = Some(source);
@@ -1154,30 +1205,28 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// The peak of the track or of the album. It belongs to the gain when
+    /// that has been read, and waits for it otherwise. It is not looked at
+    /// once the place it would fill holds a peak.
     fn peak(&mut self, values: &[Text], source: FieldSource, track: bool) {
+        let (gain, pending) = if track {
+            (&mut self.tags.gain.track, &mut self.pending_track_peak)
+        } else {
+            (&mut self.tags.gain.album, &mut self.pending_album_peak)
+        };
+        let slot = match gain {
+            Some(gain) => &mut gain.peak,
+            None => pending,
+        };
+        if slot.is_some() {
+            return;
+        }
         let value = first_uncut(values, USER_TEXT, source, self.limits, &mut self.problems);
         let Some(value) = value else {
             return;
         };
         match PeakRatio::parse(Untrusted::new(value)) {
-            Ok(peak) => {
-                let gain = if track {
-                    &mut self.tags.gain.track
-                } else {
-                    &mut self.tags.gain.album
-                };
-                if let Some(gain) = gain {
-                    if gain.peak.is_none() {
-                        gain.peak = Some(peak);
-                    }
-                } else if track {
-                    if self.pending_track_peak.is_none() {
-                        self.pending_track_peak = Some(peak);
-                    }
-                } else if self.pending_album_peak.is_none() {
-                    self.pending_album_peak = Some(peak);
-                }
-            }
+            Ok(peak) => *slot = Some(peak),
             Err(error) => {
                 self.report(TagProblem::InvalidValue { source, error });
             }
@@ -1568,7 +1617,8 @@ fn push<T>(list: &mut Vec<T>, item: T, limits: &Limits, problems: &mut Vec<TagPr
 /// Records `problem` while `problems` is under the tag-field limit, and
 /// returns whether it was. A full list keeps its length; its last entry
 /// becomes a [`TagProblem::LimitExceeded`] that says the list was cut
-/// (SEC-MED-006).
+/// (SEC-MED-006). Under a limit of zero the list has no entry to turn into
+/// that record, and stays empty.
 fn report(problems: &mut Vec<TagProblem>, limits: &Limits, problem: TagProblem) -> bool {
     let count = u64::try_from(problems.len())
         .unwrap_or(u64::MAX)
@@ -1633,13 +1683,13 @@ fn kind(id: FrameId) -> Kind {
 fn kind4(id: [u8; 4]) -> Kind {
     match &id {
         b"TIT2" => Kind::Title,
-        b"TSOT" => Kind::TitleSort,
+        b"TSOT" | b"XSOT" => Kind::TitleSort,
         b"TPE1" => Kind::Artist,
-        b"TSOP" => Kind::ArtistSort,
+        b"TSOP" | b"XSOP" => Kind::ArtistSort,
         b"TPE2" => Kind::AlbumArtist,
         b"TSO2" => Kind::AlbumArtistSort,
         b"TALB" => Kind::Album,
-        b"TSOA" => Kind::AlbumSort,
+        b"TSOA" | b"XSOA" => Kind::AlbumSort,
         b"TRCK" => Kind::Track,
         b"TPOS" => Kind::Disc,
         b"TSST" => Kind::DiscSubtitle,
@@ -1651,7 +1701,7 @@ fn kind4(id: [u8; 4]) -> Kind {
         b"TCON" => Kind::Genre,
         b"TMOO" => Kind::Mood,
         b"TPUB" => Kind::Label,
-        b"TIT1" => Kind::Grouping,
+        b"TIT1" | b"GRP1" => Kind::Grouping,
         b"TCOM" => Kind::Credit(Role::Composer),
         b"TPE3" => Kind::Credit(Role::Conductor),
         b"TEXT" => Kind::Credit(Role::Lyricist),
@@ -1702,19 +1752,22 @@ fn kind3(id: [u8; 3]) -> Kind {
     }
 }
 
-/// A track or disc number and optional total, allowing a number above its
-/// total so [`TrackPosition`] can keep and flag it.
-fn parse_number_total(text: &str) -> Result<(Option<u16>, Option<u16>), ValueError> {
+/// A track or disc number, and the total written after it or the reason
+/// that total could not be read. A number above its total is allowed, so
+/// that [`TrackPosition`] can keep and flag it.
+///
+/// # Errors
+///
+/// Returns the reason the number itself could not be read.
+fn parse_number_total(text: &str) -> Result<(u16, Option<Result<u16, ValueError>>), ValueError> {
     let lower = text.trim().to_ascii_lowercase();
     let (number, total) = match lower.split_once('/').or_else(|| lower.split_once(" of ")) {
         Some((number, total)) => (number.trim_end(), Some(total.trim_start())),
         None => (lower.as_str(), None),
     };
     Ok((
-        Some(parse_count(number, Field::Number)?),
-        total
-            .map(|total| parse_count(total, Field::Total))
-            .transpose()?,
+        parse_count(number, Field::Number)?,
+        total.map(|total| parse_count(total, Field::Total)),
     ))
 }
 
@@ -1773,7 +1826,8 @@ fn parse_decimal_genre(text: &str) -> Option<&'static str> {
 }
 
 /// Expands `(nn)` references, `RX`/`CR`, and leftover genre text from a
-/// value that is not blank.
+/// value that is not blank. White space after a reference belongs neither
+/// to it nor to what follows.
 fn expand_genre(value: &str) -> Vec<String> {
     let trimmed = value.trim();
     if trimmed.bytes().all(|octet| octet.is_ascii_digit()) {
@@ -1804,9 +1858,9 @@ fn expand_genre(value: &str) -> Vec<String> {
             if !names.iter().any(|have| have == name) {
                 names.push(name.to_owned());
             }
-            rest = after;
+            rest = after.trim_start();
         } else if inner.bytes().all(|octet| octet.is_ascii_digit()) {
-            rest = after;
+            rest = after.trim_start();
         } else {
             break;
         }
@@ -1941,6 +1995,8 @@ mod tests {
     use crate::parse::{Budget, Window};
     use gunmetal_testkit::id3v1::Id3v1;
     use gunmetal_testkit::id3v2::{self as kit, Encoding as Kit, Tag as TagBytes, Version};
+    use proptest::collection::vec;
+    use proptest::prelude::*;
 
     use super::{Kind, add_release_tokens, kind, parse_decimal_genre};
 
@@ -2739,10 +2795,10 @@ mod tests {
     fn maps_involved_people_and_musician_credits() {
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 people_frame(b"TIPL", &[("producer", "Visconti"), ("mix", "Eno")]),
                 people_frame(b"TMCL", &[("guitar", "Alomar")]),
-            ],
+            ]),
         );
         assert_eq!(
             mapped.tags.credits,
@@ -2751,6 +2807,63 @@ mod tests {
                 credit("Eno", Role::Mixer),
                 performer("Alomar", "guitar"),
             ]
+        );
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                credits: Some(v2_at(b"TIPL", 10)),
+                ..FieldSources::default()
+            }
+        );
+    }
+
+    /// The credits name the first frame that added one, whether that is a
+    /// list of people or a text frame.
+    #[test]
+    fn records_the_first_frame_that_credits_someone() {
+        let people_first = map_frames(
+            4,
+            spaced(vec![
+                people_frame(b"TMCL", &[("guitar", "Alomar")]),
+                text_frame(b"TCOM", &["Eno"]),
+            ]),
+        );
+        assert_eq!(
+            people_first.sources,
+            FieldSources {
+                credits: Some(v2_at(b"TMCL", 10)),
+                ..FieldSources::default()
+            }
+        );
+        let text_first = map_frames(
+            4,
+            spaced(vec![
+                text_frame(b"TCOM", &["Eno"]),
+                people_frame(b"TIPL", &[("mix", "Visconti")]),
+            ]),
+        );
+        assert_eq!(
+            text_first.sources,
+            FieldSources {
+                credits: Some(v2_at(b"TCOM", 10)),
+                ..FieldSources::default()
+            }
+        );
+        // A list whose only name is blank credits no one, and the frame
+        // after it is the first that does.
+        let blank_first = map_frames(
+            4,
+            spaced(vec![
+                people_frame(b"TIPL", &[("mix", " ")]),
+                people_frame(b"TMCL", &[("guitar", "Alomar")]),
+            ]),
+        );
+        assert_eq!(
+            blank_first.sources,
+            FieldSources {
+                credits: Some(v2_at(b"TMCL", 30)),
+                ..FieldSources::default()
+            }
         );
     }
 
@@ -2949,12 +3062,12 @@ mod tests {
     fn maps_replaygain_from_txxx() {
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 user_text(b"TXXX", "REPLAYGAIN_TRACK_GAIN", &["-6.5 dB"]),
                 user_text(b"TXXX", "REPLAYGAIN_TRACK_PEAK", &["0.5"]),
                 user_text(b"TXXX", "replaygain album gain", &["-7.0 dB"]),
                 user_text(b"TXXX", "REPLAYGAIN_ALBUM_PEAK", &["0.25"]),
-            ],
+            ]),
         );
         assert_eq!(
             mapped.tags.gain,
@@ -2971,8 +3084,14 @@ mod tests {
                 }),
             }
         );
-        assert_eq!(mapped.sources.track_gain, Some(v2_source(b"TXXX")));
-        assert_eq!(mapped.sources.album_gain, Some(v2_source(b"TXXX")));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                track_gain: Some(v2_at(b"TXXX", 10)),
+                album_gain: Some(v2_at(b"TXXX", 50)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     /// Verifies: SEC-MED-014
@@ -3177,10 +3296,10 @@ mod tests {
     fn maps_release_type_and_the_explicit_flag() {
         let mapped = map_frames(
             4,
-            vec![
+            spaced(vec![
                 user_text(b"TXXX", "MusicBrainz Album Type", &["album/soundtrack"]),
                 user_text(b"TXXX", "ITUNESADVISORY", &["1"]),
-            ],
+            ]),
         );
         assert_eq!(
             mapped.tags.release_type,
@@ -3190,8 +3309,14 @@ mod tests {
             })
         );
         assert_eq!(mapped.tags.advisory, Some(Advisory::Explicit));
-        assert_eq!(mapped.sources.release_type, Some(v2_source(b"TXXX")));
-        assert_eq!(mapped.sources.advisory, Some(v2_source(b"TXXX")));
+        assert_eq!(
+            mapped.sources,
+            FieldSources {
+                release_type: Some(v2_at(b"TXXX", 10)),
+                advisory: Some(v2_at(b"TXXX", 30)),
+                ..FieldSources::default()
+            }
+        );
     }
 
     #[test]
@@ -3483,9 +3608,9 @@ mod tests {
     }
 
     /// A zero field budget keeps both lists and diagnostics empty while
-    /// independent scalar fields still map.
-    ///
-    /// Verifies: SEC-MED-006
+    /// independent scalar fields still map. The problems are one of the
+    /// lists the limit caps, so at zero there is no entry that could say
+    /// what was dropped: this pins what happens, and proves no requirement.
     #[test]
     fn a_zero_field_limit_keeps_lists_and_problems_empty() {
         let limits = Limits::DEFAULT
@@ -5834,6 +5959,30 @@ mod tests {
         );
     }
 
+    /// The release date and the original release date are two fields: a
+    /// year for the one that is still missing is read, and what is wrong
+    /// with it is recorded.
+    #[test]
+    fn looks_at_a_year_for_the_date_it_does_not_have() {
+        let not_a_year = |id: &[u8]| TagProblem::InvalidValue {
+            source: v2_at(id, 25),
+            error: ValueError::Malformed { field: Field::Year },
+        };
+        assert_eq!(
+            dated(&[(b"TDOR", "2015"), (b"TYER", "abcd")]),
+            first_released(date(2015, None, None), b"TDOR", vec![not_a_year(b"TYER")])
+        );
+        assert_eq!(
+            dated(&[(b"TDRC", "2016"), (b"TORY", "abcd")]),
+            released(
+                date(2016, None, None),
+                b"TDRC",
+                10,
+                vec![not_a_year(b"TORY")]
+            )
+        );
+    }
+
     /// A peak for a gain that already has one is not looked at, whether the
     /// gain was read before the first peak or after it. The track and the
     /// album each have their own.
@@ -5888,6 +6037,134 @@ mod tests {
             error: ValueError::Unusable { field: Field::Peak },
         };
         assert_eq!(other_peak, track(vec![unusable], 10));
+    }
+
+    /// A cut value in one frame does not stop the next frame from being
+    /// read, and the cut is recorded against the frame that holds it. A
+    /// track frame is read whenever one comes, so a cut value in a second
+    /// one is recorded too. The first frame of each tag starts at 10 and
+    /// the second at 23 or 22.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_the_frame_after_one_whose_value_the_parser_cut() {
+        let one = lowered(LimitKind::ShortText, 1);
+        let two_frames = |first: &str, second: &str| {
+            TagBytes::new(Version::V24)
+                .frame(b"TRCK", 0, &kit::text(Kit::Latin1, &[first]))
+                .frame(b"TRCK", 0, &kit::text(Kit::Latin1, &[second]))
+                .build()
+        };
+        let expected = |read_at: u64, cut_at: u64| Mapped {
+            tags: TrackTags {
+                position: TrackPosition::new(Some(7), None, None, None).unwrap(),
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                track: Some(v2_at(b"TRCK", read_at)),
+                ..FieldSources::default()
+            },
+            problems: vec![TagProblem::Truncated {
+                source: v2_at(b"TRCK", cut_at),
+                limit: LimitKind::ShortText,
+            }],
+        };
+        assert_eq!(
+            map_bytes(&two_frames("31", "7"), &one, &one),
+            expected(23, 10)
+        );
+        assert_eq!(
+            map_bytes(&two_frames("7", "31"), &one, &one),
+            expected(10, 22)
+        );
+    }
+
+    /// The versions the property test writes tags in.
+    const VERSIONS: [Version; 3] = [Version::V22, Version::V23, Version::V24];
+
+    /// The identifiers the property test writes, for each of [`VERSIONS`]:
+    /// the frames the mapper reads, a picture and a frame it ignores.
+    const FRAME_IDS: [[&[u8]; 24]; 3] = [
+        [
+            b"TT2", b"TP1", b"TAL", b"TRK", b"TPA", b"TYE", b"TDA", b"TOR", b"TCO", b"TCM", b"IPL",
+            b"TCP", b"TRC", b"TXX", b"UFI", b"ULT", b"SLT", b"TT1", b"TSP", b"TPB", b"TXT", b"TST",
+            b"PIC", b"POP",
+        ],
+        [
+            b"TIT2", b"TPE1", b"TALB", b"TRCK", b"TPOS", b"TYER", b"TDAT", b"TORY", b"TCON",
+            b"TCOM", b"IPLS", b"TCMP", b"TSRC", b"TXXX", b"UFID", b"USLT", b"SYLT", b"GRP1",
+            b"XSOP", b"TPUB", b"TEXT", b"XSOT", b"APIC", b"POPM",
+        ],
+        [
+            b"TIT2", b"TPE1", b"TALB", b"TRCK", b"TPOS", b"TDRC", b"TDOR", b"TMOO", b"TCON",
+            b"TCOM", b"TIPL", b"TCMP", b"TSRC", b"TXXX", b"UFID", b"USLT", b"SYLT", b"GRP1",
+            b"TSOP", b"TPUB", b"TMCL", b"TSST", b"APIC", b"PRIV",
+        ],
+    ];
+
+    /// What the property test writes at the start of a frame's body, ahead
+    /// of octets of any kind: the encodings, and the numbers, dates,
+    /// references, codes and descriptions the mapper reads as typed values.
+    const BODY_STARTS: [&[u8]; 16] = [
+        b"",
+        b"\x00",
+        b"\x03",
+        b"\x01\xFF\xFE",
+        b"\x003/",
+        b"\x00(17) ",
+        b"\x002016-01-",
+        b"\x001712",
+        b"\x00USS1Z9900001/",
+        b"\x03A\x00B\x00C\x00D\x00E\x00F\x00",
+        b"\x00MusicBrainz Artist Id\x005b11f54e-8a37-11df-8f36-0025905a5714/",
+        b"\x00REPLAYGAIN_TRACK_PEAK\x000.",
+        b"\x00MOOD\x00",
+        b"http://musicbrainz.org\x00",
+        b"\x00eng\x00",
+        b"\x00eng\x02\x01\x00a\x00\x00\x00\x00\x01",
+    ];
+
+    proptest! {
+        /// Whatever the frames of a tag hold, the parser reads them and the
+        /// mapper maps them without a panic, and every list of the result,
+        /// the problems among them, stays within the tag-field limit.
+        ///
+        /// Verifies: SEC-MED-006
+        #[test]
+        fn maps_any_frames_within_the_tag_field_limit(
+            version in 0_usize..3,
+            limit in 0_u64..6,
+            frames in vec((0_usize..24, 0_usize..16, vec(any::<u8>(), 0..24)), 1..32),
+        ) {
+            let bytes = frames
+                .iter()
+                .fold(TagBytes::new(VERSIONS[version]), |tag, (id, start, rest)| {
+                    let body = [BODY_STARTS[*start], rest.as_slice()].concat();
+                    tag.frame(FRAME_IDS[version][*id], 0, &body)
+                })
+                .build();
+            let limits = lowered(LimitKind::TagFields, limit);
+            let mapped = map_bytes(&bytes, &Limits::DEFAULT, &limits);
+            let tags = &mapped.tags;
+            let lists = [
+                tags.artist.len(),
+                tags.artist_sort.len(),
+                tags.album_artist.len(),
+                tags.album_artist_sort.len(),
+                tags.genres.len(),
+                tags.moods.len(),
+                tags.labels.len(),
+                tags.grouping.len(),
+                tags.credits.len(),
+                tags.isrc.len(),
+                tags.musicbrainz.artists.len(),
+                tags.musicbrainz.album_artists.len(),
+                tags.lyrics.len(),
+                mapped.problems.len(),
+            ];
+            let most = usize::try_from(limit).unwrap();
+            prop_assert!(lists.iter().all(|len| *len <= most), "{lists:?} over {most}");
+        }
     }
 
     #[test]
