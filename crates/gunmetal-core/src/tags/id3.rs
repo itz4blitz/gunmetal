@@ -33,10 +33,11 @@
 //!
 //! # Frames the parser keeps raw
 //!
-//! The `ID3v2` parser decodes text only for identifiers that start with
-//! `T`, and keeps every other frame as raw octets. So the grouping iTunes
-//! writes as `GRP1` and the sort names 2.3 tags hold as `XSOT`, `XSOP` and
-//! `XSOA` are not mapped; `TIT1`, `TSOT`, `TSOP` and `TSOA` are.
+//! The `ID3v2` parser reads a frame as text information only when its
+//! identifier starts with `T`. `GRP1`, the grouping iTunes writes, and
+//! `XSOT`, `XSOP` and `XSOA`, the sort names 2.3 tags hold, do not, so the
+//! parser keeps them as raw octets and they are not mapped; `TIT1`, `TSOT`,
+//! `TSOP` and `TSOA` are.
 
 use crate::catalog::{
     Advisory, CatalogError, Credit, Gain, GainScale, LyricsOrigin, LyricsSource, LyricsTiming,
@@ -185,7 +186,8 @@ pub enum TagProblem {
         /// Why it was dropped.
         error: CatalogError,
     },
-    /// A list hit the tag-field limit; later values were dropped
+    /// A list hit the tag-field limit, or the lines of a `SYLT` frame hit
+    /// the line or the lyrics limit; what came after was dropped
     /// (SEC-MED-006).
     LimitExceeded {
         /// Which limit was hit.
@@ -3562,11 +3564,12 @@ mod tests {
         );
     }
 
-    /// The `ID3v2` parser decodes text only for identifiers that start
-    /// with `T`. It keeps the grouping iTunes writes as `GRP1` and the 2.3
-    /// sort names `XSOT`, `XSOP` and `XSOA` as raw octets, so nothing is
-    /// mapped from them and nothing is reported. Once the parser decodes
-    /// them, the frames here stop being raw and they can be mapped.
+    /// The `ID3v2` parser reads a frame as text information only when its
+    /// identifier starts with `T`. It keeps the grouping iTunes writes as
+    /// `GRP1` and the 2.3 sort names `XSOT`, `XSOP` and `XSOA` as raw
+    /// octets, so nothing is mapped from them and nothing is reported. Once
+    /// the parser decodes them, the frames here stop being raw and they can
+    /// be mapped.
     #[test]
     fn maps_nothing_from_the_grouping_and_sort_frames_the_parser_keeps_raw() {
         let bytes = TagBytes::new(Version::V23)
