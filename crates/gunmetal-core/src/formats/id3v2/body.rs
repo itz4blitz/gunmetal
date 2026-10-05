@@ -531,6 +531,80 @@ mod tests {
         );
     }
 
+    /// `GRP1`, the grouping iTunes writes, and `XSOT`, `XSOP` and `XSOA`,
+    /// the sort names 2.3 tags hold, are text information frames in all but
+    /// the first letter of their identifier, and are read as such: in each
+    /// encoding, with one value before 2.4 and every value from 2.4 on.
+    #[test]
+    fn decodes_the_grouping_and_the_sort_frames_that_do_not_start_with_t() {
+        for id in [b"GRP1", b"XSOT", b"XSOP", b"XSOA"] {
+            for body in [
+                CAFE_LATIN1,
+                CAFE_UTF16_LE,
+                CAFE_UTF16_BE_MARKED,
+                CAFE_UTF16_BE,
+                CAFE_UTF8,
+            ] {
+                assert_eq!(
+                    one(Version::V23, id, 0, body),
+                    alone(id, text_body(&["Café"])),
+                    "{id:?} {body:02X?}"
+                );
+            }
+            assert_eq!(
+                one(Version::V23, id, 0, b"\x00A\x00B"),
+                alone(id, text_body(&["A"])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one(Version::V24, id, 0, b"\x03A\x00B"),
+                alone(id, text_body(&["A", "B"])),
+                "{id:?}"
+            );
+        }
+    }
+
+    /// They are held to what every text frame is held to: a value is cut at
+    /// the short-text limit and says so, the values count against the child
+    /// limit, and a body with an encoding that does not exist is kept raw.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn holds_the_grouping_and_the_sort_frames_to_the_limits_of_a_text_frame() {
+        let short = limits(LimitKind::ShortText, 3);
+        let single = limits(LimitKind::Children, 1);
+        for id in [b"GRP1", b"XSOT", b"XSOP", b"XSOA"] {
+            assert_eq!(
+                one_with(&short, Version::V24, id, b"\x00ABC"),
+                alone(id, text_body(&["ABC"])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one_with(&short, Version::V24, id, b"\x00ABCD"),
+                alone(id, FrameBody::Text(vec![capped("ABC")])),
+                "{id:?}"
+            );
+            assert_eq!(
+                one_with(&single, Version::V24, id, b"\x00A\x00B"),
+                (
+                    vec![frame(id, 10, 0, text_body(&["A"]))],
+                    vec![TagProblem::Fault(ParseFault::LimitExceeded {
+                        limit: LimitKind::Children,
+                        value: 2,
+                        max: 1,
+                        offset: 10,
+                    })]
+                ),
+                "{id:?}"
+            );
+            assert_eq!(
+                one(Version::V24, id, 0, b"\x04A"),
+                malformed(id, 22),
+                "{id:?}"
+            );
+        }
+    }
+
     #[test]
     fn reads_user_text_with_or_without_a_description() {
         let user = |description: &str, values: &[&str]| FrameBody::UserText {
