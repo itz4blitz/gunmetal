@@ -61,22 +61,44 @@ jobs:
 
   # The mutation run, one shard per job, for every event.
   mutants:
-    # A package pull request's diff-scoped shards run on GitHub's runners:
-    # they test few mutants and finish in minutes. A full run's shards (a
-    # push to main or a wave branch, a pull request into main from this
-    # repository, the nightly run) go to the project's own runners, labelled
-    # gunmetal-mutants (record 15): the workspace has about 8,000 mutants at
-    # 20 to 35 seconds each, and on hosted runners every one of ten shards
-    # hit its limit. A pull request from a fork never reaches those runners;
-    # it stays on GitHub's, so nobody outside the project runs code on the
-    # project's hardware.
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}
-    # 75 minutes for a diff-scoped shard: one package's 199 mutants took 60
-    # minutes in a single hosted job, so a tenth of that has room to grow.
-    # 15 hours for a full shard on the project's runners: about 800 mutants
-    # at 20 to 35 seconds each is 4.5 to 8 hours, and the limit leaves room
-    # for the workspace to double. A timed-out shard fails `gate`.
-    timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository) && 75 || 900 }}
+    # Where the shards run (record 15). A full run's shards go to the
+    # project's own runners, labelled gunmetal-mutants: the workspace has
+    # about 8,000 mutants at 20 to 35 seconds each, and on hosted runners
+    # every one of ten shards hit its limit. A full run is a push to main or
+    # a wave branch, the nightly run, and a pull request into any branch
+    # that is not a wave branch. Three kinds of pull request stay on
+    # GitHub's runners:
+    #
+    # - One into a wave branch. Its diff-scoped shards test few mutants and
+    #   finish in minutes.
+    # - One opened by Dependabot. Its branch is in this repository, but it
+    #   brings new versions of crates and actions that nobody has read yet,
+    #   and their build scripts, macros and code must not run on the
+    #   project's hardware. The test is the pull request's author, which
+    #   never changes. github.actor would be wrong: it names whoever caused
+    #   the event that started the run, so it stops naming Dependabot when
+    #   a maintainer pushes to the branch, updates it or reopens the pull
+    #   request, while the unread dependencies are still in it. This line
+    #   is the only control for Dependabot; no setting stands behind it.
+    # - One from a fork, whose head repository is not this one.
+    #
+    # The fork test only routes. It is not what keeps outsiders' code off
+    # the project's hardware: a pull request runs its own copy of this file
+    # and can rewrite this line. The control is three settings, which must
+    # stay as they are while these runners are registered: the repository
+    # is private, forking is off, and workflows from fork pull requests are
+    # off. No job watches those settings yet; record 15 has how they read.
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}
+    # The same condition as runs-on, so a shard's limit always matches its
+    # runner. 75 minutes on GitHub's runners: one package's 199 mutants took
+    # 60 minutes in a single hosted job, so a tenth of that has room to
+    # grow. 15 hours on the project's runners: about 800 mutants at 20 to 35
+    # seconds each is 4.5 to 8 hours, and the limit leaves room for the
+    # workspace to double. A timed-out shard fails `gate`. A full run kept
+    # on GitHub's runners (a Dependabot or fork pull request into main) has
+    # only the 75 minutes, which the full runs on wave-1 and wave-2 did not
+    # fit in.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 75 || 900 }}
     permissions:
       contents: read
     strategy:
