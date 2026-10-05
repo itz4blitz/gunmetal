@@ -36,6 +36,7 @@ pub mod shuffle;
 pub mod tags;
 pub mod text;
 pub mod time;
+pub mod tint;
 pub mod token;
 pub mod untrusted;
 pub mod userdata;
