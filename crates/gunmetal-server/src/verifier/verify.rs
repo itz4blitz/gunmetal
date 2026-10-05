@@ -645,6 +645,38 @@ mod tests {
         assert_eq!(seen.finds.get(), 8);
     }
 
+    /// Verifies: SEC-API-056
+    #[test]
+    fn guesses_made_at_the_same_moment_are_counted_one_at_a_time() {
+        let bench = bench();
+        let verifier = &bench.verifier;
+        let from = source("192.168.1.66");
+        // Four wrong guesses at one code, from one source, on four threads.
+        let answers: Vec<_> = std::thread::scope(|scope| {
+            let guessers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let seen = Seen::default();
+                        let check = standin(Pathway::PairingCode, &seen);
+                        verifier.verify(&check, &Presented::new(b"wrong"), &from)
+                    })
+                })
+                .collect();
+            guessers
+                .into_iter()
+                .map(|guesser| guesser.join().expect("the guess returned"))
+                .collect()
+        });
+        // Whichever came first was looked at and counted before any other
+        // was let through, so the other three wait.
+        let looked_at = answers.iter().filter(|answer| **answer == REFUSED).count();
+        let waiting = answers
+            .iter()
+            .filter(|answer| **answer == wait(30_000))
+            .count();
+        assert_eq!((looked_at, waiting), (1, 3));
+    }
+
     #[test]
     fn a_different_target_from_the_same_address_is_a_first_guess_under_the_same_ceiling() {
         let bench = bench();
