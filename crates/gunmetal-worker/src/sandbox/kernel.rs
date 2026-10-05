@@ -468,16 +468,138 @@ mod tests {
             .map_err(|error| error.kind())
     }
 
-    /// Whether the running kernel has Landlock active, read from the
-    /// kernel's own list of security modules and not from the code under
-    /// test.
-    fn kernel_has_landlock() -> bool {
+    /// Where the kernel lists its active security modules. The file is on
+    /// securityfs, which a kernel can be built without and a container is
+    /// usually not shown.
+    const MODULE_LIST: &str = "/sys/kernel/security/lsm";
+
+    /// The text of a file the kernel publishes, or `None` where the kernel
+    /// publishes no file by that name. Any other failure to read it is an
+    /// error, never taken for a missing file.
+    fn published(path: &str) -> Result<Option<String>, ErrorKind> {
         #[expect(
             clippy::disallowed_methods,
-            reason = "the test reads the kernel's list of security modules, a fixed path, to know what to expect of Landlock (SEC-MED-024)"
+            reason = "the tests read what the kernel publishes, its list of security modules first, by fixed paths, to know what to expect of Landlock (SEC-MED-024)"
         )]
-        let modules = std::fs::read_to_string("/sys/kernel/security/lsm").unwrap();
-        modules.trim().split(',').any(|name| name == "landlock")
+        let read = std::fs::read_to_string(path);
+        read.map(Some).map_err(|error| error.kind())
+    }
+
+    /// Whether a security module is active on the running kernel. Where
+    /// the kernel publishes the list of its modules, the list decides, and
+    /// a module is one whole name in it. Where it publishes none,
+    /// `answered` decides: what the kernel said when it was asked about
+    /// that module directly.
+    fn active(list: Option<&str>, module: &str, _answered: bool) -> bool {
+        list.is_some_and(|names| names.trim().split(',').any(|name| name == module))
+    }
+
+    /// Whether the running kernel answers the Landlock version query with
+    /// a version. The query is `landlock_create_ruleset` with only the
+    /// version flag: it creates no ruleset and restricts nothing. A kernel
+    /// built without Landlock answers `ENOSYS`, and a kernel that has
+    /// Landlock switched off answers `EOPNOTSUPP`.
+    ///
+    /// Making the call needs `unsafe`, which this crate allows in one
+    /// place only (ADR 13), so it is made through the `landlock` crate: a
+    /// builder that is given nothing to restrict and told to leave
+    /// `no_new_privs` alone asks for the version and does nothing else.
+    /// None of the code under test is involved.
+    fn landlock_answers() -> bool {
+        false
+    }
+
+    /// Whether the running kernel has Landlock active: read from the
+    /// kernel's own list of security modules, or asked of the kernel
+    /// directly where it publishes no list, and never from the code under
+    /// test.
+    fn kernel_has_landlock() -> bool {
+        let list = published(MODULE_LIST).unwrap();
+        active(list.as_deref(), "landlock", landlock_answers())
+    }
+
+    /// Where the kernel publishes the list of its security modules, the
+    /// list decides and the kernel's direct answer changes nothing; a
+    /// module is a whole name in the list. On a kernel that publishes
+    /// none, as one without securityfs, the direct answer decides.
+    #[test]
+    fn the_module_list_decides_and_without_one_the_kernels_direct_answer_does() {
+        let listed = Some("lockdown,capability,landlock,yama,apparmor\n");
+        assert_eq!(
+            [
+                active(listed, "landlock", false),
+                active(listed, "yama", false),
+                active(listed, "lockdown", false),
+                active(listed, "apparmor", false),
+                active(listed, "selinux", true),
+                active(listed, "lock", true),
+                active(listed, "", true),
+            ],
+            [true, true, true, true, false, false, false]
+        );
+        // One name, as the kernel writes it, with no line end.
+        assert!(active(Some("landlock"), "landlock", false));
+        assert!(!active(Some("capability,yama"), "landlock", true));
+        assert!(!active(Some(""), "landlock", true));
+        assert_eq!(
+            [
+                active(None, "landlock", true),
+                active(None, "landlock", false),
+            ],
+            [true, false]
+        );
+    }
+
+    /// A kernel without securityfs has no file where the list would be.
+    /// Reading it is "no list", not a failure, and that is what sends the
+    /// tests to the kernel's direct answer. A file that is there is read
+    /// whole. Any other failure stays an error, so a list that exists and
+    /// cannot be read is never taken for a kernel without one.
+    #[test]
+    fn a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is() {
+        assert_eq!(
+            published("/proc/sys/kernel/ostype"),
+            Ok(Some("Linux\n".to_owned()))
+        );
+        assert_eq!(published("/sys/kernel/security/no-such-list"), Ok(None));
+        assert_eq!(
+            published("/proc/self/status/lsm"),
+            Err(ErrorKind::NotADirectory)
+        );
+    }
+
+    /// Where the kernel publishes its module list, the list and the
+    /// version query say the same of Landlock, which is what lets the
+    /// query stand in for the list on a kernel that publishes none. On
+    /// such a kernel the two are one answer and this proves nothing.
+    #[test]
+    fn the_version_query_and_the_module_list_say_the_same_of_landlock() {
+        assert_eq!(landlock_answers(), kernel_has_landlock());
+    }
+
+    /// On a kernel without Landlock the version query says so: the three
+    /// Landlock calls answer `ENOSYS` on this thread, as on a kernel built
+    /// without them.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn the_version_query_says_no_on_a_kernel_without_landlock() {
+        let answered = std::thread::spawn(|| {
+            take_away(&[444, 445, 446]);
+            landlock_answers()
+        })
+        .join()
+        .unwrap();
+        assert!(!answered);
+    }
+
+    /// Asking leaves the thread's `no_new_privs` flag as it was. A process
+    /// started afterwards inherits the flag, so a query that set it would
+    /// hide a worker that did not set its own.
+    #[test]
+    fn asking_for_the_landlock_version_leaves_no_new_privs_as_it_was() {
+        let before = rustix::thread::no_new_privs().unwrap();
+        let _answer = landlock_answers();
+        assert_eq!(rustix::thread::no_new_privs().unwrap(), before);
     }
 
     /// Landlock binds the thread that enforces it, so a thread of its own
