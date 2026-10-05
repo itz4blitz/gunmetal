@@ -38,14 +38,22 @@ every other workflow.
   macros and code would run on the build host. Any other GitHub App that
   can write to the repository can open a pull request from one of its
   branches in the same way. The workflow tests the type of the pull
-  request's author (`github.event.pull_request.user.type == 'Bot'`),
-  which never changes and is true for Dependabot and for every app. It
-  does not test `github.actor`, which names whoever caused the event that
-  started the run: that stops being the bot when a maintainer pushes to
-  the branch, updates it or reopens the pull request, while the unread
-  change is still in it. For a bot's pull request this line of the
+  request's author (`github.event.pull_request.user.type != 'User'`),
+  which never changes. It fails closed: an author of any type but a
+  person's account, or of no type, stays on GitHub's runners. It does not
+  test `github.actor`, which names whoever caused the event that started
+  the run: that stops being the bot when a maintainer pushes to the
+  branch, updates it or reopens the pull request, while the unread change
+  is still in it. For a bot account's pull request this line of the
   workflow is the only control; no setting stands behind it. The
   workspace rules test pins the line and the time limit's line whole.
+- The author test holds only for an app acting as its own bot account.
+  An app that opens a pull request on a person's authorisation is
+  recorded by GitHub as that person, and so is a coding agent that pushes
+  with a person's account. Both are a person's pull requests to this
+  workflow, and a person's pull request into `main` runs on the build
+  host. Of thirty public pull requests sampled on 2026-10-05 whose text
+  links a ChatGPT Codex task, twenty-eight have a person as author.
 - The job is unchanged otherwise: it has a read-only token and no secrets
   (SEC-SUP-012, SEC-SUP-013), every action is pinned (SEC-SUP-010), and it
   runs `scripts/gate.sh` with the same switches.
@@ -54,12 +62,15 @@ every other workflow.
   and from the running containers: each is capped at 4 CPUs, 12 GB and
   4,096 processes, has `no-new-privileges` set, is not privileged, has no
   Docker socket, and runs its jobs as an unprivileged user with no
-  capabilities. Their network is not restricted: a job can reach the
-  internet and whatever the build host's network lets a container reach.
-  Their set-up and the commands to manage them are kept beside them on
-  the host.
-- These runners keep state between jobs. Release workflows never use them:
-  release builds need fresh runners (SEC-SUP-015, SEC-SUP-040).
+  capabilities. The compose file sets no network, so by inference, not by
+  test, a job can reach the internet, the build host itself, other
+  containers' published ports and the host's local network. Their set-up
+  and the commands to manage them are kept beside them on the host.
+- These runners keep state between jobs, so release workflows must not
+  use them. That rule is made here, in the spirit of SEC-SUP-015 (no
+  restored caches in a release build) and SEC-SUP-040 (a build that two
+  runners reproduce); neither requirement states it, and nothing enforces
+  it yet.
 
 ## What keeps outsiders' code off the build host
 
@@ -104,22 +115,29 @@ repository's own branches. On 2026-10-05 that is:
 - **What every full run executes:** the build scripts and procedural
   macros of every locked crate, and the pinned actions the job uses.
 - **GitHub Apps installed on the organisation with write access to
-  repository contents.** On every repository: `slack` and `expo`, which
-  may also edit workflows, and `cloudflare-workers-and-pages`, which may
-  also change repository settings. On selected repositories:
-  `chatgpt-codex-connector`, which may also edit workflows, `coderabbitai`
-  and `premierstudio-local-dev`; whether this repository is among those
-  selected was not checked.
+  repository contents.** Six of the eleven installed apps have it. On
+  every repository: `slack` and `expo`, which may also edit workflows,
+  and `cloudflare-workers-and-pages`, which has administration rights:
+  it can change a repository's visibility, its forking setting and
+  `main`'s ruleset, and register runners. On selected repositories:
+  `chatgpt-codex-connector`, which may also edit workflows and usually
+  opens its pull requests in the name of the person who asked,
+  `coderabbitai` and `premierstudio-local-dev`; whether this repository
+  is among those selected was not checked.
 
-The workflow holds only part of that. A pull request an app opens stays
-on GitHub's runners, by the bot test above. Two things it does not hold:
-an app that may edit workflows can rewrite the line in its own pull
-request, and a push straight to a wave branch is an ordinary full run,
-whoever pushed. The wave branches have no ruleset; only `main` has one.
-So the list of installed apps and their permissions, and the absence of
-protection on the wave branches, are settings this decision depends on.
-Whether to narrow the apps to the repositories that need them and to
-protect the wave branches is the owner's to decide.
+The workflow holds only part of that. A pull request an app opens as its
+own bot account stays on GitHub's runners, by the author test above.
+Three things it does not hold: an app that may edit workflows can rewrite
+the line in its own pull request; an app or agent acting on a person's
+authorisation is a person to it; and a push straight to a wave branch is
+an ordinary full run, whoever pushed. The wave branches have no ruleset;
+only `main` has one. Creating a new branch whose name begins `wave-` is
+also a push the trigger matches, and needs only write access to
+contents. So the list of installed apps and their permissions, and the
+absence of protection on existing and new wave branches, are settings
+this decision depends on. Whether to narrow the apps to the repositories
+that need them and to protect the `wave-` names is the owner's to
+decide.
 
 Nothing watches these settings when this record is written. The `Settings
 drift` workflow is on the wave branches but not yet on `main`, so its
@@ -133,7 +151,11 @@ to any of them goes unnoticed.
 ## Consequences
 
 If the runners work as intended, a full gate finishes, in hours that
-depend on how many runners are online: ten shards share them. The shards
+depend on how many runners are online: ten shards share them. On four
+runners ten shards are three rounds, which by the estimate of 4.5 to 8
+hours a shard is 13.5 to 24 hours. Twenty shards (a push's full run
+beside a pull request's) are five rounds, and the last would wait 18 to
+32 hours for a runner; GitHub cancels a job that has waited 24. The shards
 of a person's full run no longer cost hosted runner time. The `checks`
 job still runs on GitHub's runners, and so do all ten shards of a bot's
 pull request into `main`, to the 75-minute limit, each time it is updated.
