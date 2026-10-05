@@ -142,6 +142,17 @@ mod tests {
     }
 
     #[test]
+    fn punctuation_beside_a_letter_or_digit_is_dropped() {
+        assert_eq!(tokens("Go!"), ["go"]);
+        // A word of punctuation alone is dropped too, and is not counted
+        // among the words.
+        assert_eq!(tokens("Simon & Garfunkel"), ["simon", "garfunkel"]);
+        assert_eq!(tokens("÷ (Deluxe)"), ["deluxe"]);
+        assert_eq!(tokens("( ) 1"), ["1"]);
+        assert_eq!(tokens("... 東"), ["東"]);
+    }
+
+    #[test]
     fn text_without_a_letter_or_digit_has_no_tokens() {
         assert_eq!(tokens(""), Vec::<String>::new());
         assert_eq!(tokens("   "), Vec::<String>::new());

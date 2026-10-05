@@ -416,6 +416,49 @@ mod tests {
         library().query(q, KindFilter::All, u16::MAX)
     }
 
+    /// A library of names with no letter or digit in them, and one album
+    /// by an artist named so. Each document's number is its position, from
+    /// 1.
+    fn signs() -> Index {
+        Index::build(
+            [
+                entry(Artist, 1, "!!!", "", "", &[], &["Dance-punk"], &[], 0),
+                entry(
+                    Album,
+                    2,
+                    "Myth Takes",
+                    "!!!",
+                    "",
+                    &[],
+                    &["Dance-punk"],
+                    &["Warp"],
+                    0,
+                ),
+                entry(Album, 3, "÷", "Ed Sheeran", "", &[], &["Pop"], &[], 0),
+                entry(Album, 4, "+", "Ed Sheeran", "", &[], &["Pop"], &[], 0),
+                entry(Album, 5, "=", "Ed Sheeran", "", &[], &["Pop"], &[], 0),
+                entry(
+                    Album,
+                    6,
+                    "( )",
+                    "Sigur Rós",
+                    "",
+                    &[],
+                    &["Post-rock"],
+                    &[],
+                    0,
+                ),
+                entry(Playlist, 7, "🎵 ❤", "", "", &[], &[], &[], 0),
+            ]
+            .into_iter(),
+        )
+    }
+
+    /// Every hit for `q` among the signs, with no filter.
+    fn signed(q: &str) -> Vec<Hit> {
+        signs().query(q, KindFilter::All, u16::MAX)
+    }
+
     #[test]
     fn finds_accented_titles_from_plain_letters() {
         assert_eq!(
@@ -431,8 +474,14 @@ mod tests {
 
     #[test]
     fn finds_plain_titles_from_accented_letters() {
-        assert_eq!(all("Rádiöhead"), all("radiohead"));
-        assert_eq!(all("Rádiöhead").len(), 4);
+        let expected = [
+            hit(Artist, 4, Match::WholeTitle),
+            hit(Track, 7, Match::Words),
+            hit(Track, 6, Match::Words),
+            hit(Album, 5, Match::Words),
+        ];
+        assert_eq!(all("Rádiöhead"), expected);
+        assert_eq!(all("radiohead"), expected);
     }
 
     #[test]
@@ -771,6 +820,21 @@ mod tests {
     }
 
     #[test]
+    fn a_query_with_a_letter_or_digit_drops_every_other_character() {
+        // The marks are dropped, a word of them included, so these are the
+        // queries "myth" and "sheeran".
+        assert_eq!(signed("!!! myth"), [hit(Album, 2, Match::TitleStart)]);
+        assert_eq!(
+            signed("÷ sheeran"),
+            [
+                hit(Album, 3, Match::Words),
+                hit(Album, 4, Match::Words),
+                hit(Album, 5, Match::Words),
+            ]
+        );
+    }
+
+    #[test]
     fn every_term_has_to_match() {
         assert_eq!(all("karma radiohead"), [hit(Track, 7, Match::Words)]);
         assert_eq!(all("karma bjork"), []);
@@ -869,6 +933,105 @@ mod tests {
                 hit(Track, 2, Match::WholeTitle),
                 hit(Track, 1, Match::TitleStart),
             ]
+        );
+    }
+
+    #[test]
+    fn titles_that_fold_alike_are_each_the_whole_title() {
+        let mut played = titled(Album, 2, "Amélie");
+        played.plays = 1;
+        let index = Index::build(
+            [
+                titled(Album, 1, "Amelie"),
+                played,
+                titled(Track, 3, "Go"),
+                titled(Track, 4, "Go!"),
+            ]
+            .into_iter(),
+        );
+        // "Amelie" is written so on album 1 alone, but the title of album
+        // 2 folds to the same token, and album 2 has the plays.
+        assert_eq!(
+            index.query("Amelie", KindFilter::All, u16::MAX),
+            [
+                hit(Album, 2, Match::WholeTitle),
+                hit(Album, 1, Match::WholeTitle),
+            ]
+        );
+        assert_eq!(
+            index.query("Amelie", KindFilter::All, 1),
+            [hit(Album, 2, Match::WholeTitle)]
+        );
+        // "Go!" is written so on track 4 alone. Neither track has plays,
+        // so the order they were given in decides.
+        assert_eq!(
+            index.query("Go!", KindFilter::All, u16::MAX),
+            [
+                hit(Track, 3, Match::WholeTitle),
+                hit(Track, 4, Match::WholeTitle),
+            ]
+        );
+        assert_eq!(
+            index.query("Go!", KindFilter::All, 1),
+            [hit(Track, 3, Match::WholeTitle)]
+        );
+    }
+
+    #[test]
+    fn a_title_past_a_cap_is_not_the_first_hit_for_itself() {
+        // 17 words: the query is cut to its first 16, which are the whole
+        // of the other title and only the start of its own.
+        let seventeen = "a b c d e f g h i j k l m n o p q";
+        let by_terms = Index::build(
+            [
+                titled(Track, 1, seventeen),
+                titled(Track, 2, "a b c d e f g h i j k l m n o p"),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            by_terms.query(seventeen, KindFilter::All, u16::MAX),
+            [
+                hit(Track, 2, Match::WholeTitle),
+                hit(Track, 1, Match::TitleStart),
+            ]
+        );
+        assert_eq!(
+            by_terms.query(seventeen, KindFilter::All, 1),
+            [hit(Track, 2, Match::WholeTitle)]
+        );
+        // 262 characters: the query is cut to its first 256, which hold
+        // "karma" and not "police".
+        let long = padded("karma", "police", 262);
+        let by_chars =
+            Index::build([titled(Track, 1, &long), titled(Track, 2, "Karma")].into_iter());
+        assert_eq!(
+            by_chars.query(&long, KindFilter::All, u16::MAX),
+            [
+                hit(Track, 2, Match::WholeTitle),
+                hit(Track, 1, Match::TitleStart),
+            ]
+        );
+        assert_eq!(
+            by_chars.query(&long, KindFilter::All, 1),
+            [hit(Track, 2, Match::WholeTitle)]
+        );
+        // A word of 33 letters: the index and the query both keep its
+        // first 32, which the two titles share.
+        let ends_in_b = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab";
+        let ends_in_c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaac";
+        let by_letters =
+            Index::build([titled(Album, 1, ends_in_b), titled(Album, 2, ends_in_c)].into_iter());
+        assert_eq!(
+            by_letters.query(ends_in_c, KindFilter::All, u16::MAX),
+            [
+                hit(Album, 1, Match::WholeTitle),
+                hit(Album, 2, Match::WholeTitle),
+            ]
+        );
+        assert_eq!(
+            by_letters.query(ends_in_c, KindFilter::All, 1),
+            [hit(Album, 1, Match::WholeTitle)]
         );
     }
 
