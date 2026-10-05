@@ -4893,6 +4893,43 @@ mod tests {
         );
     }
 
+    /// The parser counts the lines of every `SYLT` frame of a tag against
+    /// the lyrics line limit, whatever the frame holds. The first frame
+    /// here holds chords, which are not mapped, and its two lines leave the
+    /// second frame room for one of its own: the line that was dropped is
+    /// the tag's fourth.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reports_the_line_of_the_tag_that_a_later_synced_frame_dropped() {
+        let three = lowered(LimitKind::LyricsLines, 3);
+        let synced = |content_type: u8, lines: &[(&str, u32)]| {
+            kit::synced_lyrics(Kit::Latin1, *b"eng", [2, content_type], "", lines)
+        };
+        // The first frame takes 31 octets, so the second starts at 41.
+        let bytes = TagBytes::new(Version::V24)
+            .frame(b"SYLT", 0, &synced(5, &[("do", 0), ("re", 100)]))
+            .frame(b"SYLT", 0, &synced(1, &[("one", 0), ("two", 100)]))
+            .build();
+        assert_eq!(
+            map_bytes(&bytes, &three, &three),
+            Mapped {
+                tags: TrackTags {
+                    lyrics: vec![lyrics(LyricsOrigin::Id3Synced, LyricsTiming::Line, "one")],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    lyrics: Some(v2_at(b"SYLT", 41)),
+                    ..FieldSources::default()
+                },
+                problems: vec![TagProblem::LimitExceeded {
+                    limit: LimitKind::LyricsLines,
+                    count: 4,
+                }],
+            }
+        );
+    }
+
     /// The `ID3v1` parser keeps a tab or a line feed inside a field and
     /// caps the field at the short-text limit: here the title and the
     /// artist are one octet too long, and the album fits exactly.
