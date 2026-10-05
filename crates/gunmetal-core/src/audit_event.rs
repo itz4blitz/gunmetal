@@ -148,6 +148,8 @@ security_events! {
         /// The administrator who switched it on, or none when it was switched on from the host.
         account: Option<PublicId>,
     }
+    /// The egress gate refused an outbound request; its purpose, host and reason are in the network activity record (SEC-PRV-008).
+    GmEgressDenied = "gm_egress_denied" {}
 }
 
 /// Where producers send security events.
@@ -347,12 +349,13 @@ mod tests {
 
     /// Every event's vocabulary name, in order, written out independently of
     /// the declaration above.
-    const VOCABULARY: [&str; 5] = [
+    const VOCABULARY: [&str; 6] = [
         "authn_login_fail",
         "authn_login_success",
         "authz_fail",
         "excess_rate_limit_exceeded",
         "gm_debug_logging_enabled",
+        "gm_egress_denied",
     ];
 
     fn source() -> ClientContext {
@@ -439,6 +442,7 @@ mod tests {
                 SecurityEvent::GmDebugLoggingEnabled { account: None },
                 EventName::GmDebugLoggingEnabled,
             ),
+            (SecurityEvent::GmEgressDenied {}, EventName::GmEgressDenied),
         ];
         let reported: Vec<(SecurityEvent, EventName)> = cases
             .iter()
