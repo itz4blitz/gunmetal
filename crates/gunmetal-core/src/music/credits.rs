@@ -91,12 +91,18 @@
 //! artist are resolved in R1.1 (WP-146).
 
 use crate::catalog::{Credit, Role, TrackTags};
+use crate::collate;
 use crate::parse::{LimitKind, Limits};
+use crate::text::{self, Lines};
+use crate::untrusted::Untrusted;
 use crate::values::Mbid;
 
 /// What stands between the names of a multi-value field in the credit as
 /// shown.
 pub const JOIN: &str = ", ";
+
+/// The separators of [`SplitRules::standard`].
+const STANDARD: [&str; 7] = [", ", " & ", " feat. ", " ft. ", " x ", " / ", "; "];
 
 /// How one library splits a display credit into names (API-LIB-07).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +120,7 @@ impl SplitRules {
     #[must_use]
     pub fn standard() -> Self {
         Self {
-            separators: Vec::new(),
+            separators: STANDARD.map(String::from).into(),
             exceptions: Vec::new(),
         }
     }
@@ -142,7 +148,8 @@ pub struct CreditLine {
     /// names of a multi-value field joined with [`JOIN`]. It is the lead
     /// followed by each name and its join.
     pub display: String,
-    /// What stands before the first name: separators and white space.
+    /// What stands before the first name: separators and white space. A
+    /// credit that links no name is all lead.
     pub lead: String,
     /// The credited names, in the order they are shown.
     pub names: Vec<CreditedName>,
@@ -177,7 +184,10 @@ impl ArtistKey {
     /// The key of the artist `credit` names.
     #[must_use]
     pub fn of(credit: &Credit) -> Self {
-        Self::Name(credit.name().to_owned())
+        match credit.mbid() {
+            Some(mbid) => Self::Mbid(mbid),
+            None => Self::Name(matching(credit.name())),
+        }
     }
 }
 
@@ -219,8 +229,312 @@ pub enum Problem {
 /// The credits of the file `tags` were read from, under its library's
 /// `rules` and the `limits` its tags were mapped under.
 #[must_use]
-pub fn credits(_tags: &TrackTags, _rules: &SplitRules, _limits: &Limits) -> CreditSet {
-    CreditSet::default()
+pub fn credits(tags: &TrackTags, rules: &SplitRules, limits: &Limits) -> CreditSet {
+    let mut reader = Reader {
+        rules,
+        limits,
+        problems: Vec::new(),
+    };
+    let ids = &tags.musicbrainz;
+    let artist = reader.line(&tags.artist, &ids.artists, Role::Artist);
+    let album_artist = reader.line(&tags.album_artist, &ids.album_artists, Role::AlbumArtist);
+    CreditSet {
+        artist,
+        album_artist,
+        problems: reader.problems,
+    }
+}
+
+/// One name of a credit while it is read.
+struct Piece {
+    /// The name, without the white space around it. It is never blank.
+    name: String,
+    /// Whether a featuring separator stands before it.
+    featured: bool,
+    /// What stands after it, up to the next name.
+    join: String,
+}
+
+/// A credit as read, before its names are linked.
+struct Parts {
+    /// What stands before the first name.
+    lead: String,
+    /// The names that are kept.
+    pieces: Vec<Piece>,
+    /// How many names the tags hold, kept or not.
+    total: usize,
+}
+
+/// Reads the credits of one file, collecting what it cannot keep or pair.
+struct Reader<'a> {
+    /// The library's rules.
+    rules: &'a SplitRules,
+    /// The limits to read under.
+    limits: &'a Limits,
+    /// What could not be kept or paired so far.
+    problems: Vec<Problem>,
+}
+
+impl Reader<'_> {
+    /// One limit as a count. A limit wider than a count, which only a
+    /// 32-bit target could have, is as good as none.
+    fn limit(&self, kind: LimitKind) -> usize {
+        usize::try_from(self.limits.get(kind)).unwrap_or(usize::MAX)
+    }
+
+    /// The credit of one field: `values` as tagged, with `ids` paired by
+    /// position.
+    fn line(&mut self, values: &[String], ids: &[Mbid], role: Role) -> CreditLine {
+        let parts = match values {
+            [only] => self.tagged(only, role),
+            several => self.listed(several, role),
+        };
+        if parts.total == 0 && !values.is_empty() {
+            self.problems.push(Problem::NoName { role });
+        }
+        let ids = self.paired(ids, parts.total, role);
+        linked(parts, ids, role)
+    }
+
+    /// A display credit: `value` cut at [`LimitKind::ShortText`], split by
+    /// the rules, and linked up to [`LimitKind::TagFields`] names.
+    fn tagged(&mut self, value: &str, role: Role) -> Parts {
+        // Every text limit's ceiling fits 32 bits.
+        let cap = u32::try_from(self.limits.get(LimitKind::ShortText)).unwrap_or(u32::MAX);
+        let shown = text::normalise(Untrusted::new(value.as_bytes()), Lines::Single, cap);
+        if shown.truncated {
+            let limit = LimitKind::ShortText;
+            self.problems.push(Problem::Limit { role, limit });
+        }
+        let (mut lead, mut pieces) = split(&shown.value, self.rules);
+        let total = pieces.len();
+        let max = self.limit(LimitKind::TagFields);
+        if total > max {
+            let limit = LimitKind::TagFields;
+            self.problems.push(Problem::Limit { role, limit });
+        }
+        let unlinked: String = pieces
+            .iter()
+            .skip(max)
+            .flat_map(|piece| [piece.name.as_str(), piece.join.as_str()])
+            .collect();
+        pieces.truncate(max);
+        glue(&mut lead, &mut pieces).push_str(&unlinked);
+        Parts {
+            lead,
+            pieces,
+            total,
+        }
+    }
+
+    /// A multi-value field: each of `values` that is not blank is one name,
+    /// for as long as the credit they make stays within
+    /// [`LimitKind::ShortText`] and [`LimitKind::TagFields`] names.
+    fn listed(&mut self, values: &[String], role: Role) -> Parts {
+        let names: Vec<&str> = values
+            .iter()
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .collect();
+        // Each name is counted with a join after it, so the room is one
+        // join more than the limit: the last name has none.
+        let room = self.limit(LimitKind::ShortText).saturating_add(JOIN.len());
+        let mut octets = 0_usize;
+        let fitting = names
+            .iter()
+            .take_while(|name| {
+                octets = octets.saturating_add(name.len()).saturating_add(JOIN.len());
+                octets <= room
+            })
+            .count();
+        let max = self.limit(LimitKind::TagFields);
+        let kept = fitting.min(max);
+        if kept < names.len() {
+            let limit = if max < fitting {
+                LimitKind::TagFields
+            } else {
+                LimitKind::ShortText
+            };
+            self.problems.push(Problem::Limit { role, limit });
+        }
+        let mut pieces: Vec<Piece> = names
+            .iter()
+            .take(kept)
+            .map(|name| Piece {
+                name: (*name).to_owned(),
+                featured: false,
+                join: JOIN.to_owned(),
+            })
+            .collect();
+        if let Some(last) = pieces.last_mut() {
+            last.join.clear();
+        }
+        Parts {
+            lead: String::new(),
+            pieces,
+            total: names.len(),
+        }
+    }
+
+    /// `ids` when there is one for each of the `names` the tags hold, and
+    /// none otherwise. Identifiers that are there and cannot be paired are
+    /// recorded.
+    fn paired<'a>(&mut self, ids: &'a [Mbid], names: usize, role: Role) -> &'a [Mbid] {
+        if ids.len() == names {
+            return ids;
+        }
+        if !ids.is_empty() {
+            let ids = ids.len();
+            self.problems
+                .push(Problem::IdsUnpaired { role, names, ids });
+        }
+        &[]
+    }
+}
+
+/// The credit as shown and as linked: each kept name with its role and,
+/// when `ids` pair with the names, its identifier.
+fn linked(parts: Parts, ids: &[Mbid], role: Role) -> CreditLine {
+    let mut display = parts.lead.clone();
+    let names = parts
+        .pieces
+        .into_iter()
+        .enumerate()
+        .filter_map(|(at, piece)| {
+            display.push_str(&piece.name);
+            display.push_str(&piece.join);
+            let held = if piece.featured { Role::Featured } else { role };
+            // A piece's name is never blank, so every piece is kept.
+            Credit::new(piece.name, held, None, ids.get(at).copied())
+                .ok()
+                .map(|credit| CreditedName {
+                    credit,
+                    join: piece.join,
+                })
+        })
+        .collect();
+    CreditLine {
+        display,
+        lead: parts.lead,
+        names,
+    }
+}
+
+/// Splits the display credit `shown` by `rules` into what stands before
+/// its first name and its names, each with what stands after it.
+fn split(shown: &str, rules: &SplitRules) -> (String, Vec<Piece>) {
+    let mut lead = String::new();
+    let mut pieces: Vec<Piece> = Vec::new();
+    let mut name = String::new();
+    let mut featured = false;
+    let mut resume = 0_usize;
+    for (at, c) in shown.char_indices() {
+        if at < resume {
+            continue;
+        }
+        let rest = shown.get(at..).unwrap_or_default();
+        if name.is_empty()
+            && !c.is_whitespace()
+            && let Some(whole) = exception_at(rest, rules)
+        {
+            name.push_str(whole);
+            resume = at.saturating_add(whole.len());
+        } else if let Some(separator) = separator_at(rest, &rules.separators) {
+            close(&mut name, featured, &mut pieces);
+            glue(&mut lead, &mut pieces).push_str(separator);
+            featured = featured || featuring(separator);
+            resume = at.saturating_add(separator.len());
+        } else if name.is_empty() && c.is_whitespace() {
+            glue(&mut lead, &mut pieces).push(c);
+        } else {
+            name.push(c);
+        }
+    }
+    close(&mut name, featured, &mut pieces);
+    (lead, pieces)
+}
+
+/// Ends the name being read, when there is one: the name without the white
+/// space after it, which starts its join. A name being read never starts
+/// with white space.
+fn close(name: &mut String, featured: bool, pieces: &mut Vec<Piece>) {
+    let kept = name.trim_end();
+    if !kept.is_empty() {
+        let join = name.get(kept.len()..).unwrap_or_default().to_owned();
+        pieces.push(Piece {
+            name: kept.to_owned(),
+            featured,
+            join,
+        });
+    }
+    name.clear();
+}
+
+/// Where the text between names is kept: the join of the last name, or the
+/// lead while there is no name yet.
+fn glue<'a>(lead: &'a mut String, pieces: &'a mut [Piece]) -> &'a mut String {
+    pieces.last_mut().map_or(lead, |last| &mut last.join)
+}
+
+/// The longest separator that `rest` starts with.
+fn separator_at<'a>(rest: &str, separators: &'a [String]) -> Option<&'a str> {
+    separators
+        .iter()
+        .map(String::as_str)
+        .filter(|separator| !separator.is_empty() && rest.starts_with(*separator))
+        .max_by_key(|separator| separator.len())
+}
+
+/// The longest exception that is the whole name `rest` starts with: after
+/// it comes nothing but white space up to a separator or the end.
+fn exception_at<'a>(rest: &str, rules: &'a SplitRules) -> Option<&'a str> {
+    rules
+        .exceptions
+        .iter()
+        .map(String::as_str)
+        .filter(|whole| {
+            !whole.is_empty()
+                && rest
+                    .strip_prefix(*whole)
+                    .is_some_and(|after| ends_name(after, &rules.separators))
+        })
+        .max_by_key(|whole| whole.len())
+}
+
+/// Whether `after` holds nothing but white space up to its first separator
+/// or its end.
+fn ends_name(after: &str, separators: &[String]) -> bool {
+    for (at, c) in after.char_indices() {
+        let rest = after.get(at..).unwrap_or_default();
+        if separator_at(rest, separators).is_some() {
+            return true;
+        }
+        if !c.is_whitespace() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether `separator` introduces featured artists: it reads "feat", "ft"
+/// or "featuring" once folded.
+fn featuring(separator: &str) -> bool {
+    matches!(
+        collate::fold(separator).as_str(),
+        "feat" | "ft" | "featuring"
+    )
+}
+
+/// `name` folded for matching, or, when folding leaves nothing of it, as it
+/// is written without the white space around it.
+fn matching(name: &str) -> String {
+    let folded = collate::fold(name);
+    if folded.is_empty() {
+        name.trim().to_owned()
+    } else {
+        folded
+    }
 }
 
 #[cfg(test)]
