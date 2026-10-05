@@ -14,11 +14,15 @@ path = "src/main.rs"
 
 [dependencies]
 gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+gunmetal-durable = { path = "../gunmetal-durable", version = "0.0.0" }
 gunmetal-fs = { path = "../gunmetal-fs", version = "0.0.0" }
+gunmetal-http = { path = "../gunmetal-http", version = "0.0.0" }
+gunmetal-secrets = { path = "../gunmetal-secrets", version = "0.0.0" }
 rustix = { workspace = true, features = ["process", "std", "thread"] }
 toml = { workspace = true, features = ["parse"] }
 
 [dev-dependencies]
+axum.workspace = true
 gunmetal-secrets = { path = "../gunmetal-secrets", version = "0.0.0" }
 gunmetal-testkit.workspace = true
 proptest.workspace = true
