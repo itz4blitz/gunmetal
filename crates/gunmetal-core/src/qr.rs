@@ -9,11 +9,46 @@
 //! four light modules on every side. What a symbol carries is decided by
 //! the package that issues it; this module holds no security control.
 //!
-//! The encoder is not written yet: this is the failing-test step, and
-//! [`encode`] refuses every payload.
+//! A symbol is a QR Code of ISO/IEC 18004:2015 with these choices made:
+//!
+//! - Byte mode. The payload is written as it is, eight bits to a byte, with
+//!   no character set declared.
+//! - Error correction level M, which lets a reader recover a symbol with
+//!   about 15 % of its codewords damaged.
+//! - The smallest version that holds the payload, from version 1 (21
+//!   modules a side, 14 bytes) to version 15 (77 modules, 412 bytes). A
+//!   longer payload is refused, never cut. The cap is what a link needs at
+//!   its longest: `https://`, a host name of 253 bytes and a port take 267
+//!   bytes, which leaves 145 for the path and for the fragment that carries
+//!   a code or a key.
+//! - The data mask that scores the lowest penalty under the standard's four
+//!   rules, and of two masks that score the same, the one the standard
+//!   numbers lower.
+//!
+//! The standard's wording of two of those rules can be read more than one
+//! way, and encoders differ. Here a finder-like pattern scores once when the
+//! four modules before it or the four after it are light, the margin around
+//! the symbol counts as light, and the share of dark modules is rated in
+//! whole steps of 5 %, rounded down. That is how zint reads the rules. Every
+//! reading gives a symbol any reader reads; they differ only in which of the
+//! eight masks is picked.
 
-/// The longest payload a symbol holds, in bytes. Not set yet.
-pub const MAX_PAYLOAD: usize = 0;
+use std::iter::once;
+
+/// The longest payload a symbol holds, in bytes: what version 15 carries at
+/// level M.
+pub const MAX_PAYLOAD: usize = 412;
+
+/// The four bits that open a run of bytes (Table 2).
+const BYTE_MODE: u8 = 0b0100;
+/// The four light bits that end the data (clause 7.4.9).
+const TERMINATOR: u8 = 0b0000;
+/// The two codewords that in turn fill the room the data leaves
+/// (clause 7.4.10).
+const PAD: [u8; 2] = [0xEC, 0x11];
+/// What the third penalty rule looks for, because a reader could take it
+/// for a finder pattern: dark, light, three dark, light, dark.
+const FINDER_LIKE: [bool; 7] = [true, false, true, true, true, false, true];
 
 /// Why a payload has no symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +90,232 @@ impl Matrix {
     }
 }
 
+/// One version of the symbol at error correction level M, as the standard's
+/// tables give it.
+struct Version {
+    /// The version's number, from 1 to 15.
+    number: u8,
+    /// The error correction blocks, as pairs of how many blocks there are
+    /// and how many data codewords each holds, shorter blocks first
+    /// (Table 9).
+    blocks: &'static [(usize, usize)],
+    /// Error correction codewords in each block (Table 9).
+    correction_len: usize,
+    /// The rows, which are also the columns, of the centres of the
+    /// alignment patterns (Table E.1).
+    alignment: &'static [usize],
+    /// The version information, from version 7 (Table D.1).
+    information: Option<u32>,
+}
+
+/// Versions 1 to 15.
+static VERSIONS: [Version; 15] = [
+    Version {
+        number: 1,
+        blocks: &[(1, 16)],
+        correction_len: 10,
+        alignment: &[],
+        information: None,
+    },
+    Version {
+        number: 2,
+        blocks: &[(1, 28)],
+        correction_len: 16,
+        alignment: &[6, 18],
+        information: None,
+    },
+    Version {
+        number: 3,
+        blocks: &[(1, 44)],
+        correction_len: 26,
+        alignment: &[6, 22],
+        information: None,
+    },
+    Version {
+        number: 4,
+        blocks: &[(2, 32)],
+        correction_len: 18,
+        alignment: &[6, 26],
+        information: None,
+    },
+    Version {
+        number: 5,
+        blocks: &[(2, 43)],
+        correction_len: 24,
+        alignment: &[6, 30],
+        information: None,
+    },
+    Version {
+        number: 6,
+        blocks: &[(4, 27)],
+        correction_len: 16,
+        alignment: &[6, 34],
+        information: None,
+    },
+    Version {
+        number: 7,
+        blocks: &[(4, 31)],
+        correction_len: 18,
+        alignment: &[6, 22, 38],
+        information: Some(0x7C94),
+    },
+    Version {
+        number: 8,
+        blocks: &[(2, 38), (2, 39)],
+        correction_len: 22,
+        alignment: &[6, 24, 42],
+        information: Some(0x85BC),
+    },
+    Version {
+        number: 9,
+        blocks: &[(3, 36), (2, 37)],
+        correction_len: 22,
+        alignment: &[6, 26, 46],
+        information: Some(0x9A99),
+    },
+    Version {
+        number: 10,
+        blocks: &[(4, 43), (1, 44)],
+        correction_len: 26,
+        alignment: &[6, 28, 50],
+        information: Some(0xA4D3),
+    },
+    Version {
+        number: 11,
+        blocks: &[(1, 50), (4, 51)],
+        correction_len: 30,
+        alignment: &[6, 30, 54],
+        information: Some(0xBBF6),
+    },
+    Version {
+        number: 12,
+        blocks: &[(6, 36), (2, 37)],
+        correction_len: 22,
+        alignment: &[6, 32, 58],
+        information: Some(0xC762),
+    },
+    Version {
+        number: 13,
+        blocks: &[(8, 37), (1, 38)],
+        correction_len: 22,
+        alignment: &[6, 34, 62],
+        information: Some(0xD847),
+    },
+    Version {
+        number: 14,
+        blocks: &[(4, 40), (5, 41)],
+        correction_len: 24,
+        alignment: &[6, 26, 46, 66],
+        information: Some(0xE60D),
+    },
+    Version {
+        number: 15,
+        blocks: &[(5, 41), (5, 42)],
+        correction_len: 24,
+        alignment: &[6, 26, 48, 70],
+        information: Some(0xF928),
+    },
+];
+
+impl Version {
+    /// Modules along one side: 21 for version 1 and four more for each
+    /// version after it.
+    fn size(&self) -> usize {
+        usize::from(self.number)
+            .saturating_mul(4)
+            .saturating_add(17)
+    }
+
+    /// Octets the payload's length is written in: one up to version 9 and
+    /// two from version 10 (Table 3).
+    fn count_len(&self) -> usize {
+        if self.number < 10 { 1 } else { 2 }
+    }
+
+    /// Data codewords in all the blocks together.
+    fn data_len(&self) -> usize {
+        self.blocks
+            .iter()
+            .map(|&(count, len)| count.saturating_mul(len))
+            .sum()
+    }
+
+    /// The longest payload in bytes: the data codewords, less the length
+    /// and the one codeword that the mode and the terminator, four bits
+    /// each, take between them.
+    fn capacity(&self) -> usize {
+        self.data_len()
+            .saturating_sub(self.count_len())
+            .saturating_sub(1)
+    }
+}
+
+/// One of the eight data masks.
+struct Mask {
+    /// The format information for this mask at level M, as the symbol shows
+    /// it (Table C.1).
+    format: u16,
+    /// Whether the mask turns over the module in a row and a column
+    /// (Table 10).
+    flips: fn(usize, usize) -> bool,
+}
+
+/// The data masks in the standard's order, from 000 to 111.
+static MASKS: [Mask; 8] = [
+    Mask {
+        format: 0x5412,
+        flips: |row: usize, column: usize| row.wrapping_add(column) % 2 == 0,
+    },
+    Mask {
+        format: 0x5125,
+        flips: |row: usize, _| row % 2 == 0,
+    },
+    Mask {
+        format: 0x5E7C,
+        flips: |_, column: usize| column % 3 == 0,
+    },
+    Mask {
+        format: 0x5B4B,
+        flips: |row: usize, column: usize| row.wrapping_add(column) % 3 == 0,
+    },
+    Mask {
+        format: 0x45F9,
+        flips: |row: usize, column: usize| (row / 2).wrapping_add(column / 3) % 2 == 0,
+    },
+    Mask {
+        format: 0x40CE,
+        flips: |row: usize, column: usize| {
+            let product = row.wrapping_mul(column);
+            (product % 2).wrapping_add(product % 3) == 0
+        },
+    },
+    Mask {
+        format: 0x4F97,
+        flips: |row: usize, column: usize| {
+            let product = row.wrapping_mul(column);
+            (product % 2).wrapping_add(product % 3) % 2 == 0
+        },
+    },
+    Mask {
+        format: 0x4AA0,
+        flips: |row: usize, column: usize| {
+            let product = row.wrapping_mul(column);
+            (row.wrapping_add(column) % 2).wrapping_add(product % 3) % 2 == 0
+        },
+    },
+];
+
+/// What one module of a symbol holds.
+enum Module {
+    /// Part of a function pattern or of the version information, with its
+    /// colour.
+    Fixed(bool),
+    /// A bit of the format information, counted from the least significant.
+    Format(usize),
+    /// A module of the encoding region, with the bit placed in it.
+    Data(bool),
+}
+
 /// Encodes `payload` as the smallest symbol that holds it.
 ///
 /// # Errors
@@ -62,94 +323,426 @@ impl Matrix {
 /// [`QrError::TooLong`] when the payload is longer than [`MAX_PAYLOAD`]
 /// bytes.
 pub fn encode(payload: &[u8]) -> Result<Matrix, QrError> {
-    Err(QrError::TooLong {
-        len: payload.len(),
-        max: MAX_PAYLOAD,
+    let version = VERSIONS
+        .iter()
+        .find(|version| payload.len() <= version.capacity())
+        .ok_or(QrError::TooLong {
+            len: payload.len(),
+            max: MAX_PAYLOAD,
+        })?;
+    Ok(symbol(version, &data_codewords(payload, version)))
+}
+
+/// The data codewords of a payload in byte mode: the mode, the length, the
+/// bytes and the terminator, then pad codewords to fill the version
+/// (clauses 7.4.5, 7.4.9 and 7.4.10).
+fn data_codewords(payload: &[u8], version: &Version) -> Vec<u8> {
+    // A payload that fits a version is never longer than sixteen bits can
+    // say.
+    let length = u16::try_from(payload.len())
+        .unwrap_or(u16::MAX)
+        .to_be_bytes()
+        .into_iter()
+        .skip(2_usize.saturating_sub(version.count_len()));
+    // The mode is four bits and so is the terminator. Written as the low
+    // half of a first octet and the high half of a last one, they make
+    // every codeword the low half of one octet and the high half of the
+    // next.
+    let octets: Vec<u8> = once(BYTE_MODE)
+        .chain(length)
+        .chain(payload.iter().copied())
+        .chain(once(TERMINATOR))
+        .collect();
+    octets
+        .iter()
+        .zip(octets.iter().skip(1))
+        .map(|(&left, &right)| {
+            let [_, codeword] = (u16::from_be_bytes([left, right]) >> 4).to_be_bytes();
+            codeword
+        })
+        .chain(PAD.into_iter().cycle())
+        .take(version.data_len())
+        .collect()
+}
+
+/// The final sequence of codewords: the data cut into blocks, the error
+/// correction codewords worked out for each block, and then the data blocks
+/// and the error correction blocks each read one codeword from every block
+/// in turn (clauses 7.5.2 and 7.6).
+fn interleave(data: &[u8], blocks: &[(usize, usize)], correction_len: usize) -> Vec<u8> {
+    let divisor = generator(correction_len);
+    let mut rest = data.iter().copied();
+    let data_blocks: Vec<Vec<u8>> = blocks
+        .iter()
+        .flat_map(|&(count, len)| (0..count).map(move |_| len))
+        .map(|len| rest.by_ref().take(len).collect())
+        .collect();
+    let correction_blocks: Vec<Vec<u8>> = data_blocks
+        .iter()
+        .map(|block| correction_codewords(block, &divisor))
+        .collect();
+    in_turn(&data_blocks)
+        .chain(in_turn(&correction_blocks))
+        .collect()
+}
+
+/// One codeword from each block in turn until every block is used up; a
+/// shorter block is passed over once it has run out.
+fn in_turn(blocks: &[Vec<u8>]) -> impl Iterator<Item = u8> {
+    let longest = blocks.iter().map(Vec::len).max().unwrap_or_default();
+    (0..longest).flat_map(move |index| {
+        blocks
+            .iter()
+            .filter_map(move |block| block.get(index).copied())
     })
 }
 
-// What follows stands in for the encoder's stages so that the tests of them
-// compile. Each exists only under test and gives an empty answer; the
-// encoder replaces them all.
-
-#[cfg(test)]
-struct Version;
-
-#[cfg(test)]
-static VERSIONS: [Version; 15] = [const { Version }; 15];
-
-#[cfg(test)]
-struct Mask {
-    format: u16,
-    flips: fn(usize, usize) -> bool,
-}
-
-#[cfg(test)]
-static MASKS: [Mask; 8] = [const {
-    Mask {
-        format: 0,
-        flips: |_, _| false,
+/// The generator polynomial for `degree` error correction codewords: the
+/// product of x - 2^n for every n from 0 below `degree`, as its
+/// coefficients from the highest power down, the leading 1 included
+/// (Annex A).
+fn generator(degree: usize) -> Vec<u8> {
+    let mut product = vec![1];
+    let mut root = 1;
+    for _ in 0..degree {
+        // The product times x, plus the product times the root. Adding and
+        // subtracting are the same in this field: both are exclusive or.
+        let scaled: Vec<u8> = product
+            .iter()
+            .map(|&coefficient| multiply(coefficient, root))
+            .collect();
+        product = product
+            .iter()
+            .copied()
+            .chain(once(0))
+            .zip(once(0).chain(scaled))
+            .map(|(raised, added)| raised ^ added)
+            .collect();
+        root = multiply(root, 2);
     }
-}; 8];
-
-#[cfg(test)]
-fn multiply(_left: u8, _right: u8) -> u8 {
-    0
+    product
 }
 
-#[cfg(test)]
-fn generator(_degree: usize) -> Vec<u8> {
-    Vec::new()
+/// The error correction codewords of one block: what is left of the block's
+/// polynomial, raised by the generator's degree, after dividing it by the
+/// generator (clause 7.5.2).
+fn correction_codewords(data: &[u8], generator: &[u8]) -> Vec<u8> {
+    // The generator without its leading 1: one coefficient for each
+    // codeword of the remainder.
+    let divisor = generator.iter().skip(1);
+    let mut remainder: Vec<u8> = divisor.clone().map(|_| 0).collect();
+    for &codeword in data {
+        let factor = codeword ^ remainder.first().copied().unwrap_or_default();
+        remainder = remainder
+            .iter()
+            .skip(1)
+            .copied()
+            .chain(once(0))
+            .zip(divisor.clone())
+            .map(|(carried, &coefficient)| carried ^ multiply(coefficient, factor))
+            .collect();
+    }
+    remainder
 }
 
-#[cfg(test)]
-fn correction_codewords(_data: &[u8], _generator: &[u8]) -> Vec<u8> {
-    Vec::new()
+/// The product of two elements of the field the codewords are in: GF(2^8)
+/// with the polynomial x^8 + x^4 + x^3 + x^2 + 1 (clause 7.5.2).
+fn multiply(left: u8, right: u8) -> u8 {
+    (0..8).rev().fold(0, |product: u8, bit| {
+        // Double what the higher bits of `right` gave, bringing x^8 back
+        // into the field, then add `left` if this bit of `right` is set.
+        let doubled = (product << 1) ^ (product >> 7).wrapping_mul(0x1D);
+        doubled ^ ((right >> bit) & 1).wrapping_mul(left)
+    })
 }
 
-#[cfg(test)]
-fn interleave(_data: &[u8], _blocks: &[(usize, usize)], _correction_len: usize) -> Vec<u8> {
-    Vec::new()
+/// The symbol for a version's data codewords, under the mask that scores
+/// the lowest penalty.
+fn symbol(version: &Version, data: &[u8]) -> Matrix {
+    // `min_by_key` keeps the first of equals, so of two masks that score the
+    // same the lower-numbered one is picked. There are always eight
+    // candidates.
+    candidates(version, data)
+        .into_iter()
+        .min_by_key(penalty)
+        .unwrap_or(Matrix { rows: Vec::new() })
 }
 
-#[cfg(test)]
-fn data_codewords(_payload: &[u8], _version: &Version) -> Vec<u8> {
-    Vec::new()
+/// The symbol for a version's data codewords under each of the eight masks,
+/// in the masks' order.
+fn candidates(version: &Version, data: &[u8]) -> Vec<Matrix> {
+    let mut grid = plan(version);
+    place(
+        &mut grid,
+        &interleave(data, version.blocks, version.correction_len),
+    );
+    MASKS.iter().map(|mask| render(&grid, mask)).collect()
 }
 
-#[cfg(test)]
-fn candidates(_version: &Version, _data: &[u8]) -> Vec<Matrix> {
-    Vec::new()
+/// Every module of a version's symbol, with the encoding region still
+/// light.
+fn plan(version: &Version) -> Vec<Vec<Module>> {
+    let size = version.size();
+    (0..size)
+        .map(|row| {
+            (0..size)
+                .map(|column| module(version, row, column))
+                .collect()
+        })
+        .collect()
 }
 
-#[cfg(test)]
-fn symbol(_version: &Version, _data: &[u8]) -> Matrix {
-    Matrix { rows: Vec::new() }
+/// What the module in a row and a column of a version's symbol holds.
+fn module(version: &Version, row: usize, column: usize) -> Module {
+    let size = version.size();
+    let fixed = finder(size, row, column)
+        .or_else(|| alignment(version, row, column))
+        .or_else(|| timing(row, column))
+        .or_else(|| dark_module(size, row, column))
+        .or_else(|| version_information(version, row, column));
+    match (fixed, format_bit(size, row, column)) {
+        (Some(dark), _) => Module::Fixed(dark),
+        (None, Some(bit)) => Module::Format(bit),
+        (None, None) => Module::Data(false),
+    }
 }
 
-#[cfg(test)]
-fn penalty(_matrix: &Matrix) -> usize {
-    0
+/// How many modules a place lies from a centre, along the row or along the
+/// column, whichever is further: the square ring around the centre that the
+/// place is on.
+fn ring(row: usize, column: usize, centre_row: usize, centre_column: usize) -> usize {
+    row.abs_diff(centre_row).max(column.abs_diff(centre_column))
 }
 
-#[cfg(test)]
-fn run_penalty(_line: &[bool]) -> usize {
-    0
+/// The finder patterns and their separators, eight modules square in three
+/// corners (clauses 6.3.3 and 6.3.4).
+fn finder(size: usize, row: usize, column: usize) -> Option<bool> {
+    // A finder pattern's centre is the fourth module in from two edges.
+    // Around it the rings are dark, dark, light and dark, and the fourth
+    // ring out is the light separator.
+    let far = size.saturating_sub(4);
+    [(3, 3), (3, far), (far, 3)]
+        .into_iter()
+        .map(|(centre_row, centre_column)| ring(row, column, centre_row, centre_column))
+        .find(|&distance| distance <= 4)
+        .map(|distance| matches!(distance, 0 | 1 | 3))
 }
 
-#[cfg(test)]
-fn block_penalty(_rows: &[Vec<bool>]) -> usize {
-    0
+/// The alignment patterns, five modules square around every crossing of the
+/// version's coordinates that keeps clear of the finder patterns
+/// (clause 6.3.6 and Annex E).
+fn alignment(version: &Version, row: usize, column: usize) -> Option<bool> {
+    // The coordinates are at least twelve apart, so no more than one is
+    // within two modules of a place.
+    let near = |place: usize| {
+        version
+            .alignment
+            .iter()
+            .copied()
+            .find(|centre| centre.abs_diff(place) <= 2)
+    };
+    let (centre_row, centre_column) = (near(row)?, near(column)?);
+    finder(version.size(), centre_row, centre_column)
+        .is_none()
+        .then_some(ring(row, column, centre_row, centre_column) != 1)
 }
 
-#[cfg(test)]
-fn finder_penalty(_line: &[bool]) -> usize {
-    0
+/// The timing patterns: row 6 and column 6, dark on every even module
+/// (clause 6.3.5).
+fn timing(row: usize, column: usize) -> Option<bool> {
+    match (row, column) {
+        (6, along) | (along, 6) => Some(along % 2 == 0),
+        _ => None,
+    }
 }
 
-#[cfg(test)]
-fn balance_penalty(_rows: &[Vec<bool>]) -> usize {
-    0
+/// The one module that is always dark, in column 8 just above the
+/// bottom-left finder pattern's separator (clause 7.9).
+fn dark_module(size: usize, row: usize, column: usize) -> Option<bool> {
+    (column == 8 && size.saturating_sub(row) == 8).then_some(true)
+}
+
+/// The version information, from version 7: eighteen bits in a block six
+/// modules by three beside the top-right finder pattern, and the same bits
+/// again, turned about the diagonal, beside the bottom-left one
+/// (clause 7.10).
+fn version_information(version: &Version, row: usize, column: usize) -> Option<bool> {
+    let word = version.information?;
+    // The blocks' short side starts eleven modules from the far edge.
+    let start = version.size().saturating_sub(11);
+    [(row, column), (column, row)]
+        .into_iter()
+        .find_map(|(long, short)| {
+            let across = short.checked_sub(start)?;
+            (long < 6 && across < 3).then_some(long.saturating_mul(3).saturating_add(across))
+        })
+        .map(|bit| (word >> bit) & 1 == 1)
+}
+
+/// Which bit of the format information the module in a row and a column
+/// shows, counted from the least significant. The fifteen bits are written
+/// twice: once around the top-left finder pattern, and once split between
+/// the other two (clause 7.9).
+fn format_bit(size: usize, row: usize, column: usize) -> Option<usize> {
+    // How far the place is from the bottom edge and from the right edge,
+    // with the module on the edge counted as 1.
+    let below = size.saturating_sub(row);
+    let beside = size.saturating_sub(column);
+    match (row, column) {
+        (0..=5, 8) => Some(row),
+        (7, 8) => Some(6),
+        (8, 8) => Some(7),
+        (8, 7) => Some(8),
+        (8, 0..=5) => Some(14_usize.saturating_sub(column)),
+        (8, _) if beside <= 8 => Some(beside.saturating_sub(1)),
+        (_, 8) if below <= 7 => Some(15_usize.saturating_sub(below)),
+        _ => None,
+    }
+}
+
+/// The modules of the encoding region in the order the codewords' bits fill
+/// them: two columns at a time from the right edge, stepping over the
+/// timing column, the first pair upwards and the next downwards in turn,
+/// and in each row the right module before the left (clause 7.7.3).
+fn data_modules(grid: &[Vec<Module>]) -> Vec<(usize, usize)> {
+    let size = grid.len();
+    let last = size.saturating_sub(1);
+    let columns: Vec<usize> = (0..size).rev().filter(|&column| column != 6).collect();
+    columns
+        .chunks(2)
+        .zip([true, false].into_iter().cycle())
+        .flat_map(|(pair, upwards)| {
+            (0..size)
+                .map(move |step| {
+                    if upwards {
+                        last.saturating_sub(step)
+                    } else {
+                        step
+                    }
+                })
+                .flat_map(move |row| pair.iter().map(move |&column| (row, column)))
+        })
+        .filter(|&(row, column)| {
+            matches!(
+                grid.get(row).and_then(|line| line.get(column)),
+                Some(Module::Data(_))
+            )
+        })
+        .collect()
+}
+
+/// Writes the codewords' bits, most significant first, into the encoding
+/// region. The few modules the codewords do not reach stay light: they are
+/// the standard's remainder bits.
+fn place(grid: &mut [Vec<Module>], codewords: &[u8]) {
+    let bits = codewords
+        .iter()
+        .flat_map(|&codeword| (0..8).rev().map(move |bit| (codeword >> bit) & 1 == 1));
+    for ((row, column), bit) in data_modules(grid).into_iter().zip(bits) {
+        if let Some(module) = grid.get_mut(row).and_then(|line| line.get_mut(column)) {
+            *module = Module::Data(bit);
+        }
+    }
+}
+
+/// The finished symbol under one mask: the function patterns as they are,
+/// the format information that names the mask, and every module of the
+/// encoding region turned over where the mask says so (clause 7.8).
+fn render(grid: &[Vec<Module>], mask: &Mask) -> Matrix {
+    let rows = grid
+        .iter()
+        .enumerate()
+        .map(|(row, line)| {
+            line.iter()
+                .enumerate()
+                .map(|(column, module)| match *module {
+                    Module::Fixed(dark) => dark,
+                    Module::Format(bit) => (mask.format >> bit) & 1 == 1,
+                    Module::Data(dark) => dark != (mask.flips)(row, column),
+                })
+                .collect()
+        })
+        .collect();
+    Matrix { rows }
+}
+
+/// The penalty of a finished symbol under the standard's four rules: the
+/// lower it is, the easier the symbol is to read (clause 7.8.3).
+fn penalty(matrix: &Matrix) -> usize {
+    let rows = &matrix.rows;
+    let columns: Vec<Vec<bool>> = (0..rows.len())
+        .map(|column| {
+            rows.iter()
+                .map(|row| row.get(column).copied().unwrap_or_default())
+                .collect()
+        })
+        .collect();
+    let along_lines: usize = rows
+        .iter()
+        .chain(&columns)
+        .map(|line| run_penalty(line).saturating_add(finder_penalty(line)))
+        .sum();
+    along_lines
+        .saturating_add(block_penalty(rows))
+        .saturating_add(balance_penalty(rows))
+}
+
+/// The first rule, for one row or column: every run of five or more modules
+/// of one colour scores 3, and 1 more for each module over five.
+fn run_penalty(line: &[bool]) -> usize {
+    line.chunk_by(|left, right| left == right)
+        .map(<[bool]>::len)
+        .filter(|&run| run >= 5)
+        .map(|run| run.saturating_sub(2))
+        .sum()
+}
+
+/// The second rule: every square of two modules by two in one colour scores
+/// 3, squares that overlap each counted.
+fn block_penalty(rows: &[Vec<bool>]) -> usize {
+    rows.iter()
+        .zip(rows.iter().skip(1))
+        .map(|(upper, lower)| {
+            upper
+                .windows(2)
+                .zip(lower.windows(2))
+                .filter(|(top, bottom)| top == bottom && top.first() == top.last())
+                .count()
+        })
+        .sum::<usize>()
+        .saturating_mul(3)
+}
+
+/// The third rule, for one row or column: every finder-like pattern with
+/// four light modules before it or after it scores 40, once. The margin
+/// around the symbol is light, so a pattern at an end of the line counts.
+fn finder_penalty(line: &[bool]) -> usize {
+    let margin = [false; 4];
+    let padded: Vec<bool> = margin.iter().chain(line).chain(&margin).copied().collect();
+    padded
+        .windows(15)
+        .filter(|window| {
+            window.iter().skip(4).take(7).eq(&FINDER_LIKE)
+                && (window.iter().take(4).all(|&dark| !dark)
+                    || window.iter().skip(11).all(|&dark| !dark))
+        })
+        .count()
+        .saturating_mul(40)
+}
+
+/// The fourth rule: 10 for every whole 5 % by which the share of dark
+/// modules differs from one half.
+fn balance_penalty(rows: &[Vec<bool>]) -> usize {
+    let total: usize = rows.iter().map(Vec::len).sum();
+    let dark = rows.iter().flatten().filter(|&&dark| dark).count();
+    // Twice the dark modules less all the modules, over all the modules, is
+    // twice the share's distance from one half: 0.1 for each step of 5 %.
+    dark.saturating_mul(2)
+        .abs_diff(total)
+        .saturating_mul(10)
+        .checked_div(total)
+        .unwrap_or_default()
+        .saturating_mul(10)
 }
 
 #[cfg(test)]
