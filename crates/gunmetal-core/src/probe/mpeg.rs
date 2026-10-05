@@ -80,6 +80,7 @@ pub(super) fn draft(stream: MpegStream, lead: u64, file_len: u64, limits: &Limit
         seek: SeekIndex::Mpeg(stream.seek),
         pictures: Vec::new(),
         tags: Vec::new(),
+        covers: Vec::new(),
         problems,
         jobs,
     }

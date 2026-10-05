@@ -115,6 +115,7 @@ fn pcm(
         seek: SeekIndex::None,
         pictures: Vec::new(),
         tags: Vec::new(),
+        covers: Vec::new(),
         problems: stopped.map(PartProblem::Stopped).into_iter().collect(),
         jobs: id3
             .map(|range| chunk_tag(range, limits))
