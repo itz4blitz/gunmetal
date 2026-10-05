@@ -1,24 +1,216 @@
 //! Evaluating one Home row on the device, from the synced library and the
 //! person's own activity (DIS-002).
+//!
+//! A row is a pure function of its input and `now`, so every device that
+//! holds the same library and the same events draws the same Home. Where
+//! two cards have nothing else to order them, they keep the order their
+//! tracks or places were listed in.
+//!
+//! - **Continue listening** (MUS-050, DIS-020) reads the places the
+//!   person's queue was playing from, because a play records no source
+//!   (SEC-PRV-002). Only the latest place on each album or playlist counts.
+//!   It is listed while it has entries left to play, was last played from
+//!   within [`CONTINUE_WINDOW_MS`] of `now` and, for an album, has a track
+//!   in the view; the place played from last comes first.
+//! - **Recently played** (DIS-021; API-LOG-04) lists each track of the view
+//!   the person has played, by the clock of its latest play, as the user
+//!   log's own counts give it.
+//! - **Recently added** (DIS-035, DIS-036, MUS-059; API-HOME-03) lists each
+//!   album once, at the date its newest track was added, and each track
+//!   without an album by itself; the newest comes first. It reads only the
+//!   date a track first arrived, which a better copy of the same recording
+//!   does not reset (DIS-038), so an upgrade is not an arrival. An album
+//!   whose tracks were all added within [`ARRIVAL_SPAN_MS`] of its newest
+//!   arrived whole; any other gained the tracks that were.
+//! - **Loved songs** (MUS-149, DIS-046) lists the tracks of the view the
+//!   person loves now, the latest love first. Which love or removal stands
+//!   is the user log's merge rule: the latest clock, then the larger
+//!   device, then the larger event ID.
 
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use crate::catalog::{AlbumId, TrackId};
 use crate::time::Timestamp;
+use crate::userdata::event::{Body, ContentId, DeviceId, EventId, ItemRef, Stream};
+use crate::userdata::hlc::Hlc;
+use crate::userdata::merge::derive_counts;
 
-use super::input::{LibraryView, MyEvents};
-use super::row::{EmptyState, Reason, Row, RowContent, RowSpec};
+use super::input::{LibraryView, Listening, ListeningSource, MyEvents};
+use super::row::{Card, EmptyState, Reason, Row, RowContent, RowSource, RowSpec};
 
-/// The row `row` asks for, as `mine` sees the library `lib` at `now`.
+/// How long after a person last played from an album or a playlist Continue
+/// listening still offers it: thirty days, in milliseconds.
+///
+/// R1 has no way to dismiss a card (DIS-022 is R1.1), so without a bound an
+/// abandoned album would stay on Home for good.
+pub const CONTINUE_WINDOW_MS: i64 = 2_592_000_000;
+
+/// How far apart, in milliseconds, two tracks of an album may be added and
+/// still count as one arrival: a day.
+///
+/// A scan adds an album's tracks one after another, and a first scan can
+/// take hours, so the tracks of one arrival carry dates that differ.
+pub const ARRIVAL_SPAN_MS: i64 = 86_400_000;
+
+/// What decides between two events of one stream under a "latest wins"
+/// rule: the clock, then the device, then the event ID, as the user log's
+/// merge rules order them.
+type Precedence = (Hlc, DeviceId, EventId);
+
+/// The row `spec` asks for, as the person `mine` sees the library `lib` at
+/// the time `now`.
+///
+/// The row holds at most `spec.limit` cards. With no track in the view
+/// every row is [`EmptyState::EmptyLibrary`], whatever the person has done;
+/// a row of a library that has music and nothing for this row is
+/// [`EmptyState::NothingYet`].
 #[must_use]
 pub fn evaluate_row(
-    row: &RowSpec,
-    _lib: &LibraryView<'_>,
-    _mine: &MyEvents<'_>,
-    _now: Timestamp,
+    spec: &RowSpec,
+    lib: &LibraryView<'_>,
+    mine: &MyEvents<'_>,
+    now: Timestamp,
 ) -> Row {
+    let (reason, mut cards) = match spec.source {
+        RowSource::ContinueListening => (
+            Reason::PartWayThrough,
+            continue_listening(lib, mine.listening, now),
+        ),
+        RowSource::RecentlyPlayed => (Reason::PlayedLately, recently_played(lib, mine)),
+        RowSource::RecentlyAdded => (Reason::AddedLately, recently_added(lib)),
+        RowSource::LovedSongs => (Reason::Loved, loved_songs(lib, mine)),
+    };
+    cards.truncate(spec.limit);
+    let content = if lib.tracks.is_empty() {
+        RowContent::Empty(EmptyState::EmptyLibrary)
+    } else if cards.is_empty() {
+        RowContent::Empty(EmptyState::NothingYet)
+    } else {
+        RowContent::Cards(cards)
+    };
     Row {
-        source: row.source,
-        reason: Reason::Loved,
-        content: RowContent::Empty(EmptyState::NothingYet),
+        source: spec.source,
+        reason,
+        content,
     }
+}
+
+/// The albums and playlists the person stopped part-way through, the one
+/// played from last first.
+fn continue_listening(lib: &LibraryView<'_>, listening: &[Listening], now: Timestamp) -> Vec<Card> {
+    let albums: HashSet<AlbumId> = lib
+        .tracks
+        .iter()
+        .filter_map(|track| track.record.album)
+        .collect();
+    let mut places: Vec<&Listening> = listening.iter().collect();
+    places.sort_by_key(|place| Reverse(place.last_played));
+    let mut seen = HashSet::new();
+    places
+        .into_iter()
+        // The latest place on an album or a playlist is the last word on
+        // it: once finished, an earlier, unfinished visit no longer counts.
+        .filter(|place| seen.insert(place.source))
+        .filter(|place| {
+            place.left > 0
+                && now.millis().saturating_sub(place.last_played.millis()) <= CONTINUE_WINDOW_MS
+        })
+        .filter_map(|place| match place.source {
+            ListeningSource::Album(album) => albums.contains(&album).then_some(Card::Album(album)),
+            ListeningSource::Playlist(playlist) => Some(Card::Playlist(playlist)),
+        })
+        .collect()
+}
+
+/// The tracks of the view the person has played, the one played last first.
+fn recently_played(lib: &LibraryView<'_>, mine: &MyEvents<'_>) -> Vec<Card> {
+    let counts = derive_counts(mine.events, Stream::Profile(mine.profile));
+    let mut played: Vec<(Hlc, TrackId)> = lib
+        .tracks
+        .iter()
+        .filter_map(|track| {
+            let last_played = counts.get(&track.identity)?.last_played?;
+            Some((last_played, track.record.id))
+        })
+        .collect();
+    played.sort_by_key(|&(last_played, _)| Reverse(last_played));
+    played.into_iter().map(|(_, id)| Card::Track(id)).collect()
+}
+
+/// The library's arrivals, the newest first: each album once, and each
+/// track that is on no album.
+fn recently_added(lib: &LibraryView<'_>) -> Vec<Card> {
+    let mut albums: HashMap<AlbumId, Vec<Timestamp>> = HashMap::new();
+    for track in lib.tracks {
+        if let Some(album) = track.record.album {
+            albums.entry(album).or_default().push(track.record.added);
+        }
+    }
+    let mut arrivals: Vec<(Timestamp, Card)> = lib
+        .tracks
+        .iter()
+        .filter_map(|track| match track.record.album {
+            None => Some((track.record.added, Card::Track(track.record.id))),
+            // An album's first track in the view stands for the album, and
+            // takes its dates out of the map so that no later track does.
+            Some(album) => albums
+                .remove(&album)
+                .map(|added| album_arrival(album, &added)),
+        })
+        .collect();
+    arrivals.sort_by_key(|&(arrived, _)| Reverse(arrived));
+    arrivals.into_iter().map(|(_, card)| card).collect()
+}
+
+/// When the album `album` last gained tracks, given the dates its tracks
+/// were `added`, and the card that says what arrived then: the whole album,
+/// or the tracks that joined it later (DIS-036).
+fn album_arrival(album: AlbumId, added: &[Timestamp]) -> (Timestamp, Card) {
+    let newest = added.iter().copied().fold(Timestamp::MIN, Timestamp::max);
+    let together = added
+        .iter()
+        .filter(|date| newest.millis().saturating_sub(date.millis()) <= ARRIVAL_SPAN_MS)
+        .count();
+    let card = if together == added.len() {
+        Card::Album(album)
+    } else {
+        Card::AlbumWithNewTracks {
+            album,
+            new_tracks: u32::try_from(together).unwrap_or(u32::MAX),
+        }
+    };
+    (newest, card)
+}
+
+/// The tracks of the view the person loves now, the latest love first.
+fn loved_songs(lib: &LibraryView<'_>, mine: &MyEvents<'_>) -> Vec<Card> {
+    let stream = Stream::Profile(mine.profile);
+    // The love or removal that stands for each item, and whether it is a
+    // love.
+    let mut standing: BTreeMap<ContentId, (Precedence, bool)> = BTreeMap::new();
+    for event in mine.events.iter().filter(|event| event.stream == stream) {
+        let (item, is_love) = match event.body {
+            Body::Love(ItemRef::Content(item)) => (item, true),
+            Body::Unlove(ItemRef::Content(item)) => (item, false),
+            _ => continue,
+        };
+        let word = ((event.clock, event.device, event.id), is_love);
+        standing
+            .entry(item)
+            .and_modify(|held| *held = word.max(*held))
+            .or_insert(word);
+    }
+    let mut loved: Vec<(Precedence, TrackId)> = lib
+        .tracks
+        .iter()
+        .filter_map(|track| match standing.get(&track.identity) {
+            Some(&(when, true)) => Some((when, track.record.id)),
+            _ => None,
+        })
+        .collect();
+    loved.sort_by_key(|&(when, _)| Reverse(when));
+    loved.into_iter().map(|(_, id)| Card::Track(id)).collect()
 }
 
 #[cfg(test)]

@@ -8,9 +8,9 @@
 //! playing from. The row sources read no other stream, so one person's
 //! plays and loves never reach another person's Home (TM-T18).
 //!
-//! Everything here is plain data with public fields. Nothing is trusted:
-//! the row sources never panic on a view that repeats a track, names an
-//! album no track is on, or lists one place twice.
+//! Everything here is plain data with public fields, and none of it is
+//! trusted: a place on an album the view does not hold, and an album or a
+//! playlist listed twice, evaluate to a row like any other input.
 
 use crate::catalog::{AlbumId, TrackRecord};
 use crate::id::PublicId;

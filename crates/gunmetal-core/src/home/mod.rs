@@ -22,7 +22,7 @@ pub mod input;
 mod properties;
 pub mod row;
 
-pub use evaluate::evaluate_row;
+pub use evaluate::{ARRIVAL_SPAN_MS, CONTINUE_WINDOW_MS, evaluate_row};
 pub use input::{LibraryTrack, LibraryView, Listening, ListeningSource, MyEvents};
 pub use row::{
     Card, DEFAULT_LAYOUT, DEFAULT_ROW_LIMIT, EmptyState, Reason, Row, RowContent, RowSource,

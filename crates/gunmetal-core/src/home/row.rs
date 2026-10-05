@@ -46,7 +46,24 @@ pub const DEFAULT_ROW_LIMIT: usize = 20;
 /// The default Home: the four built-in rows, in the order the Home surface
 /// lists them (SUR-020; DIS-004). Nobody arranges it in R1 (DIS-003 is
 /// R1.2), so every profile has this layout.
-pub const DEFAULT_LAYOUT: &[RowSpec] = &[];
+pub const DEFAULT_LAYOUT: &[RowSpec] = &[
+    RowSpec {
+        source: RowSource::ContinueListening,
+        limit: DEFAULT_ROW_LIMIT,
+    },
+    RowSpec {
+        source: RowSource::RecentlyPlayed,
+        limit: DEFAULT_ROW_LIMIT,
+    },
+    RowSpec {
+        source: RowSource::RecentlyAdded,
+        limit: DEFAULT_ROW_LIMIT,
+    },
+    RowSpec {
+        source: RowSource::LovedSongs,
+        limit: DEFAULT_ROW_LIMIT,
+    },
+];
 
 /// Why a row shows what it shows, as a code the client turns into words
 /// (API-HOME-04).
@@ -110,7 +127,8 @@ impl RowContent {
     #[must_use]
     pub fn cards(&self) -> &[Card] {
         match self {
-            Self::Cards(_) | Self::Empty(_) => &[],
+            Self::Cards(cards) => cards,
+            Self::Empty(_) => &[],
         }
     }
 }
