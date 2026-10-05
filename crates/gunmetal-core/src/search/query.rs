@@ -19,8 +19,8 @@
 //! - A letter or digit among the first [`MAX_QUERY_CHARS`] characters
 //!   makes the query its folded words, and every other character is
 //!   dropped, a word of punctuation included: "!!! live" is the query
-//!   "live". A letter after those characters is not read, and changes
-//!   nothing.
+//!   "live". A letter after those characters is not read, so the query
+//!   is then its marks as they are written, whatever follows them.
 //! - Otherwise each whitespace-separated word is a term as it is written,
 //!   cut to 32 characters, and only the first [`MAX_TERMS`] are used. A
 //!   query of nothing but whitespace has no term and finds nothing.
@@ -28,6 +28,15 @@
 //!   one ("!!" finds "!!!"), or, from [`MIN_TYPO_CHARS`] characters on,
 //!   within one edit ("!!!!" finds "!!!"). It is compared character for
 //!   character, with nothing folded.
+//!
+//! A title is not cut as a query is: it is indexed whole. So a title that
+//! begins with [`MAX_QUERY_CHARS`] characters or more with no letter or
+//! digit among them, and has a letter or digit after them, is indexed by
+//! its folded words alone, while a query of the same text is read only as
+//! far as its marks and is matched by them as they are written. Such a
+//! title is not found by a query of itself at all, as its whole or as its
+//! start; it is found by its folded words. With one mark fewer the query
+//! reads the title's first letter, and finds the title by it.
 //!
 //! How well a document matched is its [`Match`], which depends on that
 //! document alone. Hits are ranked by their match, then by the person's

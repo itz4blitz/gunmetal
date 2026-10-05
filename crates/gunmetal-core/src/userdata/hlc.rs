@@ -23,10 +23,20 @@ use crate::problem::{Arg, Describe, Problem, ProblemCode};
 ///
 /// Devices that keep network time are within a second or two of the
 /// server; five minutes also tolerates a device whose clock was set by hand.
-/// A clock further ahead is refused rather than adopted, so the server's own
-/// clock never moves more than this past its wall time on a client's word.
-/// The server package that enforces it registers it in the limits register
-/// (SEC-STD-030).
+/// A clock further ahead is refused rather than adopted, and so is a clock
+/// whose adoption would leave the server's clock at the bound with a full
+/// counter ([`Hlc::receive`]). So the clock the server adopts on a
+/// client's word is never past the bound, and neither is the next clock
+/// it issues.
+///
+/// That is all the bound promises. The counter still ticks once for every
+/// later event at that wall time, whoever sent it, and a full counter
+/// carries into the wall time. A clock adopted at the bound with its
+/// counter a few ticks short of full is therefore filled by that many
+/// more events and carried one millisecond past the bound by the one
+/// after them, and each millisecond after that takes 2^32 events. The
+/// server package that enforces the bound registers it in the limits
+/// register (SEC-STD-030).
 pub const MAX_SKEW_MS: u64 = 300_000;
 
 /// A hybrid logical clock value: wall time in milliseconds since the Unix
@@ -79,10 +89,12 @@ impl Hlc {
     ///
     /// Returns [`ClockError::Ahead`] when `remote` is more than
     /// [`MAX_SKEW_MS`] ahead of `now_ms`, or when adopting `remote` would
-    /// move this node's clock past that bound (a full counter at the bound
-    /// carries one millisecond on); `self` is then unchanged, and the
-    /// event is refused. Returns [`ClockError::Exhausted`] only when the
-    /// later of the two clocks is the last clock there is.
+    /// leave this node's clock past that bound, or at it with a full
+    /// counter, which the next clock issued would carry past it; `self`
+    /// is then unchanged, and the event is refused. A clock that is this
+    /// node's own, later than `remote`, is not held to the bound. Returns
+    /// [`ClockError::Exhausted`] only when the later of the two clocks is
+    /// the last clock there is.
     pub fn receive(self, remote: Self, now_ms: u64) -> Result<Self, ClockError> {
         let bound_ms = now_ms.saturating_add(MAX_SKEW_MS);
         if remote.wall_ms > bound_ms {
@@ -92,10 +104,12 @@ impl Hlc {
             });
         }
         let next = self.max(remote).advance(now_ms)?;
-        // When the remote clock is the one adopted, a full counter at the
-        // bound carries one millisecond past it. Refuse that as Ahead: the
-        // server's clock must stay at or before the bound on a client's word.
-        if remote >= self && next.wall_ms > bound_ms {
+        // When the remote clock is the one adopted, the clock it leaves must
+        // have a tick to spare at the bound. A clock past the bound has
+        // carried a full counter over it already, and a clock at the bound
+        // with a full counter would on the next clock issued, so both are
+        // refused as Ahead.
+        if remote >= self && next >= Self::new(bound_ms, u32::MAX) {
             return Err(ClockError::Ahead {
                 wall_ms: remote.wall_ms,
                 bound_ms,

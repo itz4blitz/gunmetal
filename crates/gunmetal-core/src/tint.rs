@@ -57,9 +57,22 @@ pub struct OnSurface {
 }
 
 /// The colour shared by the header wash and player backdrop.
+///
+/// Every token given to [`surfaces`] meets its contrast floor against
+/// `surface` as it is here: three numbers that have not been rounded. A
+/// display colour has 8 bits a channel, and [`surfaces`] does not round
+/// before it checks. Rounding each channel to the nearest of its 256
+/// levels moves the surface's luminance a little, which can lower a
+/// contrast ratio by up to about 0.6 %: a token that sits exactly at 4.5
+/// can measure about 4.475 against the rounded colour, and one at 3.0
+/// about 2.98. A client, and the WASM facade that hands these numbers to
+/// one (WP-237), must not take a floor as met for the rounded colour. It
+/// checks the contrast again after rounding, or keeps to tokens that clear
+/// their floors by 1 % or more.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Surfaces {
-    /// Gamut-reduced and contrast-checked sRGB surface.
+    /// Gamut-reduced and contrast-checked sRGB surface, not rounded to 8
+    /// bits a channel.
     pub surface: Srgb,
     /// Actual OKLCH coordinates used to produce `surface`.
     pub oklch: Oklch,
@@ -70,9 +83,30 @@ pub type Hue = u16;
 
 /// Derives a surface from an artwork candidate and client token colours.
 ///
+/// `canvas` is the client's page background, the colour the tinted surface
+/// lies on, as nonlinear sRGB. Only its `OKLab` lightness is used, and only
+/// as the far end of the search. The surface starts at lightness 0.26 for
+/// [`Theme::Dark`] and [`Theme::Oled`] and at 0.95 for [`Theme::Light`].
+/// While a token misses its floor the lightness steps by 0.01 toward the
+/// canvas's, down for the dark themes and up for the light one, and the
+/// search stops before a step would pass the canvas: a surface may be as
+/// dark or as light as its canvas, never more. The search does not turn
+/// round, so a canvas lighter than 0.26 under a dark theme, or darker than
+/// 0.95 under the light one, gets no tint even with no token to satisfy.
+/// The canvas takes no part in the contrast check, and its hue and chroma
+/// change nothing.
+///
+/// [`Theme::Light`] never reaches lightness 1. The lightness of white
+/// computes to 0.999 999 993 5, just under 1, so the candidate at 1.00 is
+/// past every canvas and the lightest surface that is tried is 0.99. A
+/// token that only a pure white surface would satisfy gets no tint. Black
+/// computes to exactly 0, so the dark themes can reach it.
+///
 /// Returns `None` for invalid numeric input, base chroma below 0.04,
 /// high contrast, an inconsistent canvas direction, or unsatisfied contrast.
 /// Gamut reduction preserves hue and lightness; the client owns gradients.
+/// The floors are checked on the surface before any rounding to 8 bits:
+/// see [`Surfaces`].
 #[must_use]
 pub fn surfaces(
     base: Oklch,

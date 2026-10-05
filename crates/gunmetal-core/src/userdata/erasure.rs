@@ -375,16 +375,21 @@ mod tests {
         ]
     }
 
-    /// `steps` with every append of an event ID after its first replaced
-    /// by a retry of the first: the writer refuses a second body under one
-    /// ID (ADR 3, section 6), so a log never holds one.
+    /// `steps` with every append of an event ID in a stream after its
+    /// first replaced by a retry of the first: the writer refuses a second
+    /// body under one stream and event ID (ADR 3, section 6), so a log
+    /// never holds one. The same ID in another stream is another event,
+    /// with a body of its own.
     fn one_body_per_id(steps: Vec<Step>) -> Vec<Step> {
         let mut first: Vec<Event> = Vec::new();
         steps
             .into_iter()
             .map(|step| match step {
                 Step::Append(event) => {
-                    let earlier = first.iter().find(|seen| seen.id == event.id).cloned();
+                    let earlier = first
+                        .iter()
+                        .find(|seen| (seen.stream, seen.id) == (event.stream, event.id))
+                        .cloned();
                     Step::Append(earlier.unwrap_or_else(|| {
                         first.push(event.clone());
                         event

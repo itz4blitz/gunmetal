@@ -12,19 +12,58 @@
 //! terms:    varint count, then per term, in ascending order
 //!             len:       u8, octets of the term
 //!             term:      UTF-8, 1 to 32 characters
-//!             postings:  varint count, then per posting
+//!             postings:  varint count of 1 or more, then per posting, in
+//!                        ascending order of document and then place
 //!               doc:     varint, added to the posting before it
 //!               place:   u8
 //! ```
 //!
 //! A varint is a `u32` in groups of seven bits, lowest first, the high bit
 //! of each octet saying that another follows, in the fewest octets that
-//! hold it. Every index therefore has exactly one written form, and
-//! [`Index::from_bytes`] accepts no other.
+//! hold it. A term's postings are a set: each pair of document and place
+//! is written once, in strictly ascending order of document and then of
+//! place, and a term with no posting is not written at all. Every set of
+//! documents, terms and postings therefore has exactly one written form,
+//! and [`Index::from_bytes`] accepts no other.
+//!
+//! One written form is not a promise that the index is one
+//! [`Index::build`] makes. The reader does not check that a term is a
+//! token the index would cut from any text, or that a document's
+//! `title_len` agrees with the places its postings name. A query takes
+//! both as it finds them.
 //!
 //! A segment is untrusted input. A count it declares sizes nothing: each
 //! document, term and posting is read and kept one at a time, and each
 //! takes at least two octets, so memory stays in proportion to the input.
+//!
+//! # Memory
+//!
+//! [`Index::from_bytes`] takes a step budget and no other limit. Nothing
+//! caps the documents, terms or postings of a segment, or its size, so the
+//! caller must cap the size of a segment before it reads one: at the
+//! memory it can spare for one index, divided by the multiple below.
+//!
+//! The index is held in proportion to the segment, but it is larger. On a
+//! 64-bit target, worked out from the layout of what is held and not
+//! measured:
+//!
+//! - A posting is 2 octets or more in the segment and 8 in memory, in a
+//!   vector that may have room for twice as many: up to 8 times its
+//!   octets.
+//! - A document is 32 octets or more in the segment and 24 in memory, in
+//!   a vector of the same kind: under twice its octets.
+//! - A term is 5 octets or more in the segment with its first posting. It
+//!   takes 48 octets in the map of terms, which may have about as much
+//!   room again to spare, a copy of its text, and a vector with room for
+//!   four postings (32 octets), the last two each in an allocation of
+//!   their own: about 190 octets with the allocator's overhead, or 40
+//!   times its octets.
+//!
+//! So count on **40 octets of memory for each octet of segment**. That is
+//! the worst case, a segment of nothing but short terms with one posting
+//! each; a segment that is mostly postings stays under 8. While a vector
+//! grows, its old and new allocations are both held for a moment, which
+//! can add half as much again for the largest term.
 //!
 //! # Steps (SEC-MED-007)
 //!
@@ -164,11 +203,18 @@ impl Index {
 
     /// Reads a segment, spending `budget`.
     ///
+    /// `budget` bounds the steps and nothing else. No limit caps the
+    /// documents, terms or postings of a segment, or its size, and the
+    /// index is held in up to 40 octets of memory for each octet of
+    /// `bytes`; the module documentation has the sum, under "Memory". The
+    /// caller must cap the size of `bytes` before it calls.
+    ///
     /// # Errors
     ///
     /// Returns an [`IndexError`] unless `bytes` is exactly what
-    /// [`Index::to_bytes`] writes for some index, or when `budget` runs
-    /// out first.
+    /// [`Index::to_bytes`] writes for some index whose every term has a
+    /// posting, with its postings in strictly ascending order of document
+    /// and then place, or when `budget` runs out first.
     pub fn from_bytes(bytes: &[u8], budget: &mut Budget) -> Result<Self, IndexError> {
         let mut cursor = Cursor::new(bytes);
         let found = cursor.array::<4>()?;
@@ -215,9 +261,13 @@ impl Index {
             if !after_last {
                 return Err(IndexError::TermOrder { offset });
             }
-            let mut postings = Vec::new();
+            let listed = varint(&mut cursor)?;
+            if listed == 0 {
+                return Err(IndexError::NoPostings { offset });
+            }
+            let mut postings: Vec<Posting> = Vec::new();
             let mut doc = 0_u32;
-            for _ in 0..varint(&mut cursor)? {
+            for _ in 0..listed {
                 let offset = cursor.offset();
                 budget.charge(1, offset)?;
                 doc = doc
@@ -225,6 +275,13 @@ impl Index {
                     .filter(|doc| *doc < docs)
                     .ok_or(IndexError::UnknownDoc { offset })?;
                 let place = cursor.u8()?;
+                // One written form: each pair once, in ascending order.
+                let ascends = postings
+                    .last()
+                    .is_none_or(|last| (last.doc, last.place) < (doc, place));
+                if !ascends {
+                    return Err(IndexError::PostingOrder { offset });
+                }
                 postings.push(Posting { doc, place });
             }
             index.terms.insert(term.to_owned(), postings);

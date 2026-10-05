@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 98dda214f176153a3a3d43b59db86240afa4e976003ec691bc9491f051b5d4c5 # shrinks to local = Hlc { wall_ms: 0, logical: 0 }, remote = Hlc { wall_ms: 885, logical: 0 }, now = 0
+cc d66c681b98e329e6ce5e4bed2c723f1da78c4ba4b48cb027ccb0c4f0c0f20789 # shrinks to local = Hlc { wall_ms: 0, logical: 0 }, remote = Hlc { wall_ms: 0, logical: 0 }, now = 0, early = 0, past = 1, counter = 4294967294
