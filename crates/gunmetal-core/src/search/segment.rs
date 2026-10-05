@@ -416,6 +416,58 @@ mod tests {
         );
     }
 
+    /// An album "÷" and an artist "!!!": names with no letter or digit,
+    /// whose terms are the names as they are written.
+    #[test]
+    fn writes_and_reads_names_with_no_letter_or_digit() {
+        let index = Index::build(
+            [
+                titled(DocKind::Album, 1, "÷"),
+                titled(DocKind::Artist, 2, "!!!"),
+            ]
+            .into_iter(),
+        );
+        let segment: &[u8] = b"GMSI\x01\
+            \x02\
+            alb_00000000000000000000000001\x00\x01\
+            art_00000000000000000000000002\x00\x01\
+            \x02\
+            \x03!!!\x01\x01\x00\
+            \x02\xC3\xB7\x01\x00\x00";
+        assert_eq!(index.to_bytes(), segment);
+        let back = read(segment).unwrap();
+        assert_eq!(
+            back.docs,
+            [
+                Entry {
+                    doc: doc_ref(DocKind::Album, 1),
+                    plays: 0,
+                    title_len: 1
+                },
+                Entry {
+                    doc: doc_ref(DocKind::Artist, 2),
+                    plays: 0,
+                    title_len: 1
+                },
+            ]
+        );
+        assert_eq!(
+            back.terms,
+            BTreeMap::from([
+                (String::from("!!!"), vec![Posting { doc: 1, place: 0 }]),
+                (String::from("÷"), vec![Posting { doc: 0, place: 0 }]),
+            ])
+        );
+        assert_eq!(back, index);
+        assert_eq!(
+            back.query("÷", KindFilter::All, u16::MAX),
+            [Hit {
+                doc: doc_ref(DocKind::Album, 1),
+                matched: Match::WholeTitle
+            }]
+        );
+    }
+
     #[test]
     fn writes_numbers_in_groups_of_seven_bits_lowest_first() {
         let cases: [(u32, &[u8]); 10] = [

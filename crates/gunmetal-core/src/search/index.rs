@@ -153,10 +153,45 @@ mod tests {
     }
 
     #[test]
-    fn text_without_a_letter_or_digit_has_no_tokens() {
+    fn text_that_is_empty_or_all_whitespace_has_no_tokens() {
         assert_eq!(tokens(""), Vec::<String>::new());
         assert_eq!(tokens("   "), Vec::<String>::new());
-        assert_eq!(tokens("?! ... (*)"), Vec::<String>::new());
+        assert_eq!(tokens(" \t\n\u{00A0}\u{3000}"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn text_without_a_letter_or_digit_is_cut_into_its_words_as_written() {
+        assert_eq!(tokens("!!!"), ["!!!"]);
+        assert_eq!(tokens("÷"), ["÷"]);
+        assert_eq!(tokens("( )"), ["(", ")"]);
+        assert_eq!(tokens("?! ... (*)"), ["?!", "...", "(*)"]);
+        assert_eq!(tokens("🎵 ❤"), ["🎵", "❤"]);
+        // Any whitespace parts the words, and none of it is kept.
+        assert_eq!(tokens("\t+ \u{00A0}=\n"), ["+", "="]);
+        // Nothing is folded: a fullwidth mark stays fullwidth, and the
+        // curly apostrophe stays curly.
+        assert_eq!(tokens("！？"), ["！？"]);
+        assert_eq!(tokens("’"), ["’"]);
+    }
+
+    #[test]
+    fn a_word_kept_as_written_is_cut_to_32_characters_too() {
+        // 33 marks: the first 32 are kept.
+        assert_eq!(
+            tokens("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ?"),
+            ["!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", "?"]
+        );
+        // 32 marks are kept whole.
+        assert_eq!(
+            tokens("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"),
+            ["!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"]
+        );
+        // The cut counts characters, not octets: "÷" is two octets, and
+        // 33 of them are cut to 32.
+        assert_eq!(
+            tokens("÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷"),
+            ["÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷"]
+        );
     }
 
     #[test]
@@ -212,9 +247,58 @@ mod tests {
                 Entry {
                     doc: doc_ref(DocKind::Playlist, 9),
                     plays: 0,
-                    title_len: 0
+                    title_len: 1
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn posts_text_without_a_letter_or_digit_as_written() {
+        let mut album = titled(DocKind::Album, 2, "Myth Takes");
+        album.artist = String::from("!!!");
+        album.genres = owned(&["!!!", "?"]);
+        let index = Index::build(
+            [
+                titled(DocKind::Artist, 1, "!!!"),
+                album,
+                titled(DocKind::Album, 3, "( )"),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            index.docs,
+            [
+                Entry {
+                    doc: doc_ref(DocKind::Artist, 1),
+                    plays: 0,
+                    title_len: 1
+                },
+                Entry {
+                    doc: doc_ref(DocKind::Album, 2),
+                    plays: 0,
+                    title_len: 2
+                },
+                Entry {
+                    doc: doc_ref(DocKind::Album, 3),
+                    plays: 0,
+                    title_len: 2
+                },
+            ]
+        );
+        assert_eq!(
+            index.terms,
+            BTreeMap::from([
+                (
+                    String::from("!!!"),
+                    vec![posting(0, 0), posting(1, ELSEWHERE)]
+                ),
+                (String::from("("), vec![posting(2, 0)]),
+                (String::from(")"), vec![posting(2, 1)]),
+                (String::from("?"), vec![posting(1, ELSEWHERE)]),
+                (String::from("myth"), vec![posting(1, 0)]),
+                (String::from("takes"), vec![posting(1, 1)]),
+            ])
         );
     }
 

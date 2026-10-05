@@ -278,10 +278,13 @@ fn one_edit_apart(a: &str, b: &str) -> bool {
     reason = "test oracles and generators work with small, bounded values"
 )]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::super::doc::SearchDoc;
     use super::super::testing::{doc_ref, owned, titled};
     use super::*;
-    use proptest::collection::{btree_set, vec};
+    use crate::collate::fold;
+    use proptest::collection::vec;
     use proptest::prelude::*;
 
     use DocKind::{Album, Artist, Playlist, Track};
@@ -806,17 +809,215 @@ mod tests {
             long_titles().query(&pattern, KindFilter::All, u16::MAX),
             [hit(Album, 3, Match::WholeTitle)]
         );
-        // A megabyte of punctuation holds no term at all.
+        // A megabyte of one bracket is read as its first 256, which are cut
+        // to one term of 32 brackets. No word of the library begins so.
         let nested: String = (0..1_048_576).map(|_| '(').collect();
         assert_eq!(library().query(&nested, KindFilter::All, u16::MAX), []);
     }
 
     #[test]
-    fn a_query_without_a_letter_or_digit_finds_nothing() {
+    fn a_query_of_nothing_but_whitespace_finds_nothing() {
         assert_eq!(all(""), []);
         assert_eq!(all("   "), []);
+        assert_eq!(signed(""), []);
+        assert_eq!(signed(" \t\n\u{00A0}\u{3000}"), []);
+    }
+
+    #[test]
+    fn a_query_that_no_document_matches_finds_nothing() {
+        // No word of the library begins with these marks.
         assert_eq!(all("?!"), []);
         assert_eq!(Index::default().query("radiohead", KindFilter::All, 9), []);
+    }
+
+    #[test]
+    fn finds_a_title_with_no_letter_or_digit_by_the_title_itself() {
+        let index = signs();
+        // At a limit of 1 the document of that title is the first hit. The
+        // limit is for each type, so the album by the artist "!!!" follows.
+        assert_eq!(
+            index.query("!!!", KindFilter::All, 1),
+            [
+                hit(Artist, 1, Match::WholeTitle),
+                hit(Album, 2, Match::Words),
+            ]
+        );
+        assert_eq!(
+            index.query("÷", KindFilter::All, 1),
+            [hit(Album, 3, Match::WholeTitle)]
+        );
+        assert_eq!(
+            index.query("+", KindFilter::All, 1),
+            [hit(Album, 4, Match::WholeTitle)]
+        );
+        assert_eq!(
+            index.query("=", KindFilter::All, 1),
+            [hit(Album, 5, Match::WholeTitle)]
+        );
+        assert_eq!(
+            index.query("( )", KindFilter::All, 1),
+            [hit(Album, 6, Match::WholeTitle)]
+        );
+        assert_eq!(
+            index.query("🎵 ❤", KindFilter::All, 1),
+            [hit(Playlist, 7, Match::WholeTitle)]
+        );
+        // The type filter applies as it does to any query.
+        assert_eq!(
+            index.query("!!!", KindFilter::Only(Album), u16::MAX),
+            [hit(Album, 2, Match::Words)]
+        );
+    }
+
+    #[test]
+    fn whitespace_parts_the_words_of_a_query_with_no_letter_or_digit() {
+        assert_eq!(
+            signed("  !!!\t"),
+            [
+                hit(Artist, 1, Match::WholeTitle),
+                hit(Album, 2, Match::Words),
+            ]
+        );
+        assert_eq!(signed("(\u{00A0}\n)"), [hit(Album, 6, Match::WholeTitle)]);
+        // Written together, the two brackets are one word, which no
+        // document holds.
+        assert_eq!(signed("()"), []);
+    }
+
+    #[test]
+    fn a_query_with_no_letter_or_digit_matches_words_and_their_beginnings() {
+        let begins = [
+            hit(Artist, 1, Match::TitleStart),
+            hit(Album, 2, Match::WordStarts),
+        ];
+        assert_eq!(signed("!!"), begins);
+        assert_eq!(signed("!"), begins);
+        // The first word of a title of two, its second word, and both the
+        // other way round.
+        assert_eq!(signed("("), [hit(Album, 6, Match::TitleStart)]);
+        assert_eq!(signed(")"), [hit(Album, 6, Match::Words)]);
+        assert_eq!(signed(") ("), [hit(Album, 6, Match::Words)]);
+        assert_eq!(signed("🎵"), [hit(Playlist, 7, Match::TitleStart)]);
+        // Every term has to match.
+        assert_eq!(signed("( ) ÷"), []);
+        assert_eq!(signed("÷ +"), []);
+    }
+
+    #[test]
+    fn forgives_one_edit_in_a_query_with_no_letter_or_digit() {
+        // "!!!!" is "!!!" with a mark added, and has the four characters a
+        // near miss needs.
+        assert_eq!(
+            signed("!!!!"),
+            [
+                hit(Artist, 1, Match::NearMiss),
+                hit(Album, 2, Match::NearMiss),
+            ]
+        );
+        // "!?!" is "!!!" with a mark wrong, but has only three.
+        assert_eq!(signed("!?!"), []);
+        // "!!!!!" is two edits away.
+        assert_eq!(signed("!!!!!"), []);
+    }
+
+    /// An index for the caps on a query with no letter or digit: a title
+    /// of 16 marks, a title of 17, and a title of one word of 33 brackets.
+    fn long_signs() -> Index {
+        Index::build(
+            [
+                titled(Track, 1, "! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !"),
+                titled(Track, 2, "! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !"),
+                titled(Album, 3, "((((((((((((((((((((((((((((((((("),
+            ]
+            .into_iter(),
+        )
+    }
+
+    /// Verifies: SEC-API-063
+    #[test]
+    fn the_caps_hold_for_a_query_with_no_letter_or_digit() {
+        let index = long_signs();
+        let sixteen = "! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !";
+        let whole = [
+            hit(Track, 1, Match::WholeTitle),
+            hit(Track, 2, Match::TitleStart),
+        ];
+        assert_eq!(index.query(sixteen, KindFilter::All, u16::MAX), whole);
+        // 256 characters and 17 terms: the 17th term, which is in no
+        // document, is not used.
+        let seventeen = padded(sixteen, "?", 256);
+        assert_eq!(seventeen.split_whitespace().count(), 17);
+        assert_eq!(index.query(&seventeen, KindFilter::All, u16::MAX), whole);
+        // The 16th term is used: one that is in no document finds nothing.
+        assert_eq!(
+            index.query("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ?", KindFilter::All, u16::MAX),
+            []
+        );
+        // The 256th character is read, and the 257th is not.
+        let begins = [
+            hit(Track, 1, Match::TitleStart),
+            hit(Track, 2, Match::TitleStart),
+        ];
+        assert_eq!(
+            index.query(&padded("!", "?", 256), KindFilter::All, u16::MAX),
+            []
+        );
+        assert_eq!(
+            index.query(&padded("!", "?", 257), KindFilter::All, u16::MAX),
+            begins
+        );
+        // A letter among the first 256 characters makes the query the
+        // letter alone, which is in no document. A letter after them is
+        // not read, so the query is still the mark.
+        assert_eq!(
+            index.query(&padded("!", "a", 256), KindFilter::All, u16::MAX),
+            []
+        );
+        assert_eq!(
+            index.query(&padded("!", "a", 257), KindFilter::All, u16::MAX),
+            begins
+        );
+    }
+
+    #[test]
+    fn matches_a_long_word_of_marks_on_its_first_32_characters() {
+        let index = long_signs();
+        let expected = [hit(Album, 3, Match::WholeTitle)];
+        // 32 brackets, 33, and 40.
+        for q in [
+            "((((((((((((((((((((((((((((((((",
+            "(((((((((((((((((((((((((((((((((",
+            "((((((((((((((((((((((((((((((((((((((((",
+        ] {
+            assert_eq!(index.query(q, KindFilter::All, u16::MAX), expected);
+        }
+        // A megabyte of brackets is read as its first 256, which are cut
+        // to the same 32.
+        let megabyte: String = (0..1_048_576).map(|_| '(').collect();
+        assert_eq!(index.query(&megabyte, KindFilter::All, u16::MAX), expected);
+        // 31 brackets are only the beginning of the word.
+        assert_eq!(
+            index.query("(((((((((((((((((((((((((((((((", KindFilter::All, u16::MAX),
+            [hit(Album, 3, Match::TitleStart)]
+        );
+    }
+
+    /// Verifies: SEC-STD-011
+    #[test]
+    fn matches_metacharacters_literally_when_they_are_the_whole_query() {
+        // Each of these is a name in the index, or the beginning of one,
+        // and finds that document alone.
+        assert_eq!(signed("+"), [hit(Album, 4, Match::WholeTitle)]);
+        assert_eq!(signed("( )"), [hit(Album, 6, Match::WholeTitle)]);
+        assert_eq!(signed("("), [hit(Album, 6, Match::TitleStart)]);
+        // A pattern that would match every name in the index, or the
+        // names of marks, matches none of them.
+        assert_eq!(signed(".*"), []);
+        assert_eq!(signed("^.+$"), []);
+        assert_eq!(signed("[!÷+=]"), []);
+        assert_eq!(signed("!{3}"), []);
+        assert_eq!(signed("(|)"), []);
+        assert_eq!(signed("\\(|\\)"), []);
     }
 
     #[test]
@@ -1175,6 +1376,99 @@ mod tests {
         vec(word(), 1..=3).prop_map(|words| words.join(" "))
     }
 
+    /// A title of any sort. Three in nine are plain words. The rest are,
+    /// one in nine each: words in either case, words with diacritics,
+    /// words with punctuation in and around them, words and numbers, a
+    /// title with no letter or digit at all, and any text whatever. The
+    /// alphabet stays small, so titles of different sorts fold alike often.
+    fn title() -> impl Strategy<Value = String> {
+        prop_oneof![
+            3 => phrase(),
+            1 => "[abcABC]{1,5}( [abcABC]{1,5}){0,2}",
+            1 => "[aáàâäAÁbcçCÇ]{1,5}( [aáàâäAÁbcçCÇ]{1,5}){0,2}",
+            1 => "[abc!?.,'’()&/-]{1,6}( [abc!?.,'’()&/-]{1,6}){0,2}",
+            1 => "[abc0-9]{1,5}( [abc0-9]{1,5}){0,2}",
+            1 => "[!?+=÷*.()&#🎵-]{1,4}( [!?+=÷*.()&#🎵-]{1,4}){0,2}",
+            1 => ".{0,24}",
+        ]
+    }
+
+    /// What a title is found by, worked out without the index: the words
+    /// of its folded text or, when it folds to nothing, its words as they
+    /// are written.
+    fn title_key(title: &str) -> Vec<String> {
+        let folded = fold(title);
+        let text = if folded.is_empty() {
+            title
+        } else {
+            folded.as_str()
+        };
+        text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    /// Whether a title is one the exact-title property speaks of: it has a
+    /// word to be found by, and a query reads all of it, which takes at
+    /// most 256 characters and at most 16 words of at most 32 characters
+    /// each.
+    fn within_caps(title: &str) -> bool {
+        let key = title_key(title);
+        title.chars().count() <= 256
+            && (1..=16).contains(&key.len())
+            && key.iter().all(|word| word.chars().count() <= 32)
+    }
+
+    /// The titles of `titles` that are within the caps, and of those found
+    /// by the same words only the first.
+    fn distinct(titles: Vec<String>) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        titles
+            .into_iter()
+            .filter(|title| within_caps(title) && seen.insert(title_key(title)))
+            .collect()
+    }
+
+    #[test]
+    fn the_title_helpers_agree_with_known_values() {
+        assert_eq!(title_key("Amélie"), ["amelie"]);
+        assert_eq!(title_key("  Go!  WEST "), ["go", "west"]);
+        assert_eq!(title_key("!!!"), ["!!!"]);
+        assert_eq!(title_key(" (\t) "), ["(", ")"]);
+        assert_eq!(title_key(""), Vec::<String>::new());
+        assert_eq!(title_key("   "), Vec::<String>::new());
+        let cases = [
+            ("Amélie", true),
+            ("!!!", true),
+            // Nothing to be found by.
+            ("", false),
+            ("   ", false),
+            // 16 words, and 17.
+            ("a b c d e f g h i j k l m n o p", true),
+            ("a b c d e f g h i j k l m n o p q", false),
+            ("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !", true),
+            ("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !", false),
+            // A word of 32 characters, and of 33.
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true),
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false),
+            ("((((((((((((((((((((((((((((((((", true),
+            ("(((((((((((((((((((((((((((((((((", false),
+            // The characters of a word are counted after folding: eleven
+            // U+FB03 ligatures fold to 33 letters.
+            ("ﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃﬃ", false),
+        ];
+        for (title, expected) in cases {
+            assert_eq!((title, within_caps(title)), (title, expected));
+        }
+        // 256 characters, and 257.
+        assert_eq!((256, within_caps(&padded("a", "b", 256))), (256, true));
+        assert_eq!((257, within_caps(&padded("a", "b", 257))), (257, false));
+        assert_eq!(
+            distinct(owned(&[
+                "Amelie", "Amélie", "", "!!!", " !!! ", "Go", "go!", "( )", "()", "(\t)",
+            ])),
+            ["Amelie", "!!!", "Go", "( )", "()"]
+        );
+    }
+
     fn kind() -> impl Strategy<Value = DocKind> {
         prop_oneof![Just(Artist), Just(Album), Just(Track), Just(Playlist)]
     }
@@ -1217,14 +1511,20 @@ mod tests {
             prop_assert_eq!(one_edit_apart(&a, &b), distance(&left, &right) == 1);
         }
 
+        /// The plan's property, under the conditions it holds on: every
+        /// title is within the caps, and no two are found by the same
+        /// words (`distinct`). The first title is plain words, so the
+        /// library is never empty.
         #[test]
         fn a_title_no_other_document_has_is_the_first_hit_for_itself(
-            titles in btree_set(phrase(), 1..12),
+            first in phrase(),
+            more in vec(title(), 0..11),
             rest in vec(rest(), 12),
             pick in any::<prop::sample::Index>(),
         ) {
-            let titles: Vec<String> = titles.into_iter().collect();
-            let library = docs(titles.clone(), rest);
+            let mut titles = vec![first];
+            titles.extend(more);
+            let library = docs(distinct(titles), rest);
             let target = pick.get(&library).clone();
             let index = Index::build(library.into_iter());
             prop_assert_eq!(
