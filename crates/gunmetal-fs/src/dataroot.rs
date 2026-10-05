@@ -46,7 +46,7 @@ use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions,
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
-use crate::path::{self, DataDir, DataPath, LogMonth, LogStream};
+use crate::path::{self, DataDir, DataPath, LogMonth, LogStream, USER_LOG};
 
 /// The mode of every directory in the data directory.
 pub const DIR_MODE: u32 = 0o700;
@@ -774,10 +774,10 @@ impl DataRoot {
     /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
     /// entries.
     pub fn log_streams(&self) -> Result<Listing<LogStream>, LogDirError> {
-        Ok(Listing {
-            entries: LogStream::named(path::LOG).into_iter().collect(),
-            foreign: Vec::new(),
-        })
+        let item = Item::Path(USER_LOG);
+        self.log_dir()
+            .map_err(LogDirError::Root)
+            .and_then(|log| listing(&log, &item, Kind::Dir, LogStream::named))
     }
 
     /// The months `stream` has a segment for in the user log.
@@ -789,10 +789,11 @@ impl DataRoot {
     /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
     /// entries.
     pub fn log_segments(&self, stream: LogStream) -> Result<Listing<LogMonth>, LogDirError> {
-        Ok(Listing {
-            entries: LogMonth::named(&stream.name()).into_iter().collect(),
-            foreign: Vec::new(),
-        })
+        let item = Item::Path(DataPath::log_stream(stream));
+        self.log_dir()
+            .and_then(|log| real_dir(&log, &stream.name(), &item))
+            .map_err(LogDirError::Root)
+            .and_then(|dir| listing(&dir, &item, Kind::File, LogMonth::named))
     }
 
     /// Removes `stream` from the user log: every segment in its directory,
@@ -813,7 +814,41 @@ impl DataRoot {
     /// [`LogDirError::TooMany`] when the directory holds more than
     /// [`LIST_MAX`] entries, in which case nothing is removed.
     pub fn remove_log_stream(&self, stream: LogStream) -> Result<(), LogDirError> {
-        self.log_segments(stream).map(drop)
+        let item = Item::Path(DataPath::log_stream(stream));
+        let name = stream.name();
+        let log = self.log_dir().map_err(LogDirError::Root)?;
+        let dir = match real_dir(&log, &name, &item) {
+            Err(DataRootError::Io {
+                op: Op::Inspect,
+                kind: io::ErrorKind::NotFound,
+                ..
+            }) => return Ok(()),
+            found => found.map_err(LogDirError::Root)?,
+        };
+        names(&dir, &item)?
+            .iter()
+            .filter(|entry| removable(entry))
+            .try_for_each(|entry| rustix::fs::unlinkat(&dir, entry.as_os_str(), AtFlags::empty()))
+            .and_then(|()| rustix::fs::unlinkat(&log, name.as_str(), AtFlags::REMOVEDIR))
+            .map_err(io::Error::from)
+            .map_err(io_error(item, Op::Remove))
+            .and_then(|()| {
+                // The removal is durable once `durable/log` is synced.
+                self.dir
+                    .open_with(USER_LOG.beneath(), OpenOptions::new().read(true))
+                    .and_then(|parent| parent.sync_all())
+                    .map_err(io_error(Item::Path(USER_LOG), Op::Sync))
+            })
+            .map_err(LogDirError::Root)
+    }
+
+    /// Opens `durable/log`, which must itself be a directory.
+    fn log_dir(&self) -> Result<Dir, DataRootError> {
+        let item = Item::Path(USER_LOG);
+        self.dir
+            .open_dir(DataDir::Durable.name())
+            .map_err(io_error(item.clone(), Op::List))
+            .and_then(|durable| real_dir(&durable, path::LOG, &item))
     }
 
     /// Opens `rel`, a path relative to the root, beneath the handle. Every
@@ -874,6 +909,96 @@ impl DataRoot {
             .zip(by_path(&parent).zip(by_path(&file)))
             .is_some_and(|(held, named)| held == named)
     }
+}
+
+/// Opens the entry `name` of `parent`, which must itself be a directory: a
+/// symbolic link to one is refused, never followed.
+fn real_dir(parent: &Dir, name: &str, item: &Item) -> Result<Dir, DataRootError> {
+    rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(io::Error::from)
+        .map_err(io_error(item.clone(), Op::Inspect))
+        .and_then(|stat| match Facts::of(&stat).kind {
+            Kind::Dir => Ok(()),
+            found => Err(DataRootError::WrongKind {
+                item: item.clone(),
+                found,
+            }),
+        })
+        .and_then(|()| {
+            parent
+                .open_dir(name)
+                .map_err(io_error(item.clone(), Op::List))
+        })
+}
+
+/// The names of the entries of `dir`, in order, when it holds at most
+/// [`LIST_MAX`] of them. It reads one entry more than that and no further,
+/// so a directory someone else filled cannot make the server hold a list
+/// without end.
+fn names(dir: &Dir, item: &Item) -> Result<Vec<OsString>, LogDirError> {
+    dir.entries()
+        .and_then(|entries| {
+            entries
+                .take(LIST_MAX.saturating_add(1))
+                .map(|entry| entry.map(|entry| entry.file_name()))
+                .collect::<io::Result<Vec<OsString>>>()
+        })
+        .map_err(io_error(item.clone(), Op::List))
+        .map_err(LogDirError::Root)
+        .and_then(|mut names| {
+            if names.len() > LIST_MAX {
+                Err(LogDirError::TooMany {
+                    item: item.clone(),
+                    max: LIST_MAX,
+                })
+            } else {
+                names.sort();
+                Ok(names)
+            }
+        })
+}
+
+/// Lists `dir`: the entries whose name `named` reads and that are
+/// themselves a `wanted`, and the names of the rest.
+fn listing<T>(
+    dir: &Dir,
+    item: &Item,
+    wanted: Kind,
+    named: fn(&str) -> Option<T>,
+) -> Result<Listing<T>, LogDirError> {
+    names(dir, item).map(|names| {
+        let mut entries = Vec::new();
+        let mut foreign = Vec::new();
+        for name in names {
+            let entry = name
+                .to_str()
+                .and_then(named)
+                .filter(|_| is_kind(dir, &name, wanted));
+            match entry {
+                Some(entry) => entries.push(entry),
+                None => foreign.push(name),
+            }
+        }
+        Listing { entries, foreign }
+    })
+}
+
+/// Whether the entry `name` of `dir` is itself a `wanted`. A symbolic link
+/// is a link, whatever it leads to.
+fn is_kind(dir: &Dir, name: &OsStr, wanted: Kind) -> bool {
+    rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
+        .is_ok_and(|stat| Facts::of(&stat).kind == wanted)
+}
+
+/// Whether the removal of a stream may remove the entry called `name` from
+/// the stream's directory: a segment, or the temporary file a replace of a
+/// segment writes beside it.
+fn removable(name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        LogMonth::named(name)
+            .or_else(|| path::replaced_by(name).and_then(LogMonth::named))
+            .is_some()
+    })
 }
 
 #[cfg(test)]

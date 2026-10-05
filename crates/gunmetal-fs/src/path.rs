@@ -321,7 +321,7 @@ impl LogStream {
     /// lower-case hexadecimal digits, or `household`.
     pub(crate) fn name(self) -> String {
         match self {
-            Self::Profile(_) => PROFILE_PREFIX.to_owned(),
+            Self::Profile(id) => format!("{PROFILE_PREFIX}{:032x}", u128::from_be_bytes(id)),
             Self::Household => HOUSEHOLD.to_owned(),
         }
     }
@@ -330,7 +330,11 @@ impl LogStream {
     /// stream's is: [`LogStream::name`] gives exactly one spelling, and
     /// nothing else is read as one.
     pub(crate) fn named(name: &str) -> Option<Self> {
-        (name == HOUSEHOLD).then_some(Self::Household)
+        let stream = match name.strip_prefix(PROFILE_PREFIX) {
+            Some(digits) => Self::Profile(u128::from_str_radix(digits, 16).ok()?.to_be_bytes()),
+            None => Self::Household,
+        };
+        (stream.name() == name).then_some(stream)
     }
 }
 
@@ -354,7 +358,11 @@ impl LogMonth {
     /// [`LogMonth::MAX_YEAR`] and the month is 1 to 12.
     #[must_use]
     pub const fn new(year: u16, month: u8) -> Option<Self> {
-        Some(Self { year, month })
+        if year <= Self::MAX_YEAR && month >= 1 && month <= 12 {
+            Some(Self { year, month })
+        } else {
+            None
+        }
     }
 
     /// The year, 0 to 9999.
@@ -371,16 +379,16 @@ impl LogMonth {
 
     /// The name of the month's segment file, such as `2026-10.seg`.
     pub(crate) fn name(self) -> String {
-        format!("{}{SEGMENT_SUFFIX}", self.year)
+        format!("{:04}-{:02}{SEGMENT_SUFFIX}", self.year, self.month)
     }
 
     /// The month whose segment file is called `name`, or `None` when no
     /// month's is: [`LogMonth::name`] gives exactly one spelling, and
     /// nothing else is read as one.
     pub(crate) fn named(name: &str) -> Option<Self> {
-        name.strip_suffix(SEGMENT_SUFFIX)
-            .and_then(|year| year.parse().ok())
-            .map(|year| Self { year, month: 1 })
+        let (year, month) = name.strip_suffix(SEGMENT_SUFFIX)?.split_once('-')?;
+        let found = Self::new(year.parse().ok()?, month.parse().ok()?)?;
+        (found.name() == name).then_some(found)
     }
 }
 
