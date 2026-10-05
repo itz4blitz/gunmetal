@@ -33,8 +33,8 @@ impl Case {
     /// The row `source` shows me, at most `limit` cards long, when the
     /// device holds `events`.
     fn row(&self, source: RowSource, limit: usize, events: &[Event]) -> Row {
-        let shelf = library(&self.specs);
-        let tracks = view(&shelf);
+        let records = library(&self.specs);
+        let tracks = view(&records);
         let set: EventSet = events.iter().cloned().collect();
         let mine = MyEvents {
             events: &set,
