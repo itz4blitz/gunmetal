@@ -37,10 +37,6 @@ pub fn init_segment(track: &PackTrack, index: &FrameIndex) -> Vec<u8> {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "test oracles work with small, bounded values"
-)]
 mod tests {
     use std::num::{NonZeroU32, NonZeroU64};
 
