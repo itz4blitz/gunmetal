@@ -44,13 +44,13 @@ impl TokenKind {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::WebSession
-            | Self::DeviceKey
-            | Self::ApiKey
-            | Self::OpenSubsonicAppKey
-            | Self::JellyfinAppPassword
-            | Self::JellyfinDeviceToken
-            | Self::Plugin => "",
+            Self::WebSession => "web_session",
+            Self::DeviceKey => "device_key",
+            Self::ApiKey => "api_key",
+            Self::OpenSubsonicAppKey => "opensubsonic_app_key",
+            Self::JellyfinAppPassword => "jellyfin_app_password",
+            Self::JellyfinDeviceToken => "jellyfin_device_token",
+            Self::Plugin => "plugin",
         }
     }
 }
@@ -73,10 +73,18 @@ impl Listener {
     /// Whether this listener takes credentials of `kind`. A plugin's
     /// principal comes in through no listener.
     #[must_use]
-    pub const fn accepts(self, _kind: TokenKind) -> bool {
-        match self {
-            Self::Native | Self::OpenSubsonic | Self::Jellyfin => false,
-        }
+    pub const fn accepts(self, kind: TokenKind) -> bool {
+        matches!(
+            (self, kind),
+            (
+                Self::Native,
+                TokenKind::WebSession | TokenKind::DeviceKey | TokenKind::ApiKey
+            ) | (Self::OpenSubsonic, TokenKind::OpenSubsonicAppKey)
+                | (
+                    Self::Jellyfin,
+                    TokenKind::JellyfinAppPassword | TokenKind::JellyfinDeviceToken
+                )
+        )
     }
 }
 

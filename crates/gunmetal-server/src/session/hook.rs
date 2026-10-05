@@ -16,13 +16,12 @@
 
 use std::sync::Arc;
 
-use gunmetal_core::problem::ProblemCode;
+use gunmetal_http::credential::Credential;
 use gunmetal_http::pipeline::{AccessHook, Attempt};
-use gunmetal_http::problem::ApiError;
-use gunmetal_http::route::RouteSpec;
+use gunmetal_http::route::{AccessClass, RouteSpec, RouteTag};
 
 use super::kind::Listener;
-use super::sessions::Sessions;
+use super::sessions::{Sessions, UNAUTHENTICATED};
 
 /// What a route needs of a session beyond its being live.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,16 +39,39 @@ impl Need {
     /// session at all: one anyone may call, a credential exchange or a
     /// capability route.
     #[must_use]
-    pub const fn of(_spec: &RouteSpec) -> Option<Self> {
-        None
+    pub fn of(spec: &RouteSpec) -> Option<Self> {
+        let class = spec.access.class();
+        matches!(class, AccessClass::User | AccessClass::Admin).then_some(Self {
+            admin: class == AccessClass::Admin || spec.tag == RouteTag::Elevated,
+            fresh: spec.tag == RouteTag::FreshUv,
+        })
     }
 }
 
 /// The access hook for `listener`: it resolves each request's session
 /// cookie through `sessions`.
 #[must_use]
-pub fn access_hook(_sessions: Arc<Sessions>, _listener: Listener) -> AccessHook {
-    Arc::new(|_attempt: Attempt| Box::pin(async { Err(ApiError::new(ProblemCode::InternalError)) }))
+pub fn access_hook(sessions: Arc<Sessions>, listener: Listener) -> AccessHook {
+    Arc::new(move |attempt: Attempt| {
+        let sessions = Arc::clone(&sessions);
+        Box::pin(async move {
+            let Attempt {
+                spec,
+                credential,
+                mut context,
+            } = attempt;
+            match (Need::of(&spec), credential) {
+                (None, _) => Ok(context),
+                (Some(need), Credential::Cookie(token)) => sessions
+                    .authenticate(listener, token.as_bytes(), need)
+                    .map(|principal| {
+                        context.insert(principal);
+                        context
+                    }),
+                (Some(_), Credential::None | Credential::Header(_)) => Err(UNAUTHENTICATED),
+            }
+        })
+    })
 }
 
 #[cfg(test)]

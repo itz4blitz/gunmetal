@@ -7,6 +7,15 @@
 
 use gunmetal_core::authz::DeviceClass;
 
+/// Seven days, in milliseconds.
+const WEEK_MS: i64 = 604_800_000;
+
+/// Thirty minutes, in milliseconds.
+const HALF_HOUR_MS: i64 = 1_800_000;
+
+/// Thirty days, in milliseconds.
+const MONTH_MS: i64 = 2_592_000_000;
+
 /// The mode a browser signed in with: the answer to the one question the
 /// web client asks at sign-in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,7 +36,8 @@ impl Lifetime {
     #[must_use]
     pub const fn idle_ms(self) -> i64 {
         match self {
-            Self::Personal | Self::Shared => 0,
+            Self::Personal => WEEK_MS,
+            Self::Shared => HALF_HOUR_MS,
         }
     }
 
@@ -35,7 +45,7 @@ impl Lifetime {
     #[must_use]
     pub const fn total_ms(self) -> i64 {
         match self {
-            Self::Personal | Self::Shared => 0,
+            Self::Personal | Self::Shared => MONTH_MS,
         }
     }
 
@@ -43,20 +53,16 @@ impl Lifetime {
     /// browser in shared mode is a limited-class device, whatever it says
     /// of itself (SEC-CLI-024).
     #[must_use]
-    pub const fn fits(self, _class: DeviceClass) -> bool {
-        match self {
-            Self::Personal | Self::Shared => false,
-        }
+    pub fn fits(self, class: DeviceClass) -> bool {
+        self == Self::Personal || class == DeviceClass::Limited
     }
 
     /// Whether a session of this mode has ended, `age_ms` milliseconds
     /// after it was issued and `unused_ms` milliseconds after it was last
     /// used.
     #[must_use]
-    pub const fn ended(self, _age_ms: i64, _unused_ms: i64) -> bool {
-        match self {
-            Self::Personal | Self::Shared => false,
-        }
+    pub const fn ended(self, age_ms: i64, unused_ms: i64) -> bool {
+        unused_ms >= self.idle_ms() || age_ms >= self.total_ms()
     }
 }
 
