@@ -1,13 +1,32 @@
 //! The guess log: the wrong guesses the delay schedule counts, kept in the
 //! identity store so that a restart forgives none of them.
+//!
+//! A row counts one source's wrong guesses at one target of one pathway
+//! since its last right one, and when the latest was made
+//! ([`Failures`]). Only the pathways whose secrets can be guessed have rows
+//! (SEC-API-056).
+//!
+//! The rows are state kept for callers who have not signed in, so the log
+//! holds a fixed number of them and drops the oldest to make room
+//! (SEC-NET-051). Dropping a row forgives its source early; a source that
+//! could fill the log with others' rows could as well guess from them.
+//!
+//! The table lets nothing in that could not be read back: its types are
+//! strict, a count is at least one and a time is one a timestamp can hold.
+//! So a row cannot hold a source off for good, and reading one that still
+//! cannot be read is a fault, which the verifier answers with a refusal.
+//!
+//! The log is read through the verifier's pre-authentication handle and
+//! written through the identity store's one writer. The verifier registers
+//! [`GUESS_DELAYS`] with the store when it is opened.
 
 use gunmetal_core::client_context::ClientContext;
 use gunmetal_core::schema::{Column, DataClass, SchemaPart};
 use gunmetal_core::time::Timestamp;
 use gunmetal_durable::identity::store::IdentityStore;
-use gunmetal_fs::sqlite::Row;
+use gunmetal_fs::sqlite::{Query, Row, Value};
 
-use crate::limiter::delay::Failures;
+use crate::limiter::delay::{Failures, source_label};
 use crate::verifier::pathway::{Fault, Pathway, Target};
 use crate::verifier::preauth::PreAuth;
 
@@ -52,62 +71,139 @@ pub const GUESS_DELAYS: SchemaPart = SchemaPart {
     ],
 };
 
+/// Reads one row's count and time.
+const READ: Query = Query::new(
+    "SELECT failures, failed_at FROM guess_delays \
+     WHERE pathway = ?1 AND target = ?2 AND source = ?3",
+);
+
+/// Counts one more wrong guess, made at the time given.
+const RECORD: Query = Query::new(
+    "INSERT INTO guess_delays (pathway, target, source, failures, failed_at) \
+     VALUES (?1, ?2, ?3, 1, ?4) \
+     ON CONFLICT (pathway, target, source) \
+     DO UPDATE SET failures = failures + 1, failed_at = excluded.failed_at",
+);
+
+/// Drops every row past the newest ones the log has room for.
+const PRUNE: Query = Query::new(
+    "DELETE FROM guess_delays WHERE rowid IN (\
+         SELECT rowid FROM guess_delays \
+         ORDER BY failed_at DESC, rowid DESC LIMIT -1 OFFSET ?1)",
+);
+
+/// Moves a row's time.
+const REBASE: Query = Query::new(
+    "UPDATE guess_delays SET failed_at = ?4 \
+     WHERE pathway = ?1 AND target = ?2 AND source = ?3",
+);
+
+/// Forgets a row.
+const CLEAR: Query =
+    Query::new("DELETE FROM guess_delays WHERE pathway = ?1 AND target = ?2 AND source = ?3");
+
 /// Whose wrong guesses a row counts: one source's, at one target of one
 /// pathway.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GuessKey;
+pub struct GuessKey {
+    pathway: Pathway,
+    target: Option<Target>,
+    source: String,
+}
 
 impl GuessKey {
     /// The key for guesses from `source` on `pathway`, aimed at `target`
     /// when the pathway has more than one thing to guess.
     #[must_use]
-    pub fn new(_pathway: Pathway, _target: Option<Target>, _source: &ClientContext) -> Self {
-        Self
+    pub fn new(pathway: Pathway, target: Option<Target>, source: &ClientContext) -> Self {
+        Self {
+            pathway,
+            target,
+            source: source_label(source),
+        }
+    }
+
+    /// Binds the key to the first three parameters of `query`.
+    fn bind(&self, query: Query) -> Query {
+        let target = self
+            .target
+            .map_or_else(Vec::new, |target| target.bytes().to_vec());
+        query
+            .bind(Value::Text(self.pathway.name().to_owned()))
+            .bind(Value::Blob(target))
+            .bind(Value::Text(self.source.clone()))
     }
 }
 
 /// What reading a key returned, as the wrong guesses on record: no row, or
-/// one row of a count and a time.
+/// one row of a count and a time. A count too large for the schedule's own
+/// type is read as the largest it can hold.
 ///
 /// # Errors
 ///
 /// [`Fault::Missing`] when the rows are anything else.
-pub fn decode(_rows: &[Row]) -> Result<Option<Failures>, Fault> {
-    Ok(None)
+pub fn decode(rows: &[Row]) -> Result<Option<Failures>, Fault> {
+    let [Row(values)] = rows else {
+        return if rows.is_empty() {
+            Ok(None)
+        } else {
+            Err(Fault::Missing)
+        };
+    };
+    let [Value::Integer(count), Value::Integer(at)] = values.as_slice() else {
+        return Err(Fault::Missing);
+    };
+    Timestamp::from_millis(*at)
+        .map(|last_at| {
+            Some(Failures {
+                count: u32::try_from(*count).unwrap_or(u32::MAX),
+                last_at,
+            })
+        })
+        .map_err(|_| Fault::Missing)
 }
 
 /// The guess log.
 #[derive(Debug, Clone, Copy)]
-pub struct GuessLog;
+pub struct GuessLog {
+    capacity: u32,
+}
 
 impl GuessLog {
-    /// A log that keeps the `capacity` rows written last.
+    /// A log that keeps the `capacity` rows written last. It always keeps
+    /// one, so no setting switches the delay off.
     #[must_use]
-    pub fn new(_capacity: u32) -> Self {
-        Self
+    pub const fn new(capacity: u32) -> Self {
+        Self { capacity }
     }
 
     /// The wrong guesses on record for `key`.
     ///
     /// # Errors
     ///
-    /// A [`Fault`] when the store cannot be read.
-    pub fn read(self, _lookup: &PreAuth<'_>, _key: &GuessKey) -> Result<Option<Failures>, Fault> {
-        Ok(None)
+    /// A [`Fault`] when the store cannot be read, or holds a row that
+    /// cannot be.
+    pub fn read(self, lookup: &PreAuth<'_>, key: &GuessKey) -> Result<Option<Failures>, Fault> {
+        lookup
+            .lookup(&key.bind(READ))
+            .and_then(|rows| decode(&rows))
     }
 
-    /// Counts one more wrong guess for `key`, made at `now`.
+    /// Counts one more wrong guess for `key`, made at `now`, and drops the
+    /// rows the log has no room for.
     ///
     /// # Errors
     ///
     /// [`Fault::Storage`] when the store cannot be written.
     pub fn record(
         self,
-        _store: &IdentityStore,
-        _key: &GuessKey,
-        _now: Timestamp,
+        store: &IdentityStore,
+        key: &GuessKey,
+        now: Timestamp,
     ) -> Result<(), Fault> {
-        Ok(())
+        let record = key.bind(RECORD).bind(Value::Integer(now.millis()));
+        let prune = PRUNE.bind(Value::Integer(i64::from(self.capacity.max(1))));
+        store.write(&[record, prune]).map(drop).map_err(Fault::from)
     }
 
     /// Makes the wrong guesses on record for `key` count from `now`.
@@ -117,11 +213,12 @@ impl GuessLog {
     /// [`Fault::Storage`] when the store cannot be written.
     pub fn rebase(
         self,
-        _store: &IdentityStore,
-        _key: &GuessKey,
-        _now: Timestamp,
+        store: &IdentityStore,
+        key: &GuessKey,
+        now: Timestamp,
     ) -> Result<(), Fault> {
-        Ok(())
+        let rebase = key.bind(REBASE).bind(Value::Integer(now.millis()));
+        store.write(&[rebase]).map(drop).map_err(Fault::from)
     }
 
     /// Forgets the wrong guesses on record for `key`.
@@ -129,8 +226,11 @@ impl GuessLog {
     /// # Errors
     ///
     /// [`Fault::Storage`] when the store cannot be written.
-    pub fn clear(self, _store: &IdentityStore, _key: &GuessKey) -> Result<(), Fault> {
-        Ok(())
+    pub fn clear(self, store: &IdentityStore, key: &GuessKey) -> Result<(), Fault> {
+        store
+            .write(&[key.bind(CLEAR)])
+            .map(drop)
+            .map_err(Fault::from)
     }
 }
 

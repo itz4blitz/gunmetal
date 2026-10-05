@@ -37,7 +37,7 @@ impl<'a> PreAuth<'a> {
     /// query, which includes any write.
     pub fn lookup(&self, query: &Query) -> Result<Vec<Row>, Fault> {
         self.store
-            .read_pre_principal(PrePrincipal::Grant, query)
+            .read_pre_principal(PrePrincipal::Credential, query)
             .map_err(Fault::from)
     }
 }

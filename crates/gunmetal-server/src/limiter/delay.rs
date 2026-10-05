@@ -1,12 +1,24 @@
 //! The guess delay: when a source that guessed a short secret wrong may
 //! guess again (SEC-API-056).
+//!
+//! Each wrong guess makes the next one wait: 30 seconds, 1 minute,
+//! 5 minutes, then 15 minutes for every guess after that, never longer and
+//! never for good. The schedule is the core's ([`next_guess_at`]); this
+//! module reads it for what the guess log holds.
+//!
+//! The count is kept for one source's guesses at one target of one pathway,
+//! so a stranger's wrong guesses never make anyone else wait, and a source
+//! is named by the narrowest key the core derives for it: its IPv4 address,
+//! its IPv6 /64, or the one bucket of the unknown class ([`source_label`]).
 
 use gunmetal_core::client_context::ClientContext;
-use gunmetal_core::ratelimit::{Decision, LimitKey};
+use gunmetal_core::ratelimit::{Decision, LimitKey, keys_for, next_guess_at};
 use gunmetal_core::time::Timestamp;
 
-/// How many rows the guess log keeps, as `limits.toml` registers it.
-pub const GUESS_DELAY_ROWS: u32 = 0;
+/// How many rows the guess log keeps, as `limits.toml` registers it. The
+/// rows are state kept for callers who have not signed in, so their number
+/// is fixed and the oldest make room for the newest (SEC-NET-051).
+pub const GUESS_DELAY_ROWS: u32 = 4_096;
 
 /// The wrong guesses one source has made at one target of one pathway
 /// since its last right one.
@@ -20,21 +32,53 @@ pub struct Failures {
 
 /// Whether a source with `failures` on record may guess again at `now`, and
 /// how long it must wait if not.
+///
+/// `failures.last_at` must not be later than `now`: the verifier first moves
+/// a failure the clock has stepped back behind to `now`, so that a clock
+/// set back never makes the wait longer than the schedule.
 #[must_use]
-pub fn guess_allowed(_failures: Option<Failures>, _now: Timestamp) -> Decision {
-    Decision::Allow
+pub fn guess_allowed(failures: Option<Failures>, now: Timestamp) -> Decision {
+    let Some(failures) = failures else {
+        return Decision::Allow;
+    };
+    let next = next_guess_at(failures.count, failures.last_at);
+    if now < next {
+        Decision::Deny {
+            retry_after_ms: next.millis().abs_diff(now.millis()),
+        }
+    } else {
+        Decision::Allow
+    }
 }
 
-/// The name the guess log keeps `source` under.
+/// The name the guess log keeps `source` under: that of the narrowest key
+/// the core derives for it.
 #[must_use]
-pub fn source_label(_source: &ClientContext) -> String {
-    String::new()
+pub fn source_label(source: &ClientContext) -> String {
+    keys_for(None, source)
+        .iter()
+        .next()
+        .map(label)
+        .unwrap_or_default()
 }
 
 /// A limiter key as text.
 #[must_use]
-pub fn label(_key: LimitKey) -> String {
-    String::new()
+pub fn label(key: LimitKey) -> String {
+    match key {
+        LimitKey::Principal(principal) => {
+            format!(
+                "principal:{:032x}",
+                u128::from_be_bytes(principal.as_bytes())
+            )
+        }
+        LimitKey::Ipv4(addr) => addr.to_string(),
+        LimitKey::Ipv6Slash64(prefix) => format!("{prefix}/64"),
+        LimitKey::Ipv6Slash56(prefix) => format!("{prefix}/56"),
+        LimitKey::Ipv6Slash48(prefix) => format!("{prefix}/48"),
+        LimitKey::Global => "server".to_owned(),
+        LimitKey::Unknown => "unknown".to_owned(),
+    }
 }
 
 #[cfg(test)]

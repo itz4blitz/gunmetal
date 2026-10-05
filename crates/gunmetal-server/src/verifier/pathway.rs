@@ -20,6 +20,8 @@
 //! - what was presented, and what it is compared with, cannot be printed:
 //!   their debug forms are fixed words.
 
+use core::fmt;
+
 use gunmetal_core::id::PublicId;
 use gunmetal_durable::identity::error::IdentityError;
 
@@ -80,13 +82,28 @@ impl Pathway {
     /// log.
     #[must_use]
     pub const fn name(self) -> &'static str {
-        ""
+        match self {
+            Self::Passkey => "passkey",
+            Self::PairedBrowser => "paired_browser",
+            Self::ClaimCode => "claim_code",
+            Self::RecoveryCode => "recovery_code",
+            Self::RecoveryLink => "recovery_link",
+            Self::Invitation => "invitation",
+            Self::PairingCode => "pairing_code",
+        }
     }
 
     /// How hard the pathway's secret is to guess.
     #[must_use]
     pub const fn strength(self) -> Strength {
-        Strength::Strong
+        match self {
+            Self::ClaimCode | Self::PairingCode => Strength::Guessable,
+            Self::Passkey
+            | Self::PairedBrowser
+            | Self::RecoveryCode
+            | Self::RecoveryLink
+            | Self::Invitation => Strength::Strong,
+        }
     }
 }
 
@@ -114,7 +131,6 @@ impl Target {
 
 /// What a request presented on a pathway, before the verifier has looked
 /// at it. It may be missing or empty; the verifier refuses both.
-#[derive(Debug)]
 pub struct Presented<'a> {
     secret: Option<&'a [u8]>,
     target: Option<Target>,
@@ -157,7 +173,15 @@ impl<'a> Presented<'a> {
     /// The credential, unless none was presented or it was empty.
     #[must_use]
     pub fn credential(&self) -> Option<Credential<'a>> {
-        self.secret.map(Credential)
+        self.secret
+            .filter(|secret| !secret.is_empty())
+            .map(Credential)
+    }
+}
+
+impl fmt::Debug for Presented<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Presented(..)")
     }
 }
 
@@ -165,7 +189,7 @@ impl<'a> Presented<'a> {
 /// makes one, and never from nothing, so a pathway cannot be asked to
 /// check an empty credential. It has no `==`: a pathway compares it in
 /// its own way, in constant time where that matters.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Credential<'a>(&'a [u8]);
 
 impl<'a> Credential<'a> {
@@ -176,10 +200,15 @@ impl<'a> Credential<'a> {
     }
 }
 
+impl fmt::Debug for Credential<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Credential(..)")
+    }
+}
+
 /// What a presented credential is compared with: a public key, a keyed
 /// hash of a code, whatever the pathway keeps. The verifier never reads
 /// it.
-#[derive(Debug)]
 pub struct Material(Vec<u8>);
 
 impl Material {
@@ -193,6 +222,12 @@ impl Material {
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl fmt::Debug for Material {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Material(..)")
     }
 }
 
@@ -237,7 +272,11 @@ impl Fault {
     /// The word the sign-in failure line gives as the cause.
     #[must_use]
     pub fn cause(&self) -> &'static str {
-        ""
+        match self {
+            Self::Storage(_) => "storage",
+            Self::Timeout => "timeout",
+            Self::Missing => "missing_data",
+        }
     }
 }
 
@@ -251,7 +290,9 @@ impl From<IdentityError> for Fault {
 ///
 /// Neither step may change anything. The verifier may still refuse after
 /// both have answered, and what a sign-in does (using up a code, opening a
-/// session) is done by the caller once [`Verified`] comes back.
+/// session) is done by the caller once [`Verified`] comes back. Neither
+/// step may call the verifier: it looks at one guess at a short secret at
+/// a time, and would wait for itself.
 pub trait PathwayCheck {
     /// Which entry of the inventory this is.
     fn pathway(&self) -> Pathway;

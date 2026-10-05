@@ -1,12 +1,35 @@
 //! The ceilings every sign-in attempt passes first: per source and
 //! server-wide (SEC-IAM-101).
+//!
+//! Every endpoint that checks a secret or starts a sign-in ceremony spends
+//! one attempt here before it does anything else. The counting is the
+//! core's keyed GCRA (WP-032), not a counter of this module's own: an
+//! attempt is charged to the keys the core derives from the request's
+//! `ClientContext`, which are the IPv4 address, or the IPv6 /64, /56 and
+//! /48, or the one bucket of the unknown class, and then to the core's
+//! global key, which is the server-wide count. It is allowed only when
+//! every key allows it, and a refused attempt spends nothing.
+//!
+//! The ceilings in force are [`Ceilings::DEFAULT`], the ones `limits.toml`
+//! registers. A set of ceilings is refused unless each per-source ceiling
+//! is below the server-wide one, in its burst and in its rate, so that no
+//! one source, network or gateway can use the server-wide ceiling up and
+//! keep everyone else out (SEC-IAM-008, SEC-NET-052).
+//!
+//! The limiter remembers a fixed number of keys and forgets the one it
+//! heard from longest ago when it is full, so that callers who have not
+//! signed in cannot make it grow (SEC-NET-051).
+
+use std::sync::{Mutex, PoisonError};
 
 use gunmetal_core::client_context::ClientContext;
-use gunmetal_core::ratelimit::{Decision, RateError};
+use gunmetal_core::ratelimit::{
+    BoundedStore, Decision, LimitKey, Rate, RateError, Tat, check_store, keys_for,
+};
 use gunmetal_core::time::Timestamp;
 
 /// How many keys the limiter remembers, as `limits.toml` registers it.
-pub const TRACKED_KEYS: usize = 0;
+pub const TRACKED_KEYS: usize = 16_384;
 
 /// One ceiling: `burst` attempts at once, then one more every
 /// `interval_ms` milliseconds.
@@ -27,63 +50,140 @@ pub struct Ceilings {
     pub ipv6_56: Ceiling,
     /// For one IPv6 /48.
     pub ipv6_48: Ceiling,
-    /// For every peer of the unknown class together.
+    /// For every peer of the unknown class together: whoever is behind the
+    /// server's own gateway.
     pub unknown: Ceiling,
     /// For the whole server.
     pub server: Ceiling,
 }
 
-/// A ceiling that allows nothing, until the registered ones are written.
-const NONE: Ceiling = Ceiling {
-    interval_ms: 0,
-    burst: 0,
-};
-
 impl Ceilings {
     /// The ceilings `limits.toml` registers.
     pub const DEFAULT: Self = Self {
-        source: NONE,
-        ipv6_56: NONE,
-        ipv6_48: NONE,
-        unknown: NONE,
-        server: NONE,
+        source: Ceiling {
+            interval_ms: 6_000,
+            burst: 10,
+        },
+        ipv6_56: Ceiling {
+            interval_ms: 3_000,
+            burst: 20,
+        },
+        ipv6_48: Ceiling {
+            interval_ms: 1_500,
+            burst: 40,
+        },
+        unknown: Ceiling {
+            interval_ms: 3_000,
+            burst: 20,
+        },
+        server: Ceiling {
+            interval_ms: 600,
+            burst: 100,
+        },
     };
 }
 
 /// Why a set of ceilings was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CeilingError {
-    /// The core cannot count with a ceiling.
+    /// The core cannot count with a ceiling: its interval or its burst is
+    /// zero, or too large.
     Unusable {
         /// Which ceiling.
         key: &'static str,
         /// What the core said.
         error: RateError,
     },
-    /// A per-source ceiling is not below the server-wide one.
+    /// A per-source ceiling is not below the server-wide one, so one source
+    /// could use the server-wide ceiling up.
     NotBelowServer {
         /// Which ceiling.
         key: &'static str,
     },
 }
 
+/// The ceilings as the core counts with them.
+struct Rates {
+    source: Rate,
+    ipv6_56: Rate,
+    ipv6_48: Rate,
+    unknown: Rate,
+    server: Rate,
+}
+
+/// `ceiling` as a rate the core counts with.
+fn rate(key: &'static str, ceiling: Ceiling) -> Result<Rate, CeilingError> {
+    Rate::new(ceiling.interval_ms, ceiling.burst)
+        .map_err(|error| CeilingError::Unusable { key, error })
+}
+
+/// `ceiling` as a rate, when it is below the server-wide ceiling `server`
+/// both in how many attempts it allows at once and in how fast it allows
+/// more.
+fn below(key: &'static str, ceiling: Ceiling, server: Ceiling) -> Result<Rate, CeilingError> {
+    if ceiling.burst < server.burst && ceiling.interval_ms > server.interval_ms {
+        rate(key, ceiling)
+    } else {
+        Err(CeilingError::NotBelowServer { key })
+    }
+}
+
+impl Rates {
+    fn new(ceilings: &Ceilings) -> Result<Self, CeilingError> {
+        let server = rate("server", ceilings.server)?;
+        Ok(Self {
+            source: below("source", ceilings.source, ceilings.server)?,
+            ipv6_56: below("ipv6_56", ceilings.ipv6_56, ceilings.server)?,
+            ipv6_48: below("ipv6_48", ceilings.ipv6_48, ceilings.server)?,
+            unknown: below("unknown", ceilings.unknown, ceilings.server)?,
+            server,
+        })
+    }
+
+    /// The ceiling `key` is counted against. A sign-in attempt has no
+    /// principal yet; a principal's key would be held to a source's.
+    fn of(&self, key: LimitKey) -> Rate {
+        match key {
+            LimitKey::Principal(_) | LimitKey::Ipv4(_) | LimitKey::Ipv6Slash64(_) => self.source,
+            LimitKey::Ipv6Slash56(_) => self.ipv6_56,
+            LimitKey::Ipv6Slash48(_) => self.ipv6_48,
+            LimitKey::Unknown => self.unknown,
+            LimitKey::Global => self.server,
+        }
+    }
+}
+
 /// The limiter every sign-in attempt passes first.
-pub struct SourceLimiter;
+pub struct SourceLimiter {
+    rates: Rates,
+    store: Mutex<BoundedStore<LimitKey, Tat>>,
+}
 
 impl SourceLimiter {
-    /// A limiter with `ceilings` that remembers at most `capacity` keys.
+    /// A limiter with `ceilings` that remembers at most `capacity` keys. A
+    /// capacity too small to hold the keys of one attempt refuses every
+    /// attempt.
     ///
     /// # Errors
     ///
-    /// A [`CeilingError`] when the ceilings are refused.
-    pub fn new(_ceilings: &Ceilings, _capacity: usize) -> Result<Self, CeilingError> {
-        Ok(Self)
+    /// A [`CeilingError`] when the core cannot count with a ceiling, or a
+    /// per-source ceiling is not below the server-wide one.
+    pub fn new(ceilings: &Ceilings, capacity: usize) -> Result<Self, CeilingError> {
+        Rates::new(ceilings).map(|rates| Self {
+            rates,
+            store: Mutex::new(BoundedStore::new(capacity)),
+        })
     }
 
-    /// Spends one attempt from `source` at `now`, or says how long to wait.
+    /// Spends one attempt from `source` at `now`, when every ceiling it
+    /// counts against has one left, and otherwise says how long to wait.
     #[must_use]
-    pub fn admit(&self, _source: &ClientContext, _now: Timestamp) -> Decision {
-        Decision::Allow
+    pub fn admit(&self, source: &ClientContext, now: Timestamp) -> Decision {
+        let keys = keys_for(None, source);
+        // The store is whole whenever the lock is free: the core changes it
+        // only once it has decided, so a holder that panicked left it sound.
+        let mut store = self.store.lock().unwrap_or_else(PoisonError::into_inner);
+        check_store(&mut store, &keys, now, |key| self.rates.of(key))
     }
 }
 

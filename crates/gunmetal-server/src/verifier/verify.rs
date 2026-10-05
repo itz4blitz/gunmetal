@@ -1,29 +1,142 @@
 //! The verifier itself: what happens to every sign-in attempt, in order.
+//!
+//! [`Verifier::verify`] takes a pathway's check, what the request
+//! presented and the `ClientContext` the listener resolved, and answers
+//! with the verified credential or one of the two refusals of
+//! [`SignInError`]. The module documentation of `crate::verifier` says
+//! what it does and why; this is where each step lives:
+//!
+//! - `admit` applies the limits, before anything is looked at;
+//! - `examine` refuses an empty credential, then has the pathway find the
+//!   stored one and compare, against a decoy when there is none;
+//! - `settle` counts a wrong guess at a short secret, or forgets the count
+//!   when the guess was right;
+//! - `report` writes the failure line and emits the security event.
+//!
+//! [`Verifier::begin`] applies the same ceilings to an endpoint that only
+//! starts a sign-in ceremony and checks nothing yet.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use gunmetal_core::audit_event::SecuritySink;
-use gunmetal_core::client_context::ClientContext;
-use gunmetal_core::time::Clock;
+use gunmetal_core::audit_event::{SecurityEvent, SecuritySink};
+use gunmetal_core::client_context::{ClientContext, PathClass};
+use gunmetal_core::id::PublicId;
+use gunmetal_core::ratelimit::Decision;
+use gunmetal_core::time::{Clock, Timestamp};
 use gunmetal_durable::identity::store::IdentityStore;
 
+use crate::limiter::delay::{Failures, guess_allowed};
 use crate::limiter::rates::SourceLimiter;
-use crate::log::Logger;
+use crate::log::{LogEvent, Logger};
 use crate::verifier::error::SignInError;
-use crate::verifier::guesses::GuessLog;
-use crate::verifier::pathway::{Pathway, PathwayCheck, Presented, Verified};
+use crate::verifier::guesses::{GuessKey, GuessLog};
+use crate::verifier::pathway::{Fault, Pathway, PathwayCheck, Presented, Strength, Verified};
 use crate::verifier::preauth::PreAuth;
+
+/// The cause the failure line gives when the credential itself was refused,
+/// whatever was wrong with it.
+const CREDENTIAL: &str = "credential";
+
+/// Why an attempt stopped short of a verified credential.
+#[derive(Debug, Clone, Copy)]
+enum Stop {
+    /// A limit refused it before anything was looked at.
+    Limited {
+        /// Milliseconds until an attempt would be looked at.
+        retry_after_ms: u64,
+    },
+    /// It was refused.
+    Refused {
+        /// The account the attempt was for, when it named one that exists.
+        account: Option<PublicId>,
+        /// The cause the failure line gives.
+        cause: &'static str,
+    },
+}
+
+/// A guess at a short secret that the delay schedule let through.
+struct Guess {
+    /// Whose guess it is.
+    key: GuessKey,
+    /// Whether wrong guesses are on record for the key.
+    failed_before: bool,
+}
+
+/// The refusal for a fault.
+fn refused(account: Option<PublicId>, fault: &Fault) -> Stop {
+    Stop::Refused {
+        account,
+        cause: fault.cause(),
+    }
+}
+
+/// Passes an attempt a limit allows, and stops one it does not.
+fn allowed(decision: Decision) -> Result<(), Stop> {
+    match decision {
+        Decision::Allow => Ok(()),
+        Decision::Deny { retry_after_ms } => Err(Stop::Limited { retry_after_ms }),
+    }
+}
+
+/// Whether an attempt is never limited: the claim code, presented from the
+/// server itself. The owner at the host is never delayed, whatever anyone
+/// else has done (SEC-IAM-008).
+fn exempt(pathway: Pathway, source: &ClientContext) -> bool {
+    pathway == Pathway::ClaimCode && source.class() == PathClass::Loopback
+}
+
+/// Has the pathway check what was presented: refuses a missing or empty
+/// credential outright, and otherwise runs the pathway's lookup and then
+/// its comparison, once, whatever the lookup found.
+fn examine(
+    check: &dyn PathwayCheck,
+    presented: &Presented<'_>,
+    lookup: &PreAuth<'_>,
+) -> Result<Verified, Stop> {
+    let pathway = check.pathway();
+    let credential = presented.credential().ok_or(Stop::Refused {
+        account: None,
+        cause: CREDENTIAL,
+    })?;
+    let found = check
+        .find(credential, lookup)
+        .map_err(|fault| refused(None, &fault))?;
+    let account = found.as_ref().and_then(|stored| stored.account);
+    // The decoy is made for every attempt and the comparison runs for every
+    // attempt, so an unknown credential costs what a wrong one costs.
+    let decoy = check.decoy();
+    let material = found.as_ref().map_or(&decoy, |stored| &stored.material);
+    let matched = check
+        .matches(credential, material)
+        .map_err(|fault| refused(account, &fault))?;
+    if found.is_some_and(|stored| matched && stored.usable && stored.kind == pathway) {
+        Ok(Verified { pathway, account })
+    } else {
+        Err(Stop::Refused {
+            account,
+            cause: CREDENTIAL,
+        })
+    }
+}
 
 /// The credential verifier.
 pub struct Verifier {
     store: Arc<IdentityStore>,
+    limiter: SourceLimiter,
+    guesses: GuessLog,
+    clock: Arc<dyn Clock + Send + Sync>,
+    log: Arc<Logger>,
+    sink: Arc<dyn SecuritySink + Send + Sync>,
+    /// Held while a guess at a short secret is looked at and counted.
+    guessing: Mutex<()>,
 }
 
 impl Verifier {
     /// A verifier that reads stored credentials and keeps its guess log in
-    /// `store`; limits attempts with `limiter`; reads the time from
-    /// `clock`; writes failure lines to `log`; and emits security events
-    /// into `sink`.
+    /// `store`, which must have been opened with the guess log's schema
+    /// part; limits attempts with `limiter`; reads the time from `clock`;
+    /// writes failure lines to `log`; and emits security events into
+    /// `sink`.
     #[must_use]
     pub fn new(
         store: Arc<IdentityStore>,
@@ -33,19 +146,28 @@ impl Verifier {
         log: Arc<Logger>,
         sink: Arc<dyn SecuritySink + Send + Sync>,
     ) -> Self {
-        // Nothing is limited or reported yet.
-        drop((limiter, guesses, clock, log, sink));
-        Self { store }
+        Self {
+            store,
+            limiter,
+            guesses,
+            clock,
+            log,
+            sink,
+            guessing: Mutex::new(()),
+        }
     }
 
     /// Spends one attempt of `source`'s ceilings and the server's for an
-    /// endpoint that starts a sign-in ceremony on `pathway`.
+    /// endpoint that starts a sign-in ceremony on `pathway` without
+    /// checking a secret (SEC-IAM-101).
     ///
     /// # Errors
     ///
     /// [`SignInError::Limited`] when a ceiling is reached.
-    pub fn begin(&self, _pathway: Pathway, _source: &ClientContext) -> Result<(), SignInError> {
-        Ok(())
+    pub fn begin(&self, pathway: Pathway, source: &ClientContext) -> Result<(), SignInError> {
+        self.ceilings(pathway, source, self.clock.now())
+            .map(|_limited| ())
+            .map_err(|stop| self.report(pathway, source, stop))
     }
 
     /// Verifies what a request from `source` presented on `check`'s
@@ -53,25 +175,148 @@ impl Verifier {
     ///
     /// # Errors
     ///
-    /// [`SignInError::Limited`] when a limit refused the attempt, and
-    /// [`SignInError::Refused`] for every credential that is not verified.
+    /// [`SignInError::Limited`] when a limit refused the attempt before it
+    /// was looked at, and [`SignInError::Refused`] for every credential
+    /// that is not verified, whatever the reason.
     pub fn verify(
         &self,
         check: &dyn PathwayCheck,
         presented: &Presented<'_>,
-        _source: &ClientContext,
+        source: &ClientContext,
     ) -> Result<Verified, SignInError> {
-        // The pathway's lookup is believed: nothing is compared, limited or
-        // refused yet.
+        let pathway = check.pathway();
+        // Guesses at a short secret are looked at one at a time. Of several
+        // made at the same moment, the first is counted before the next is
+        // let through, so they cannot all slip past the schedule together.
+        // The lock guards no data, so one a panic left poisoned is taken
+        // all the same.
+        let _one_at_a_time = match pathway.strength() {
+            Strength::Guessable => {
+                Some(self.guessing.lock().unwrap_or_else(PoisonError::into_inner))
+            }
+            Strength::Strong => None,
+        };
+        let now = self.clock.now();
         let lookup = PreAuth::new(&self.store);
-        let account = presented
-            .credential()
-            .and_then(|credential| check.find(credential, &lookup).ok().flatten())
-            .and_then(|stored| stored.account);
-        Ok(Verified {
-            pathway: check.pathway(),
-            account,
-        })
+        self.admit(pathway, presented, source, now, &lookup)
+            .and_then(|guess| self.settle(guess.as_ref(), examine(check, presented, &lookup), now))
+            .map_err(|stop| self.report(pathway, source, stop))
+    }
+
+    /// Applies the per-source and server-wide ceilings, and says whether
+    /// the attempt is one that limits apply to at all.
+    fn ceilings(
+        &self,
+        pathway: Pathway,
+        source: &ClientContext,
+        now: Timestamp,
+    ) -> Result<bool, Stop> {
+        if exempt(pathway, source) {
+            return Ok(false);
+        }
+        allowed(self.limiter.admit(source, now)).map(|()| true)
+    }
+
+    /// Applies every limit before anything is looked at: the ceilings, and
+    /// for a guessable secret the delay its source has earned at this
+    /// target. Returns the guess the delay schedule is counting, if it is
+    /// counting this attempt.
+    fn admit(
+        &self,
+        pathway: Pathway,
+        presented: &Presented<'_>,
+        source: &ClientContext,
+        now: Timestamp,
+        lookup: &PreAuth<'_>,
+    ) -> Result<Option<Guess>, Stop> {
+        let limited = self.ceilings(pathway, source, now)?;
+        if !limited || pathway.strength() == Strength::Strong {
+            return Ok(None);
+        }
+        let key = GuessKey::new(pathway, presented.target(), source);
+        let before = self
+            .guessed(&key, now, lookup)
+            .map_err(|fault| refused(None, &fault))?;
+        allowed(guess_allowed(before, now))?;
+        Ok(Some(Guess {
+            key,
+            failed_before: before.is_some(),
+        }))
+    }
+
+    /// The wrong guesses on record for `key`, counted from no later than
+    /// `now`. A clock that was set back would otherwise leave a failure in
+    /// the future and its source waiting for the clock to catch up, so such
+    /// a failure is moved to `now`, in the log too: the wait is then the
+    /// schedule's, never longer.
+    fn guessed(
+        &self,
+        key: &GuessKey,
+        now: Timestamp,
+        lookup: &PreAuth<'_>,
+    ) -> Result<Option<Failures>, Fault> {
+        let Some(found) = self.guesses.read(lookup, key)? else {
+            return Ok(None);
+        };
+        let settled = Failures {
+            count: found.count,
+            last_at: found.last_at.min(now),
+        };
+        if settled != found {
+            self.guesses.rebase(&self.store, key, now)?;
+        }
+        Ok(Some(settled))
+    }
+
+    /// Brings the guess log up to date with what the check found. A right
+    /// guess after wrong ones clears their count first, and is refused if
+    /// that cannot be written. A wrong guess is counted; it is refused
+    /// whether or not the count could be written.
+    fn settle(
+        &self,
+        guess: Option<&Guess>,
+        checked: Result<Verified, Stop>,
+        now: Timestamp,
+    ) -> Result<Verified, Stop> {
+        match (checked, guess) {
+            (Ok(verified), Some(guess)) if guess.failed_before => self
+                .guesses
+                .clear(&self.store, &guess.key)
+                .map(|()| verified)
+                .map_err(|fault| refused(verified.account, &fault)),
+            (Err(stop), Some(guess)) => {
+                let _ = self.guesses.record(&self.store, &guess.key, now);
+                Err(stop)
+            }
+            (checked, _) => checked,
+        }
+    }
+
+    /// Leaves behind what a refused attempt must: for a limited one the
+    /// rate-limit event, and for any other the failure line and the failed
+    /// sign-in event. An event the audit log cannot record changes nothing
+    /// here, since the attempt is refused either way.
+    fn report(&self, pathway: Pathway, source: &ClientContext, stop: Stop) -> SignInError {
+        match stop {
+            Stop::Limited { retry_after_ms } => {
+                let _ = self
+                    .sink
+                    .record(SecurityEvent::ExcessRateLimitExceeded { source: *source });
+                SignInError::Limited { retry_after_ms }
+            }
+            Stop::Refused { account, cause } => {
+                self.log.log(&LogEvent::AuthnLoginFail {
+                    addr: source.addr(),
+                    pathway: pathway.name(),
+                    cause,
+                });
+                let _ = self.sink.record(SecurityEvent::AuthnLoginFail {
+                    source: *source,
+                    account,
+                });
+                SignInError::Refused
+            }
+        }
     }
 }
 

@@ -239,8 +239,8 @@ impl LogEvent {
             Self::DataRootModeRepaired { .. }
             | Self::DataRootLeftoverRemoved { .. }
             | Self::DebugLoggingEnabled { .. }
-            | Self::DebugLoggingEnded
-            | Self::AuthnLoginFail { .. } => Level::Warn,
+            | Self::DebugLoggingEnded => Level::Warn,
+            Self::AuthnLoginFail { .. } => Level::Error,
         }
     }
 
@@ -265,7 +265,21 @@ impl LogEvent {
                 vec![public("item", Value::Text(item.clone()))]
             }
             Self::DebugLoggingEnabled { until } => vec![public("until", Value::Time(*until))],
-            Self::DebugLoggingEnded | Self::AuthnLoginFail { .. } => Vec::new(),
+            Self::DebugLoggingEnded => Vec::new(),
+            Self::AuthnLoginFail {
+                addr,
+                pathway,
+                cause,
+            } => vec![
+                Field {
+                    key: "addr",
+                    class: DataClass::Identity,
+                    value: Value::Text(addr.to_string()),
+                },
+                public("v", Value::Number(1)),
+                public("pathway", Value::Text((*pathway).to_owned())),
+                public("cause", Value::Text((*cause).to_owned())),
+            ],
         }
     }
 }
