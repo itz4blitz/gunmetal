@@ -25,7 +25,20 @@ only after an unchecked install would make that first validation circular.
 The tested remote bootstrap extracts the checksum-verified parser into an
 isolated temporary `node_modules/yaml`; copy only the reviewed `installation.ts`,
 `policy.ts` and `verify.ts` check modules beside it; execute the initial check
-against the real `clients/` directory with the pinned Node and pnpm on PATH.
+against the real `clients/` directory. It must place native pnpm in this exact
+layout and export `GUNMETAL_NATIVE_PNPM_ROOT` to it; the check does not discover
+pnpm from `PATH`:
+
+```
+$GUNMETAL_NATIVE_PNPM_ROOT/pnpm.tgz
+$GUNMETAL_NATIVE_PNPM_ROOT/node_modules/@pnpm/exe.linux-x64/{package.json,pnpm}
+$GUNMETAL_NATIVE_PNPM_ROOT/bin/pnpm -> ../node_modules/@pnpm/exe.linux-x64/pnpm
+```
+
+The retained archive is re-hashed before every use, the package metadata must
+be `@pnpm/exe.linux-x64@12.7.0`, and the bin entry must resolve to that exact
+executable. TeamCity may prepend the bin directory to `PATH` for tools that
+need it, but the policy and verification code use the verified path directly.
 This temporary tool copy has no alternate lockfile, installation or supplied
 dependency graph. Its parser is the same provisional dependency/version.
 The `bootstrap.ts` entrypoint uses only Node builtins until that extraction.

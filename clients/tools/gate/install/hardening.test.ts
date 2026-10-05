@@ -14,15 +14,18 @@ for (const [key, unsafe] of [
   ['strictDepBuilds', false],
   ['sideEffectsCache', true],
   ['verifyStoreIntegrity', false],
+  ['engineStrict', false],
+  ['autoInstallPeers', true],
+  ['strictPeerDependencies', false],
 ] as const) {
   test(`settings refuse unsafe ${key}`, async () => {
     const value = { ...JSON.parse(await fixture('settings')), [key]: unsafe };
-    assert.deepEqual(inspect('settings', value), deny('SEC-SUP-033', `workspace.${key}`, key === 'sideEffectsCache' ? 'must be false' : 'must be true'));
+    assert.deepEqual(inspect('settings', value), deny('SEC-SUP-033', `workspace.${key}`, key === 'sideEffectsCache' || key === 'autoInstallPeers' ? 'must be false' : 'must be true'));
   });
   test(`settings refuse removing ${key}`, async () => {
     const value = JSON.parse(await fixture('settings')) as Record<string, unknown>;
     delete value[key];
-    assert.deepEqual(inspect('settings', value), deny('SEC-SUP-033', `workspace.${key}`, key === 'sideEffectsCache' ? 'must be false' : 'must be true'));
+    assert.deepEqual(inspect('settings', value), deny('SEC-SUP-033', `workspace.${key}`, key === 'sideEffectsCache' || key === 'autoInstallPeers' ? 'must be false' : 'must be true'));
   });
 }
 for (const [key, value] of [

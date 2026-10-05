@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { glob, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { inspect, parseYaml } from './policy.ts';
-import { executable, Refusal } from './verify.ts';
+import { Refusal } from './verify.ts';
+import { nativePnpm } from './native-pnpm.ts';
 
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): value is ObjectValue {
@@ -45,11 +46,15 @@ async function check(directory: string): Promise<unknown> {
     if (typeof name === 'string') members.push(name);
   }
   for (const value of values.values()) requirePolicy('manifest', { manifest: value, members });
+  let reasons: string;
+  try { reasons = await readFile(join(dirname(directory), 'supply-chain/js-direct-deps.toml'), 'utf8'); }
+  catch { return refuse('SEC-SUP-035', 'supply-chain/js-direct-deps.toml', 'dependency reason list is unavailable'); }
+  requirePolicy('direct-dependencies', { manifests: [...values.entries()].map(([path, manifest]) => ({ path, manifest })), list: reasons });
   const root = values.get('package.json');
   const engines = root?.engines;
   const node = process.versions.node;
   if (!object(engines) || engines.node !== node) refuse('SEC-SUP-011', 'runtime.node', 'observed runtime must match the manifest pin');
-  const manager = await executable('pnpm');
+  const manager = await nativePnpm();
   const result = spawnSync(manager, ['--version'], { encoding: 'utf8', timeout: 10000 });
   const pnpm = result.stdout.trim();
   if (result.status !== 0 || result.signal !== null || engines.pnpm !== pnpm || root?.packageManager !== `pnpm@${pnpm}`) {

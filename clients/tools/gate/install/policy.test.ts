@@ -149,12 +149,64 @@ for (const [field, source] of [
   ['devDependencies', 'https://registry.npmjs.org/yaml/-/yaml-2.9.1.tgz'],
   ['dependencies', 'file:../foreign'],
   ['devDependencies', 'gh:1.0.0'],
+  ['dependencies', 'npm:yaml@2.9.1'],
+  ['devDependencies', 'catalog:yaml'],
 ]) {
   test(`manifest refuses exotic source ${source}`, () => {
     assert.deepEqual(inspect('manifest', { manifest: { [field]: { bad: source } }, members: [] }),
       refused('SEC-SUP-033', `manifest.${field}.bad`, 'only exact registry versions or known workspace:* members are allowed'));
   });
 }
+// Verifies: SEC-SUP-033. The only non-registry protocol is a known workspace member.
+for (const source of ['npm:yaml@2.9.1', 'catalog:yaml']) {
+  test(`lockfile importer refuses ${source} in every document`, async () => {
+    for (const document of [0, 1]) {
+      const original = document === 0 ? 'specifier: 12.7.0' : 'specifier: 2.9.1';
+      const text = (await fixture('lockfile')).replace(original, `specifier: "${source}"`);
+      assert.deepEqual(inspect('lockfile', { text }),
+        refused('SEC-SUP-033', `lockfile[${document}].importers`, 'unsupported dependency protocol is forbidden'));
+    }
+  });
+}
+test('lockfile importer accepts the recorded workspace-only member protocol', async () => {
+  const text = (await fixture('lockfile')).replace('specifier: 2.9.1', 'specifier: "workspace:*"');
+  assert.deepEqual(inspect('lockfile', { text }), []);
+});
+
+// Verifies: SEC-SUP-035. Every direct registry package has one non-empty reason.
+test('direct registry dependencies require their exact reviewed mapping', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } }],
+    list: 'yaml = "strict parser"\n',
+  }), []);
+});
+test('the committed direct dependency manifest and review list map exactly', async () => {
+  const [manifest, list] = await Promise.all([
+    readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
+    readFile(new URL('../../../../supply-chain/js-direct-deps.toml', import.meta.url), 'utf8'),
+  ]);
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: JSON.parse(manifest) }], list,
+  }), []);
+});
+test('direct registry dependencies fail when their reviewed mapping is missing', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } }], list: '',
+  }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'direct registry dependency is missing a written reason'));
+});
+test('direct registry dependencies fail when the list maps a different package', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } }], list: 'other = "wrong mapping"\n',
+  }), [
+    { rule: 'SEC-SUP-035', path: 'supply-chain/js-direct-deps.toml.yaml', message: 'direct registry dependency is missing a written reason' },
+    { rule: 'SEC-SUP-035', path: 'supply-chain/js-direct-deps.toml.other', message: 'reviewed dependency is not used by any manifest' },
+  ]);
+});
+test('direct registry dependencies fail when the listed reason is empty', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } }], list: 'yaml = ""\n',
+  }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'direct registry dependency must have a written reason'));
+});
 // Verifies: SEC-SUP-033
 for (const document of [0, 1]) {
   for (const source of ['git+https://evil.test/repository.git', 'https://evil.test/pkg.tgz', 'file:../foreign', 'gh:1.0.0']) {

@@ -30,7 +30,7 @@ test(`frozen installs suppress both scripts with ${format} settings and prove bo
       await symlink(await realpath(fileURLToPath(new URL('../../../node_modules/yaml', import.meta.url))), join(client, 'node_modules/yaml'));
       await writeFile(join(client, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
       await writeFile(join(client, 'pnpm-workspace.yaml'), stringify(JSON.parse(await readFile(new URL('../../../pnpm-workspace.yaml', import.meta.url), 'utf8'))));
-      for (const file of ['canary.ts', 'policy.ts', 'fixtures']) await cp(fileURLToPath(new URL(file, import.meta.url)), join(tools, file), { recursive: true });
+      for (const file of ['canary.ts', 'native-pnpm.ts', 'policy.ts', 'fixtures']) await cp(fileURLToPath(new URL(file, import.meta.url)), join(tools, file), { recursive: true });
       helper = join(tools, 'canary.ts');
     }
     const run = spawnSync(process.execPath, [

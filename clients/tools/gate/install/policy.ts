@@ -23,6 +23,9 @@ export function settings(input: unknown): Finding[] {
     ['allowBuilds', 'SEC-SUP-033', 'must be empty', candidate => object(candidate) && Object.keys(candidate).length === 0],
     ['dangerouslyAllowAllBuilds', 'SEC-SUP-033', 'must be false', candidate => candidate === false],
     ['blockExoticSubdeps', 'SEC-SUP-033', 'must be true', candidate => candidate === true],
+    ['engineStrict', 'SEC-SUP-033', 'must be true', candidate => candidate === true],
+    ['autoInstallPeers', 'SEC-SUP-033', 'must be false', candidate => candidate === false],
+    ['strictPeerDependencies', 'SEC-SUP-033', 'must be true', candidate => candidate === true],
     ['minimumReleaseAge', 'SEC-SUP-034', 'must be at least 10080 minutes', candidate => typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 10080],
     ['minimumReleaseAgeStrict', 'SEC-SUP-034', 'must be true', candidate => candidate === true],
     ['minimumReleaseAgeIgnoreMissingTime', 'SEC-SUP-034', 'must be false', candidate => candidate === false],
@@ -67,10 +70,14 @@ export function lockfile(input: unknown): Finding[] {
   const findings: Finding[] = [];
   for (const [index, value] of values.entries()) {
     if (!object(value) || value.lockfileVersion !== '9.0' || !object(value.packages)) return invalid();
-    if (exoticSource(value.importers)) {
+    if (unsupportedProtocol(value.importers, true)) {
+      findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'unsupported dependency protocol is forbidden'));
+    } else if (exoticSource(value.importers)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'exotic dependency sources are forbidden'));
     }
-    if (exoticSource(value.snapshots)) {
+    if (unsupportedProtocol(value.snapshots, false)) {
+      findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'unsupported dependency protocol is forbidden'));
+    } else if (exoticSource(value.snapshots)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'exotic dependency sources are forbidden'));
     }
     for (const [key, entry] of Object.entries(value.packages)) {
@@ -108,6 +115,16 @@ function exoticSource(value: unknown): boolean {
   return false;
 }
 
+function unsupportedProtocol(value: unknown, allowWorkspace: boolean): boolean {
+  if (typeof value === 'string') {
+    if (/^(?:npm:|catalog:)/i.test(value)) return true;
+    return /^workspace:/i.test(value) && (!allowWorkspace || value !== 'workspace:*');
+  }
+  if (Array.isArray(value)) return value.some(entry => unsupportedProtocol(entry, allowWorkspace));
+  if (object(value)) return Object.values(value).some(entry => unsupportedProtocol(entry, allowWorkspace));
+  return false;
+}
+
 export function manifest(input: unknown): Finding[] {
   const invalid = (): Finding[] => finding('SEC-SUP-035', 'manifest', 'invalid manifest dependency groups');
   if (!object(input) || !object(input.manifest)) return invalid();
@@ -126,6 +143,48 @@ export function manifest(input: unknown): Finding[] {
         findings.push(...finding('SEC-SUP-033', `manifest.${field}.${name}`, 'only exact registry versions or known workspace:* members are allowed'));
       }
     }
+  }
+  return findings;
+}
+
+export function directDependencies(input: unknown): Finding[] {
+  const invalid = (): Finding[] => finding('SEC-SUP-035', 'supply-chain/js-direct-deps.toml', 'dependency reason list is invalid');
+  if (!object(input) || !Array.isArray(input.manifests) || typeof input.list !== 'string') return invalid();
+  const listed = new Map<string, string>();
+  for (const line of input.list.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+    const boundary = trimmed.indexOf(' = ');
+    if (boundary === -1) return invalid();
+    const rawName = trimmed.slice(0, boundary);
+    const name = rawName.startsWith('"') && rawName.endsWith('"') ? rawName.slice(1, -1) : rawName;
+    const rawReason = trimmed.slice(boundary + 3);
+    if (!rawReason.startsWith('"') || !rawReason.endsWith('"')) return invalid();
+    const reason = rawReason.slice(1, -1);
+    if (!/^[a-z0-9@/._-]+$/i.test(name) || listed.has(name)) return invalid();
+    listed.set(name, reason);
+  }
+  const used = new Set<string>();
+  for (const entry of input.manifests) {
+    if (!object(entry) || typeof entry.path !== 'string' || !object(entry.manifest)) return invalid();
+    for (const field of ['dependencies', 'devDependencies']) {
+      const group = entry.manifest[field];
+      if (group === undefined) continue;
+      if (!object(group)) return invalid();
+      for (const [name, version] of Object.entries(group)) {
+        if (version === 'workspace:*') continue;
+        if (typeof version === 'string' && /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/.test(version)) used.add(name);
+      }
+    }
+  }
+  const findings: Finding[] = [];
+  for (const name of [...used].sort()) {
+    const reason = listed.get(name);
+    if (reason === undefined) findings.push(...finding('SEC-SUP-035', `supply-chain/js-direct-deps.toml.${name}`, 'direct registry dependency is missing a written reason'));
+    else if (reason.trim() === '') findings.push(...finding('SEC-SUP-035', `supply-chain/js-direct-deps.toml.${name}`, 'direct registry dependency must have a written reason'));
+  }
+  for (const name of [...listed.keys()].sort()) {
+    if (!used.has(name)) findings.push(...finding('SEC-SUP-035', `supply-chain/js-direct-deps.toml.${name}`, 'reviewed dependency is not used by any manifest'));
   }
   return findings;
 }
@@ -239,6 +298,7 @@ export function inspect(kind: string | undefined, input: unknown): Finding[] {
     case 'settings': return settings(input);
     case 'lockfile': return lockfile(input);
     case 'manifest': return manifest(input);
+    case 'direct-dependencies': return directDependencies(input);
     case 'age': return age(input);
     case 'licenses': return licenses(input);
     case 'effective-registries': return effectiveRegistries(input);

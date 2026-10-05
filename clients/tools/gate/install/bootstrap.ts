@@ -30,7 +30,7 @@ async function check(directory: string, cache: string | undefined): Promise<void
     const extraction = spawnSync('tar', ['--extract', '--gzip', '--file', join(tools, 'yaml.tgz'), '--directory', parser, '--strip-components=1'], { encoding: 'utf8', timeout: 10000 });
     if (extraction.status !== 0 || extraction.signal !== null) throw new Refusal('bootstrap.parser', 'verified parser archive could not be extracted');
     await writeFile(join(tools, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
-    for (const file of ['installation.ts', 'policy.ts', 'verify.ts']) {
+    for (const file of ['installation.ts', 'native-pnpm.ts', 'policy.ts', 'verify.ts']) {
       await cp(fileURLToPath(new URL(file, import.meta.url)), join(tools, file));
     }
     const result = spawnSync(process.execPath, [join(tools, 'installation.ts'), resolve(directory)], { encoding: 'utf8', timeout: 120000 });

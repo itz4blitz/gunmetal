@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAllDocuments } from 'yaml';
 import { inspect, type Finding } from './policy.ts';
+import { nativePnpm } from './native-pnpm.ts';
 
 type Identity = { name: string; version: string; integrity: string };
 export type Installed = Identity & { path: string };
@@ -34,20 +35,6 @@ async function manifest(directory: string): Promise<ObjectValue> {
   if (!object(value)) refuse('verification.installation', 'installed package identity must match its locked registry identity');
   return value;
 }
-export async function executable(name: string): Promise<string> {
-  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
-    if (directory === '') continue;
-    const candidate = join(directory, name);
-    try {
-      const info = await stat(candidate);
-      if (info.isFile() && (info.mode & 0o111) !== 0) return await realpath(candidate);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
-  return refuse('verification.execution', 'pinned package manager executable is unavailable');
-}
-
 async function installedPaths(directory: string): Promise<string[]> {
   const paths: string[] = [];
   const store = join(directory, 'node_modules/.pnpm');
@@ -77,7 +64,7 @@ export async function collectInstalled(directory: string): Promise<{ installed: 
       locked.set(key, { name: key.slice(0, boundary), version: key.slice(boundary + 1), integrity: entry.resolution.integrity });
     }
   }
-  const manager = await executable('pnpm');
+  const manager = await nativePnpm();
   const paths = [...await installedPaths(directory), dirname(manager)];
   const packages = new Map<string, Installed>();
   for (const path of paths) {

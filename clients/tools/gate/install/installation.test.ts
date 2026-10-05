@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,13 @@ import { test } from 'node:test';
 import { parseAllDocuments, stringify } from 'yaml';
 
 const client = fileURLToPath(new URL('../../../', import.meta.url));
+async function workspace(root: string): Promise<string> {
+  const directory = join(root, 'clients');
+  await cp(client, directory, { recursive: true, filter: source => !source.includes('/node_modules') });
+  await mkdir(join(root, 'supply-chain'), { recursive: true });
+  await cp(fileURLToPath(new URL('../../../../supply-chain/js-direct-deps.toml', import.meta.url)), join(root, 'supply-chain/js-direct-deps.toml'));
+  return directory;
+}
 function check(directory: string, env = process.env): unknown {
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('installation.ts', import.meta.url)), directory], { env, encoding: 'utf8', timeout: 120000 });
   return { status: result.status, signal: result.signal, stderr: result.stderr, result: result.stdout.trim() === '' ? null : JSON.parse(result.stdout) };
@@ -34,9 +41,9 @@ test('actual workspace check observes pinned runtimes, live pnpm age and all man
 
 for (const scenario of ['scripts', 'peer', 'runtime']) {
   test(`actual workspace check refuses a changed ${scenario} boundary`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'gunmetal-install-policy-'));
+    const root = await mkdtemp(join(tmpdir(), 'gunmetal-install-policy-'));
     try {
-      for (const file of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) await cp(join(client, file), join(directory, file));
+      const directory = await workspace(root);
       let expected: unknown;
       if (scenario === 'scripts') {
         const path = join(directory, 'pnpm-workspace.yaml');
@@ -55,16 +62,16 @@ for (const scenario of ['scripts', 'peer', 'runtime']) {
         }
       }
       assert.deepEqual(check(directory), { status: 1, signal: null, stderr: '', result: expected });
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
 
 // Verifies: SEC-SUP-033. Transitive identities must be checked before installation.
 for (const index of [0, 1]) {
   test(`initial registry routing refuses a transitive alternative registry in lock document ${index}`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'gunmetal-before-install-route-'));
+    const root = await mkdtemp(join(tmpdir(), 'gunmetal-before-install-route-'));
     try {
-      for (const file of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) await cp(join(client, file), join(directory, file));
+      const directory = await workspace(root);
       const path = join(directory, 'pnpm-lock.yaml');
       const documents = parseAllDocuments(await readFile(path, 'utf8')).map(document => document.toJS());
       assert.equal(documents.length, 2);
@@ -73,6 +80,6 @@ for (const index of [0, 1]) {
       assert.deepEqual(check(directory), { status: 1, signal: null, stderr: '', result: [{
         rule: 'SEC-SUP-033', path: 'effective.@jsr/std', message: 'only registry.npmjs.org is allowed',
       }] });
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
