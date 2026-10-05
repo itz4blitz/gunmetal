@@ -13,11 +13,29 @@
 //! The values follow the field rules in [`super::mp4`]: text is cleaned and
 //! cut to its limit, lists stop at the tag-field limit (SEC-MED-006), and a
 //! number, date, identifier or gain outside its range is dropped with the
-//! reason (SEC-MED-014). The APE parser has already cut every text value to
-//! the long-text limit and flagged what it cut. A value it cut is recorded
-//! as cut to that limit before the field rules read what is left, so the
-//! cut is reported whatever becomes of the rest ("Text that was cut" in
-//! [`super::mp4`]).
+//! reason (SEC-MED-014).
+//!
+//! # Values that were cut
+//!
+//! The APE parser has already cut every text value to the long-text limit
+//! and flagged what it cut, and the field rules cut what they are given to
+//! the field's own limit. Every value that was cut is recorded once as
+//! [`Reason::Truncated`](super::mp4::Reason::Truncated) (SEC-MED-006), by
+//! the rule every tag mapper follows ("Values that were cut" in
+//! [`super::mp4`]):
+//!
+//! - A value kept as text is kept, cut, and recorded with the limit it was
+//!   last cut at: the short-text limit when the field rules cut it, whether
+//!   or not the parser had cut it first, and otherwise the long-text limit.
+//!   Lyrics are kept under the long-text limit, so theirs is always that
+//!   one.
+//! - A value read as a number, a date, a flag, a release type, a recording
+//!   code, an identifier, a gain or a peak is not read once it was cut,
+//!   because what is left is not what was written: a `Track` of `31` cut to
+//!   `3` would read as track 3. It is recorded with the long-text limit
+//!   when the parser cut it and with the short-text limit when only the
+//!   field rules did, nothing else is recorded for it, and the next value
+//!   is tried.
 //!
 //! # Work
 //!
@@ -27,7 +45,7 @@
 //! one, so a tag of `n` octets costs at most `n` steps. When the budget is
 //! spent the mapping stops and says where.
 
-use super::mp4::{Fields, ItemIndex, Mapped, Reason, TagField, lookup};
+use super::mp4::{Fields, ItemIndex, Mapped, TagField, lookup};
 use crate::catalog::{LyricsOrigin, Role};
 use crate::formats::ape::{ApeTag, ApeValue};
 use crate::parse::{Budget, LimitKind, Limits};
@@ -99,10 +117,8 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
         }
         if let Some(field) = lookup(KEYS, &item.key) {
             for value in values {
-                if value.truncated {
-                    fields.note(field, source, Reason::Truncated(LimitKind::LongText));
-                }
-                fields.set(field, &value.value, source);
+                let cut = value.truncated.then_some(LimitKind::LongText);
+                fields.set(field, &value.value, cut, source);
             }
         }
     }
@@ -111,7 +127,7 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
 
 #[cfg(test)]
 mod tests {
-    use super::super::mp4::TagProblem;
+    use super::super::mp4::{Reason, TagProblem};
     use super::*;
     use crate::catalog::{
         Credit, Gain, GainScale, GainTags, LyricsSource, LyricsTiming, MbIds, PrimaryType,

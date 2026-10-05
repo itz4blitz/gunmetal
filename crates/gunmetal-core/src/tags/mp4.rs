@@ -28,36 +28,41 @@
 //! - Artist strings are kept as tagged. Splitting them is the credit
 //!   splitter's job (WP-053).
 //!
-//! # Text that was cut
+//! # Values that were cut
 //!
-//! Every cut is one [`Reason::Truncated`] problem that names the limit the
-//! text was cut to, against the field and the source of the value
-//! (SEC-MED-006). A value can be cut in two places:
+//! A value can be cut in two places. The MP4 and APE parsers cap the text
+//! they decode and flag what they cut
+//! ([`Text::truncated`](crate::text::Text::truncated)): at the short-text
+//! limit for an MP4 atom, and at the long-text limit for `©lyr`, for a
+//! freeform MP4 item and for every APE value. The field rules then cut
+//! what they are given to the field's own limit. Either cut is a limit
+//! reached, so it is reported (SEC-MED-006), by the one rule the Vorbis
+//! comment and ID3 mappers ([`super::vorbis`], [`super::id3`]) follow too.
+//! Every value that was cut has exactly one [`Reason::Truncated`] problem,
+//! against its field and its source:
 //!
-//! - The MP4 and APE parsers cap the text they decode and flag what they
-//!   cut ([`Text::truncated`](crate::text::Text::truncated)). The mapper
-//!   records that cut first, with the parser's limit: the short-text limit
-//!   for an MP4 atom, and the long-text limit for `©lyr`, for a freeform
-//!   MP4 item and for every APE value.
-//! - The field rules then cut what is left to the field's own limit, and
-//!   record that cut.
-//!
-//! So a value cut once has one problem, whoever cut it. Under one set of
-//! limits no cut is recorded twice: text the parser cut to a limit is no
-//! longer than that limit, so the field rules cannot cut it to the same
-//! limit again. A value cut twice has two problems, the parser's first: a
-//! freeform MP4 item or an APE value that is not lyrics, cut to the
-//! long-text limit by the parser and, when the short-text limit is the
-//! smaller, cut again to it by the field rules.
-//!
-//! A cut is recorded whatever becomes of what was left. Text that is then
-//! blank is left out, and text that is malformed, out of range or past a
-//! list's limit is dropped with its reason, as a second problem after the
-//! cut. Text the parser cut in an item that holds a number, such as
-//! `trkn`, records the cut and then [`Reason::Unreadable`].
+//! - A value kept as text (a title, a name, a sort name, a disc subtitle,
+//!   a genre, a mood, a label, a grouping, a credit, lyrics) is kept, cut.
+//!   The problem names the limit the text was last cut at: the field's own
+//!   limit when the field rules cut it, whether or not the parser had cut
+//!   it first, and otherwise the parser's. Text that is blank once cut is
+//!   left out. Text past a list's limit is dropped with that reason, as a
+//!   second problem after the cut.
+//! - A value read as a number, a total, a date, a compilation flag, an
+//!   advisory, a release type, a recording code, an identifier, a gain, a
+//!   peak or an encoder trim is not read once it was cut. What is left is
+//!   not what was written: `31` cut to `3` would read as track 3. The
+//!   problem names the parser's limit when the parser cut the value, and
+//!   otherwise the field's own, and nothing else is recorded for the
+//!   value. A field that keeps its first value takes the next one that was
+//!   not cut, and a list goes on with the next.
+//! - Text the parser cut in an MP4 item that holds a number (`trkn`,
+//!   `disk`, `gnre`, `cpil`, `rtng`) is recorded with the parser's limit in
+//!   the same way, in place of [`Reason::Unreadable`].
 //!
 //! The `INFO` mapper reads its values from the octets of the list itself,
-//! so no value reaches it already cut.
+//! so no value reaches it already cut, and the field rules make the only
+//! cut.
 //!
 //! # MP4
 //!
@@ -216,10 +221,13 @@ pub enum Reason {
     /// A count or size limit was reached, and it was dropped
     /// (SEC-MED-006).
     Limit(LimitKind),
-    /// It was longer than this text limit and was cut to it, by the parser
-    /// that read the tag or by the field rules (SEC-MED-006). What was left
-    /// was kept, unless it was blank or a later problem for the same value
-    /// says why it was dropped.
+    /// It was longer than a text limit and was cut, by the parser that read
+    /// the tag or by the field rules (SEC-MED-006). This is the limit it
+    /// was last cut at. A value kept as text was kept as far as that limit,
+    /// unless what was left was blank or a later problem for the same value
+    /// says why it was dropped. A value read as anything else, such as a
+    /// number or a date, was not read: what was left of it is not what was
+    /// written.
     Truncated(LimitKind),
     /// It means something only beside a value the tag did not give, such
     /// as a `ReplayGain` peak without its gain, and it was dropped.
@@ -307,16 +315,31 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
         });
     }
 
-    /// Gives `field` the value `raw`, read at `source`.
-    pub(super) fn set(&mut self, field: TagField, raw: &str, source: S) {
+    /// Gives `field` the value `raw`, read at `source`. `cut` is the limit
+    /// the parser that decoded `raw` cut it to, when it cut it.
+    ///
+    /// A value that was cut, by that parser or here, is recorded once. It
+    /// is kept only when `field` keeps its value as text.
+    pub(super) fn set(&mut self, field: TagField, raw: &str, cut: Option<LimitKind>, source: S) {
+        let typed = !kept_as_text(field);
+        if let Some(limit) = cut.filter(|_| typed) {
+            self.note(field, source, Reason::Truncated(limit));
+            return;
+        }
         let (lines, limit) = match field {
             TagField::Lyrics(_) => (Lines::Multi, LimitKind::LongText),
             _ => (Lines::Single, LimitKind::ShortText),
         };
         let cap = u32::try_from(self.limits.get(limit)).unwrap_or(u32::MAX);
         let text = text::normalise(Untrusted::new(raw.as_bytes()), lines, cap);
-        if text.truncated {
+        // The limit the value was last cut at: this field's when it is cut
+        // here, and otherwise the parser's.
+        let cut = if text.truncated { Some(limit) } else { cut };
+        if let Some(limit) = cut {
             self.note(field, source, Reason::Truncated(limit));
+            if typed {
+                return;
+            }
         }
         if text.value.trim().is_empty() {
             return;
@@ -432,6 +455,51 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
             let (_, source) = self.sources.remove(at);
             self.note(field, source, Reason::Unpaired);
         }
+    }
+}
+
+/// Whether `field` keeps its value as text. Every other field reads its
+/// value as a number, a total, a date, a flag, an advisory, a release
+/// type, a recording code, an identifier, a gain, a peak or a trim, and
+/// does not read one that was cut.
+const fn kept_as_text(field: TagField) -> bool {
+    match field {
+        TagField::Title
+        | TagField::TitleSort
+        | TagField::Artist
+        | TagField::ArtistSort
+        | TagField::AlbumArtist
+        | TagField::AlbumArtistSort
+        | TagField::Album
+        | TagField::AlbumSort
+        | TagField::DiscSubtitle
+        | TagField::Genres
+        | TagField::Moods
+        | TagField::Labels
+        | TagField::Grouping
+        | TagField::Credit(_)
+        | TagField::Lyrics(_) => true,
+        TagField::Track
+        | TagField::TrackTotal
+        | TagField::Disc
+        | TagField::DiscTotal
+        | TagField::Date
+        | TagField::OriginalDate
+        | TagField::Compilation
+        | TagField::ReleaseType
+        | TagField::Advisory
+        | TagField::Isrc
+        | TagField::RecordingMbid
+        | TagField::TrackMbid
+        | TagField::ReleaseMbid
+        | TagField::ReleaseGroupMbid
+        | TagField::ArtistMbids
+        | TagField::AlbumArtistMbids
+        | TagField::TrackGain
+        | TagField::TrackPeak
+        | TagField::AlbumGain
+        | TagField::AlbumPeak
+        | TagField::Trim => false,
     }
 }
 
@@ -907,12 +975,14 @@ pub fn from_ilst(items: &[IlstItem], limits: &Limits, budget: &mut Budget) -> Ma
             let cut_to = parser_limit(&item.key);
             for value in &item.values {
                 let (field, text) = reading(atom, value);
-                if cut_by_parser(value) {
-                    fields.note(field, source, Reason::Truncated(cut_to));
-                }
+                let cut = cut_by_parser(value).then_some(cut_to);
+                // A value of a kind the item does not hold is not read. One
+                // the parser cut is recorded as cut, like every other value
+                // that is not read once it was cut.
+                let unread = cut.map_or(Reason::Unreadable, Reason::Truncated);
                 match text {
-                    Some(text) => fields.set(field, &text, source),
-                    None => fields.note(field, source, Reason::Unreadable),
+                    Some(text) => fields.set(field, &text, cut, source),
+                    None => fields.note(field, source, unread),
                 }
             }
         }
@@ -1080,7 +1150,7 @@ mod tests {
     fn set_under(limits: &Limits, values: &[(TagField, &str)]) -> Mapped<u8> {
         let mut fields = Fields::new(limits);
         for (source, (field, value)) in (0_u8..).zip(values) {
-            fields.set(*field, value, source);
+            fields.set(*field, value, None, source);
         }
         fields.finish()
     }

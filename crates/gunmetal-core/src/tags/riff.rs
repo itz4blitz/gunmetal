@@ -28,7 +28,9 @@
 //! an error. A value longer than the long-text limit is dropped before it
 //! is decoded, with a recorded problem. No parser decodes these values
 //! before this mapper does, so none arrives already cut: a value is dropped
-//! whole here, or it is cut by the field rules, which record the cut.
+//! whole here, or it is cut by the field rules, which record the cut once.
+//! They keep what is left of a text, and do not read a date or a track
+//! number they cut ("Values that were cut" in [`super::mp4`]).
 //!
 //! # Work
 //!
@@ -143,10 +145,10 @@ fn value(
         return;
     }
     if let Ok(text) = core::str::from_utf8(octets) {
-        fields.set(field, text, source);
+        fields.set(field, text, None, source);
     } else {
         let text: String = octets.iter().copied().map(char::from).collect();
-        fields.set(field, &text, source);
+        fields.set(field, &text, None, source);
     }
 }
 
