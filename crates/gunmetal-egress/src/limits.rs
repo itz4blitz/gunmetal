@@ -40,8 +40,10 @@ impl Limits {
     /// How long the request may still run when `elapsed` has passed since
     /// it started, or `None` once its deadline has passed.
     #[must_use]
-    pub fn remaining(&self, _elapsed: Duration) -> Option<Duration> {
-        Some(self.total)
+    pub fn remaining(&self, elapsed: Duration) -> Option<Duration> {
+        self.total
+            .checked_sub(elapsed)
+            .filter(|left| !left.is_zero())
     }
 
     /// How long a connection attempt may take when it starts `elapsed`
@@ -49,8 +51,8 @@ impl Limits {
     /// whole request if that is shorter. `None` once the deadline has
     /// passed.
     #[must_use]
-    pub fn connect_budget(&self, _elapsed: Duration) -> Option<Duration> {
-        Some(self.connect)
+    pub fn connect_budget(&self, elapsed: Duration) -> Option<Duration> {
+        self.remaining(elapsed).map(|left| left.min(self.connect))
     }
 
     /// The octets of body read once `more` arrive after `received`.
@@ -59,8 +61,11 @@ impl Limits {
     ///
     /// [`TooLarge`] when that is more than the body may have. The caller
     /// stops reading and keeps nothing of the body.
-    pub fn body_after(&self, _received: u64, _more: u64) -> Result<u64, TooLarge> {
-        Err(TooLarge { limit: self.body })
+    pub fn body_after(&self, received: u64, more: u64) -> Result<u64, TooLarge> {
+        received
+            .checked_add(more)
+            .filter(|&read| read <= self.body)
+            .ok_or(TooLarge { limit: self.body })
     }
 }
 

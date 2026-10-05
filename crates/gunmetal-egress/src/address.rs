@@ -11,6 +11,8 @@
 
 use core::net::{IpAddr, SocketAddr};
 
+use gunmetal_core::net::classify;
+
 use crate::denial::Denial;
 use crate::grant::Reach;
 
@@ -24,11 +26,22 @@ use crate::grant::Reach;
 /// [`Denial::NoAddress`] when `resolved` is empty, and
 /// [`Denial::AddressRefused`] with the first address `reach` does not
 /// admit.
-pub fn pin(_reach: Reach, port: u16, resolved: &[IpAddr]) -> Result<Vec<SocketAddr>, Denial> {
-    Ok(resolved
+pub fn pin(reach: Reach, port: u16, resolved: &[IpAddr]) -> Result<Vec<SocketAddr>, Denial> {
+    if resolved.is_empty() {
+        return Err(Denial::NoAddress);
+    }
+    resolved
         .iter()
-        .map(|address| SocketAddr::new(*address, port))
-        .collect())
+        .map(|address| {
+            let address = address.to_canonical();
+            let class = classify(address);
+            if reach.admits(class) {
+                Ok(SocketAddr::new(address, port))
+            } else {
+                Err(Denial::AddressRefused { address, class })
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

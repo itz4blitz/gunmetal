@@ -20,14 +20,15 @@ use core::net::{IpAddr, SocketAddr};
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use gunmetal_core::audit_event::SecuritySink;
+use gunmetal_core::audit_event::{SecurityEvent, SecuritySink};
 use gunmetal_core::time::Timestamp;
 
 use crate::address;
 use crate::denial::Denial;
 use crate::destination::{Destination, Host};
-use crate::grant::{Admitted, Configuration};
+use crate::grant::{Admitted, Configuration, Route};
 use crate::purpose::Purpose;
+use crate::redirect;
 
 /// How many attempts the record keeps. An older attempt makes way for a
 /// newer one, so the record cannot grow without bound however many
@@ -81,11 +82,17 @@ impl<S: SecuritySink> Gate<S> {
         &self,
         purpose: Purpose,
         destination: &Destination,
-        _now: Timestamp,
+        now: Timestamp,
     ) -> Result<Admitted, Denial> {
-        // Not yet reported to the sink, and not yet recorded.
-        let _ = &self.sink;
-        self.configuration.decide(purpose, destination)
+        match self.configuration.decide(purpose, destination) {
+            Ok(admitted) => {
+                if admitted.route == Route::Proxy {
+                    self.note(purpose, destination, Ok(()), now);
+                }
+                Ok(admitted)
+            }
+            Err(denial) => Err(self.refuse(purpose, destination, denial, now)),
+        }
     }
 
     /// Decides which addresses an admitted request that leaves directly
@@ -99,11 +106,16 @@ impl<S: SecuritySink> Gate<S> {
         &self,
         admitted: &Admitted,
         resolved: &[IpAddr],
-        _now: Timestamp,
+        now: Timestamp,
     ) -> Result<Vec<SocketAddr>, Denial> {
-        // Not yet reported to the sink, and not yet recorded.
-        let _ = &self.sink;
-        address::pin(admitted.reach, admitted.destination.port, resolved)
+        let destination = &admitted.destination;
+        match address::pin(admitted.reach, destination.port, resolved) {
+            Ok(addresses) => {
+                self.note(admitted.purpose, destination, Ok(()), now);
+                Ok(addresses)
+            }
+            Err(denial) => Err(self.refuse(admitted.purpose, destination, denial, now)),
+        }
     }
 
     /// Decides whether the request `from`, which has already followed
@@ -117,11 +129,14 @@ impl<S: SecuritySink> Gate<S> {
     pub fn redirect(
         &self,
         from: &Admitted,
-        _followed: u8,
+        followed: u8,
         to: &Destination,
         now: Timestamp,
     ) -> Result<Admitted, Denial> {
-        self.admit(from.purpose, to, now)
+        match redirect::follow(from.redirects, followed, &from.destination, to) {
+            Ok(()) => self.admit(from.purpose, to, now),
+            Err(denial) => Err(self.refuse(from.purpose, to, denial, now)),
+        }
     }
 
     /// The record of attempts, oldest first: at most
@@ -129,6 +144,43 @@ impl<S: SecuritySink> Gate<S> {
     #[must_use]
     pub fn activity(&self) -> Vec<Connection> {
         self.log().iter().cloned().collect()
+    }
+
+    /// Reports and records a refusal, and hands it back.
+    fn refuse(
+        &self,
+        purpose: Purpose,
+        destination: &Destination,
+        denial: Denial,
+        now: Timestamp,
+    ) -> Denial {
+        // A refusal stands whether or not the audit log could take its
+        // record: an unwritten record never lets anything through.
+        let _ = self.sink.record(SecurityEvent::GmEgressDenied {});
+        self.note(purpose, destination, Err(denial), now);
+        denial
+    }
+
+    /// Adds one line to the record, in place of the oldest when it is
+    /// full.
+    fn note(
+        &self,
+        purpose: Purpose,
+        destination: &Destination,
+        outcome: Result<(), Denial>,
+        at: Timestamp,
+    ) {
+        let mut log = self.log();
+        if log.len() == ACTIVITY_CAPACITY {
+            log.pop_front();
+        }
+        log.push_back(Connection {
+            purpose,
+            host: destination.host.clone(),
+            port: destination.port,
+            outcome,
+            at,
+        });
     }
 
     /// The record, even if a previous holder of its lock panicked: a line

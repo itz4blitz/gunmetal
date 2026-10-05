@@ -8,6 +8,12 @@
 
 use core::net::IpAddr;
 
+/// The longest host name, in octets.
+const MAX_NAME: usize = 253;
+
+/// The longest label of a host name, in octets.
+const MAX_LABEL: usize = 63;
+
 /// How a request is carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scheme {
@@ -62,8 +68,35 @@ impl Host {
     /// name with a trailing dot, an address in brackets and a host followed
     /// by a port.
     pub fn parse(text: &str) -> Result<Self, HostError> {
-        Ok(Self::Name(Name(text.to_owned())))
+        if let Ok(address) = text.parse::<IpAddr>() {
+            return Ok(Self::Address(address.to_canonical()));
+        }
+        if text.len() > MAX_NAME {
+            return Err(HostError::TooLong);
+        }
+        let name = text.to_ascii_lowercase();
+        if !name.split('.').all(is_label) {
+            return Err(HostError::BadLabel);
+        }
+        let ends_in_a_word = name
+            .rsplit('.')
+            .next()
+            .is_some_and(|last| last.starts_with(|first: char| first.is_ascii_lowercase()));
+        if !ends_in_a_word {
+            return Err(HostError::NumericEnd);
+        }
+        Ok(Self::Name(Name(name)))
     }
+}
+
+/// Whether `label` is one label of a host name already in lower case.
+fn is_label(label: &str) -> bool {
+    (1..=MAX_LABEL).contains(&label.len())
+        && label
+            .bytes()
+            .all(|octet| octet.is_ascii_lowercase() || octet.is_ascii_digit() || octet == b'-')
+        && !label.starts_with('-')
+        && !label.ends_with('-')
 }
 
 /// A scheme, a host and a port: what a grant names and what a request is

@@ -24,11 +24,20 @@ pub const MAX_REDIRECTS: u8 = 3;
 /// [`MAX_REDIRECTS`] were followed already, and
 /// [`Denial::CrossHostRedirect`] when `to` is on another host.
 pub fn follow(
-    _policy: Redirects,
-    _followed: u8,
-    _from: &Destination,
-    _to: &Destination,
+    policy: Redirects,
+    followed: u8,
+    from: &Destination,
+    to: &Destination,
 ) -> Result<(), Denial> {
+    if policy == Redirects::Refused {
+        return Err(Denial::RedirectsRefused);
+    }
+    if followed >= MAX_REDIRECTS {
+        return Err(Denial::TooManyRedirects);
+    }
+    if to.host != from.host {
+        return Err(Denial::CrossHostRedirect);
+    }
     Ok(())
 }
 

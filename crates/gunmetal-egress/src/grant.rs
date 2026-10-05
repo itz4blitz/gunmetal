@@ -51,8 +51,11 @@ pub enum Reach {
 impl Reach {
     /// Whether an address of `class` may be connected to.
     #[must_use]
-    pub fn admits(self, _class: AddrClass) -> bool {
-        self == Self::Lan
+    pub fn admits(self, class: AddrClass) -> bool {
+        match self {
+            Self::Global => class == AddrClass::Public,
+            Self::Lan => matches!(class, AddrClass::Private | AddrClass::SharedAddressSpace),
+        }
     }
 }
 
@@ -195,12 +198,31 @@ impl Configuration {
     /// leave through a proxy and the destination is an address or a LAN
     /// destination.
     pub fn decide(&self, purpose: Purpose, destination: &Destination) -> Result<Admitted, Denial> {
+        let rules = purpose.rules();
+        if self.offline {
+            return Err(Denial::Offline);
+        }
+        if !self.claimed && !rules.before_claim {
+            return Err(Denial::BeforeClaim);
+        }
+        let granted = self
+            .destinations(purpose)
+            .ok_or(Denial::PurposeNotGranted)?;
+        let allowed = granted
+            .iter()
+            .find(|candidate| candidate.destination == *destination)
+            .ok_or(Denial::DestinationNotGranted)?;
+        let direct_only =
+            allowed.reach == Reach::Lan || matches!(destination.host, Host::Address(_));
+        if self.route == Route::Proxy && direct_only {
+            return Err(Denial::NotThroughProxy);
+        }
         Ok(Admitted {
             purpose,
             destination: destination.clone(),
-            reach: Reach::Global,
+            reach: allowed.reach,
             route: self.route,
-            redirects: Redirects::Refused,
+            redirects: rules.redirects,
         })
     }
 }
