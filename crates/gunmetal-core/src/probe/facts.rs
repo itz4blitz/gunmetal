@@ -15,7 +15,7 @@ use crate::formats::opus::OpusError;
 use crate::formats::riff::RiffError;
 use crate::formats::vorbis::VorbisError;
 use crate::formats::vorbis_comment::Comments;
-use crate::parse::{DriveError, ParseFault};
+use crate::parse::{DriveError, ParseFault, ReadRequest};
 use crate::problem::{Arg, Describe, Problem, ProblemCode};
 use crate::values::ValueError;
 
@@ -162,6 +162,15 @@ pub enum PartProblem {
     Fault(ParseFault),
     /// A read that the limits refuse (SEC-MED-010).
     Read(DriveError),
+    /// The end of an Ogg file holds no page of its stream on which a packet
+    /// ends, so how long the file plays is not known.
+    NoLastPage {
+        /// Where the octets that were searched start: the last 64 KiB of
+        /// the file, or the whole file when it is shorter.
+        offset: u64,
+        /// The serial number of the stream.
+        serial: u32,
+    },
 }
 
 impl PartProblem {
@@ -183,6 +192,7 @@ impl PartProblem {
             Self::Value(_) => "value",
             Self::Fault(_) => "limit",
             Self::Read(_) => "read",
+            Self::NoLastPage { .. } => "ogg_last_page",
         }
     }
 }
@@ -238,6 +248,19 @@ pub enum ProbeError {
     Fault(ParseFault),
     /// A read that playback needs is one the limits refuse (SEC-MED-010).
     Read(DriveError),
+    /// The host answered a read of the probe's own with a window that is
+    /// not the octets asked for: it starts somewhere else, or it holds no
+    /// octet, as when the file was cut short after its length was taken.
+    /// Asking again would get no further, so the file fails at once,
+    /// whatever the read was for (SEC-MED-008).
+    Unanswered {
+        /// The read the probe asked for.
+        asked: ReadRequest,
+        /// Where the window it was given starts.
+        offset: u64,
+        /// How many octets that window holds.
+        len: u64,
+    },
     /// The facts found do not make a catalogue value.
     Catalog(CatalogError),
     /// The probe was resumed after it gave its result. A probe reads one
@@ -262,6 +285,7 @@ impl ProbeError {
             Self::Unsupported { .. } => "unsupported_codec",
             Self::Fault(_) => "budget",
             Self::Read(_) => "read",
+            Self::Unanswered { .. } => "unanswered_read",
             Self::Catalog(_) => "catalogue",
             Self::Finished => "finished",
         }
@@ -374,6 +398,13 @@ mod tests {
             (PartProblem::Value(value), "value"),
             (PartProblem::Fault(FAULT), "limit"),
             (PartProblem::Read(drive), "read"),
+            (
+                PartProblem::NoLastPage {
+                    offset: 1,
+                    serial: 7,
+                },
+                "ogg_last_page",
+            ),
         ];
         for (problem, part) in cases {
             assert_eq!(
@@ -422,6 +453,14 @@ mod tests {
                     max: LimitKind::ReadBytes.ceiling(),
                 }),
                 "read",
+            ),
+            (
+                ProbeError::Unanswered {
+                    asked: ReadRequest { offset: 4, len: 2 },
+                    offset: 4,
+                    len: 0,
+                },
+                "unanswered_read",
             ),
             (ProbeError::Catalog(CatalogError::ZeroBitrate), "catalogue"),
             (ProbeError::Finished, "finished"),

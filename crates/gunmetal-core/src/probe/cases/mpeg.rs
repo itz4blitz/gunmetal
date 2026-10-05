@@ -133,7 +133,8 @@ fn leading_tag_read() -> Id3v2Tag {
 /// | 1462..1590 | `ID3v1` |
 ///
 /// The APE items are `Title` (17 octets), a front cover whose ten octets
-/// of value are at 1403..1413, and `Lyrics` (17 octets).
+/// of value are at 1403..1413, and `Lyrics` (17 octets). The cover's value
+/// is the file name `c.png`, a zero octet and four octets of picture.
 fn tagged() -> Vec<u8> {
     let mut file = leading_tag();
     file.extend(mpa::stream(&[stereo(), stereo(), stereo()]));
@@ -173,7 +174,7 @@ fn tagged_probed() -> Probed {
             trim: None,
             artwork: vec![
                 artwork(0, PictureType::FrontCover, 4),
-                artwork(1, PictureType::FrontCover, 10),
+                artwork(1, PictureType::FrontCover, 4),
             ],
             lyrics: vec![
                 lyrics(LyricsOrigin::Id3Unsynced, LyricsTiming::Line),
@@ -272,6 +273,46 @@ fn skips_an_ape_tag_larger_than_a_tag_may_be_in_memory() {
     assert_eq!(run_under(&tagged(), Some("mp3"), limits), Ok(expected));
     // At 262 octets the tag is read.
     let limits = lowered(LimitKind::Id3v2TagBytes, 262);
+    assert_eq!(
+        run_under(&tagged(), Some("mp3"), limits),
+        Ok(tagged_probed())
+    );
+}
+
+/// The APE tag of [`tagged`] starts before the 160 octets read from the
+/// end of the file, so it is read again from its start: 262 octets, after
+/// the 4,797 read until then. Under a file cap of 5,058 that read is
+/// refused. The `ID3v1` tag was in the octets read first, so it is kept
+/// and the audio window ends where it starts. The APE tag, its cover and
+/// its lyrics are left out, and the refused read is recorded.
+///
+/// Verifies: SEC-MED-010, SEC-MED-017
+#[test]
+fn keeps_the_id3v1_tag_when_the_read_of_the_ape_tag_before_it_is_refused() {
+    let mut expected = tagged_probed();
+    expected.tags.remove(1);
+    expected.facts.artwork.truncate(1);
+    expected.facts.lyrics.truncate(1);
+    // 1,385 octets in 78 milliseconds.
+    expected.facts.tech = tech(
+        Codec::Mp3,
+        Container::Mpeg,
+        (44_100, None, 2),
+        Some(142_051),
+        Some(78),
+    );
+    expected.facts.identity.audio_window = range(77, 1_462);
+    expected.facts.bytes_read = 4_797;
+    expected.problems = vec![PartProblem::Read(DriveError::OverFileCap {
+        offset: 1_328,
+        len: 262,
+        read: 4_797,
+        max: 5_058,
+    })];
+    let limits = lowered(LimitKind::FileBytes, 5_058);
+    assert_eq!(run_under(&tagged(), Some("mp3"), limits), Ok(expected));
+    // Under a cap of 5,059 the tag is read.
+    let limits = lowered(LimitKind::FileBytes, 5_059);
     assert_eq!(
         run_under(&tagged(), Some("mp3"), limits),
         Ok(tagged_probed())
@@ -658,7 +699,9 @@ fn takes_ape_pictures_and_lyrics_by_key_and_kind() {
             problems: vec![],
         })]
     );
-    assert_eq!(artwork_found, [artwork(0, PictureType::BackCover, 4)]);
+    // The cover's four octets are the file name `b`, a zero octet and two
+    // octets of picture.
+    assert_eq!(artwork_found, [artwork(0, PictureType::BackCover, 2)]);
     assert_eq!(
         lyrics_found,
         [lyrics(LyricsOrigin::ApeItem, LyricsTiming::Line)]
@@ -667,11 +710,45 @@ fn takes_ape_pictures_and_lyrics_by_key_and_kind() {
     assert_eq!(problems, []);
 }
 
+/// A cover's value is a file name, a zero octet and the picture, and the
+/// size of the artwork is the picture's alone: three octets after
+/// `front.jpg`, and four after a name of no octets. A value with no zero
+/// octet has no file name, so its two octets are all picture. Only the
+/// first zero octet ends the name: the five octets after it are the
+/// picture, though the first of them is zero.
+#[test]
+fn sizes_an_ape_cover_by_its_picture_without_the_file_name() {
+    let tag = Ape::new()
+        .without_header()
+        .item(
+            b"Cover Art (Front)",
+            ape::BINARY,
+            b"front.jpg\0\xFF\xD8\xFF",
+        )
+        .item(b"Cover Art (Back)", ape::BINARY, b"\0\x89PNG")
+        .item(b"Cover Art (Front)", ape::BINARY, b"\xFF\xD8")
+        .item(b"Cover Art (Back)", ape::BINARY, b"a\0\0bcde")
+        .build();
+    let file = [small(), tag].concat();
+    let (_, found, _, _, problems) = tags_of(&file, Limits::DEFAULT);
+    assert_eq!(
+        found,
+        [
+            artwork(0, PictureType::FrontCover, 3),
+            artwork(1, PictureType::BackCover, 4),
+            artwork(2, PictureType::FrontCover, 2),
+            artwork(3, PictureType::BackCover, 5),
+        ]
+    );
+    assert_eq!(problems, []);
+}
+
 /// A file holds at most 16 pictures, whichever tags they are in. The
 /// pictures of the leading tag, four octets each, come first and the APE
-/// tag's covers after them: a front cover of ten octets, then a back cover
-/// of four. The sixteenth picture found is kept. Those after it are left
-/// out, and how many were found is recorded against the limit.
+/// tag's covers after them: a front cover of four octets after its file
+/// name, then a back cover of two. The sixteenth picture found is kept.
+/// Those after it are left out, and how many were found is recorded
+/// against the limit.
 ///
 /// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
 #[test]
@@ -712,15 +789,126 @@ fn keeps_sixteen_pictures_of_an_mp3_file_across_its_tags() {
     };
     // 14 frames and both covers are 16 pictures.
     let mut sixteen = in_frames(14);
-    sixteen.push(artwork(14, PictureType::FrontCover, 10));
-    sixteen.push(artwork(15, PictureType::BackCover, 4));
+    sixteen.push(artwork(14, PictureType::FrontCover, 4));
+    sixteen.push(artwork(15, PictureType::BackCover, 2));
     assert_eq!(found_with(14), (sixteen, vec![]));
     // With 15 frames the back cover is the seventeenth.
     let mut sixteen = in_frames(15);
-    sixteen.push(artwork(15, PictureType::FrontCover, 10));
+    sixteen.push(artwork(15, PictureType::FrontCover, 4));
     assert_eq!(found_with(15), (sixteen, over(17)));
     // With 16 frames neither cover is kept.
     assert_eq!(found_with(16), (in_frames(16), over(18)));
+}
+
+/// The tag-field limit is the file's, so the frames of every tag count
+/// together. A tag of one frame comes first here, then [`leading_tag`]
+/// with its three, at 23. Under a limit of four fields all are kept. Under
+/// a limit of three the fourth, the picture of the second tag, is left
+/// out, so the file has no artwork, and the four that were found are
+/// recorded against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_the_tag_fields_of_two_leading_tags_up_to_the_limit() {
+    let first = Tag::new(Version::V23)
+        .frame(b"TIT2", 0, &id3v2::text(Encoding::Latin1, &["Yo"]))
+        .build();
+    let file = [first, leading_tag(), small()].concat();
+    let first_read = TagBlock::Id3v2 {
+        offset: 0,
+        tag: Id3v2Tag {
+            header: Header {
+                major: 3,
+                revision: 0,
+                flags: 0,
+                size: 13,
+                len: 23,
+            },
+            extended: None,
+            frames: vec![TagFrame {
+                id: FrameId::Four(*b"TIT2"),
+                offset: 10,
+                flags: 0,
+                body: FrameBody::Text(vec![text("Yo")]),
+            }],
+            problems: vec![],
+        },
+    };
+    let second_read = |frames| {
+        let mut tag = leading_tag_read();
+        tag.frames.truncate(frames);
+        TagBlock::Id3v2 { offset: 23, tag }
+    };
+    let words = vec![lyrics(LyricsOrigin::Id3Unsynced, LyricsTiming::Line)];
+    let found_under = |max| {
+        let limits = lowered(LimitKind::TagFields, max);
+        let (tags, pictures, sources, _, problems) = tags_of(&file, limits);
+        (tags, pictures, sources, problems)
+    };
+    assert_eq!(
+        found_under(4),
+        (
+            vec![first_read.clone(), second_read(3)],
+            vec![artwork(0, PictureType::FrontCover, 4)],
+            words.clone(),
+            vec![]
+        )
+    );
+    assert_eq!(
+        found_under(3),
+        (
+            vec![first_read, second_read(2)],
+            vec![],
+            words,
+            vec![PartProblem::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::TagFields,
+                value: 4,
+                max: 3,
+                offset: 0,
+            })]
+        )
+    );
+}
+
+/// The frames of the leading tag and the items of the APE tag count
+/// together too: three and three in [`tagged`], whose `ID3v1` tag adds
+/// none. Under a limit of six fields every one is kept. Under a limit of
+/// five the sixth, the lyrics of the APE tag, is left out, so the file
+/// has one source of lyrics, and the six that were found are recorded
+/// against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_the_tag_fields_of_an_mp3_file_up_to_the_limit_across_its_tags() {
+    let limits = lowered(LimitKind::TagFields, 6);
+    assert_eq!(
+        run_under(&tagged(), Some("mp3"), limits),
+        Ok(tagged_probed())
+    );
+    let mut expected = tagged_probed();
+    expected.tags[1] = TagBlock::Ape(ApeTag {
+        range: 1_328..1_462,
+        items: vec![
+            ApeItem {
+                key: "Title".to_owned(),
+                value: ApeValue::Text(vec![text("Ape")]),
+            },
+            ApeItem {
+                key: "Cover Art (Front)".to_owned(),
+                value: ApeValue::Binary(1_403..1_413),
+            },
+        ],
+        problems: vec![],
+    });
+    expected.facts.lyrics.truncate(1);
+    expected.problems = vec![PartProblem::Fault(ParseFault::LimitExceeded {
+        limit: LimitKind::TagFields,
+        value: 6,
+        max: 5,
+        offset: 0,
+    })];
+    let limits = lowered(LimitKind::TagFields, 5);
+    assert_eq!(run_under(&tagged(), Some("mp3"), limits), Ok(expected));
 }
 
 /// A footer of version 3000 is no APE tag this parser reads. The footer
