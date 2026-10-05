@@ -125,6 +125,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the test of the one method that exposes a secret (SEC-OPS-013, WP-047)",
     },
     Exception {
+        path: "crates/gunmetal-testkit/src/library.rs",
+        lint: LINTS[1],
+        reason: "the synthetic library is written into a test's scratch directory (owner decision 33, WP-119)",
+    },
+    Exception {
         path: "crates/gunmetal-testkit/src/tempdir.rs",
         lint: LINTS[1],
         reason: "test scratch directories (owner decision 33, WP-007)",
