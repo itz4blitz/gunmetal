@@ -147,7 +147,7 @@ mod tests {
     use super::{ConfineError, Step, confine, confine_with};
     use crate::sandbox::kernel::Kernel;
     use crate::sandbox::limits::{Limit, Profile};
-    use crate::sandbox::tier::{Enforced, Tier, TierReport};
+    use crate::sandbox::tier::{Enforced, Landlock, Tier, TierReport};
     use std::io;
 
     /// A kernel that plays a script: each method records its call and
@@ -159,7 +159,7 @@ mod tests {
         undumpable: Result<(), i32>,
         descriptors: Result<Vec<u32>, i32>,
         no_new_privs: Result<(), i32>,
-        landlock: bool,
+        landlock: Landlock,
         seccomp: bool,
         calls: Vec<&'static str>,
         limits: Vec<Limit>,
@@ -173,7 +173,7 @@ mod tests {
                 undumpable: Ok(()),
                 descriptors: Ok(vec![0, 1, 2]),
                 no_new_privs: Ok(()),
-                landlock: true,
+                landlock: Landlock::Full,
                 seccomp: true,
                 calls: Vec::new(),
                 limits: Vec::new(),
@@ -217,7 +217,7 @@ mod tests {
             Self::result(self.no_new_privs)
         }
 
-        fn landlock(&mut self) -> bool {
+        fn landlock(&mut self) -> Landlock {
             self.calls.push("landlock");
             self.landlock
         }
@@ -265,7 +265,7 @@ mod tests {
                 limits: true,
                 no_new_privs: true,
                 seccomp: true,
-                landlock: true,
+                landlock: Landlock::Full,
                 namespaces: false,
             })
         );
@@ -356,7 +356,9 @@ mod tests {
 
     /// A kernel or an architecture without seccomp or Landlock, 32-bit ARM
     /// among them, leaves the worker at the floor, and the report names
-    /// what is missing.
+    /// what is missing. A kernel whose Landlock enforces only part of the
+    /// ruleset is named too, in its own words: what it reports is carried
+    /// into the worker's report as it is.
     ///
     /// Verifies: SEC-MED-024
     #[test]
@@ -366,15 +368,15 @@ mod tests {
             limits: true,
             no_new_privs: true,
             seccomp: false,
-            landlock: false,
+            landlock: Landlock::Missing,
             namespaces: false,
         };
         let cases = [
             (
                 false,
-                true,
+                Landlock::Full,
                 Enforced {
-                    landlock: true,
+                    landlock: Landlock::Full,
                     ..floor
                 },
                 "Reduced isolation: media workers run without system call filtering (seccomp) \
@@ -383,7 +385,7 @@ mod tests {
             ),
             (
                 true,
-                false,
+                Landlock::Missing,
                 Enforced {
                     seccomp: true,
                     ..floor
@@ -393,10 +395,33 @@ mod tests {
             ),
             (
                 false,
-                false,
+                Landlock::Missing,
                 floor,
                 "Reduced isolation: media workers run without system call filtering (seccomp), \
                  Landlock and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                true,
+                Landlock::Partial,
+                Enforced {
+                    seccomp: true,
+                    landlock: Landlock::Partial,
+                    ..floor
+                },
+                "Reduced isolation: media workers run without full Landlock \
+                 (this kernel enforces only some of its rules) and namespaces. \
+                 They still run in a separate process with resource limits and no new privileges.",
+            ),
+            (
+                false,
+                Landlock::Partial,
+                Enforced {
+                    landlock: Landlock::Partial,
+                    ..floor
+                },
+                "Reduced isolation: media workers run without system call filtering (seccomp), \
+                 full Landlock (this kernel enforces only some of its rules) and namespaces. \
                  They still run in a separate process with resource limits and no new privileges.",
             ),
         ];

@@ -517,28 +517,42 @@ fn limit(limits: &str, label: &str) -> Vec<String> {
 
 /// Namespaces are never created, so the tier is always the reduced one;
 /// the notice names them and whichever of seccomp and Landlock this
-/// kernel lacks.
+/// kernel lacks. A kernel whose Landlock is older than the signal scopes
+/// (the newest rules the worker asks for) enforces the ruleset in part,
+/// and the notice says that in its own words.
 ///
 /// Verifies: SEC-MED-024
 fn self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing(host: &Host) {
-    let notice = match (host.seccomp, host.landlock) {
-        (true, true) => {
+    let notice = match (host.seccomp, host.landlock, host.landlock_signals) {
+        (true, true, true) => {
             "Reduced isolation: media workers run without namespaces. \
              They still run in a separate process with resource limits \
              and no new privileges."
         }
-        (true, false) => {
+        (true, true, false) => {
+            "Reduced isolation: media workers run without full Landlock \
+             (this kernel enforces only some of its rules) and namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+        (true, false, _) => {
             "Reduced isolation: media workers run without Landlock and namespaces. \
              They still run in a separate process with resource limits \
              and no new privileges."
         }
-        (false, true) => {
+        (false, true, true) => {
             "Reduced isolation: media workers run without system call filtering (seccomp) \
              and namespaces. \
              They still run in a separate process with resource limits \
              and no new privileges."
         }
-        (false, false) => {
+        (false, true, false) => {
+            "Reduced isolation: media workers run without system call filtering (seccomp), \
+             full Landlock (this kernel enforces only some of its rules) and namespaces. \
+             They still run in a separate process with resource limits \
+             and no new privileges."
+        }
+        (false, false, _) => {
             "Reduced isolation: media workers run without system call filtering (seccomp), \
              Landlock and namespaces. \
              They still run in a separate process with resource limits \

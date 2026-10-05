@@ -11,7 +11,6 @@ use axum::body::Body;
 use axum::http::{HeaderValue, Request};
 use gunmetal_http::call::{Call, Reply};
 use gunmetal_http::client::{TestClient, TestResponse};
-use gunmetal_http::credential::Credential;
 use gunmetal_http::pipeline::{AccessRecord, router};
 use gunmetal_http::problem::RequestId;
 use gunmetal_http::request::{Fields, NoQuery};
@@ -19,9 +18,9 @@ use gunmetal_http::route::{Access, BodyRule, Effect, JsonLimits, Method, RateCla
 use gunmetal_http::table::{RouteEntry, Table, TableError};
 use proptest::prelude::*;
 use support::{
-    AUDIT, HOST, INTERNAL, JSON, NOT_ALLOWED, ORIGIN, PUBLIC, Peer, Seen, TOO_LARGE, UNKNOWN_HOST,
-    UNSUPPORTED, bearer, client, client_with, cross_site, empty, entries, get, headers, hooks,
-    invalid, json, misplaced, not_found, problem, record, request, spec,
+    AUDIT, HOST, INTERNAL, JSON, NOT_ALLOWED, ORIGIN, PUBLIC, Peer, Seen, Sent, TOO_LARGE,
+    UNKNOWN_HOST, UNSUPPORTED, bearer, client, client_with, cross_site, empty, entries, get,
+    headers, hooks, invalid, json, misplaced, not_found, problem, record, request, spec,
 };
 
 fn send_all(client: &TestClient, requests: Vec<Request<Body>>) -> Vec<TestResponse> {
@@ -31,12 +30,10 @@ fn send_all(client: &TestClient, requests: Vec<Request<Body>>) -> Vec<TestRespon
 fn credentials(seen: &Seen) -> Vec<(&'static str, Option<Vec<u8>>)> {
     seen.accessed()
         .into_iter()
-        .map(|(path, credential, _)| {
-            let bytes = match credential {
-                Credential::None => None,
-                Credential::Cookie(token) | Credential::Header(token) => {
-                    Some(token.as_bytes().to_vec())
-                }
+        .map(|(path, sent, _)| {
+            let bytes = match sent {
+                Sent::None => None,
+                Sent::Cookie(bytes) | Sent::Header(bytes) => Some(bytes),
             };
             (path, bytes)
         })
@@ -854,13 +851,32 @@ fn takes_the_acting_principal_only_from_the_credential() {
         bearer("GET", "/api/v1/tracks?user_id=usr_b", &[], ""),
         bearer("GET", "/api/v1/tracks?Profile=prf_b", &[], ""),
         bearer("GET", "/api/v1/me?household=h", &[], ""),
-        // The notes route's types declare `owner` and `user_id`, so only
-        // the principal check refuses these two.
+        // No route may declare `owner` or `user_id` any more (the table
+        // refuses one that does), so these two name a field the notes
+        // route does not take as well as a principal.
         bearer("POST", "/api/v1/notes", &[JSON], r#"{"owner":"usr_b"}"#),
         bearer("POST", "/api/v1/notes?user_id=usr_b", &[JSON], "{}"),
+        // The notes body declares `extra` and takes any object of strings
+        // in it, so only the principal check refuses this one.
+        bearer(
+            "POST",
+            "/api/v1/notes",
+            &[JSON],
+            r#"{"extra":{"owner":"usr_b"}}"#,
+        ),
     ];
-    let expected: Vec<TestResponse> = (0..9).map(invalid).collect();
+    let expected: Vec<TestResponse> = (0..10).map(invalid).collect();
     assert_eq!(send_all(&client, requests), expected);
+    // The same body with a key that names no principal is accepted.
+    assert_eq!(
+        client.send(bearer(
+            "POST",
+            "/api/v1/notes",
+            &[JSON],
+            r#"{"extra":{"colour":"red"}}"#
+        )),
+        empty()
+    );
     // An admin route that acts on other principals may name one.
     assert_eq!(
         client.send(bearer(

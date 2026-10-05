@@ -63,6 +63,7 @@ Cargo.lock @itz4blitz
 
 # Server authentication, the policy layer, the listener and the public-route
 # allow-list. Paths are listed before the packages that create them.
+/crates/gunmetal-http/ @itz4blitz
 /crates/gunmetal-server/src/listener.rs @itz4blitz
 /crates/gunmetal-server/src/routes.rs @itz4blitz
 /crates/gunmetal-server/security/ @itz4blitz
