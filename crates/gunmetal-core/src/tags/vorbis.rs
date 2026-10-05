@@ -2639,7 +2639,7 @@ mod tests {
     #[test]
     fn lyrics_the_comment_parser_cut_at_the_default_limit_are_recorded() {
         // 4,096 lines of 16 octets: 65,536 octets, the default limit.
-        let at_limit = "fifteen letters\n".repeat(4_096);
+        let at_limit: String = (0..4_096).map(|_| "fifteen letters\n").collect();
         let past = format!("{at_limit}x");
         assert_eq!(
             parsed(&[("LYRICS", at_limit.as_str())], &Limits::DEFAULT),
