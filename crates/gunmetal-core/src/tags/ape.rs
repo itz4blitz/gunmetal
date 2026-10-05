@@ -110,11 +110,12 @@ mod tests {
         Credit, Gain, GainScale, GainTags, LyricsSource, LyricsTiming, MbIds, PrimaryType,
         ReleaseType, SecondaryType, TagLyrics, TrackPosition, TrackTags,
     };
-    use crate::formats::ape::ApeItem;
-    use crate::parse::LimitKind;
+    use crate::formats::ape::{ApeItem, parse_ape};
+    use crate::parse::{LimitKind, Window};
     use crate::text::Text;
     use crate::untrusted::Untrusted;
     use crate::values::{GainDb, Isrc, Mbid, PartialDate, PeakRatio};
+    use gunmetal_testkit::ape::Ape;
     use proptest::collection::vec;
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -591,6 +592,154 @@ mod tests {
     #[test]
     fn an_empty_tag_maps_to_no_tags() {
         assert_eq!(map(Vec::new()), mapped(TrackTags::default(), Vec::new()));
+    }
+
+    /// The default limits with the short-text and long-text limits set.
+    fn text_limits(short: u64, long: u64) -> Limits {
+        Limits::DEFAULT
+            .with_override(LimitKind::ShortText, short)
+            .and_then(|limits| limits.with_override(LimitKind::LongText, long))
+            .expect("the test lowers both limits")
+    }
+
+    /// Maps what the APE parser reads from a file that is `ape` and nothing
+    /// else, with the parser and the mapper under the same `limits`.
+    fn parsed(ape: &Ape, limits: &Limits) -> Mapped<ItemIndex> {
+        let bytes = ape.build();
+        let window = Window {
+            offset: 0,
+            bytes: &bytes,
+            file_len: u64::try_from(bytes.len()).expect("the tag is short"),
+        };
+        let read = parse_ape(window, limits, &mut Budget::for_input(0, 0, 1_000))
+            .expect("the tag is sound")
+            .expect("the file ends with a tag");
+        from_ape(&read, limits, &mut Budget::for_input(0, 0, 1_000))
+    }
+
+    /// The problem of a value for `field` in the item at `index` that was
+    /// cut to `limit`.
+    fn cut(field: TagField, index: usize, limit: LimitKind) -> TagProblem<ItemIndex> {
+        TagProblem::Value {
+            field,
+            source: ItemIndex(index),
+            reason: Reason::Truncated(limit),
+        }
+    }
+
+    /// The parser cuts every text value at the long-text limit before the
+    /// mapper sees it. A value of exactly the limit is whole; one octet
+    /// more is cut, and the cut is recorded once for that value.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_so_when_the_parser_cut_a_value_at_the_long_text_limit() {
+        let limits = text_limits(8, 6);
+        let ape = Ape::new()
+            .text("Title", "abcdef")
+            .text("Album", "abcdefg")
+            .text("Lyrics", "abcdef")
+            .text("Lyrics", "abcdefg")
+            .item(b"Artist", 0, b"abcdef\0abcdefg");
+        let lyrics = TagField::Lyrics(LyricsOrigin::ApeItem);
+        let lines = || TagLyrics {
+            source: LyricsSource::new(LyricsOrigin::ApeItem, LyricsTiming::Plain)
+                .expect("the lyrics are not from a SYLT frame"),
+            text: String::from("abcdef"),
+        };
+        assert_eq!(
+            parsed(&ape, &limits),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("abcdef")),
+                    artist: strings(&["abcdef", "abcdef"]),
+                    album: Some(String::from("abcdef")),
+                    lyrics: vec![lines(), lines()],
+                    ..TrackTags::default()
+                },
+                sources: vec![
+                    (TagField::Title, ItemIndex(0)),
+                    (TagField::Album, ItemIndex(1)),
+                    (lyrics, ItemIndex(2)),
+                    (lyrics, ItemIndex(3)),
+                    (TagField::Artist, ItemIndex(4)),
+                ],
+                problems: vec![
+                    cut(TagField::Album, 1, LimitKind::LongText),
+                    cut(lyrics, 3, LimitKind::LongText),
+                    cut(TagField::Artist, 4, LimitKind::LongText),
+                ],
+            }
+        );
+    }
+
+    /// The field rules cut what the parser left at the short-text limit,
+    /// unless it is lyrics. A value that breaches both limits records both,
+    /// the parser's cut first.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_which_limits_cut_a_value() {
+        let limits = text_limits(4, 6);
+        let ape = Ape::new()
+            .text("Title", "abcd")
+            .text("Album", "abcdef")
+            .text("Genre", "abcdefg");
+        assert_eq!(
+            parsed(&ape, &limits),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("abcd")),
+                    album: Some(String::from("abcd")),
+                    genres: strings(&["abcd"]),
+                    ..TrackTags::default()
+                },
+                sources: vec![
+                    (TagField::Title, ItemIndex(0)),
+                    (TagField::Album, ItemIndex(1)),
+                    (TagField::Genres, ItemIndex(2)),
+                ],
+                problems: vec![
+                    cut(TagField::Album, 1, LimitKind::ShortText),
+                    cut(TagField::Genres, 2, LimitKind::LongText),
+                    cut(TagField::Genres, 2, LimitKind::ShortText),
+                ],
+            }
+        );
+    }
+
+    /// The parser's cut is recorded whatever becomes of what was left: a
+    /// date that is no date, and a title that is blank. The reason the rest
+    /// was dropped follows the cut.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_the_parser_cut_a_value_that_is_then_dropped() {
+        use crate::values::{Field, ValueError};
+        let limits = text_limits(8, 4);
+        let ape = Ape::new()
+            .text("Year", "soon")
+            .text("Year", "sooner")
+            .text("Title", "    ")
+            .text("Title", "    x");
+        let not_a_date = |index| TagProblem::Value {
+            field: TagField::Date,
+            source: ItemIndex(index),
+            reason: Reason::Invalid(ValueError::Malformed { field: Field::Year }),
+        };
+        assert_eq!(
+            parsed(&ape, &limits),
+            Mapped {
+                tags: TrackTags::default(),
+                sources: Vec::new(),
+                problems: vec![
+                    not_a_date(0),
+                    cut(TagField::Date, 1, LimitKind::LongText),
+                    not_a_date(1),
+                    cut(TagField::Title, 3, LimitKind::LongText),
+                ],
+            }
+        );
     }
 
     proptest! {

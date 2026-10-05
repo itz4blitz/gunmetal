@@ -957,8 +957,10 @@ fn genre(number: u64) -> Option<String> {
 mod tests {
     use super::*;
     use crate::catalog::MbIds;
-    use crate::formats::mp4::{FourCc, PictureRef};
+    use crate::formats::mp4::{FourCc, PictureRef, Probe};
+    use crate::parse::drive;
     use crate::text::Text;
+    use gunmetal_testkit::mp4 as kit;
     use proptest::collection::vec;
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -2421,6 +2423,236 @@ mod tests {
     #[test]
     fn an_empty_list_maps_to_no_tags() {
         assert_eq!(map(&[]), mapped(TrackTags::default(), Vec::new()));
+    }
+
+    /// A whole MP4 file whose item list is `items`: a file type box, then a
+    /// movie that holds one AAC track, because the probe returns nothing
+    /// for a file without an audio track, and the list in `udta`.
+    fn file(items: &[u8]) -> Vec<u8> {
+        let esds = kit::esds(&kit::Esds {
+            object_type: 0x40,
+            max_bitrate: 128_000,
+            avg_bitrate: 96_000,
+            specific: Some(&kit::audio_specific_config(2, 4, 2)),
+            width: 4,
+        });
+        let entry = kit::sample_entry(&kit::SampleEntry {
+            format: *b"mp4a",
+            version: 0,
+            channels: 2,
+            bits: 16,
+            rate: 44_100,
+            children: &esds,
+        });
+        let tables = [
+            kit::stsd(&[&entry]),
+            kit::full_box(*b"stts", 0, 0, &[0, 0, 0, 1, 0, 0, 0, 10, 0, 0, 4, 0]),
+            kit::full_box(
+                *b"stsc",
+                0,
+                0,
+                &[0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 10, 0, 0, 0, 1],
+            ),
+            kit::full_box(*b"stsz", 0, 0, &[0, 0, 0, 16, 0, 0, 0, 10]),
+            kit::full_box(*b"stco", 0, 0, &[0, 0, 0, 1, 0, 0, 0, 0]),
+        ]
+        .concat();
+        let track = kit::trak(*b"soun", &kit::mdhd(44_100, 441_000), &tables);
+        let movie = kit::mp4_box(*b"moov", &[track, kit::udta(false, items)].concat());
+        [
+            kit::ftyp(*b"M4A ", 0x200, &[*b"M4A ", *b"mp42", *b"isom"]),
+            movie,
+        ]
+        .concat()
+    }
+
+    /// Maps the items the MP4 probe reads from a file whose item list is
+    /// `items`, with the probe and the mapper under the same `limits`.
+    fn probed(items: &[u8], limits: &Limits) -> Mapped<ItemIndex> {
+        let octets = file(items);
+        let probe = Probe::new(*limits, Budget::for_input(0, 0, 100_000));
+        let audio = drive(probe, &octets, limits)
+            .expect("the probe asks only for what the host allows")
+            .expect("the file is a sound MP4 file");
+        from_ilst(&audio.items, limits, &mut Budget::for_input(0, 0, 1_000))
+    }
+
+    /// An item of type `kind` as a file holds it, with one UTF-8 value.
+    fn utf8_item(kind: [u8; 4], value: &[u8]) -> Vec<u8> {
+        kit::mp4_box(kind, &kit::data(1, value))
+    }
+
+    /// A freeform `MOOD` item as a file holds it, with one UTF-8 value.
+    fn mood_item(value: &[u8]) -> Vec<u8> {
+        kit::freeform(None, Some("MOOD"), &[kit::data(1, value)])
+    }
+
+    /// The parser cuts an atom's text before the mapper sees it: at the
+    /// short-text limit, or at the long-text limit for lyrics. A value of
+    /// exactly the limit is whole; one octet more is cut, and the cut is
+    /// recorded once for that value.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_so_when_the_parser_cut_an_atom_at_its_text_limit() {
+        let limits = lowered(&[(LimitKind::ShortText, 4), (LimitKind::LongText, 6)]);
+        let artists = [kit::data(1, b"abcd"), kit::data(1, b"abcde")].concat();
+        let items = [
+            utf8_item(*b"\xA9nam", b"abcd"),
+            utf8_item(*b"\xA9alb", b"abcde"),
+            utf8_item(*b"\xA9lyr", b"abcdef"),
+            utf8_item(*b"\xA9lyr", b"abcdefg"),
+            kit::mp4_box(*b"\xA9ART", &artists),
+        ]
+        .concat();
+        let lyrics = TagField::Lyrics(LyricsOrigin::Mp4Item);
+        assert_eq!(
+            probed(&items, &limits),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("abcd")),
+                    artist: strings(&["abcd", "abcd"]),
+                    album: Some(String::from("abcd")),
+                    lyrics: vec![
+                        plain_lyrics(LyricsOrigin::Mp4Item, "abcdef"),
+                        plain_lyrics(LyricsOrigin::Mp4Item, "abcdef"),
+                    ],
+                    ..TrackTags::default()
+                },
+                sources: vec![
+                    (TagField::Title, ItemIndex(0)),
+                    (TagField::Album, ItemIndex(1)),
+                    (lyrics, ItemIndex(2)),
+                    (lyrics, ItemIndex(3)),
+                    (TagField::Artist, ItemIndex(4)),
+                ],
+                problems: vec![
+                    problem(
+                        TagField::Album,
+                        ItemIndex(1),
+                        Reason::Truncated(LimitKind::ShortText)
+                    ),
+                    problem(lyrics, ItemIndex(3), Reason::Truncated(LimitKind::LongText)),
+                    problem(
+                        TagField::Artist,
+                        ItemIndex(4),
+                        Reason::Truncated(LimitKind::ShortText)
+                    ),
+                ],
+            }
+        );
+    }
+
+    /// The parser cuts a freeform value at the long-text limit, and the
+    /// field rules then cut a mood at the short-text limit. A value that
+    /// breaches both records both, the parser's cut first.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_which_limits_cut_a_freeform_value() {
+        let limits = lowered(&[(LimitKind::ShortText, 4), (LimitKind::LongText, 6)]);
+        let items = [
+            mood_item(b"abcd"),
+            mood_item(b"abcdef"),
+            mood_item(b"abcdefg"),
+        ]
+        .concat();
+        assert_eq!(
+            probed(&items, &limits),
+            Mapped {
+                tags: TrackTags {
+                    moods: strings(&["abcd", "abcd", "abcd"]),
+                    ..TrackTags::default()
+                },
+                sources: vec![
+                    (TagField::Moods, ItemIndex(0)),
+                    (TagField::Moods, ItemIndex(1)),
+                    (TagField::Moods, ItemIndex(2)),
+                ],
+                problems: vec![
+                    problem(
+                        TagField::Moods,
+                        ItemIndex(1),
+                        Reason::Truncated(LimitKind::ShortText)
+                    ),
+                    problem(
+                        TagField::Moods,
+                        ItemIndex(2),
+                        Reason::Truncated(LimitKind::LongText)
+                    ),
+                    problem(
+                        TagField::Moods,
+                        ItemIndex(2),
+                        Reason::Truncated(LimitKind::ShortText)
+                    ),
+                ],
+            }
+        );
+    }
+
+    /// With the long-text limit below the short-text one, only the parser
+    /// cuts a freeform value, and the problem names the parser's limit.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn names_the_parsers_limit_when_only_the_parser_cut_a_freeform_value() {
+        let limits = lowered(&[(LimitKind::ShortText, 8), (LimitKind::LongText, 6)]);
+        let items = [mood_item(b"abcdef"), mood_item(b"abcdefg")].concat();
+        assert_eq!(
+            probed(&items, &limits),
+            Mapped {
+                tags: TrackTags {
+                    moods: strings(&["abcdef", "abcdef"]),
+                    ..TrackTags::default()
+                },
+                sources: vec![
+                    (TagField::Moods, ItemIndex(0)),
+                    (TagField::Moods, ItemIndex(1)),
+                ],
+                problems: vec![problem(
+                    TagField::Moods,
+                    ItemIndex(1),
+                    Reason::Truncated(LimitKind::LongText)
+                )],
+            }
+        );
+    }
+
+    /// The parser's cut is recorded whatever becomes of what was left: a
+    /// date that is no date, text where `trkn` holds a number, and a title
+    /// that is blank. The reason the rest was dropped follows the cut.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn says_the_parser_cut_a_value_that_is_then_dropped() {
+        let limits = lowered(&[(LimitKind::ShortText, 4)]);
+        let items = [
+            utf8_item(*b"\xA9day", b"soon"),
+            utf8_item(*b"\xA9day", b"sooner"),
+            utf8_item(*b"trkn", b"abcd"),
+            utf8_item(*b"trkn", b"abcde"),
+            utf8_item(*b"\xA9nam", b"    "),
+            utf8_item(*b"\xA9nam", b"    x"),
+        ]
+        .concat();
+        let cut = Reason::Truncated(LimitKind::ShortText);
+        let not_a_date = invalid(ValueError::Malformed { field: Field::Year });
+        assert_eq!(
+            probed(&items, &limits),
+            Mapped {
+                tags: TrackTags::default(),
+                sources: Vec::new(),
+                problems: vec![
+                    problem(TagField::Date, ItemIndex(0), not_a_date),
+                    problem(TagField::Date, ItemIndex(1), cut),
+                    problem(TagField::Date, ItemIndex(1), not_a_date),
+                    problem(TagField::Track, ItemIndex(2), Reason::Unreadable),
+                    problem(TagField::Track, ItemIndex(3), cut),
+                    problem(TagField::Track, ItemIndex(3), Reason::Unreadable),
+                    problem(TagField::Title, ItemIndex(5), cut),
+                ],
+            }
+        );
     }
 
     /// Any one item, with keys the mapper knows and keys it does not.
