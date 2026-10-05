@@ -586,7 +586,9 @@ mod tests {
         // 0: not done yet. 1: no filter. 2: installed.
         let outcome = AtomicU8::new(0);
         let seen = AtomicBool::new(false);
-        let mode = std::thread::scope(|scope| {
+        // Both waits run their step at least once, so every line here runs
+        // however the two threads are scheduled.
+        let (finished, mode) = std::thread::scope(|scope| {
             scope.spawn(|| {
                 tid.store(
                     rustix::thread::gettid().as_raw_nonzero().get(),
@@ -595,17 +597,22 @@ mod tests {
                 Linux.no_new_privs().unwrap();
                 let installed = Linux.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
-                while !seen.load(Ordering::SeqCst) {
+                let _spun = std::iter::repeat_with(|| {
                     std::hint::spin_loop();
-                }
+                    seen.load(Ordering::SeqCst)
+                })
+                .any(|done| done);
             });
-            while outcome.load(Ordering::SeqCst) == 0 {
+            let finished = std::iter::repeat_with(|| {
                 std::thread::sleep(Duration::from_millis(1));
-            }
+                outcome.load(Ordering::SeqCst)
+            })
+            .find(|&state| state != 0);
             let mode = seccomp_mode(tid.load(Ordering::SeqCst));
             seen.store(true, Ordering::SeqCst);
-            mode
+            (finished, mode)
         });
+        assert_eq!(finished, Some(2));
         assert_eq!(outcome.load(Ordering::SeqCst), 2);
         assert_eq!(mode.as_deref(), Some("2"));
         let own = rustix::thread::gettid().as_raw_nonzero().get();
