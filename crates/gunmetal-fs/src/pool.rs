@@ -154,10 +154,7 @@ impl Pool {
         .and_then(|()| {
             receiver
                 .recv_timeout(deadline)
-                .map(|value| {
-                    self.release(0);
-                    value
-                })
+                .inspect(|_| self.release(0))
                 .map_err(|error| self.gave_up(error))
         })
     }
