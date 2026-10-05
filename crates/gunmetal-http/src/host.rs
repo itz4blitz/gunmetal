@@ -376,7 +376,7 @@ mod tests {
             // Another name is admitted only when it is the configured one.
             prop_assert_eq!(
                 allowed.admit(&written(&other, spelling)),
-                Some(host(&other, HostKind::Name)).filter(|_| other == name)
+                (other == name).then_some(host(&other, HostKind::Name))
             );
         }
 
