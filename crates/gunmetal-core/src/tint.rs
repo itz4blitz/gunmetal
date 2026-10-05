@@ -681,14 +681,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_degree_meets_the_design_table_floors_at_zero_half_and_full_caps() {
-        for (theme, start, cap, canvas, colours) in [
+    /// Design-language's "The guarantee" table for one theme: the theme, its
+    /// starting lightness, its chroma cap, its canvas and the tokens that sit
+    /// on a tinted surface, each with its role.
+    fn design_tables() -> [(Theme, f64, f64, Srgb, Vec<OnSurface>); 2] {
+        let roles = [
+            ContrastRole::Text,
+            ContrastRole::Text,
+            ContrastRole::Text,
+            ContrastRole::ControlOrLargeText,
+            ContrastRole::Text,
+            ContrastRole::ControlOrLargeText,
+            ContrastRole::ControlOrLargeText,
+        ];
+        [
             (
                 Theme::Dark,
                 0.26,
                 0.07,
-                hex([15, 19, 23]),
+                [15, 19, 23],
                 [
                     [233, 238, 242],
                     [176, 187, 197],
@@ -703,7 +714,7 @@ mod tests {
                 Theme::Light,
                 0.95,
                 0.04,
-                hex([243, 245, 247]),
+                [243, 245, 247],
                 [
                     [17, 22, 27],
                     [58, 69, 80],
@@ -714,35 +725,37 @@ mod tests {
                     [122, 134, 147],
                 ],
             ),
-        ] {
-            let tokens: Vec<_> = colours
+        ]
+        .map(|(theme, start, cap, canvas, colours)| {
+            let tokens = colours
                 .into_iter()
-                .zip([
-                    ContrastRole::Text,
-                    ContrastRole::Text,
-                    ContrastRole::Text,
-                    ContrastRole::ControlOrLargeText,
-                    ContrastRole::Text,
-                    ContrastRole::ControlOrLargeText,
-                    ContrastRole::ControlOrLargeText,
-                ])
+                .zip(roles)
                 .map(|(rgb, role)| OnSurface {
                     colour: hex(rgb),
                     role,
                 })
                 .collect();
-            let meets_every_floor = |surface: Srgb| {
-                tokens.iter().all(|token| {
-                    let floor = match token.role {
-                        ContrastRole::Text => 4.5,
-                        ContrastRole::ControlOrLargeText => 3.0,
-                    };
-                    contrast(surface, token.colour) >= floor
-                })
+            (theme, start, cap, hex(canvas), tokens)
+        })
+    }
+
+    /// Whether `surface` reaches every token's floor, by the WCAG oracle.
+    fn meets_every_floor(surface: Srgb, tokens: &[OnSurface]) -> bool {
+        tokens.iter().all(|token| {
+            let floor = match token.role {
+                ContrastRole::Text => 4.5,
+                ContrastRole::ControlOrLargeText => 3.0,
             };
+            contrast(surface, token.colour) >= floor
+        })
+    }
+
+    /// The table's three rows: the band at its fixed lightness with no
+    /// chroma, half the cap and the whole cap, at every degree.
+    #[test]
+    fn every_degree_meets_the_design_table_floors_at_zero_half_and_full_caps() {
+        for (theme, start, cap, _, tokens) in design_tables() {
             for hue in (0..360).map(f64::from) {
-                // The table's three rows: the band at its fixed lightness
-                // with no chroma, half the cap and the whole cap.
                 for chroma in [0.0, cap / 2.0, cap] {
                     let band = in_gamut(Oklch {
                         lightness: start,
@@ -750,44 +763,40 @@ mod tests {
                         hue,
                     });
                     assert!(
-                        meets_every_floor(band.surface),
+                        meets_every_floor(band.surface, &tokens),
                         "{theme:?}, {hue}, {chroma}"
                     );
                 }
-                // Through the public function, from the floor to far past
-                // the cap: a tint, and no step away from the start.
+            }
+        }
+    }
+
+    /// Through the public function, from the chroma floor to far past the
+    /// cap: a tint at every degree, with no step away from the start. Just
+    /// under the floor there is no tint.
+    #[test]
+    fn every_degree_tints_at_the_starting_lightness_from_the_floor_upwards() {
+        for (theme, start, _, canvas, tokens) in design_tables() {
+            for hue in (0..360).map(f64::from) {
                 for chroma in [0.04, 0.055, 0.07, 0.5] {
-                    let result = surfaces(
-                        Oklch {
-                            chroma,
-                            hue,
-                            ..BASE
-                        },
-                        theme,
-                        canvas,
-                        &tokens,
-                    )
-                    .unwrap();
+                    let base = Oklch {
+                        chroma,
+                        hue,
+                        ..BASE
+                    };
+                    let result = surfaces(base, theme, canvas, &tokens).unwrap();
                     assert_eq!(result.oklch.lightness, start, "{theme:?}, {hue}, {chroma}");
                     assert!(
-                        meets_every_floor(result.surface),
+                        meets_every_floor(result.surface, &tokens),
                         "{theme:?}, {hue}, {chroma}"
                     );
                 }
-                // Just under the floor there is no tint.
-                assert_eq!(
-                    surfaces(
-                        Oklch {
-                            chroma: 0.039,
-                            hue,
-                            ..BASE
-                        },
-                        theme,
-                        canvas,
-                        &tokens
-                    ),
-                    None
-                );
+                let under = Oklch {
+                    chroma: 0.039,
+                    hue,
+                    ..BASE
+                };
+                assert_eq!(surfaces(under, theme, canvas, &tokens), None);
             }
         }
     }
