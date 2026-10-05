@@ -72,7 +72,8 @@ pub(super) struct Posting {
 pub struct Index {
     /// Every document, in the order it was given.
     pub(super) docs: Vec<Entry>,
-    /// Every token, with its postings in ascending order of document.
+    /// Every token, with its postings: one or more, each pair of document
+    /// and place once, in ascending order of document and then of place.
     pub(super) terms: BTreeMap<String, Vec<Posting>>,
 }
 

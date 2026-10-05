@@ -26,8 +26,23 @@ pub enum Cause {
     /// `SIGABRT`: the worker aborted, which is how a failed allocation
     /// under the memory limit ends.
     Abort,
-    /// `SIGSEGV` or `SIGBUS`: the worker crashed, for example by
-    /// overflowing its stack.
+    /// `SIGSEGV` or `SIGBUS`: the worker crashed on a memory fault, for
+    /// example by reading a mapped file past the end it was truncated to.
+    ///
+    /// A worker under the seccomp filter is never reported this way. The
+    /// Rust runtime handles both signals itself, to tell a stack overflow
+    /// from any other fault. For a stack overflow it prints a message and
+    /// aborts, which is [`Cause::Abort`]. For any other fault it puts the
+    /// signal's default action back with `rt_sigaction` and returns, so
+    /// that the fault happens again and ends the process. `rt_sigaction`
+    /// is not on the allowlist (`syscalls.rs`), so the filter kills the
+    /// worker with `SIGSYS` at that call, and the server sees
+    /// [`Cause::ForbiddenCall`] for what was a crash. Only a worker without
+    /// the filter, at the reduced tier, ends as `Fault`.
+    ///
+    /// Whether to list `rt_sigaction`, so that a crash can be told from a
+    /// forbidden call, is a question for WP-079, which takes over the
+    /// allowlist.
     Fault,
     /// Any other signal, by number.
     Other(i32),

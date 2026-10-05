@@ -16,6 +16,12 @@
 //! `tgkill`, so a static or Alpine build would report an out-of-memory
 //! abort as a forbidden call; such a build needs this list and the
 //! [`Guard::AbortSelf`] guard looked at again (a note for WP-079).
+//!
+//! `rt_sigaction` is not listed. The Rust runtime calls it from its own
+//! `SIGSEGV` and `SIGBUS` handler to put the default action back before a
+//! fault that is not a stack overflow ends the process, so under this list
+//! such a fault ends as `SIGSYS` and is reported as a forbidden call, never
+//! as a fault (see `Cause::Fault` in `exit.rs`; a question for WP-079).
 
 /// When a listed call is allowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

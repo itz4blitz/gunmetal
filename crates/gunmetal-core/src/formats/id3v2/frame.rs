@@ -35,13 +35,18 @@ pub struct Frame {
 ///
 /// Every text is decoded, stripped of control characters and capped by the
 /// [`Limits`](crate::parse::Limits); a capped text says so in its
-/// `truncated` flag.
+/// `truncated` flag. The values of a tag's text, user text and involved
+/// people frames are counted together, and so are the lines of its
+/// synchronised lyrics frames: a frame may hold fewer than were written, or
+/// none, once the tag has reached a limit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameBody {
     /// A text information frame (`T***` and 2.2's `T**`): its values. A 2.4
     /// frame holds every value separated by a terminator; 2.2 and 2.3 hold
     /// one value and ignore whatever follows its terminator, as their
-    /// specifications say.
+    /// specifications say. `GRP1`, the grouping iTunes writes, and `XSOT`,
+    /// `XSOP` and `XSOA`, the sort names 2.3 tags hold, are read as text
+    /// information frames too.
     Text(Vec<Text>),
     /// A user-defined text frame (`TXXX`, `TXX`).
     UserText {
@@ -112,7 +117,9 @@ pub struct SyncedLyrics {
     pub description: Text,
     /// The lines, each with its time stamp, in the order written.
     pub lines: Vec<SyncedText>,
-    /// Whether lines past the lyrics line limit were dropped.
+    /// Whether lines of this frame were dropped because the tag had
+    /// reached the lyrics line limit, which counts the lines of all its
+    /// synchronised lyrics frames together.
     pub truncated: bool,
 }
 

@@ -13,11 +13,29 @@
 //! The values follow the field rules in [`super::mp4`]: text is cleaned and
 //! cut to its limit, lists stop at the tag-field limit (SEC-MED-006), and a
 //! number, date, identifier or gain outside its range is dropped with the
-//! reason (SEC-MED-014). The APE parser has already cut every text value to
-//! the long-text limit and flagged what it cut. A value it cut is recorded
-//! as cut to that limit before the field rules read what is left, so the
-//! cut is reported whatever becomes of the rest ("Text that was cut" in
-//! [`super::mp4`]).
+//! reason (SEC-MED-014).
+//!
+//! # Values that were cut
+//!
+//! The APE parser has already cut every text value to the long-text limit
+//! and flagged what it cut, and the field rules cut what they are given to
+//! the field's own limit. Every value that was cut is recorded once as
+//! [`Reason::Truncated`](super::mp4::Reason::Truncated) (SEC-MED-006), by
+//! the rule every tag mapper follows ("Values that were cut" in
+//! [`super::mp4`]):
+//!
+//! - A value kept as text is kept, cut, and recorded with the limit it was
+//!   last cut at: the short-text limit when the field rules cut it, whether
+//!   or not the parser had cut it first, and otherwise the long-text limit.
+//!   Lyrics are kept under the long-text limit, so theirs is always that
+//!   one.
+//! - A value read as a number, a date, a flag, a release type, a recording
+//!   code, an identifier, a gain or a peak is not read once it was cut,
+//!   because what is left is not what was written: a `Track` of `31` cut to
+//!   `3` would read as track 3. It is recorded with the long-text limit
+//!   when the parser cut it and with the short-text limit when only the
+//!   field rules did, nothing else is recorded for it, and the next value
+//!   is tried.
 //!
 //! # Work
 //!
@@ -27,7 +45,7 @@
 //! one, so a tag of `n` octets costs at most `n` steps. When the budget is
 //! spent the mapping stops and says where.
 
-use super::mp4::{Fields, ItemIndex, Mapped, Reason, TagField, lookup};
+use super::mp4::{Fields, ItemIndex, Mapped, TagField, lookup};
 use crate::catalog::{LyricsOrigin, Role};
 use crate::formats::ape::{ApeTag, ApeValue};
 use crate::parse::{Budget, LimitKind, Limits};
@@ -99,10 +117,8 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
         }
         if let Some(field) = lookup(KEYS, &item.key) {
             for value in values {
-                if value.truncated {
-                    fields.note(field, source, Reason::Truncated(LimitKind::LongText));
-                }
-                fields.set(field, &value.value, source);
+                let cut = value.truncated.then_some(LimitKind::LongText);
+                fields.set(field, &value.value, cut, source);
             }
         }
     }
@@ -111,7 +127,7 @@ pub fn from_ape(tag: &ApeTag, limits: &Limits, budget: &mut Budget) -> Mapped<It
 
 #[cfg(test)]
 mod tests {
-    use super::super::mp4::TagProblem;
+    use super::super::mp4::{Reason, TagProblem};
     use super::*;
     use crate::catalog::{
         Credit, Gain, GainScale, GainTags, LyricsSource, LyricsTiming, MbIds, PrimaryType,
@@ -681,8 +697,8 @@ mod tests {
     }
 
     /// The field rules cut what the parser left at the short-text limit,
-    /// unless it is lyrics. A value that breaches both limits records both,
-    /// the parser's cut first.
+    /// unless it is lyrics. A value that breaches both limits is one text
+    /// cut twice: it is recorded once, with the limit it was last cut at.
     ///
     /// Verifies: SEC-MED-006
     #[test]
@@ -708,16 +724,15 @@ mod tests {
                 ],
                 problems: vec![
                     cut(TagField::Album, 1, LimitKind::ShortText),
-                    cut(TagField::Genres, 2, LimitKind::LongText),
                     cut(TagField::Genres, 2, LimitKind::ShortText),
                 ],
             }
         );
     }
 
-    /// The parser's cut is recorded whatever becomes of what was left: a
-    /// date that is no date, and a title that is blank. The reason the rest
-    /// was dropped follows the cut.
+    /// The parser's cut is recorded whatever becomes of the value, and
+    /// once. A date is not read once it was cut, so no second reason
+    /// follows the cut. A title cut down to white space is left out.
     ///
     /// Verifies: SEC-MED-006
     #[test]
@@ -742,9 +757,224 @@ mod tests {
                 problems: vec![
                     not_a_date(0),
                     cut(TagField::Date, 1, LimitKind::LongText),
-                    not_a_date(1),
                     cut(TagField::Title, 3, LimitKind::LongText),
                 ],
+            }
+        );
+    }
+
+    /// What is left of a number, a date, a flag, a gain or a peak the
+    /// parser cut is not what was written. At the long-text limit exactly
+    /// each is read. One octet longer, each is cut to the text that was
+    /// read before, is recorded as cut and is not read, and the next value
+    /// is tried.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_read_a_number_a_date_a_flag_or_a_gain_the_parser_cut() {
+        let limits = text_limits(16, 8);
+        let whole = Ape::new()
+            .text("Track", "    3/12")
+            .text("Year", "    1997")
+            .text("Compilation", "       1")
+            .text("REPLAYGAIN_TRACK_GAIN", "-6.50 dB")
+            .text("REPLAYGAIN_TRACK_PEAK", "0.250000");
+        assert_eq!(
+            parsed(&whole, &limits),
+            mapped(
+                TrackTags {
+                    position: TrackPosition::new(Some(3), Some(12), None, None)
+                        .expect("the position is in range"),
+                    date: Some(day(1997, None, None)),
+                    compilation: Some(true),
+                    gain: GainTags {
+                        track: Some(replay_gain(-6.5, 0.25)),
+                        album: None,
+                    },
+                    ..TrackTags::default()
+                },
+                vec![
+                    (TagField::Track, 0),
+                    (TagField::TrackTotal, 0),
+                    (TagField::Date, 1),
+                    (TagField::Compilation, 2),
+                    (TagField::TrackGain, 3),
+                    (TagField::TrackPeak, 4),
+                ],
+            )
+        );
+        let longer = Ape::new()
+            .text("Track", "    3/120")
+            .text("Year", "    19971")
+            .text("Compilation", "       10")
+            .text("REPLAYGAIN_TRACK_GAIN", "-6.50 dB0")
+            .text("REPLAYGAIN_TRACK_PEAK", "0.2500001")
+            .text("Track", "7");
+        assert_eq!(
+            parsed(&longer, &limits),
+            Mapped {
+                tags: TrackTags {
+                    position: TrackPosition::new(Some(7), None, None, None)
+                        .expect("the position is in range"),
+                    ..TrackTags::default()
+                },
+                sources: vec![(TagField::Track, ItemIndex(5))],
+                problems: vec![
+                    cut(TagField::Track, 0, LimitKind::LongText),
+                    cut(TagField::Date, 1, LimitKind::LongText),
+                    cut(TagField::Compilation, 2, LimitKind::LongText),
+                    cut(TagField::TrackGain, 3, LimitKind::LongText),
+                    cut(TagField::TrackPeak, 4, LimitKind::LongText),
+                ],
+            }
+        );
+    }
+
+    /// A text item with one value, which the parser flagged as cut.
+    fn cut_item(key: &str, value: &str) -> ApeItem {
+        ApeItem {
+            key: key.to_owned(),
+            value: ApeValue::Text(vec![Text {
+                value: value.to_owned(),
+                truncated: true,
+                replaced: false,
+            }]),
+        }
+    }
+
+    /// Every key whose value is read as a number, a date, a flag, a
+    /// recording code, an identifier, a release type, a gain or a peak,
+    /// each with a value that is read when it is whole. Flagged as cut by
+    /// the parser, none of them is read, and each is recorded once.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_no_cut_value_under_a_key_that_is_not_kept_as_text() {
+        let typed = [
+            ("Track", "3/12", TagField::Track),
+            ("Disc", "1/2", TagField::Disc),
+            ("Year", "1959-08-17", TagField::Date),
+            ("OriginalDate", "1959-08", TagField::OriginalDate),
+            ("OriginalYear", "1960", TagField::OriginalDate),
+            ("Compilation", "1", TagField::Compilation),
+            ("ISRC", "USS1Z9900001", TagField::Isrc),
+            ("MUSICBRAINZ_TRACKID", RECORDING, TagField::RecordingMbid),
+            ("MUSICBRAINZ_RELEASETRACKID", TRACK, TagField::TrackMbid),
+            ("MUSICBRAINZ_ALBUMID", RELEASE, TagField::ReleaseMbid),
+            (
+                "MUSICBRAINZ_RELEASEGROUPID",
+                GROUP,
+                TagField::ReleaseGroupMbid,
+            ),
+            ("MUSICBRAINZ_ARTISTID", ARTIST, TagField::ArtistMbids),
+            (
+                "MUSICBRAINZ_ALBUMARTISTID",
+                ALBUM_ARTIST,
+                TagField::AlbumArtistMbids,
+            ),
+            ("MUSICBRAINZ_ALBUMTYPE", "album", TagField::ReleaseType),
+            ("ReleaseType", "live", TagField::ReleaseType),
+            ("REPLAYGAIN_TRACK_GAIN", "-6.50 dB", TagField::TrackGain),
+            ("REPLAYGAIN_TRACK_PEAK", "0.5", TagField::TrackPeak),
+            ("REPLAYGAIN_ALBUM_GAIN", "+1.25 dB", TagField::AlbumGain),
+            ("REPLAYGAIN_ALBUM_PEAK", "1.0", TagField::AlbumPeak),
+        ];
+        let items = typed
+            .iter()
+            .map(|(key, value, _)| cut_item(key, value))
+            .collect();
+        let problems = typed
+            .iter()
+            .zip(0..)
+            .map(|((_, _, field), index)| cut(*field, index, LimitKind::LongText))
+            .collect();
+        assert_eq!(
+            map(items),
+            Mapped {
+                tags: TrackTags::default(),
+                sources: Vec::new(),
+                problems,
+            }
+        );
+    }
+
+    /// Every key whose value is kept as text, each flagged as cut by the
+    /// parser: what is left is kept, and the cut is recorded once.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_a_cut_value_under_every_key_that_is_kept_as_text() {
+        let roles = [
+            ("Composer", Role::Composer),
+            ("Conductor", Role::Conductor),
+            ("Lyricist", Role::Lyricist),
+            ("MixArtist", Role::Remixer),
+            ("Producer", Role::Producer),
+            ("Arranger", Role::Arranger),
+            ("Engineer", Role::Engineer),
+            ("Mixer", Role::Mixer),
+            ("DJMixer", Role::DjMixer),
+            ("Performer", Role::Performer),
+        ];
+        let lyrics = TagField::Lyrics(LyricsOrigin::ApeItem);
+        let text = [
+            ("Title", TagField::Title),
+            ("Artist", TagField::Artist),
+            ("Album", TagField::Album),
+            ("Album Artist", TagField::AlbumArtist),
+            ("AlbumArtist", TagField::AlbumArtist),
+            ("DiscSubtitle", TagField::DiscSubtitle),
+            ("Genre", TagField::Genres),
+            ("Mood", TagField::Moods),
+            ("Label", TagField::Labels),
+            ("Grouping", TagField::Grouping),
+            ("Lyrics", lyrics),
+            ("TitleSort", TagField::TitleSort),
+            ("ArtistSort", TagField::ArtistSort),
+            ("AlbumArtistSort", TagField::AlbumArtistSort),
+            ("AlbumSort", TagField::AlbumSort),
+        ]
+        .into_iter()
+        .chain(roles.map(|(key, role)| (key, TagField::Credit(role))))
+        .collect::<Vec<_>>();
+        let items = text.iter().map(|(key, _)| cut_item(key, "Kept")).collect();
+        let kept = || Some(String::from("Kept"));
+        let one = || strings(&["Kept"]);
+        assert_eq!(
+            map(items),
+            Mapped {
+                tags: TrackTags {
+                    title: kept(),
+                    title_sort: kept(),
+                    artist: one(),
+                    artist_sort: one(),
+                    album_artist: strings(&["Kept", "Kept"]),
+                    album_artist_sort: one(),
+                    album: kept(),
+                    album_sort: kept(),
+                    disc_subtitle: kept(),
+                    genres: one(),
+                    moods: one(),
+                    labels: one(),
+                    grouping: one(),
+                    credits: roles.map(|(_, role)| credited("Kept", role, None)).to_vec(),
+                    lyrics: vec![TagLyrics {
+                        source: LyricsSource::new(LyricsOrigin::ApeItem, LyricsTiming::Plain)
+                            .expect("the lyrics are not from a SYLT frame"),
+                        text: String::from("Kept"),
+                    }],
+                    ..TrackTags::default()
+                },
+                sources: text
+                    .iter()
+                    .zip(0..)
+                    .map(|((_, field), index)| (*field, ItemIndex(index)))
+                    .collect(),
+                problems: text
+                    .iter()
+                    .zip(0..)
+                    .map(|((_, field), index)| cut(*field, index, LimitKind::LongText))
+                    .collect(),
             }
         );
     }
