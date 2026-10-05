@@ -59,6 +59,14 @@
 //! - Text the parser cut in an MP4 item that holds a number (`trkn`,
 //!   `disk`, `gnre`, `cpil`, `rtng`) is recorded with the parser's limit in
 //!   the same way, in place of [`Reason::Unreadable`].
+//! - The parser cuts the name of a freeform MP4 item at the short-text
+//!   limit, and what is left of a name is not the name that was written:
+//!   `MOODY` cut to `MOOD` would map as a mood. Such an item is not
+//!   mapped. When what is left is a name the mapper knows, each value of
+//!   the item is recorded once as [`Reason::Truncated`] with the limit the
+//!   name was cut at, against the field that name stands for, and none is
+//!   read. When it is no such name, nothing is recorded, as for any other
+//!   item the mapper does not know.
 //!
 //! The `INFO` mapper reads its values from the octets of the list itself,
 //! so no value reaches it already cut, and the field rules make the only
@@ -92,6 +100,7 @@ use crate::catalog::{
     Advisory, Credit, Gain, GainScale, GainTags, LyricsOrigin, LyricsSource, LyricsTiming,
     PrimaryType, ReleaseType, Role, SecondaryType, TagLyrics, TrackPosition, TrackTags, Trim,
 };
+use crate::formats::mp4::ilst::{NAME, text_limit};
 use crate::formats::mp4::{FourCc, IlstItem, ItemKey, ItemValue};
 use crate::parse::{Budget, Cursor, LimitKind, Limits};
 use crate::text::{self, Lines};
@@ -108,7 +117,10 @@ pub struct Mapped<S> {
     /// order read. A source that added several values to one list is named
     /// once.
     pub sources: Vec<(TagField, S)>,
-    /// The values that were dropped or cut, in the order found.
+    /// The values that were dropped or cut, in the order their values were
+    /// read. A peak dropped for want of its gain
+    /// ([`Reason::Unpaired`]) is listed where the peak was read, though
+    /// only the end of the tag shows that no gain came after it.
     pub problems: Vec<TagProblem<S>>,
 }
 
@@ -228,6 +240,9 @@ pub enum Reason {
     /// says why it was dropped. A value read as anything else, such as a
     /// number or a date, was not read: what was left of it is not what was
     /// written.
+    ///
+    /// A value of a freeform MP4 item has this reason too when the name of
+    /// its item was cut at this limit, so that the item was not mapped.
     Truncated(LimitKind),
     /// It means something only beside a value the tag did not give, such
     /// as a `ReplayGain` peak without its gain, and it was dropped.
@@ -419,6 +434,13 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
                 if self.sources.last() != Some(&(field, source)) {
                     self.sources.push((field, source));
                 }
+                // A peak means nothing without its gain, which may be read
+                // after it. So that the problems stay in the order read,
+                // the peak is listed as dropped here, where it was read,
+                // until `finish` finds its gain.
+                if matches!(field, TagField::TrackPeak | TagField::AlbumPeak) {
+                    self.note(field, source, Reason::Unpaired);
+                }
             }
             Ok(false) => {}
             Err(reason) => self.note(field, source, reason),
@@ -436,8 +458,8 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
             track: gain(self.track_gain, self.track_peak),
             album: gain(self.album_gain, self.album_peak),
         };
-        self.unless_paired(TagField::TrackPeak, self.track_gain.is_some());
-        self.unless_paired(TagField::AlbumPeak, self.album_gain.is_some());
+        self.settle_peak(TagField::TrackPeak, self.track_gain.is_some());
+        self.settle_peak(TagField::AlbumPeak, self.album_gain.is_some());
         Mapped {
             tags: self.tags,
             sources: self.sources,
@@ -445,17 +467,27 @@ impl<'a, S: Copy + PartialEq> Fields<'a, S> {
         }
     }
 
-    /// Unless `paired`, drops the source of the value `field` holds, which
-    /// means nothing alone, and records why.
-    fn unless_paired(&mut self, field: TagField, paired: bool) {
+    /// Settles the peak `field` holds, which was listed as dropped when it
+    /// was read. With its gain the peak is `paired`: it was not dropped
+    /// after all, and is no problem. Without, it stays dropped, and what it
+    /// was read from is not a source.
+    fn settle_peak(&mut self, field: TagField, paired: bool) {
         if paired {
-            return;
-        }
-        if let Some(at) = self.sources.iter().position(|(by, _)| *by == field) {
-            let (_, source) = self.sources.remove(at);
-            self.note(field, source, Reason::Unpaired);
+            self.problems
+                .retain(|problem| !listed_as_unpaired(problem, field));
+        } else {
+            self.sources.retain(|(by, _)| *by != field);
         }
     }
+}
+
+/// Whether `problem` is the peak `field` holds, listed as dropped for want
+/// of its gain.
+fn listed_as_unpaired<S>(problem: &TagProblem<S>, field: TagField) -> bool {
+    matches!(
+        problem,
+        TagProblem::Value { field: by, reason: Reason::Unpaired, .. } if *by == field
+    )
 }
 
 /// Whether `field` keeps its value as text. Every other field reads its
@@ -645,11 +677,12 @@ fn release_type(
     if let Some(primary) = lookup(PRIMARY_TYPES, token) {
         Ok(first(&mut slot.get_or_insert_default().primary, primary))
     } else if let Some(secondary) = lookup(SECONDARY_TYPES, token) {
-        push(
-            &mut slot.get_or_insert_default().secondary,
-            secondary,
-            limits,
-        )
+        // The type is put back only when it holds something: a secondary
+        // type past the tag-field limit must not leave an empty one behind.
+        let mut release = slot.take().unwrap_or_default();
+        let kept = push(&mut release.secondary, secondary, limits);
+        *slot = Some(release).filter(|release| *release != ReleaseType::default());
+        kept
     } else {
         Err(Reason::Unreadable)
     }
@@ -972,9 +1005,16 @@ pub fn from_ilst(items: &[IlstItem], limits: &Limits, budget: &mut Budget) -> Ma
             break;
         }
         if let Some(atom) = atom(&item.key) {
+            let unnamed = name_cut(&item.key);
             let cut_to = parser_limit(&item.key);
             for value in &item.values {
                 let (field, text) = reading(atom, value);
+                // What is left of a name the parser cut is not the name
+                // that was written, so no value of such an item is read.
+                if let Some(limit) = unnamed {
+                    fields.note(field, source, Reason::Truncated(limit));
+                    continue;
+                }
                 let cut = cut_by_parser(value).then_some(cut_to);
                 // A value of a kind the item does not hold is not read. One
                 // the parser cut is recorded as cut, like every other value
@@ -1002,13 +1042,22 @@ fn atom(key: &ItemKey) -> Option<Atom> {
     }
 }
 
-/// The limit the MP4 parser cut the text of the item named `key` to: the
-/// long-text limit for lyrics and for a freeform item, and the short-text
-/// limit for every other item that is mapped.
+/// The limit the MP4 parser cut the name of the freeform item named `key`
+/// at, when it cut it: the parser's own limit for a `name` box.
+fn name_cut(key: &ItemKey) -> Option<LimitKind> {
+    match key {
+        ItemKey::Atom(_) => None,
+        ItemKey::Freeform { name, .. } => name.truncated.then_some(text_limit(NAME)),
+    }
+}
+
+/// The limit the MP4 parser cut the text of the values of the item named
+/// `key` to: the parser's own limit for the item's box type, which for a
+/// freeform item is `----`.
 fn parser_limit(key: &ItemKey) -> LimitKind {
     match key {
-        ItemKey::Atom(FourCc(LYRICS)) | ItemKey::Freeform { .. } => LimitKind::LongText,
-        ItemKey::Atom(_) => LimitKind::ShortText,
+        ItemKey::Atom(kind) => text_limit(*kind),
+        ItemKey::Freeform { .. } => text_limit(FourCc(*b"----")),
     }
 }
 

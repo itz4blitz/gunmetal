@@ -38,20 +38,38 @@
 //! - A field with one value takes the first usable value: of its first key,
 //!   then of its next. A value that cannot be read is recorded and the next
 //!   one is tried.
-//! - A list takes every value of the first of its keys that has any, in
-//!   block order. `ARTISTS` holds one artist per comment where `ARTIST` may
-//!   hold a display credit, so it comes first; artist strings are not split
-//!   here (WP-053). The names of one field written twice for compatibility,
-//!   such as `ALBUMARTIST` and `ALBUM ARTIST`, are not added together.
+//! - A list of names (artists, album artists, labels, groupings) takes
+//!   every value of the first of its keys that gives it one, in block
+//!   order. A key gives the list nothing when each of its values is blank
+//!   once it is cleaned: white space, or only characters that cleaning
+//!   removes. Then the next key is read. `ARTISTS` holds one artist per
+//!   comment where `ARTIST` may hold a display credit, so it comes first;
+//!   artist strings are not split here (WP-053). The names of one field
+//!   written twice for compatibility, such as `ALBUMARTIST` and
+//!   `ALBUM ARTIST`, are not added together.
+//! - Lyrics and the release type are read from the first of their keys
+//!   that has a value, which is settled before any value is read: a value
+//!   counts when it is not blank as the comment parser left it, or when the
+//!   parser cut it. When nothing under that key can be used, the next key
+//!   is still not read.
 //! - Track and disc numbers and totals are read from every comment that
 //!   holds one. The first is kept, and a later one that disagrees is
 //!   recorded as [`Problem::Disagrees`]. A number above its total is kept,
 //!   as [`TrackPosition`] allows. A total that cannot be read does not cost
-//!   the number written before it, after `/` or after `of`.
+//!   the number written before it, after `/` or after `of`. A number that
+//!   cannot be read does cost the total written after it: `0/12` and `x/12`
+//!   give neither, and the total is then read only from its own keys. A
+//!   value is split as [`NumberOf::parse`] splits it, without the white
+//!   space around it, so `3 of` with nothing after it is one malformed
+//!   number and gives none.
 //! - An R128 gain is a whole number in Q7.8, so every 16-bit value is a
 //!   gain from −128 dB to just under +128 dB; it has no peak. A
 //!   `ReplayGain` peak belongs to its gain, so it is not mapped without
-//!   one or beside an R128 gain.
+//!   one or beside an R128 gain. Each of the three keys of a gain is still
+//!   read up to its first usable value, whatever the other two hold: a
+//!   value under any of them that cannot be read, or that the comment
+//!   parser cut, is recorded even when another key gives the gain, and a
+//!   peak even when it has no gain to belong to.
 //! - A release-type comment with words that are not release types is
 //!   recorded once, however many such words it holds.
 //! - Vorbis comments have no established key for a content advisory or for
@@ -87,11 +105,13 @@
 //!   malformed; where a field takes its first usable value, the next one is
 //!   tried.
 //! - A value cut down to white space is recorded in the same way, and
-//!   nothing of it is kept. It still counts as a value of its key when a
-//!   list chooses between keys.
+//!   nothing of it is kept. Having been cut, it still counts as a value of
+//!   its key where lyrics or a release type choose between keys. It gives a
+//!   list of names nothing, so such a list goes on to its next key.
 //! - A value the mapper does not read is not recorded: one under a key it
-//!   does not know, under a key another key came before, or after the first
-//!   usable value of a field that takes one.
+//!   does not know; one under a later key of a list of names, of lyrics or
+//!   of a release type, once an earlier key was chosen; or one after the
+//!   first usable value of a field that takes one, or of a key of a gain.
 //!
 //! Each comment is read for one field only, and gives at most two
 //! problems (a cut and then a full list, for example), so
@@ -128,7 +148,8 @@ pub struct Mapped {
     /// Where each filled field was read.
     pub sources: Sources,
     /// What was dropped or cut, field by field in the order of
-    /// [`Sources`], and within a field in block order.
+    /// [`Sources`], and within a field key by key in the order the keys are
+    /// read, in block order under each key.
     pub problems: Vec<Problem>,
 }
 
@@ -445,10 +466,23 @@ impl<'a> Mapper<'a> {
             .unzip()
     }
 
-    /// Every short text of the first of `keys` that has any.
+    /// Every short text of the first of `keys` that gives one. A key gives
+    /// none when each of its values is blank once it is cleaned, and then
+    /// the next key is read.
     fn texts(&mut self, keys: &[&str]) -> (Vec<String>, Option<Source>) {
         let mut list = Vec::new();
-        self.gather(&mut list, self.first(keys), Self::name);
+        for key in keys {
+            let mut gave = false;
+            for (source, raw) in self.values(key) {
+                if let Some(value) = self.name(source, raw) {
+                    gave = true;
+                    self.add(&mut list, source, value);
+                }
+            }
+            if gave {
+                break;
+            }
+        }
         listed(list)
     }
 
@@ -489,9 +523,11 @@ impl<'a> Mapper<'a> {
             Err(ValueError::AboveTotal { number, total }) => (Some(number), Some(total)),
             Err(error) => {
                 self.problems.push(Problem::InvalidValue { source, error });
-                // Split as `NumberOf::parse` does, so that the number before a
-                // total it refused is read on its own.
-                let lower = raw.to_ascii_lowercase();
+                // Split as `NumberOf::parse` does, without the white space
+                // around the value, so that the number before a total it
+                // refused is read on its own, and nothing is read where it
+                // found no total at all.
+                let lower = raw.trim().to_ascii_lowercase();
                 let number = lower
                     .split_once('/')
                     .or_else(|| lower.split_once(" of "))
