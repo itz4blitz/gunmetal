@@ -7,10 +7,11 @@
 //! `GET` route that changes state (SEC-API-036), a name the path, the
 //! query type and the body type could take from more than one place
 //! (SEC-API-067), a body type on a route that takes no body, or a path
-//! parameter that names a principal on a route that may not (SEC-API-013). Matching is exact: no
-//! trailing slash, extension, `;` parameter, other case or encoded
-//! character matches a literal segment, and a parameter segment takes only
-//! letters, digits, `-` and `_`, so no variant of a path reaches a handler
+//! parameter or a field of the query or body type that names a principal
+//! on a route that may not (SEC-API-013). Matching is exact: no trailing
+//! slash, extension, `;` parameter, other case or encoded character
+//! matches a literal segment, and a parameter segment takes only letters,
+//! digits, `-` and `_`, so no variant of a path reaches a handler
 //! (SEC-API-055).
 
 use core::future::Future;
@@ -109,8 +110,8 @@ pub enum TableError {
     /// A route that takes no body has a body type that names fields, which
     /// no request to it could ever fill.
     UnusedBody(&'static str),
-    /// A path parameter names a principal on a route that may not name one
-    /// (SEC-API-013).
+    /// A path parameter, or a field of the route's query or body type,
+    /// names a principal on a route that may not name one (SEC-API-013).
     NamesPrincipal(&'static str, &'static str),
 }
 
@@ -238,8 +239,10 @@ impl Table {
 }
 
 /// Checks where a route takes each name from: every name in one place
-/// only, no body type on a route without a body, and no path parameter
-/// that names a principal unless the route may name one.
+/// only, no body type on a route without a body, and no path parameter,
+/// query field or body field that names a principal unless the route may
+/// name one. Of several such names the first is reported, the path's
+/// before the query's before the body's.
 fn placement(entry: &RouteEntry, segments: &[Segment]) -> Result<(), TableError> {
     let path = entry.spec.path;
     if entry.spec.body == BodyRule::None && !entry.body.is_empty() {
@@ -261,7 +264,12 @@ fn placement(entry: &RouteEntry, segments: &[Segment]) -> Result<(), TableError>
     {
         return Err(TableError::Ambiguous(path, name));
     }
-    match params.iter().find(|name| identity_key(name)) {
+    match params
+        .iter()
+        .chain(entry.query)
+        .chain(entry.body)
+        .find(|name| identity_key(name))
+    {
         Some(name) if !entry.spec.access.names_principals() => {
             Err(TableError::NamesPrincipal(path, name))
         }

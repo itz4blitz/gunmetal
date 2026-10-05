@@ -7,6 +7,12 @@
 //! credential names, a header that other media servers read tokens from, or
 //! two credentials at once. The refusal carries nothing of what was sent,
 //! so the rejected value cannot reach a log.
+//!
+//! The credential that is found is a secret (SEC-OPS-013). A [`Token`] has
+//! no `==`, no `Display` and no serialised form, and its `Debug` form is a
+//! fixed word. It is not the secrets crate's wrapper, which also wipes its
+//! value when dropped: this crate does not depend on that crate, so a
+//! token's bytes are not wiped here.
 
 use axum::http::HeaderMap;
 use axum::http::header::{AUTHORIZATION, COOKIE};
@@ -39,8 +45,9 @@ const FOREIGN_HEADERS: [&str; 7] = [
     "x-plex-token",
 ];
 
-/// The credential a request carries, if any.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The credential a request carries, if any. Like the [`Token`] it holds,
+/// it has no `==`: match on it.
+#[derive(Debug, Clone)]
 pub enum Credential {
     /// No credential.
     None,
@@ -51,13 +58,17 @@ pub enum Credential {
     Header(Token),
 }
 
-/// A credential's bytes. Its `Debug` form never shows them, so a token
-/// cannot reach a log through formatting.
-#[derive(Clone, PartialEq, Eq)]
+/// A credential's bytes (SEC-OPS-013). Its `Debug` form never shows them,
+/// so a token cannot reach a log through formatting, and it has no `==`,
+/// which would compare in variable time and tempt code into checking a
+/// guess against it.
+#[derive(Clone)]
 pub struct Token(Vec<u8>);
 
 impl Token {
-    /// The credential's bytes, for the session layer to verify.
+    /// The credential's bytes, for the session layer to verify, which is
+    /// the access hook and lives outside this crate. Nothing else should
+    /// call this: it is the one way to the bytes.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
