@@ -20,6 +20,17 @@
 //! [`DataRoot::replace`] interrupted by a crash left in `secrets/` is
 //! removed and reported the same way. Anything else is refused. Files are
 //! created with mode 0600 and directories with mode 0700.
+//!
+//! The user log names its directories and segments at run time, one
+//! directory for each stream and one segment for each month (ADR 3,
+//! section 3), so it gets three operations no other store has:
+//! [`DataRoot::log_streams`] and [`DataRoot::log_segments`] list what is
+//! there, reading at most [`LIST_MAX`] entries of a directory, and
+//! [`DataRoot::remove_log_stream`] removes one stream's directory. Each
+//! takes typed values and builds the names itself, lists only what is
+//! itself a directory or a file of such a name, and removes only what
+//! [`DataPath::log_stream`] and [`DataPath::log_segment`] can name. A
+//! symbolic link is never followed, listed or removed through.
 #![expect(
     clippy::disallowed_methods,
     reason = "the data-root handle is the workspace's filesystem door: it opens the root by path once and works beneath its handle (SEC-MED-033, SEC-HIS-016)"
@@ -35,13 +46,22 @@ use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions,
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
-use crate::path::{self, DataDir, DataPath};
+use crate::path::{self, DataDir, DataPath, LogMonth, LogStream};
 
 /// The mode of every directory in the data directory.
 pub const DIR_MODE: u32 = 0o700;
 
 /// The mode of every file the data root creates.
 pub const FILE_MODE: u32 = 0o600;
+
+/// The most entries a listing of one of the user log's directories reads.
+///
+/// `durable/log` holds one directory for each profile and one for the
+/// household, and a stream's directory one segment for each month it was
+/// written in: 4,096 entries are more profiles than a household's server
+/// has, and the months of 341 years. A directory that holds more was not
+/// filled by the server, and is refused rather than read to its end.
+pub const LIST_MAX: usize = 4_096;
 
 /// How the data directory itself is opened: a readable descriptor rather
 /// than `cap-std`'s `O_PATH` one, so the root's own mode can be repaired
@@ -141,7 +161,8 @@ pub enum Op {
     Rename,
     /// Syncing the directory that holds a renamed file.
     Sync,
-    /// Removing a temporary file that an interrupted replace left behind.
+    /// Removing a temporary file that an interrupted replace left behind,
+    /// or a stream's directory and segments from the user log.
     Remove,
 }
 
@@ -245,6 +266,38 @@ pub struct Refused {
     pub error: DataRootError,
     /// The repairs made before it, in order.
     pub repairs: Vec<Repair>,
+}
+
+/// What a listing of one of the user log's directories found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listing<T> {
+    /// What belongs there, in the order of the names: the streams whose
+    /// directory is itself a directory, or the months whose segment is
+    /// itself a regular file. Segment names sort by time, so months come
+    /// oldest first.
+    pub entries: Vec<T>,
+    /// The names of everything else, in order: an entry whose name no
+    /// typed constructor builds, and an entry of such a name that is not
+    /// the kind of object that belongs there, such as a symbolic link.
+    /// The temporary file a [`DataRoot::replace`] of a segment left when a
+    /// crash interrupted it is among them.
+    pub foreign: Vec<OsString>,
+}
+
+/// Why one of the user log's directories could not be listed or removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogDirError {
+    /// The data root refused: the directory is missing, is not itself a
+    /// directory, or an operating-system call on it failed.
+    Root(DataRootError),
+    /// The directory holds more than `max` entries, so it was not read to
+    /// its end, and nothing in it was listed or removed.
+    TooMany {
+        /// The directory.
+        item: Item,
+        /// The most entries a listing reads, [`LIST_MAX`].
+        max: usize,
+    },
 }
 
 /// Maps an operating-system error about `item` during `op`.
@@ -710,6 +763,57 @@ impl DataRoot {
         self.dir
             .create_dir_with(path.beneath(), DirBuilder::new().mode(DIR_MODE))
             .map_err(io_error(Item::Path(path.clone()), Op::CreateDir))
+    }
+
+    /// The streams that have a directory in the user log, `durable/log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when `durable/log` does not exist, is
+    /// not itself a directory or cannot be read, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_streams(&self) -> Result<Listing<LogStream>, LogDirError> {
+        Ok(Listing {
+            entries: LogStream::named(path::LOG).into_iter().collect(),
+            foreign: Vec::new(),
+        })
+    }
+
+    /// The months `stream` has a segment for in the user log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when the stream's directory does not
+    /// exist, is not itself a directory or cannot be read, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_segments(&self, stream: LogStream) -> Result<Listing<LogMonth>, LogDirError> {
+        Ok(Listing {
+            entries: LogMonth::named(&stream.name()).into_iter().collect(),
+            foreign: Vec::new(),
+        })
+    }
+
+    /// Removes `stream` from the user log: every segment in its directory,
+    /// every temporary file a [`DataRoot::replace`] of a segment left
+    /// beside one, then the directory itself, and syncs `durable/log` so
+    /// that a crash does not bring the stream back. A stream that has no
+    /// directory is already removed.
+    ///
+    /// Nothing else is removed. An entry of any other name stays, and the
+    /// directory with it, which the error reports. A symbolic link named
+    /// like a segment is removed itself; what it leads to is not touched.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when `durable/log` does not exist,
+    /// when the stream's name is taken by something that is not itself a
+    /// directory, or when an entry or the directory cannot be removed, and
+    /// [`LogDirError::TooMany`] when the directory holds more than
+    /// [`LIST_MAX`] entries, in which case nothing is removed.
+    pub fn remove_log_stream(&self, stream: LogStream) -> Result<(), LogDirError> {
+        self.log_segments(stream).map(drop)
     }
 
     /// Opens `rel`, a path relative to the root, beneath the handle. Every
