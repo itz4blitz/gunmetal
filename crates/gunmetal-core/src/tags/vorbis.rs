@@ -33,7 +33,8 @@
 //!
 //! # Rules
 //!
-//! - A value that is empty or only white space is not there.
+//! - A value that is empty or only white space is not there, unless that is
+//!   what the comment parser left of a longer one (see the limits below).
 //! - A field with one value takes the first usable value: of its first key,
 //!   then of its next. A value that cannot be read is recorded and the next
 //!   one is tried.
@@ -67,6 +68,31 @@
 //! the validators in [`values`](crate::values); a value outside its range is
 //! dropped and recorded as [`Problem::InvalidValue`] (SEC-MED-014).
 //!
+//! The comment parser has already cut every value at
+//! [`LimitKind::LongText`], and says so on the value ([`Text::truncated`]).
+//! That is a limit reached like any other, so the mapper reports it
+//! (SEC-MED-006), with one [`Problem::Truncated`] for each cut value it
+//! reads:
+//!
+//! - A text is kept, cut, and recorded once, with the limit the text that
+//!   is kept was last cut at. That is the mapper's own limit when the mapper
+//!   cut it further, so a title the parser cut that is still longer than
+//!   [`LimitKind::ShortText`] is recorded with `ShortText` and nothing else,
+//!   and lyrics that the parser and the mapper both cut are recorded with
+//!   `LongText` once. Otherwise it is `LongText`.
+//! - A date, number, total, identifier, recording code, gain, peak,
+//!   compilation flag or release type is dropped unread, and recorded with
+//!   `LongText` and nothing else. What is left of a cut value is not the
+//!   value that was written, so it is neither kept nor reported as
+//!   malformed; where a field takes its first usable value, the next one is
+//!   tried.
+//! - A value cut down to white space is recorded in the same way, and
+//!   nothing of it is kept. It still counts as a value of its key when a
+//!   list chooses between keys.
+//! - A value the mapper does not read is not recorded: one under a key it
+//!   does not know, under a key another key came before, or after the first
+//!   usable value of a field that takes one.
+//!
 //! Each comment is read for one field only, and gives at most two
 //! problems (a cut and then a full list, for example), so
 //! [`Mapped::problems`] is bounded by the comments the parser kept under
@@ -88,7 +114,7 @@ use crate::catalog::{
 use crate::formats::vorbis_comment::{Comments, Field};
 use crate::lyrics::{self, LRC_FIXED_STEPS, LRC_STEPS_PER_OCTET, Lyrics};
 use crate::parse::{Budget, LimitKind, Limits, ParseFault};
-use crate::text::{self, Lines};
+use crate::text::{self, Lines, Text};
 use crate::untrusted::Untrusted;
 use crate::values::{
     Field as ValueField, GainDb, Isrc, Mbid, NumberOf, PartialDate, PeakRatio, ValueError,
@@ -202,11 +228,13 @@ pub enum Problem {
         /// The comment that holds it.
         source: Source,
     },
-    /// A text longer than its limit, cut to fit (SEC-MED-006).
+    /// A value longer than its limit (SEC-MED-006): a text, cut to fit and
+    /// kept; or a value of another kind that the comment parser cut, which
+    /// was dropped.
     Truncated {
         /// The comment that holds it.
         source: Source,
-        /// The limit it was cut at: [`LimitKind::ShortText`] or
+        /// The limit it was last cut at: [`LimitKind::ShortText`] or
         /// [`LimitKind::LongText`].
         limit: LimitKind,
     },
@@ -260,8 +288,9 @@ pub fn from_vorbis(comments: &Comments, limits: &Limits) -> Mapped {
     }
 }
 
-/// The values found for some keys: each with the comment that holds it.
-type Found<'a> = Vec<(Source, &'a str)>;
+/// The values found for some keys: each as the comment parser left it, with
+/// the comment that holds it.
+type Found<'a> = Vec<(Source, &'a Text)>;
 
 /// A validator of [`values`](crate::values), or one written like them.
 type Parse<T> = fn(Untrusted<&str>) -> Result<T, ValueError>;
@@ -307,14 +336,16 @@ struct Mapper<'a> {
 }
 
 impl<'a> Mapper<'a> {
-    /// The values of `key` that are not blank, in block order.
+    /// The values of `key` that are not blank, in block order. A blank one
+    /// that the comment parser cut is among them, so that the cut is
+    /// recorded.
     fn values(&self, key: &str) -> Found<'a> {
         self.fields
             .iter()
             .enumerate()
             .filter(|(_, field)| field.key.eq_ignore_ascii_case(key))
-            .map(|(index, field)| (Source { index }, field.value.value.as_str()))
-            .filter(|(_, value)| !value.trim().is_empty())
+            .map(|(index, field)| (Source { index }, &field.value))
+            .filter(|(_, text)| text.truncated || !text.value.trim().is_empty())
             .collect()
     }
 
@@ -332,31 +363,48 @@ impl<'a> Mapper<'a> {
     }
 
     /// `raw` as text of `lines`, cut at `limit`, unless nothing is left
-    /// of it.
+    /// of it. A cut is recorded once, with the limit the text was last cut
+    /// at: `limit` when it is cut here, and otherwise the comment parser's.
     fn clean(
         &mut self,
         source: Source,
-        raw: &str,
+        raw: &Text,
         lines: Lines,
         limit: LimitKind,
     ) -> Option<String> {
         // Every text limit's ceiling fits 32 bits.
         let cap = u32::try_from(self.limits.get(limit)).unwrap_or(u32::MAX);
-        let text = text::normalise(Untrusted::new(raw.as_bytes()), lines, cap);
+        let text = text::normalise(Untrusted::new(raw.value.as_bytes()), lines, cap);
         if text.truncated {
+            self.problems.push(Problem::Truncated { source, limit });
+        } else if raw.truncated {
+            let limit = LimitKind::LongText;
             self.problems.push(Problem::Truncated { source, limit });
         }
         Some(text.value).filter(|value| !value.trim().is_empty())
     }
 
     /// `raw` as a name or title: one line of short text.
-    fn name(&mut self, source: Source, raw: &str) -> Option<String> {
+    fn name(&mut self, source: Source, raw: &Text) -> Option<String> {
         self.clean(source, raw, Lines::Single, LimitKind::ShortText)
     }
 
+    /// The text of `raw` when the comment parser kept all of it. What is
+    /// left of a value it cut is not the value that was written, so the cut
+    /// is recorded and the value is not read.
+    fn uncut<'t>(&mut self, source: Source, raw: &'t Text) -> Option<&'t str> {
+        if raw.truncated {
+            let limit = LimitKind::LongText;
+            self.problems.push(Problem::Truncated { source, limit });
+            return None;
+        }
+        Some(raw.value.as_str())
+    }
+
     /// `raw` as `parse` reads it, recording why when it does not.
-    fn typed<T>(&mut self, source: Source, raw: &str, parse: Parse<T>) -> Option<T> {
-        match parse(Untrusted::new(raw.trim())) {
+    fn typed<T>(&mut self, source: Source, raw: &Text, parse: Parse<T>) -> Option<T> {
+        let text = self.uncut(source, raw)?;
+        match parse(Untrusted::new(text.trim())) {
             Ok(value) => Some(value),
             Err(error) => {
                 self.problems.push(Problem::InvalidValue { source, error });
@@ -380,7 +428,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         list: &mut Vec<(Source, T)>,
         found: Found<'a>,
-        read: impl Fn(&mut Self, Source, &str) -> Option<T>,
+        read: impl Fn(&mut Self, Source, &Text) -> Option<T>,
     ) {
         for (source, raw) in found {
             if let Some(value) = read(self, source, raw) {
@@ -480,6 +528,9 @@ impl<'a> Mapper<'a> {
         let mut number = None;
         let mut total = None;
         for (source, raw) in self.values(key) {
+            let Some(raw) = self.uncut(source, raw) else {
+                continue;
+            };
             let (first, second) = self.number_of(source, raw);
             if let Some(value) = first {
                 self.settle(parts.0, &mut number, source, value);
@@ -501,7 +552,7 @@ impl<'a> Mapper<'a> {
         self.values("COMPILATION")
             .into_iter()
             .find_map(|(source, raw)| {
-                let flag = flag(raw);
+                let flag = flag(self.uncut(source, raw)?);
                 if flag.is_none() {
                     self.problems.push(Problem::Unrecognised { source });
                 }
@@ -516,6 +567,9 @@ impl<'a> Mapper<'a> {
         let mut release = ReleaseType::default();
         let mut first = None;
         for (source, raw) in self.first(&["RELEASETYPE", "MUSICBRAINZ_ALBUMTYPE"]) {
+            let Some(raw) = self.uncut(source, raw) else {
+                continue;
+            };
             let mut unknown = false;
             for word in raw.split([';', ',']).filter(|word| !word.trim().is_empty()) {
                 let Some(token) = type_token(word) else {
@@ -559,7 +613,7 @@ impl<'a> Mapper<'a> {
     }
 
     /// `raw` as lyrics, with how the lyrics parser finds them timed.
-    fn lyric(&mut self, source: Source, raw: &str) -> Option<TagLyrics> {
+    fn lyric(&mut self, source: Source, raw: &Text) -> Option<TagLyrics> {
         let text = self.clean(source, raw, Lines::Multi, LimitKind::LongText)?;
         let octets = u64::try_from(text.len()).unwrap_or(u64::MAX);
         let mut budget = Budget::for_input(octets, LRC_STEPS_PER_OCTET, LRC_FIXED_STEPS);
@@ -767,7 +821,6 @@ mod tests {
     use super::*;
     use crate::catalog::MbIds;
     use crate::formats::vorbis_comment;
-    use crate::text::Text;
     use gunmetal_testkit::vorbis_comment::CommentBlock;
     use proptest::collection::vec;
     use proptest::prelude::*;
