@@ -10,5 +10,6 @@ pub mod config;
 pub mod datadir;
 pub mod host;
 pub mod log;
+pub mod session;
 #[cfg(test)]
 mod testing;
