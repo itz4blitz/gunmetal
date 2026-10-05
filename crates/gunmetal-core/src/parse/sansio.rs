@@ -255,6 +255,9 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// 16 MiB, the longest read SEC-MED-010 allows.
     const MAX_READ: u32 = 16_777_216;
@@ -696,19 +699,26 @@ mod tests {
             .prop_map(|(offset, len)| request(offset, len))
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-001, SEC-MED-008, SEC-MED-010
-        #[test]
-        fn serves_or_refuses_every_request_exactly_as_the_model_does(
-            bytes in vec(any::<u8>(), 0..64),
-            requests in vec(any_request(), 0..12),
-            max_read in prop_oneof![1_u64..8, 0_u64..32],
-            max_total in prop_oneof![0_u64..16, 0_u64..128],
-        ) {
-            let expected = model(&bytes, &requests, max_read, max_total);
-            let limits = lowered(max_read, max_total);
-            let actual = on_small_stack(move || drive(Script::new(&requests), &bytes, &limits));
-            prop_assert_eq!(actual, expected);
-        }
+    /// Verifies: SEC-MED-001, SEC-MED-008, SEC-MED-010
+    #[test]
+    fn serves_or_refuses_every_request_exactly_as_the_model_does() {
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    vec(any::<u8>(), 0..64),
+                    vec(any_request(), 0..12),
+                    prop_oneof![1_u64..8, 0_u64..32],
+                    prop_oneof![0_u64..16, 0_u64..128],
+                ),
+                |(bytes, requests, max_read, max_total)| {
+                    let expected = model(&bytes, &requests, max_read, max_total);
+                    let limits = lowered(max_read, max_total);
+                    let actual =
+                        on_small_stack(move || drive(Script::new(&requests), &bytes, &limits));
+                    prop_assert_eq!(actual, expected);
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

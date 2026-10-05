@@ -5,6 +5,14 @@
   coverage, zero surviving mutants.
 - `scripts/gate.sh` is the definition of done. Run it before reporting work
   as finished, and report its real output.
+- When the turn changes Rust, Cargo, Clippy, or Qodana files, `scripts/qodana.sh`
+  has to pass before the work is finished, and its real output is part of the
+  report. It fails when Cargo did not load, when the sanity check still
+  reports a name the compiler accepts, or when the scan reports any problem.
+  The project token stays in `QODANA_TOKEN` or
+  `~/.config/qodana/token`, never in the tree. Claude Code, Cursor, Codex, and
+  Grok stop hooks run that scan and refuse to end the turn while it fails.
+  Grok reads `.grok/hooks/qodana.json` after this folder is trusted.
 - Architecture decisions live in `docs/adr`. Add a new record when you make
   one; do not rewrite old records.
 - `gunmetal-core` is pure logic: no I/O, no `unsafe`, no panics on any input.

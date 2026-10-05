@@ -1,0 +1,11 @@
+<idea-plugin>
+  <id>local.gunmetal.qodana.rust-wait</id>
+  <name>Gunmetal Qodana Rust Wait</name>
+  <vendor>Gunmetal</vendor>
+  <description>Holds Qodana analysis until the RustRover project model has finished loading.</description>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.jetbrains.rust</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <activityTracker implementation="local.gunmetal.qodana.RustModelTracker"/>
+  </extensions>
+</idea-plugin>

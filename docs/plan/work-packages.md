@@ -30,6 +30,7 @@ the end.
 The client itself (React Native, TypeScript) is not in this plan. Where a
 package exists only so the client can call the core on the device, it says
 so.
+The web player's packages are in [client-packages.md](client-packages.md).
 
 Claims this plan could not check against a source are marked "(unverified)".
 Choices that go beyond the feature map, the ADRs or the security baseline
@@ -609,13 +610,16 @@ parallel jobs (`GATE_MUTANTS_SHARD`), which together test every mutant
 |---|---|---:|---|
 | 0 | WP-001 to WP-008, WP-122, WP-125, WP-126 | 11 | Lints and merge rules, ADR 3 to 6, the security architecture records, the parse contract, text and typed values, identifiers and the problem catalogue, the testkit, the fuzz harness registry, the schema digest with data classes, the data-root handle (unchanged by the adopted R1) |
 | 1 | WP-009 to WP-021, WP-023 to WP-026, WP-028, WP-030 to WP-047, WP-124, WP-127, WP-128, WP-138, WP-139 | 41 | Every R1 container parser and lyrics, the pure logic of the queue, shuffle, gain, tokens, authorisation, retention and the user log; the store, server, HTTP, worker, identity-store and secrets crates; repository protections, docs lints and traceability, the decompression helper, the project site's security files |
-| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130 | 23 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits |
-| 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132 | 30 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
+| 2 | WP-048 to WP-056, WP-059, WP-060 to WP-062, WP-064 to WP-070, WP-118, WP-119, WP-130, WP-235, WP-236, WP-238 to WP-240, WP-242 | 29 | The egress client; tag mapping, the file probe, search, the decision engine, the audio packager, Home rows; file access, worker IPC, sessions and fresh user verification, the credential verifier, the authorisation layer, the change log, the catalogue store, the user log, audit log and its sink, the task runner; the route registry, the listener, the client-address resolver, the public-route allow-list and the anonymous suite; the synthetic library generator; request limits; the WASM facade crate and its playback slice |
+| 3 | WP-063, WP-072 to WP-090, WP-093 to WP-095, WP-097 to WP-100, WP-120, WP-131, WP-132, WP-237, WP-241 | 32 | Recovery codes, web assets, owner HTTPS and the proxy and tailnet recipes, the update check, the music model, identity and scan diff, the worker pool and jobs, setup, passkeys, browser pairing, streaming, the event channel, sync, the queue and listening services, accounts, the rest of the WASM facade, server facts, backups, playlists, users and invitations, startup, alerts, triggers, library administration, job activity and the audit routes; the route-table security suites; postures and the cleartext rule |
 | 4 | WP-101 to WP-106, WP-108, WP-121, WP-133 | 9 | ACME for the owner's own domain, the scan pipeline and what needs it (artwork serving, the playback registry and stream limits, the packaging route and its worker job, account recovery), each person's data export, release builds and service install, history deletion and retention |
 | 5 | WP-109 to WP-111, WP-115, WP-136 | 5 | Restore from the command line and the welcome screen, library health, the trash and purge, the scan benchmark and the speed budget tests, release provenance and signing |
 | 6 | WP-116, WP-117 | 2 | Doctor and the security summary, and the R1 flow acceptance tests |
 
-121 packages build R1. The 40 packages that serve only R1.1, R1.2, R1.3
+129 packages build R1 (eight of them, WP-235 to WP-242, were added on
+2026-10-03 at the client plan's request: the WASM facade, once WP-088
+alone, is now built in slices, and five small core packages hold rules
+the web client must not write in TypeScript). The 40 packages that serve only R1.1, R1.2, R1.3
 or R2 (18 moved whole, counting WP-091, which was already R2, and 22 new
 packages split from R1 packages, WP-140 to WP-161) are in
 [After R1](#after-r1-point-releases-and-later), grouped by release; R2's
@@ -2828,6 +2832,15 @@ returns the whole expected value.
   people, not code (two maintainers, hardware keys, an email alias); the
   package verifies them but cannot create them (baseline owner decisions
   19 and 20).
+- **Added for the client plan (2026-10-03).** Two changes to `xtask js-deps`, made in
+  this package if it has not merged and otherwise as one small follow-up
+  in its files under the interface-change rule. It skips a dependency
+  whose version starts with `workspace:` and whose name is a member of
+  the pnpm workspace, so workspace packages can name each other. And a
+  fixture manifest gets no skip list: every file named `package.json`
+  is a manifest, so the client keeps its fixture manifests under another
+  name and writes them out in a temporary directory when a test needs
+  one.
 
 ### WP-127 Docs lints and requirement traceability (added for the security baseline)
 
@@ -2873,6 +2886,12 @@ returns the whole expected value.
   for the traceability check: an R1 requirement with no test fails, one
   with a `Verifies:` line passes, one with a review record passes; an R1.1
   requirement with no test fails the R1.1 release and not R1.
+- **Added for the client plan (2026-10-03).** The traceability check reads
+  TypeScript as well as Rust: a `// Verifies:` comment on the line above
+  a test, in files under `clients/`. The docs lint for SEC-TM-001 reads
+  `CP-NNN` entries in `docs/plan/client-packages.md` as work packages.
+  Made in this package if it has not merged, otherwise as one small
+  follow-up in its files.
 
 ### WP-128 Streaming decompression helper (added for the security baseline)
 
@@ -3242,6 +3261,10 @@ also runs in this wave.
 - **Risks.** Which containers each browser's Media Source Extensions accept,
   including Safari's ManagedMediaSource, is unverified; this package may
   turn out to need fewer codecs than planned.
+- **Added for the client plan (2026-10-03).** An xtask command, in this package's
+  own xtask file, runs the packager over generated tones and writes
+  fragmented MP4 fixtures with a SHA-256 manifest, for the web player's
+  Media Source path (CP-034).
 
 ### WP-059 Home rows
 
@@ -3895,6 +3918,19 @@ also runs in this wave.
   mismatched build header gets the typed error; the stand-in bundle's
   manifest has no service-worker script and no response carries
   `Service-Worker-Allowed`.
+- **Added for the client plan (2026-10-03).** This package owns putting the web
+  client's bundle into the server binary. The workspace allows no build
+  script (SEC-SUP-026), so the mechanism is an xtask command, in this
+  package's own xtask file, that reads the manifest the client's
+  production build writes (CP-056: exact paths, types and SHA-256
+  digests) and writes the asset table the server includes, behind a
+  cargo feature; without the feature the server serves the two-file
+  stand-in, so the Rust half of the gate never needs the bundle. The
+  build order is: the facade for `wasm32`, the client bundle, this
+  xtask step, the server. Its tests move from the stand-in to the real
+  manifest when CP-056 lands. The content security policy spike the
+  register mentions under D-74 is the client plan's CP-003, not this
+  package.
 
 ### WP-073 Network settings and owner HTTPS
 
@@ -4174,6 +4210,231 @@ also runs in this wave.
   uploads past each quota are refused; the register check fails for an
   entry without a test (fixture register). Load figures are measured by
   WP-117's nightly job, not asserted here.
+
+### WP-235 WASM facade: the crate, the type mechanism and the lint answer (added for the client plan)
+
+- **Wave** 2 · **Size** M · **Depends on** WP-005, WP-006, WP-008,
+  WP-040. (First placed in wave 1; moved on 2026-10-03 because wave 1
+  was closing.)
+- **Owns** `crates/gunmetal-wasm/Cargo.toml`,
+  `crates/gunmetal-wasm/src/links.rs`, `text.rs`, `ids.rs`,
+  `problems.rs`, `catalog.rs` (`lib.rs` is a registry),
+  `crates/gunmetal-wasm/tests/workspace_rules.rs`,
+  `crates/gunmetal-wasm/types/` (generated declarations, committed),
+  `crates/xtask/src/wasm_types.rs` and
+  `crates/xtask/src/facade_unsafe.rs` (each with its dispatch line).
+  One edit to a file another package owns, under the interface-change
+  rule and made here: `crates/xtask/src/lint_exceptions.rs` (WP-008's
+  check) gains a second manifest that may carry its own lint tables,
+  beside the core's.
+- **Serves** ADR 1 decision 2; ADR 12 decisions on how types cross and
+  on `unsafe`; the web player's first packages
+  ([client-packages.md](client-packages.md)).
+- **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
+  SEC-CLI-021, and SEC-CLI-002 and SEC-API-047 for the browser (the
+  core's link filter is the one the web client calls).
+- **Why it exists.** The web player is built in parallel with the server
+  (owner answer, 2026-10-03) and needs the core in the browser before
+  WP-088. Three things about the facade were unverified and sat on that
+  path: whether `wasm-bindgen`'s generated code passes the workspace's
+  `unsafe_code` lint, how rich types cross to TypeScript, and how
+  coverage counts the glue. This package settles them before any other
+  slice is written.
+- **Scope.** Create the crate record 6 names. Export WP-005's link
+  filter and text normalisation, WP-006's public IDs and problem codes,
+  and mirror types for WP-040's catalogue records, so the web client's
+  demo library is typed by the core.
+
+  **The type mechanism (record 12, decision 13).** For each core type
+  that crosses, a mirror type in this crate with a conversion from and
+  to the core type. For a core type with public fields the conversion
+  takes the value apart field by field with no catch-all, so a field
+  renamed, retyped, added or removed fails to compile. A core type with
+  private fields (`Link`, `PublicId`, `Lufs`) can only be converted
+  through its accessors, so a removed or retyped accessor fails to
+  compile but an added one is not caught; the mirror then lists the
+  accessors it reads, and review of the core change is what catches a
+  new one. The mirrors derive `serde` and `tsify`, values cross through
+  `serde-wasm-bindgen`, and `xtask wasm-types` regenerates the
+  TypeScript declarations into `crates/gunmetal-wasm/types/` and fails
+  when the committed copy differs.
+
+  **The lint answer (owner decision 34).** The workspace sets
+  `unsafe_code = "forbid"`, which no attribute in source can lower, so
+  the exception is in the manifest: this crate does not take
+  `[lints] workspace = true`. Its `Cargo.toml` repeats every workspace
+  lint and lowers only `unsafe_code`, as far as the generated code needs
+  and no further, with the reason in a comment.
+  `tests/workspace_rules.rs`, like the core's, fails when a workspace
+  lint is missing from the repeated table or any lint other than
+  `unsafe_code` differs. `xtask lint-exceptions` already refuses any
+  manifest that does not take the workspace lints, with the core as its
+  one permitted case (`STRICTER`); the edit to `lint_exceptions.rs`
+  permits this crate's manifest as the second, by exact path. The
+  `EXCEPTIONS` list in that file holds Clippy bans per module and is not
+  changed. `xtask facade-unsafe` fails on the `unsafe` keyword anywhere
+  in this crate's source files, so hand-written `unsafe` stays refused
+  while generated code is allowed.
+
+  **The `wasm32` build.** `wasm-bindgen`'s generated items are compiled
+  only for `wasm32`, so the host build never shows the lint firing. This
+  package files a gate change request to the integrator: a step in
+  `scripts/gate.sh` that builds this crate for `wasm32-unknown-unknown`
+  with `--locked`, and the target in `ci.yml`. WP-088's `wasm.yml` in
+  wave 3 keeps the size check.
+- **Dependencies.** `tsify` (crates.io; MIT or Apache-2.0;
+  github.com/madonoharu/tsify; not `tsify-next`) and
+  `serde-wasm-bindgen` (crates.io; MIT;
+  github.com/RReverser/serde-wasm-bindgen), both approved by the owner
+  on 2026-10-03 (register, owner answers); the integrator adds them to
+  `[workspace.dependencies]` with their cargo-vet entries, as for any
+  new crate. `serde`'s derive feature for this crate. None is a
+  dependency of the core.
+- **Not in scope.** Every other export (WP-236, WP-237, WP-241, WP-088).
+- **Tests.** Native unit tests of each conversion, with literal values.
+  A fixture mirror with a field removed makes the drift check fail. A
+  fixture source file holding `unsafe` makes the keyword check fail. A
+  fixture manifest missing one workspace lint, and one lowering a lint
+  other than `unsafe_code`, each fail `workspace_rules`. A third
+  manifest with its own lint tables still fails `lint-exceptions`. The
+  `wasm32` build passes under the lint. The committed declarations for
+  the exported types equal a literal expected text.
+- **Stop condition for others.** WP-236, WP-237, WP-241, WP-088 and
+  every client package that depends on one do not start until this
+  package has merged with its `wasm32` build passing in the gate. If the
+  exception has to be wider than generated items need, or `tsify` does
+  not compile under it, the mechanism goes back to record 12 before
+  anything else is built.
+
+### WP-238 Tint surfaces from an artwork colour (added for the client plan)
+
+- **Wave** 2 · **Size** S · **Depends on** WP-005, WP-037.
+- **Owns** `crates/gunmetal-core/src/tint.rs`.
+- **Serves** MUS-110; design-language section 5 and accessibility
+  requirement A1's hue sweep.
+- **Security.** Boundaries TB4; threats TM-T62. Verifies no requirement
+  of its own: it holds no security control. Its contrast check is what
+  keeps a buggy or hostile server from making text unreadable
+  (design-language, "Where the colour is computed").
+- **Why it exists.** design-language has the client derive tinted
+  surfaces from WP-037's base candidate by fixed rules. Written in each
+  client that would be the same rule several times; record 1 puts one
+  copy in the core.
+- **Scope.** A pure function from a palette candidate (OKLCH numbers),
+  the theme and the colours of the tokens that will sit on the surface,
+  all passed in as numbers, to the surface colours of design-language's
+  table: lightness and chroma cap by theme; out-of-gamut values brought
+  into sRGB by reducing chroma first; the contrast of the resulting sRGB
+  colour checked against every token passed in; lightness stepped by
+  0.01 toward the canvas until every pair passes; no tint below the
+  chroma floor; nothing for the high-contrast theme. And the placeholder
+  hue from a hash of an item's ID.
+- **Not in scope.** The token values themselves (the client's token
+  files pass them in). Writing colours to a page (client).
+- **Interface sketch.** `pub fn surfaces(base: Oklch, theme: Theme, on_surface: &[Srgb]) -> Option<Surfaces>`;
+  `pub fn placeholder_hue(id: &PublicId) -> Hue`.
+- **Tests.** Literal cases worked by hand for each rule. The sweep of
+  design-language's "The guarantee" table, in steps finer than 5
+  degrees at zero, half and the full chroma cap, with the document's
+  token values as literals: every pair meets its floor. Properties: the
+  result is always in sRGB; every token passed in meets its floor on the
+  returned surface or the function returns none; the same input gives
+  the same output.
+
+### WP-239 Inbound-link parser (split from WP-089 for the client plan)
+
+- **Wave** 2 · **Size** S · **Depends on** WP-005, WP-006, WP-008,
+  WP-038.
+- **Owns** `crates/gunmetal-core/src/deeplink.rs`,
+  `crates/gunmetal-fuzz/src/deeplink.rs`,
+  `crates/gunmetal-fuzz/tests/deeplink_corpus.rs`,
+  `fuzz/fuzz_targets/deeplink.rs`, `fuzz/seeds/deeplink/`.
+- **Serves** ACC-001, ACC-062, ACC-080; API-TOK-03 (the parser).
+- **Security.** Boundaries TB1, TB4; threats TM-T47, TM-T65. Verifies
+  SEC-CLI-025.
+- **Why it exists.** The parser was part of WP-089 in wave 3. It is a
+  pure function over typed values, and the web client may not parse an
+  address itself (SEC-CLI-025), so it has to reach the browser before
+  the screens that read a claim link, an invitation or a pairing link.
+- **Scope.** One pure function that parses every inbound link, QR
+  payload and fragment into a closed set of typed routes, each marked
+  with whether it needs a confirmation screen; unrecognised input is
+  "not recognised". In R1 the set holds the links R1 issues: the claim
+  link, invitations, browser pairing and recovery enrolment. WP-159
+  extends the set in R1.2.
+- **Not in scope.** Resolving a route on the server (WP-089). Redeeming
+  anything.
+- **Tests.** Unit tests per route with literal inputs; a property that
+  unrecognised input maps to "not recognised" and that no route is
+  state-changing without its confirmation flag; the fuzz harness.
+
+### WP-240 User events: the builder and the sink (added for the client plan)
+
+- **Wave** 2 · **Size** S · **Depends on** WP-034.
+- **Owns** `crates/gunmetal-core/src/userdata/compose.rs`,
+  `crates/gunmetal-core/src/userdata/sink.rs` (two new files in
+  WP-034's directory, under the interface-change rule; WP-034's own
+  files are not changed).
+- **Serves** ACC-117, CLI-093, MUS-180, MUS-182; API-LOG-01,
+  API-USR-07.
+- **Security.** Boundaries TB4, TB5; threats TM-T18. Verifies
+  SEC-PRV-002 and the device's half of SEC-PRV-024.
+- **Why it exists.** api-needs.md has the device append events with a
+  client-made event ID and a hybrid logical clock, and has "the core's
+  event sink" take a mode and drop events in private mode. WP-034 built
+  the envelope, the clock and the merge rules; no package built the
+  function that makes an event or the sink. Without them a client would
+  write both, and the private-mode rule would be written once per
+  client.
+- **Scope.** The event builder: given a body (play, skip, love or
+  unlove), the device and profile, the current clock, and the wall time
+  and random bytes the caller passes in as plain values, return the
+  event with its ID and the advanced clock. The core reads no clock and
+  no random source itself. The sink: it takes a mode. In normal mode it
+  returns the event for the outbound queue. In private mode it drops
+  play, skip and completion events and recommendation signals before
+  they can be queued, and returns nothing (SEC-PRV-024).
+- **Not in scope.** Queueing, storage and upload (the clients; WP-068
+  on the server). The server's own refusal of private plays (WP-086).
+- **Interface sketch.** `pub fn compose(body: Body, by: Author, clock: Hlc, wall_ms: u64, entropy: [u8; 16]) -> (Event, Hlc)`;
+  `pub fn admit(event: Event, mode: Mode) -> Option<Event>`.
+- **Tests.** A composed play event serialises to WP-034's literal
+  encoding with exactly the allowed fields. The same inputs give the
+  same event. The clock advances as WP-034's `send` does. In private
+  mode each droppable body returns none, and a love returns the event
+  (api-needs.md lists plays, skips, completions and recommendation
+  signals as dropped, not loves). Property: nothing admitted in private mode is
+  a play, a skip or a completion.
+
+### WP-242 QR code matrix (added for the client plan)
+
+- **Wave** 2 · **Size** M · **Depends on** WP-005.
+- **Owns** `crates/gunmetal-core/src/qr.rs`.
+- **Serves** ACC-062, ACC-064, ACC-080 (the QR form of pairing,
+  help-sign-in and invitation links).
+- **Security.** Boundaries TB4; threats TM-T64. Verifies no requirement
+  of its own: it holds no security control; what a code carries is
+  decided by the packages that issue it (SEC-IAM-057, SEC-CLI-013).
+- **Why it exists.** The web client shows invitations, pairing codes
+  and the "help sign in" code as QR codes, and the server prints the
+  claim link as one on the console (WP-080). No package owned an
+  encoder, and the client plan may not add a rule in TypeScript. One
+  encoder in the core gives both the same matrix; the client only draws
+  squares.
+- **Scope.** A pure encoder from a byte string to a matrix of dark and
+  light modules, byte mode, with error correction level M and automatic
+  version choice, capped at the size the R1 links need. No image
+  output.
+- **Not in scope.** Drawing (client; WP-080 for the terminal). Decoding.
+- **Tests.** Literal matrices for short inputs, worked from the
+  standard's own published examples (which examples are published is
+  unverified); an independent decoder written in the test reads back
+  every generated matrix; an input over the cap is a typed error.
+  Property: encode then decode returns the input.
+- **Risks.** A hand-written encoder is the choice here because the core
+  takes no dependency without review; if the owner prefers a reviewed
+  crate, it is a dependency request and this package shrinks to a
+  wrapper.
 
 ## Wave 3: the music model, sign-in, streaming and sync
 
@@ -4749,46 +5010,58 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 - **Wave** 3 (moved back from 4: it was in wave 4 because WP-059 had
   moved to wave 3, and WP-059 is back in wave 2 now that the radio and
   rule packages it read, WP-058 and WP-027, left R1) · **Size** M ·
-  **Depends on** WP-021, WP-025, WP-026, WP-028, WP-030, WP-039, WP-040,
-  WP-054, WP-055, WP-059.
-- **Owns** `crates/gunmetal-wasm/` (creates the crate),
-  `.github/workflows/wasm.yml` (the `wasm32` build job; `ci.yml` belongs
-  to the integrator).
+  **Depends on** WP-039, WP-040, WP-054, WP-055, WP-059, WP-235. (On
+  2026-10-03 the facade was split at the client plan's request: WP-235
+  creates the crate in wave 2, with the catalogue types, WP-236 exports
+  the wave 1 playback modules in wave 2 after it, and WP-237 exports the
+  remaining conversions in wave 3. This
+  package no longer creates the crate and no longer depends on WP-021,
+  WP-025, WP-026, WP-028 or WP-030.)
+- **Owns** In `crates/gunmetal-wasm/src/`, one file per module it
+  exports (`sync.rs`, `library.rs`, `search.rs`, `decision.rs`,
+  `home.rs`, `decode.rs`), with their generated declarations under
+  `crates/gunmetal-wasm/types/`; `.github/workflows/wasm.yml` (the size
+  check and the `wasm32` job of its own; the `wasm32` build step in the
+  gate is WP-235's request to the integrator).
 - **Serves** ADR 1 decision 2; CLI-022, DIS-084, DIS-002, MUS-208,
   MUS-236 (the details summary, WP-055).
 - **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
   SEC-CLI-021.
-- **Scope.** A thin `wasm-bindgen` layer so the web client can apply sync
-  frames to an in-memory library, query search, evaluate Home rows,
-  apply queue operations optimistically, read
-  the decision engine (with its track details summary) and gain decision,
-  follow the player state and look up lyrics positions. Every exported function is a direct call into the
-  core with conversion only.
-- **Not in scope.** Persistent storage in the browser (client). Rule
-  evaluation and radio picks, which the later packages that build them
-  (WP-027 in R1.1, WP-058 in R1.3) add to this facade, one function each.
+- **Scope.** The rest of the thin `wasm-bindgen` layer, in the form
+  WP-235 sets (mirror types, generated declarations, the lint
+  exception): apply sync frames to an in-memory library; load that
+  library from catalogue records too, which is what applying a decoded
+  frame does and what the web client's demo and tests use; read it (an
+  item by ID, a list in a named order), returning WP-235's catalogue
+  mirrors; query search; evaluate Home rows; read the decision engine
+  (with its track details summary); and decode route responses as well
+  as sync frames, with a mirror type per response, so the web client
+  holds no hand-written copy of one (SEC-CLI-021). Every exported
+  function is a direct call into the core with conversion only.
+- **Not in scope.** Creating the crate, the type mechanism, the lint
+  exception and the catalogue mirrors (WP-235). The queue, shuffle,
+  gain with its factor, player state and lyrics (WP-236). User events,
+  inbound links, tints and the QR matrix (WP-237). The audit-head check
+  (WP-241). Persistent storage in the browser (client). Rule evaluation
+  and radio picks, which the later packages that build them (WP-027 in
+  R1.1, WP-058 in R1.3) add to this facade, one function each.
 - **Tests.** Native unit tests of each conversion (the facade must compile
   and be covered on the host target); a `wasm32` build in CI; a size check
   of the `.wasm` file reported.
 - **Risks.** Coverage tooling on the facade's generated glue may count code
-  the tests cannot reach (unverified); if so, the glue is kept in a module
-  the owner explicitly approves, because the gate allows no exclusions.
-  The workspace sets `unsafe_code = "forbid"`, and `wasm-bindgen`'s
-  generated code contains `unsafe` blocks; whether the forbid lint rejects
-  macro-generated code in this crate is unverified. If it does, this
-  crate needs a crate-level exception, which is an owner decision because
-  the README's rule is "no `unsafe` in the core" while the workspace
-  forbids it everywhere (owner decision 34).
+  the tests cannot reach (unverified); WP-235 meets that first and records
+  the answer. The `unsafe` question (owner decision 34) is answered and
+  proved by WP-235.
 
 ### WP-089 Server facts: health, discovery, negotiation and API reference
 
 - **Wave** 3 · **Size** M · **Depends on** WP-039 (protocol versions),
-  WP-044, WP-062, WP-065, WP-118.
-- **Owns** `crates/gunmetal-server/src/meta/`,
-  `crates/gunmetal-core/src/deeplink.rs`.
+  WP-044, WP-062, WP-065, WP-118, WP-239 (the inbound-link parser, split
+  out on 2026-10-03 so the web client can reach it a wave earlier).
+- **Owns** `crates/gunmetal-server/src/meta/`.
 - **Serves** ADM-128, INT-001, INT-005, INT-013, ADM-090, ADM-001;
   API-SYS-01, API-SYS-03, API-SYS-04, API-SYS-06, API-SYS-09, API-SET-09,
-  API-TOK-03 (the parser). (A custom server name, ADM-140, and deep links
+  API-TOK-03 (resolution / R1's links). (A custom server name, ADM-140, and deep links
   into the app, CLI-034 and INT-147, are R1.2, WP-159, which extends the
   parser's route set; published footprint numbers, ADM-010, are R1.2
   documentation from WP-115's measurements; old native clients, CLI-032,
@@ -4822,9 +5095,9 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   discovery reveal the version, which SEC-API-005 forbids); the health
   route's body is liveness only; the API reference lists exactly the
   routes in the table; an old client gets the "update needed" response
-  with the protocol range it needs, not a software version; the
-  deep-link parser has unit tests per route, a property that
-  unrecognised input maps to "unknown" and a fuzz harness.
+  with the protocol range it needs, not a software version; a link the
+  parser (WP-239) recognises resolves to its route and grants nothing by
+  itself. The parser's own unit, property and fuzz tests are WP-239's.
 
 ### WP-090 Backups and verification
 
@@ -5004,6 +5277,10 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
   and WP-086 (same wave) and the scan (WP-102, a wave later); each
   projection's replay is tested in its own package, and the whole round
   trip is in WP-117.
+- **Added for the client plan (2026-10-03).** The startup page uses the small
+  stylesheet with no script that the client plan's token package writes
+  for server-rendered pages (CP-004), once it exists, so the page shares
+  the design tokens. Until then it uses its own minimal styles.
 
 ### WP-097 Alerts, log rotation and free space (was: alerts, log rotation, free space and crash records)
 
@@ -5472,6 +5749,89 @@ R1.2 and the rule store (WP-092) to R1.3; their specifications are in
 - **Risks.** CI runners may not provide real ULA or RFC 6598 addresses;
   the trusted test proxy covers those classes, which is weaker, and the
   package says so.
+- **Added for the client plan (2026-10-03).** The help pages use the same stylesheet
+  as the startup page (CP-004, through WP-095's note), once it exists.
+
+### WP-236 WASM facade: queue, shuffle, gain, player state and lyrics (added for the client plan)
+
+- **Wave** 2 · **Size** M · **Depends on** WP-021, WP-025, WP-026,
+  WP-028, WP-030, WP-235.
+- **Owns** `crates/gunmetal-wasm/src/queue.rs`, `shuffle.rs`, `gain.rs`,
+  `player.rs`, `lyrics.rs`, with their generated declarations under
+  `crates/gunmetal-wasm/types/`.
+- **Serves** ADR 1 decision 2; MUS-116 to MUS-119, MUS-122, MUS-126,
+  MUS-077, MUS-084, MUS-085, MUS-087 to MUS-089, MUS-154, MUS-155 (each
+  as the core's rule reaching the web client).
+- **Security.** Boundaries TB4; threats TM-T62. Verifies SEC-MED-077,
+  SEC-CLI-021.
+- **Scope.** In the form WP-235 sets: exports for applying and rebasing
+  queue operations, the shuffle order, the gain decision with the factor
+  to apply, the player state's transition function and the lyric
+  position lookup. Each export is a direct call into the core with
+  conversion only. It may start as soon as WP-235 has merged, and it
+  merges into `wave-2` after WP-235; it is the package the web player's
+  first clickable build waits for.
+- **Not in scope.** User events, inbound links, tints and the QR matrix
+  (WP-237). Sync, the library, search, the decision and Home rows
+  (WP-088).
+- **Tests.** Native unit tests of each conversion with literal values;
+  the drift check; the `wasm32` build.
+
+### WP-237 WASM facade: user events, inbound links, tints and the QR matrix (added for the client plan)
+
+- **Wave** 3 · **Size** S · **Depends on** WP-034, WP-235, WP-238,
+  WP-239, WP-240, WP-242.
+- **Owns** `crates/gunmetal-wasm/src/userdata.rs`, `deeplink.rs`,
+  `tint.rs`, `qr.rs`, with their generated declarations under
+  `crates/gunmetal-wasm/types/`.
+- **Serves** ACC-062, ACC-080, CLI-093, MUS-110, MUS-180, MUS-182;
+  API-LOG-01 (each as the core's rule reaching the web client).
+- **Security.** Boundaries TB4, TB5; threats TM-T18, TM-T65. Verifies
+  SEC-MED-077 and SEC-CLI-021 (conversion failures are typed errors).
+  The rules it exports are proved by the packages that own them:
+  SEC-PRV-002 and SEC-PRV-024 by WP-240, SEC-CLI-025 by WP-239.
+- **Scope.** Conversion only, in the form WP-235 sets: the event
+  builder and the sink (WP-240) and receiving a clock (WP-034); the
+  inbound-link parser (WP-239); the tint rule (WP-238); the QR matrix
+  (WP-242). The wall time and the random bytes the event builder needs
+  are arguments, supplied by the web client from one browser adapter;
+  this crate asks for no random source of its own. No rule is written
+  here.
+- **Not in scope.** Storage and upload (client; WP-068 on the server).
+- **Tests.** Native unit tests of each conversion with literal values;
+  an event built through the facade equals the one WP-240 builds from
+  the same inputs; the drift check; the `wasm32` build.
+
+### WP-241 Audit-head extension check (added for the client plan)
+
+- **Wave** 3 · **Size** S · **Depends on** WP-035, WP-069, WP-235.
+- **Owns** `crates/gunmetal-core/src/audit_head.rs`,
+  `crates/gunmetal-wasm/src/audit_head.rs` with its generated
+  declarations.
+- **Serves** ADM-145.
+- **Security.** Boundaries TB10, TB11; threats TM-T61. Verifies the
+  check's half of SEC-OPS-075 (a client holding an older head detects a
+  log that does not extend it).
+- **Why it exists.** SEC-OPS-075 has each admin's client keep the
+  latest signed checkpoint head and check at sign-in that the log
+  extends it. WP-069 makes the head and WP-100 serves it; no package
+  built the check, and it is a rule, so the web client may not write
+  it.
+- **Scope.** A pure function that, given the head a client stored, the
+  head the server now serves and what the server returns to link them,
+  answers "extends", "does not extend" or "cannot tell", after checking
+  the newer head's signature against the audit key the stored head
+  names. It parses heads in the encoding WP-069 writes, under the parse
+  contract. Its one facade export, in the form WP-235 sets.
+- **Not in scope.** Storing the head (client, CP-052). Serving it
+  (WP-100). Exporting checkpoints (WP-090).
+- **Tests.** A log extended by appended records gives "extends"; a
+  re-signed, truncated log gives "does not extend"; a head signed by
+  another key, and a malformed head, are typed errors; literal heads
+  taken from WP-069's own test encodings parse to literal values.
+- **Risks.** Whether the core's crypto module already holds the
+  signature check this needs is unverified; if not, it is added there
+  by its owner under the interface-change rule, not here.
 
 ## Wave 4: scanning and the features that need it
 
@@ -6166,6 +6526,9 @@ monitoring (WP-135) for R2. Their specifications are in
   are people and hardware, not code (baseline owner decision 19; this
   plan's decision 32). Reproducibility of the 32-bit ARM build, which
   joins in R1.3 (WP-160), is unverified.
+- **Added for the client plan (2026-10-03).** The release workflow's check of the
+  package-manager settings is the client plan's CP-001 check, run here;
+  this package does not write a second one.
 
 ### WP-116 Doctor and the security summary (was: doctor, diagnostics bundle and emergency page)
 
@@ -6357,7 +6720,7 @@ outline below.
 | API-SET-13 rotate server secrets | WP-106 (ADM-144) |
 | API-SHR-01 to SHR-03 music share links | R1.2: WP-134; video share links R2 |
 | API-TOK-01, TOK-02 tokens and tool change feed | R2: WP-091 (API keys are R2; baseline owner decision 8) |
-| API-TOK-03 deep links | WP-089 (the parser and R1's links); the app's deep links R1.2: WP-159 |
+| API-TOK-03 deep links | WP-239 (the parser); WP-089 (resolution / R1's links); the app's deep links R1.2: WP-159 |
 
 The security baseline added R1 surfaces that api-needs.md now carries as
 capabilities and this table maps above: browser pairing (API-AUTH-13,
@@ -6517,7 +6880,7 @@ wave: WP-150 follows WP-140 (both edit
 `crates/gunmetal-server/src/libraries/`, WP-099's), WP-147 follows
 WP-141 (both edit `crates/gunmetal-core/src/home/`, WP-059's), and
 WP-147 follows WP-027 (both add functions to `crates/gunmetal-wasm/`,
-WP-088's).
+the facade crate WP-235 creates).
 
 #### WP-022 M3U and M3U8 parser and writer
 
@@ -7472,11 +7835,11 @@ Translations (CLI-146) are client work and need no package here.
 #### WP-159 Household setup steps and deep links (split from WP-080 and WP-089)
 
 - **Release** R1.2 · **Wave** not yet scheduled · **Size** S ·
-  **Depends on** WP-080, WP-089, WP-094.
+  **Depends on** WP-080, WP-089, WP-094, WP-239.
 - **Owns**, under the merge protocol's interface-change rule, three steps
   in setup's step list (WP-080's), the server name and welcome message in
   `crates/gunmetal-server/src/meta/` (WP-089's), and the deep-link routes
-  in `crates/gunmetal-core/src/deeplink.rs` (WP-089's).
+  in `crates/gunmetal-core/src/deeplink.rs` (WP-239's).
 - **Serves** ADM-027, ADM-140, CLI-034, INT-147.
 - **Security.** Boundaries TB1, TB4; threats TM-T07, TM-T10. Verifies
   SEC-API-005 and SEC-NET-047 (the server name is never shown to an
@@ -7492,7 +7855,7 @@ Translations (CLI-146) are client work and need no package here.
 - **Tests.** Unauthenticated `GET /api/v1/server` still matches its
   literal schema with a server name set; a welcome message with markup is
   returned as text; each new deep link parses to its typed route, and
-  unrecognised input still maps to "unknown" (property).
+  unrecognised input still maps to "not recognised" (property).
 
 ### R1.3, discovery and analysis
 
@@ -8181,7 +8544,14 @@ unless each person opts in, and no history. Items 3, 5, 10, 17, 21, 24,
     If `wasm-bindgen`'s generated code trips the forbid lint (unverified),
     WP-088 needs a crate-level exception. *Recommendation:* allow it in
     `gunmetal-wasm` only, where the code is generated glue, and keep it
-    forbidden everywhere else.
+    forbidden everywhere else. *Answered 2026-10-03 as a delegated
+    technical choice (register, technical answers):* the core keeps
+    `forbid` with no exception; the facade crate's manifest repeats
+    every workspace lint with only `unsafe_code` lowered as far as
+    generated code needs, `xtask lint-exceptions` permits that one
+    manifest beside the core's, hand-written `unsafe` is refused there
+    by an xtask check on the keyword, and WP-235 proves the `wasm32`
+    build under it before any other facade slice starts.
 35. **Service install and "one command"** (ADM-005). SEC-MED-063 forbids
     the server from starting programs outside the sandbox launcher, so the
     binary cannot create the service user or enable the unit itself.
@@ -8650,7 +9020,10 @@ WP-117), SEC-STD-011's search part (WP-054) and the project site's rows
 carriers here and are re-proved by the moved package for its own surface.
 The traceability check (WP-127, SEC-STD-004) fails the R1 release until
 every row has a test or a dated review record, so the unassigned rows and
-client parts must be planned in a client plan before R1 can ship. Short
+client parts must be planned in a client plan before R1 can ship.
+[client-packages.md](client-packages.md#security-requirements-the-backend-plan-left-to-this-plan)
+now assigns each of them to a client package; the rows below still say
+what the backend plan itself does not carry. Short
 names are the baseline README's abbreviations; the requirement text is
 authoritative.
 
@@ -8817,7 +9190,7 @@ authoritative.
 | SEC-API-044 | HTML response: carry a Content Security Policy equivalent to default-src 'none' | WP-072 |
 | SEC-API-045 | Web client's build: fail on any HTML-string or code-string sink | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-API-046 | Text that comes from files: rendered as text | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
-| SEC-API-047 | URL taken from metadata or user: rendered as a link or opened by the app | WP-005 |
+| SEC-API-047 | URL taken from metadata or user: rendered as a link or opened by the app | WP-005, WP-235 |
 | SEC-API-048 | Untrusted strings: normalised on ingest | WP-005 |
 | SEC-API-049 | Web client: load no third-party scripts | WP-072 (server part: the CSP that blocks other origins); the client part is unassigned: web-client behaviour that a client plan must carry (the all-screens single-origin recording). |
 | SEC-API-050 | Message event listener in the web: check event.origin against an exact list and validate | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
@@ -8903,7 +9276,7 @@ authoritative.
 | SEC-NET-068 | Peer whose address equals the default: classified "unknown" and treated as non-local | WP-118, WP-132 |
 | SEC-NET-072 | Server: alert the owner 30 and 7 days | WP-101, WP-109 |
 | SEC-CLI-001 | Web and native clients: render every string that originates from media files | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
-| SEC-CLI-002 | URL taken from metadata or user: rendered as a link only if it parses | WP-005 |
+| SEC-CLI-002 | URL taken from metadata or user: rendered as a link only if it parses | WP-005, WP-235 |
 | SEC-CLI-004 | Server response to clients: carry X-Content-Type-Options | WP-044, WP-131 |
 | SEC-CLI-005 | Artwork and other user-derived content: reach clients only as an allow-listed raster type | WP-079, WP-103 |
 | SEC-CLI-007 | Server: reject any state-changing request from a browser whose Sec-Fetch-Site | WP-044, WP-131 |
@@ -8918,9 +9291,9 @@ authoritative.
 | SEC-CLI-018 | CI: install JavaScript dependencies only from the committed lockfile | WP-136 (the release workflow's install); the same rule in the client's own CI is for the client plan. |
 | SEC-CLI-019 | Development servers: bind to loopback in the committed configuration | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-CLI-020 | Library data the server sends: contain only what the signed-in profile may access | WP-084 |
-| SEC-CLI-021 | Clients: decode every server response with schema-validating decoders that bound | WP-039, WP-088 |
+| SEC-CLI-021 | Clients: decode every server response with schema-validating decoders that bound | WP-039, WP-088, WP-235, WP-236, WP-237 |
 | SEC-CLI-024 | Server: assign every enrolled device a class | WP-062, WP-120 |
-| SEC-CLI-025 | Inbound links and codes: parsed by one pure function in the core | WP-089 |
+| SEC-CLI-025 | Inbound links and codes: parsed by one pure function in the core | WP-239 (the parser), WP-089 (resolution) |
 | SEC-CLI-027 | Client: never include analytics | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-CLI-028 | PIN: mask input and turn off autocorrect | Unassigned: web-client behaviour. The client is outside this backend plan, and no client plan exists yet; it must carry this requirement. |
 | SEC-MED-001 | Public parsing function in gunmetal-core: return Ok or a typed error for every possible | WP-004, WP-009, WP-010, WP-011, WP-012, WP-013, WP-014, WP-015, WP-016, WP-017, WP-018, WP-019, WP-020, WP-021, WP-023, WP-035, WP-039, WP-041, WP-052, WP-056, WP-128 |
@@ -8977,7 +9350,7 @@ authoritative.
 | SEC-MED-060 | Range parser: accept at most one byte range per request | WP-023 |
 | SEC-MED-062 | Media-derived strings and paths written: escaped | WP-043 |
 | SEC-MED-063 | Server: never start any external program except through the sandbox launcher | WP-001, WP-045 |
-| SEC-MED-077 | Clients: apply the core's parsers and limits to everything | WP-039, WP-088 |
+| SEC-MED-077 | Clients: apply the core's parsers and limits to everything | WP-039, WP-088, WP-235, WP-236, WP-237 |
 | SEC-EXT-001 | Server-initiated outbound network connection: go through the single egress client | WP-001, WP-048 |
 | SEC-EXT-002 | Egress client: resolve names itself | WP-048 |
 | SEC-EXT-003 | Egress client: never follow redirects unless the caller opts | WP-048 |
@@ -9049,9 +9422,9 @@ authoritative.
 | SEC-OPS-070 | Project: publish a supported-version policy | WP-074, WP-124 |
 | SEC-OPS-071 | Signing-key compromise playbook: rehearsed at least once a year | WP-136 |
 | SEC-OPS-072 | Project: publish a compromise runbook for server owners | WP-124 |
-| SEC-OPS-075 | Audit log: an anchor off the host | WP-069, WP-090, WP-100 (server part: the checkpoint head, its route and its export); the admin client keeping the head and checking it at sign-in is unassigned: client behaviour that a client plan must carry. |
+| SEC-OPS-075 | Audit log: an anchor off the host | WP-069, WP-090, WP-100 (server part: the checkpoint head, its route and its export); WP-241 (the extension check); keeping the head and running the check at sign-in is the client plan's CP-052. |
 | SEC-PRV-001 | Server: keep a machine-readable data inventory that assigns every persisted | WP-122 |
-| SEC-PRV-002 | History event: contain only the profile ID | WP-034 |
+| SEC-PRV-002 | History event: contain only the profile ID | WP-034, WP-240 |
 | SEC-PRV-003 | Client IP addresses: stored only in the active-session table and the security | WP-062, WP-069, WP-133 |
 | SEC-PRV-004 | Server: never persist users' search queries | WP-117 |
 | SEC-PRV-005 | Retention for every data class: defined in one schedule in code with the defaults | WP-069, WP-133, WP-138 |
@@ -9067,7 +9440,7 @@ authoritative.
 | SEC-PRV-021 | IDs and signed URLs exposed: opaque random values of at least 128 bits | WP-006, WP-046, WP-047, WP-102 |
 | SEC-PRV-022 | One user's Activity data: never returned to any other user | WP-086, WP-131 |
 | SEC-PRV-023 | Privacy setting: default to its most private value | WP-046, WP-087 |
-| SEC-PRV-024 | Client: let a user start a private session | WP-086 |
+| SEC-PRV-024 | Client: let a user start a private session | WP-086, WP-240 (the device's half: the sink drops private events) |
 | SEC-PRV-025 | Admin interface and admin API: never offer any view | WP-104 |
 | SEC-PRV-026 | Product: never offer any way for an admin to sign | WP-094, WP-131 |
 | SEC-PRV-027 | User: able to read a "what your admin can see" | WP-087 |

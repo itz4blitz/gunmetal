@@ -34,6 +34,8 @@ release with every security requirement that protects it.
 
 The server work these documents imply is collected in
 [docs/plan/api-needs.md](../plan/api-needs.md).
+The web player's work packages are in
+[docs/plan/client-packages.md](../plan/client-packages.md).
 
 ## Navigation model in one paragraph
 
