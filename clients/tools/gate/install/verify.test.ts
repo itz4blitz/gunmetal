@@ -112,6 +112,86 @@ test('workspace members recorded as links need no installed package of their own
   verified);
 });
 
+// What a lockfile with more than one dependency holds, written into the copy's own lockfile.
+// A package that has peers is named with its peer context after the version: the importer's `version` and
+// the key under `snapshots` both carry it, and the key under `packages` does not.
+const importer = '        specifier: 2.9.1\n        version: 2.9.1\n';
+const snapshot = 'snapshots:\n\n  yaml@2.9.1: {}';
+const peers = (suffix: string, key = suffix) => (lock: string): string => lock
+  .replace(importer, `        specifier: 2.9.1\n        version: 2.9.1${suffix}\n`)
+  .replace(snapshot, `snapshots:\n\n  yaml@2.9.1${key}: {}`);
+const unpinned = 'every snapshot must name a locked package';
+
+// Verifies: SEC-SUP-036. A peer context names the same locked package; it is verified as that package.
+for (const suffix of ['(ghost@1.0.0)', '(ghost@1.0.0(deep@2.0.0))(other@3.0.0)']) {
+  test(`an importer dependency locked in the peer context ${suffix} is verified as its package`, async () => {
+    assert.deepEqual(await copied(directory => relock(directory, peers(suffix))), verified);
+  });
+}
+
+// Verifies: SEC-SUP-036. The peer context is no way round the lockfile: it must be one the lockfile holds.
+test('an importer that names a peer context the lockfile does not hold fails', async () => {
+  assert.deepEqual(await copied(directory => relock(directory, peers('(ghost@1.0.0)', '(other@1.0.0)'))),
+    refusal('verification.installation', uninstalled));
+  assert.deepEqual(await copied(directory => relock(directory, lock => lock.replace(importer, '        specifier: 2.9.1\n        version: 2.9.1(ghost@1.0.0)\n'))),
+    refusal('verification.installation', uninstalled));
+});
+
+for (const [name, suffix] of [
+  ['that is never closed', '(ghost@1.0.0'],
+  ['that is closed twice', '(ghost@1.0.0))'],
+  ['followed by more text', '(ghost@1.0.0)x'],
+  ['that only closes', ')'],
+] as const) {
+  test(`a peer context ${name} is not read as one`, async () => {
+    assert.deepEqual(await copied(directory => relock(directory, peers(suffix))), refusal('verification.installation', unpinned));
+  });
+}
+
+test('a snapshot of a version the lockfile does not pin fails, with or without a peer context', async () => {
+  for (const key of ['ghost@1.0.0', 'ghost@1.0.0(yaml@2.9.1)', 'yaml@9.9.9(ghost@1.0.0)']) {
+    assert.deepEqual(await copied(directory => relock(directory, lock => lock.replace(snapshot, `${snapshot}\n\n  ${key}: {}`))),
+      refusal('verification.installation', unpinned), key);
+  }
+});
+
+// A package the manager installs only on another platform: locked like any other, with the platforms it is
+// for, and marked optional in every snapshot. `fields` are the lines of its entry after the integrity.
+const elsewhere = (fields: string[], snapshots = ['ghost@1.0.0:\n    optional: true']) => (lock: string): string => lock
+  .replace('packages:\n\n  yaml@2.9.1:', `packages:\n\n  ghost@1.0.0:\n    resolution: {integrity: ${other}}\n${fields.map(field => `    ${field}\n`).join('')}\n  yaml@2.9.1:`)
+  .replace(snapshot, `snapshots:\n\n${snapshots.map(entry => `  ${entry}\n\n`).join('')}  yaml@2.9.1: {}`);
+
+// Verifies: SEC-SUP-036. The pinned manager is the linux, x64, glibc one; what it skips there may be absent.
+for (const fields of [['cpu: [arm64]', 'os: [darwin]'], ['cpu: [x64]', 'os: [linux]', 'libc: [musl]'], ['os: [darwin, win32]']]) {
+  test(`an optional package for another platform (${fields.join(', ')}) may be absent`, async () => {
+    assert.deepEqual(await copied(directory => relock(directory, elsewhere(fields))), verified);
+  });
+}
+
+// Verifies: SEC-SUP-036. Nothing else may be absent: each of these is one step away from the shape above.
+for (const [name, change] of [
+  ['for another platform but not optional', elsewhere(['cpu: [arm64]', 'os: [darwin]'], ['ghost@1.0.0: {}'])],
+  ['for another platform but optional in only one of its snapshots', elsewhere(['os: [darwin]'], ['ghost@1.0.0:\n    optional: true', 'ghost@1.0.0(yaml@2.9.1): {}'])],
+  ['for another platform but with no snapshot at all', elsewhere(['os: [darwin]'], [])],
+  ['optional but for every platform', elsewhere([])],
+  ['optional but for this platform', elsewhere(['cpu: [x64]', 'os: [linux]', 'libc: [glibc]'])],
+  ['optional with a platform list that is empty', elsewhere(['os: []'])],
+  ['optional with a platform that is not a list', elsewhere(['os: darwin'])],
+  ['optional with a negated platform, which this check does not read', elsewhere(["os: ['!linux']"])],
+  ['optional with a platform that is not a name', elsewhere(['os: [1]'])],
+  ['optional with an optional flag that is not true', elsewhere(['os: [darwin]'], ["ghost@1.0.0:\n    optional: 'true'"])],
+] as const) {
+  test(`a locked package that is ${name} must be installed`, async () => {
+    assert.deepEqual(await copied(directory => relock(directory, change)), refusal('verification.installation', uninstalled));
+  });
+}
+
+test('an importer cannot depend on a package that is absent, even an optional one for another platform', async () => {
+  assert.deepEqual(await copied(directory => relock(directory, lock => elsewhere(['os: [darwin]'])(lock).replace('    devDependencies:\n      yaml:',
+    '    optionalDependencies:\n      ghost:\n        specifier: 1.0.0\n        version: 1.0.0\n    devDependencies:\n      yaml:'))),
+  refusal('verification.installation', uninstalled));
+});
+
 // Verifies: SEC-SUP-011, SEC-SUP-036. The lockfile's manager entry must be the archive the pin names.
 test('a lockfile whose native manager integrity is not the pinned checksum fails before any registry request', async () => {
   assert.deepEqual(await copied(directory => relock(directory, lock => lock.replace(manager.integrity, other))),
