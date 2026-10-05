@@ -12,9 +12,12 @@ use crate::log::Logger;
 use crate::verifier::error::SignInError;
 use crate::verifier::guesses::GuessLog;
 use crate::verifier::pathway::{Pathway, PathwayCheck, Presented, Verified};
+use crate::verifier::preauth::PreAuth;
 
 /// The credential verifier.
-pub struct Verifier;
+pub struct Verifier {
+    store: Arc<IdentityStore>,
+}
 
 impl Verifier {
     /// A verifier that reads stored credentials and keeps its guess log in
@@ -30,9 +33,9 @@ impl Verifier {
         log: Arc<Logger>,
         sink: Arc<dyn SecuritySink + Send + Sync>,
     ) -> Self {
-        // Nothing is limited, checked or reported yet.
-        drop((store, limiter, guesses, clock, log, sink));
-        Self
+        // Nothing is limited or reported yet.
+        drop((limiter, guesses, clock, log, sink));
+        Self { store }
     }
 
     /// Spends one attempt of `source`'s ceilings and the server's for an
@@ -55,12 +58,19 @@ impl Verifier {
     pub fn verify(
         &self,
         check: &dyn PathwayCheck,
-        _presented: &Presented<'_>,
+        presented: &Presented<'_>,
         _source: &ClientContext,
     ) -> Result<Verified, SignInError> {
+        // The pathway's lookup is believed: nothing is compared, limited or
+        // refused yet.
+        let lookup = PreAuth::new(&self.store);
+        let account = presented
+            .credential()
+            .and_then(|credential| check.find(credential, &lookup).ok().flatten())
+            .and_then(|stored| stored.account);
         Ok(Verified {
             pathway: check.pathway(),
-            account: None,
+            account,
         })
     }
 }
@@ -763,18 +773,17 @@ mod tests {
             (Fault::Missing, "missing_data"),
             (Fault::from(IdentityError::Foreign), "storage"),
         ];
-        let mut attempt = 0_u8;
-        for (fault, cause) in faults {
-            // A fault in the lookup comes before any account is known; one
-            // in the comparison, after ada's credential was found.
-            for (stage, named) in [(Stage::Find, None), (Stage::Matches, Some(account()))] {
-                attempt += 1;
+        // A fault in the lookup comes before any account is known; one in
+        // the comparison, after ada's credential was found.
+        let stages = [(Stage::Find, None), (Stage::Matches, Some(account()))];
+        for (row, (fault, cause)) in faults.iter().enumerate() {
+            for (column, (stage, named)) in stages.iter().enumerate() {
                 let seen = Seen::default();
                 let check = StandIn {
-                    fault: Some((stage, fault.clone())),
+                    fault: Some((*stage, fault.clone())),
                     ..standin(Pathway::RecoveryCode, &seen)
                 };
-                let addr = format!("198.51.100.{attempt}");
+                let addr = format!("198.51.{row}.{column}");
                 let from = source(&addr);
                 // The credential is the right one, and is still refused.
                 assert_eq!(
@@ -784,7 +793,7 @@ mod tests {
                     REFUSED,
                     "{cause} at {stage:?}"
                 );
-                assert_eq!(bench.new_events(), [fail(&from, named)]);
+                assert_eq!(bench.new_events(), [fail(&from, *named)]);
                 assert_eq!(
                     bench.new_lines(),
                     [line(NOON, &addr, "recovery_code", cause)]
