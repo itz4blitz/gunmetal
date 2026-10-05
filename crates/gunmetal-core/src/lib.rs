@@ -33,6 +33,7 @@ pub mod retention;
 pub mod schema;
 pub mod search;
 pub mod shuffle;
+pub mod tags;
 pub mod text;
 pub mod time;
 pub mod token;

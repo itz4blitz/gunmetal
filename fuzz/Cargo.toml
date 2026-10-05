@@ -270,6 +270,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tags_riff"
+path = "fuzz_targets/tags_riff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "text"
 path = "fuzz_targets/text.rs"
 test = false

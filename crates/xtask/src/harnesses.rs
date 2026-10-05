@@ -37,7 +37,9 @@ const CORE: &str = "crates/gunmetal-core/src";
 /// the list in work package WP-008; `ebml.rs`, which stays where it is
 /// until the Matroska work moves it below `formats/`; and the validators
 /// that turn untrusted text and octets into typed values (`base64.rs`,
-/// `link.rs`, `net.rs`, `text.rs`, `time.rs` and `values.rs`).
+/// `link.rs`, `net.rs`, `text.rs`, `time.rs` and `values.rs`); and the
+/// `INFO` list mapper (`tags/riff.rs`), which walks sub-chunks from the
+/// file's octets.
 pub const PARSER_FILES: &[&str] = &[
     "base64.rs",
     "deeplink.rs",
@@ -49,6 +51,7 @@ pub const PARSER_FILES: &[&str] = &[
     "m3u.rs",
     "net.rs",
     "path.rs",
+    "tags/riff.rs",
     "text.rs",
     "time.rs",
     "values.rs",
@@ -580,6 +583,28 @@ pub fn elements(input: &[u8]) -> Elements<'_> {
         assert_eq!(
             check(&tree, &[]),
             ["base64", "link", "net", "text", "time", "values"].map(unregistered)
+        );
+    }
+
+    /// The `INFO` list mapper walks sub-chunk headers and sizes from the
+    /// file's octets, so it needs a harness. The MP4 and APE mappers take
+    /// items a parser has already read, so they do not.
+    ///
+    /// Verifies: SEC-MED-027
+    #[test]
+    fn the_info_list_mapper_needs_a_harness() {
+        let entry = "pub fn from_info(list: &[u8]) {}\n";
+        let tree = Memory::default()
+            .with(&core("tags/ape.rs"), entry)
+            .with(&core("tags/mp4.rs"), entry)
+            .with(&core("tags/riff.rs"), entry)
+            .with("fuzz/Cargo.toml", &manifest(&[]));
+        assert_eq!(
+            check(&tree, &[]),
+            [Finding::Unregistered {
+                module: core("tags/riff.rs"),
+                harness: "tags_riff".to_owned(),
+            }]
         );
     }
 

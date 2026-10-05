@@ -80,6 +80,7 @@ harnesses! {
     path,
     riff,
     search_segment,
+    tags_riff,
     text,
     time,
     token,
