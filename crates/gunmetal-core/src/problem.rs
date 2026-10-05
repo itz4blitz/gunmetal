@@ -123,6 +123,10 @@ problems! {
     SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
     /// The action needs an administrator session or a fresh check with a passkey first (SEC-IAM-041, SEC-TM-017).
     StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
+    /// A limit refused a sign-in attempt before it was looked at: its source's ceiling or the server's was reached, or an earlier wrong guess has not been waited out. The response says how long to wait and nothing about whether an account, code or link exists (SEC-API-057, SEC-IAM-101).
+    TooManyAttempts = ("too_many_attempts", Some(429), "Too many attempts. Wait a little, then try again."),
+    /// The request carried no valid credential. A refused sign-in gets this one answer whether the account or code is unknown, disabled or wrong (SEC-API-058).
+    Unauthenticated = ("unauthenticated", Some(401), "Sign in to continue."),
     /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
     UnknownHost = ("unknown_host", Some(421), "This server doesn't answer to that name."),
     /// A request body was not JSON, or was compressed (SEC-API-035, SEC-API-065).
@@ -168,7 +172,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 32] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 34] = [
         (
             "aiff_unreadable",
             None,
@@ -300,6 +304,12 @@ mod tests {
             Some(403),
             "Confirm it's you with your passkey, then try again.",
         ),
+        (
+            "too_many_attempts",
+            Some(429),
+            "Too many attempts. Wait a little, then try again.",
+        ),
+        ("unauthenticated", Some(401), "Sign in to continue."),
         (
             "unknown_host",
             Some(421),

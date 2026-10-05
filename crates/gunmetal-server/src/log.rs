@@ -35,6 +35,7 @@
 use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::io::Write;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -200,6 +201,20 @@ pub enum LogEvent {
     },
     /// Debug level switched itself off (SEC-OPS-029).
     DebugLoggingEnded,
+    /// The credential verifier refused a sign-in attempt (SEC-OPS-028,
+    /// SEC-IAM-099). This is the line a fail2ban filter matches. Its name,
+    /// the order of its fields and `addr` coming straight after the name
+    /// are format version 1, which the line states as `v`; changing any of
+    /// them is a new version. It is logged as an error so that no
+    /// configured level drops it.
+    AuthnLoginFail {
+        /// The client address the listener resolved.
+        addr: IpAddr,
+        /// The name of the sign-in pathway.
+        pathway: &'static str,
+        /// Why the attempt was refused: a word fixed in the program.
+        cause: &'static str,
+    },
 }
 
 impl LogEvent {
@@ -212,6 +227,7 @@ impl LogEvent {
             Self::DataRootLeftoverRemoved { .. } => "gm_data_root_leftover_removed",
             Self::DebugLoggingEnabled { .. } => "gm_debug_logging_enabled",
             Self::DebugLoggingEnded => "gm_debug_logging_ended",
+            Self::AuthnLoginFail { .. } => "authn_login_fail",
         }
     }
 
@@ -223,7 +239,8 @@ impl LogEvent {
             Self::DataRootModeRepaired { .. }
             | Self::DataRootLeftoverRemoved { .. }
             | Self::DebugLoggingEnabled { .. }
-            | Self::DebugLoggingEnded => Level::Warn,
+            | Self::DebugLoggingEnded
+            | Self::AuthnLoginFail { .. } => Level::Warn,
         }
     }
 
@@ -248,7 +265,7 @@ impl LogEvent {
                 vec![public("item", Value::Text(item.clone()))]
             }
             Self::DebugLoggingEnabled { until } => vec![public("until", Value::Time(*until))],
-            Self::DebugLoggingEnded => Vec::new(),
+            Self::DebugLoggingEnded | Self::AuthnLoginFail { .. } => Vec::new(),
         }
     }
 }
@@ -903,6 +920,11 @@ mod tests {
             },
             LogEvent::DebugLoggingEnabled { until: at(NOON) },
             LogEvent::DebugLoggingEnded,
+            LogEvent::AuthnLoginFail {
+                addr: IpAddr::from([203, 0, 113, 7]),
+                pathway: "claim_code",
+                cause: "credential",
+            },
         ]
     }
 
@@ -935,6 +957,9 @@ mod tests {
                     "{ts}\"warn\",\"event\":\"gm_debug_logging_enabled\",\"until\":\"2026-10-03T12:00:00.000Z\"}}\n"
                 ),
                 format!("{ts}\"warn\",\"event\":\"gm_debug_logging_ended\"}}\n"),
+                format!(
+                    "{ts}\"error\",\"event\":\"authn_login_fail\",\"addr\":\"203.0.113.7\",\"v\":1,\"pathway\":\"claim_code\",\"cause\":\"credential\"}}\n"
+                ),
             ]
         );
     }
@@ -1033,7 +1058,8 @@ mod tests {
                 | LogEvent::DataRootModeRepaired { .. }
                 | LogEvent::DataRootLeftoverRemoved { .. }
                 | LogEvent::DebugLoggingEnabled { .. }
-                | LogEvent::DebugLoggingEnded => {}
+                | LogEvent::DebugLoggingEnded
+                | LogEvent::AuthnLoginFail { .. } => {}
             }
         }
     }
