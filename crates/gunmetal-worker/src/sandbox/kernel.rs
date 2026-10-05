@@ -688,44 +688,150 @@ mod tests {
         assert!(!installed);
     }
 
-    /// The `Seccomp:` line of a thread's status: 0 without a filter, 2
-    /// with one.
+    /// What a thread's `/proc` status says of seccomp.
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    fn seccomp_mode(tid: i32) -> Option<String> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the test reads a thread's own /proc status to see the filter the kernel holds for it (SEC-MED-022)"
-        )]
-        let status = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")).unwrap();
-        status
-            .lines()
-            .find_map(|line| line.strip_prefix("Seccomp:"))
-            .map(|mode| mode.trim().to_owned())
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Seccomp {
+        /// The `Seccomp:` line: 0 without a filter, 2 with one or more.
+        mode: u32,
+        /// The `Seccomp_filters:` line: how many filters bind the thread.
+        /// Linux 5.9 added the line; on an older kernel this is `None`.
+        filters: Option<u32>,
     }
 
-    /// A seccomp filter binds the thread that installs it. The helper
-    /// thread installs the worker's filter and then only spins, which
-    /// needs no system call, until this thread has read its status.
-    ///
-    /// Verifies: SEC-MED-022
+    /// Reads what the text of a `/proc` status file says of seccomp.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn seccomp_in(status: &str) -> Seccomp {
+        let number = |label: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(label))
+                .map(|value| value.trim().parse::<u32>().unwrap())
+        };
+        Seccomp {
+            mode: number("Seccomp:").unwrap(),
+            filters: None,
+        }
+    }
+
+    /// What the kernel says of seccomp for one thread of this process.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn seccomp_of(tid: i32) -> Seccomp {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test reads a thread's own /proc status to see the filters the kernel holds for it (SEC-MED-022)"
+        )]
+        let status = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")).unwrap();
+        seccomp_in(&status)
+    }
+
+    /// How a thread's seccomp state changed: its mode before, its mode
+    /// after, and how many filters it gained where the kernel counts them.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    type Step = (u32, u32, Option<i64>);
+
+    /// The change from one state of a thread to a later one.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn change(before: Seccomp, after: Seccomp) -> Step {
+        let gained = before
+            .filters
+            .zip(after.filters)
+            .map(|(earlier, later)| i64::from(later) - i64::from(earlier));
+        (before.mode, after.mode, gained)
+    }
+
+    /// The status of a process in a container, of one outside any, and of
+    /// one on a kernel older than Linux 5.9, which does not count filters.
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
-    fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+    fn a_status_gives_the_seccomp_mode_and_the_filter_count_where_there_is_one() {
+        assert_eq!(
+            seccomp_in(
+                "Name:\tsh\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\n\
+                 Speculation_Store_Bypass:\tthread vulnerable\n"
+            ),
+            Seccomp {
+                mode: 2,
+                filters: Some(1)
+            }
+        );
+        assert_eq!(
+            seccomp_in("NoNewPrivs:\t0\nSeccomp:\t0\nSeccomp_filters:\t0\n"),
+            Seccomp {
+                mode: 0,
+                filters: Some(0)
+            }
+        );
+        assert_eq!(
+            seccomp_in("Seccomp:\t2\nSeccomp_filters:\t12\n"),
+            Seccomp {
+                mode: 2,
+                filters: Some(12)
+            }
+        );
+        assert_eq!(
+            seccomp_in("NoNewPrivs:\t0\nSeccomp:\t2\nSpeculation_Store_Bypass:\tvulnerable\n"),
+            Seccomp {
+                mode: 2,
+                filters: None
+            }
+        );
+    }
+
+    /// A change holds the two modes, and the filters gained only where the
+    /// kernel counted them both times.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn a_change_is_the_two_modes_and_the_filters_gained_where_they_are_counted() {
+        let state = |mode, filters| Seccomp { mode, filters };
+        assert_eq!(
+            [
+                change(state(0, Some(0)), state(2, Some(1))),
+                change(state(2, Some(1)), state(2, Some(2))),
+                change(state(2, Some(3)), state(2, Some(3))),
+                change(state(2, Some(2)), state(2, Some(1))),
+                change(state(0, None), state(2, None)),
+                change(state(2, Some(1)), state(2, None)),
+            ],
+            [
+                (0, 2, Some(1)),
+                (2, 2, Some(1)),
+                (2, 2, Some(0)),
+                (2, 2, Some(-1)),
+                (0, 2, None),
+                (2, 2, None),
+            ]
+        );
+    }
+
+    /// Starts a thread that installs the worker's filter, and returns what
+    /// that thread answered, how the calling thread started, and what the
+    /// kernel showed: the change in the thread that asked, then the change
+    /// in the calling thread, which asked for nothing.
+    ///
+    /// The helper thread reads its own state before it asks. Afterwards it
+    /// only spins, which needs no system call, until the calling thread
+    /// has read its state again.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn watch_a_new_thread_install_the_filter() -> (Option<u8>, u8, Seccomp, [Step; 2]) {
+        use std::sync::OnceLock;
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
         use std::time::Duration;
 
+        let own = rustix::thread::gettid().as_raw_nonzero().get();
+        let started = seccomp_of(own);
         let tid = AtomicI32::new(0);
+        let asked_from = OnceLock::new();
         // 0: not done yet. 1: no filter. 2: installed.
         let outcome = AtomicU8::new(0);
         let seen = AtomicBool::new(false);
         // Both waits run their step at least once, so every line here runs
         // however the two threads are scheduled.
-        let (finished, mode) = std::thread::scope(|scope| {
+        let (finished, asked_into) = std::thread::scope(|scope| {
             scope.spawn(|| {
-                tid.store(
-                    rustix::thread::gettid().as_raw_nonzero().get(),
-                    Ordering::SeqCst,
-                );
+                let helper = rustix::thread::gettid().as_raw_nonzero().get();
+                asked_from.set(seccomp_of(helper)).unwrap();
+                tid.store(helper, Ordering::SeqCst);
                 Linux.no_new_privs().unwrap();
                 let installed = Linux.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
@@ -740,15 +846,111 @@ mod tests {
                 outcome.load(Ordering::SeqCst)
             })
             .find(|&state| state != 0);
-            let mode = seccomp_mode(tid.load(Ordering::SeqCst));
+            let asked_into = seccomp_of(tid.load(Ordering::SeqCst));
             seen.store(true, Ordering::SeqCst);
-            (finished, mode)
+            (finished, asked_into)
         });
+        let asked_from = *asked_from.get().unwrap();
+        (
+            finished,
+            outcome.load(Ordering::SeqCst),
+            started,
+            [
+                change(asked_from, asked_into),
+                change(started, seccomp_of(own)),
+            ],
+        )
+    }
+
+    /// A seccomp filter binds the thread that installs it, and no other.
+    /// The kernel shows it as one more filter on the thread that asked and
+    /// none more on this one, and as mode 2 on the thread that asked. No
+    /// start is assumed: what this thread shows before decides which row
+    /// below must hold, and where nothing could show the filter there is
+    /// no row, so the test fails instead of passing on what it cannot see.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+        let (finished, outcome, started, changes) = watch_a_new_thread_install_the_filter();
         assert_eq!(finished, Some(2));
-        assert_eq!(outcome.load(Ordering::SeqCst), 2);
-        assert_eq!(mode.as_deref(), Some("2"));
-        let own = rustix::thread::gettid().as_raw_nonzero().get();
-        assert_eq!(seccomp_mode(own).as_deref(), Some("0"));
+        assert_eq!(outcome, 2);
+        // The change in the thread that asked, then in this one, each as
+        // the mode before, the mode after and the filters gained.
+        let expected: [[Option<[Step; 2]>; 2]; 2] = [
+            [
+                // No filter at the start, on a kernel older than Linux 5.9,
+                // which does not count filters: the mode alone shows it.
+                Some([(0, 2, None), (0, 0, None)]),
+                // No filter at the start, as on a hosted runner.
+                Some([(0, 2, Some(1)), (0, 0, Some(0))]),
+            ],
+            [
+                // A filter at the start and no count: one more filter
+                // would not show, so nothing is accepted.
+                None,
+                // A filter at the start, as in a container with a seccomp
+                // profile: the mode is 2 before and after, and only the
+                // count shows the new filter.
+                Some([(2, 2, Some(1)), (2, 2, Some(0))]),
+            ],
+        ];
+        assert_eq!(
+            Some(changes),
+            expected[usize::from(started.mode != 0)][usize::from(started.filters.is_some())],
+            "this thread started as {started:?}"
+        );
+    }
+
+    /// The same on a thread that is filtered before it asks, as every
+    /// thread is in a container with a seccomp profile. This thread first
+    /// takes the Landlock calls away from itself, which the filter's
+    /// installation does not need, and the thread it then starts inherits
+    /// that. The mode is 2 before and after, so only the count can show
+    /// the worker's filter: on a kernel older than Linux 5.9, which has no
+    /// count, this test fails.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_adds_its_filter_to_a_thread_that_is_filtered_already() {
+        let (finished, outcome, _, changes) = std::thread::spawn(|| {
+            take_away(&[444, 445, 446]);
+            watch_a_new_thread_install_the_filter()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(finished, Some(2));
+        assert_eq!(outcome, 2);
+        assert_eq!(changes, [(2, 2, Some(1)), (2, 2, Some(0))]);
+    }
+
+    /// Makes the kernel answer `EINVAL` to `prctl(PR_SET_NO_NEW_PRIVS)` on
+    /// the calling thread from now on, as a kernel older than Linux 3.5
+    /// does. Every other `prctl` still goes through.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn refuse_no_new_privs() {}
+
+    /// The `no_new_privs` step asks the kernel, and a refusal is not taken
+    /// for success: on a thread where the kernel refuses that one `prctl`
+    /// option, the step fails with the kernel's error number, which is
+    /// what stops confinement. The bit cannot be cleared, so in a process
+    /// that starts with it, as every process does in a container run with
+    /// `no-new-privileges`, reading the bit afterwards cannot tell a step
+    /// that asked from one that did not.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn a_kernel_that_refuses_no_new_privs_is_reported_with_its_error() {
+        let refused = std::thread::spawn(|| {
+            refuse_no_new_privs();
+            Linux.no_new_privs().map_err(|error| error.raw_os_error())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(refused, Err(Some(22)));
     }
 
     #[test]

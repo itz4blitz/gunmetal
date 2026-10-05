@@ -292,24 +292,25 @@ fn active(list: Option<&str>, module: &str, answered: bool) -> bool {
     })
 }
 
-/// Whether the running kernel answers the Landlock version query with a
-/// version. The query is `landlock_create_ruleset` with only the version
-/// flag: it creates no ruleset and restricts nothing. A kernel built
-/// without Landlock answers `ENOSYS`, as does one this executable took the
-/// call away from, and a kernel that has Landlock switched off answers
-/// `EOPNOTSUPP`.
+/// The Landlock version the running kernel answers with, or `Unsupported`
+/// where it answers with none. The query is `landlock_create_ruleset` with
+/// only the version flag: it creates no ruleset and restricts nothing. A
+/// kernel built without Landlock answers `ENOSYS`, as does one this
+/// executable took the call away from, and a kernel that has Landlock
+/// switched off answers `EOPNOTSUPP`.
 ///
 /// Making the call needs `unsafe`, which this crate allows in one place
 /// only (ADR 13), so it is made through the `landlock` crate: a builder
 /// that is given nothing to restrict and told to leave `no_new_privs`
 /// alone asks for the version and does nothing else. None of the sandbox's
 /// own code is involved.
-fn landlock_answers() -> bool {
+fn landlock_version() -> landlock::ABI {
     let answer = landlock::RestrictSelf::default()
         .no_new_privs(false)
         .apply()
         .expect("the kernel's answer about Landlock");
-    landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported
+    let answers = landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported;
+    landlock::ABI::from(i32::from(answers))
 }
 
 /// Whether the kernel publishes Yama's setting, and so whether Yama is
@@ -328,7 +329,11 @@ impl Host {
         // The kernel is asked before anything is taken away, so each
         // answer is about the running kernel, as its list is.
         let no_new_privs = status(process::id(), "NoNewPrivs:");
-        let landlock = active(list.as_deref(), "landlock", landlock_answers());
+        let landlock = active(
+            list.as_deref(),
+            "landlock",
+            landlock_version() != landlock::ABI::Unsupported,
+        );
         // A worker inherits this flag. Had asking set it here, a worker
         // that set none of its own would still show it.
         assert_eq!(
@@ -655,13 +660,33 @@ fn a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is(_host: 
 /// `Host` took both from the list, so this is the list and the direct
 /// answers agreeing, which is what lets the direct answers stand in where
 /// there is no list. On a kernel that publishes none, `Host` took them
-/// from these same answers, and only the next sentence is proven there.
+/// from these same answers, and only the rest is proven there.
+///
 /// Landlock is asked again here, after an emulated kernel took its calls
 /// away, so on those kernels the answer must be "no", as `Host` says.
+///
+/// The version the kernel answers with is also what gives Landlock its
+/// network rules, from 4, and its signal scoping, from 6. `Host` takes
+/// those two from the kernel's release instead, which does not pass
+/// through the crate the sandbox enforces with, so a version read too low
+/// there cannot lower what these tests expect. Here the two must agree: a
+/// kernel whose release and Landlock version tell different stories fails
+/// this test by name, before the hostile actions fail on an error number.
 fn the_kernels_direct_answers_agree_with_what_these_tests_expect_of_it(host: &Host) {
+    let version = landlock_version();
     assert_eq!(
-        (landlock_answers(), yama_answers()),
-        (host.landlock, host.yama)
+        (
+            version != landlock::ABI::Unsupported,
+            version >= landlock::ABI::V4,
+            version >= landlock::ABI::V6,
+            yama_answers(),
+        ),
+        (
+            host.landlock,
+            host.landlock && host.landlock_network,
+            host.landlock && host.landlock_signals,
+            host.yama,
+        )
     );
 }
 
