@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { decoy } from './decoy.ts';
 
 const client = fileURLToPath(new URL('../../../', import.meta.url));
 function check(directory: string, env = process.env): unknown {
@@ -67,14 +68,60 @@ for (const license of ['SSPL-1.0', undefined]) {
   });
 }
 
-test('a malformed project licence allow-list fails closed', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gunmetal-licence-policy-'));
+// Verifies: SEC-SUP-029. The allow-list is read in-process and only in the one form deny.toml uses:
+// a `[licenses]` table whose `allow` lists one double-quoted licence per line. Anything else fails closed.
+for (const [name, policy] of [
+  ['no policy file', null],
+  ['an unterminated list', '[licenses]\nallow = [\n'],
+  ['no licence table', '[bans]\nallow = [\n    "MIT",\n]\n'],
+  ['two licence tables', '[licenses]\nallow = [\n    "MIT",\n]\n[licenses]\nallow = [\n    "ISC",\n]\n'],
+  ['two allow lists', '[licenses]\nallow = [\n    "MIT",\n]\nallow = [\n    "ISC",\n]\n'],
+  ['an allow list only in another table', '[licenses]\nconfidence-threshold = 0.9\n[bans]\nallow = [\n    "MIT",\n]\n'],
+  ['a dotted key instead of the table', 'licenses.allow = [\n    "MIT",\n]\n'],
+  ['a one-line list', '[licenses]\nallow = ["MIT"]\n'],
+  ['a key without spaces', '[licenses]\nallow=[\n    "MIT",\n]\n'],
+  ['a quoted key', '[licenses]\n"allow" = [\n    "MIT",\n]\n'],
+  ['a literal string', "[licenses]\nallow = [\n    'MIT',\n]\n"],
+  ['an escape in a licence', '[licenses]\nallow = [\n    "MI\\u0054",\n]\n'],
+  ['a comment after a licence', '[licenses]\nallow = [\n    "MIT", # permissive\n]\n'],
+  ['a comment line inside the list', '[licenses]\nallow = [\n    # permissive\n    "MIT",\n]\n'],
+  ['a licence without its comma', '[licenses]\nallow = [\n    "MIT"\n]\n'],
+  ['two licences on one line', '[licenses]\nallow = [\n    "MIT", "ISC",\n]\n'],
+  ['a multi-line string anywhere in the file', 'note = """\n[licenses]\n"""\n[licenses]\nallow = [\n    "MIT",\n]\n'],
+  ['a literal multi-line string anywhere in the file', "note = '''\ntext\n'''\n[licenses]\nallow = [\n    \"MIT\",\n]\n"],
+  ['an empty list', '[licenses]\nallow = [\n]\n'],
+  ['an empty licence', '[licenses]\nallow = [\n    "",\n]\n'],
+  ['a repeated licence', '[licenses]\nallow = [\n    "MIT",\n    "MIT",\n]\n'],
+] as const) {
+  test(`a project licence policy with ${name} fails closed`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'gunmetal-licence-policy-'));
+    try {
+      const project = join(directory, 'clients');
+      await mkdir(project);
+      if (policy !== null) await writeFile(join(directory, 'deny.toml'), policy);
+      assert.deepEqual(check(project), { status: 1, signal: null, stderr: '', result: [{
+        rule: 'SEC-SUP-029', path: 'licenses.policy', message: 'invalid project licence allow-list',
+      }] });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+}
+
+// Verifies: SEC-SUP-029. No program found on PATH decides which licences are allowed.
+test('a decoy python3 first on PATH is never executed by the licence collector', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gunmetal-decoy-python-'));
   try {
-    const project = join(directory, 'clients');
-    await mkdir(project);
-    await writeFile(join(directory, 'deny.toml'), '[licenses]\nallow = [\n');
-    assert.deepEqual(check(project), { status: 1, signal: null, stderr: '', result: [{
-      rule: 'SEC-SUP-029', path: 'licenses.policy', message: 'invalid project licence allow-list',
-    }] });
+    const { env, script, marker } = await decoy(directory, 'python3');
+    assert.deepEqual(check(client, env), { status: 0, signal: null, stderr: '', result: {
+      allowed,
+      packages: [
+        { name: '@pnpm/exe.linux-x64', version: '12.7.0', license: 'MIT' },
+        { name: 'yaml', version: '2.9.1', license: 'ISC' },
+      ],
+    } });
+    await assert.rejects(stat(marker), { code: 'ENOENT' });
+    // Positive control: the decoy does leave its marker once something executes it.
+    const control = spawnSync(script, [], { encoding: 'utf8', timeout: 10000 });
+    assert.deepEqual({ status: control.status, signal: control.signal, marker: await readFile(marker, 'utf8') },
+      { status: 0, signal: null, marker: 'ran' });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -55,17 +55,29 @@ test('both normal pnpm documents are accepted and inventoried', async () => {
   assert.deepEqual(inspect('lockfile', { text: await fixture('lockfile') }), []);
 });
 
+// The integrity of each fixture document's package, as the real lockfile records them.
+const integrity = [
+  'sha512-nFZHfjYAaNbp3KapLvtORrPcWlL86/PYTXi5c2wN7ViaVhYhpS9oIZp6OfrMY83AecMibvnJ1fArefdOaagHtg==',
+  'sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==',
+] as const;
 for (const [source, resolution] of [
   ['git', '{repo: "git+https://evil.test/repo.git", commit: abc}'],
   ['tarball', '{tarball: "https://registry.npmjs.org/yaml/-/yaml-2.9.1.tgz"}'],
-  ['second registry', '{registry: "https://evil.test/", integrity: sha512-yaml}'],
+  ['second registry', `{registry: "https://evil.test/", integrity: ${integrity[1]}}`],
   ['escaped git', '{repo: "\\u0067it+https://evil.test/repo.git", commit: abc}'],
+  ['a resolution without integrity', '{}'],
+  ['an empty integrity', '{integrity: ""}'],
+  ['a sha1 integrity', '{integrity: sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=}'],
+  ['a sha256 integrity', '{integrity: sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=}'],
+  ['a shortened sha512 integrity', `{integrity: ${integrity[1].slice(0, -3)}==}`],
+  ['a second hash after the sha512 integrity', `{integrity: "${integrity[1]} sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk="}`],
+  ['a revision beside the integrity', `{integrity: ${integrity[1]}, revision: abc}`],
 ] as const) {
-  for (const document of [0, 1]) {
+  for (const document of [0, 1] as const) {
     // Verifies: SEC-SUP-033
     test(`lockfile refuses ${source} in document ${document}`, async () => {
       const key = document === 0 ? 'pnpm@12.7.0' : 'yaml@2.9.1';
-      const old = document === 0 ? '{integrity: sha512-manager}' : '{integrity: sha512-yaml}';
+      const old = `{integrity: ${integrity[document]}}`;
       const text = (await fixture('lockfile')).replace(old, resolution);
       assert.deepEqual(inspect('lockfile', { text }),
         refused('SEC-SUP-033', `lockfile[${document}].packages.${key}.resolution`, 'registry integrity only; exotic sources are forbidden'));
@@ -186,15 +198,51 @@ for (const document of [0, 1]) {
   }
 }
 for (const [name, importers] of [
-  ['importers that are a source', 'npm:evil@1.0.0'],
   ['a project that is a source', { '.': 'npm:evil@1.0.0' }],
   ['a dependency group that is a source', { '.': { dependencies: 'npm:evil@1.0.0' } }],
   ['a dependency entry that is a source', { '.': { dependencies: { evil: 'npm:evil@1.0.0' } } }],
 ] as const) {
   test(`lockfile refuses ${name}`, () => {
-    const text = `lockfileVersion: "9.0"\nimporters: ${JSON.stringify(importers)}\npackages: {}\n`;
+    const text = `lockfileVersion: "9.0"\nimporters: ${JSON.stringify(importers)}\npackages: {}\nsnapshots: {}\n`;
     assert.deepEqual(inspect('lockfile', { text }),
       refused('SEC-SUP-033', 'lockfile[0].importers', 'unsupported dependency protocol is forbidden'));
+  });
+}
+
+// Verifies: SEC-SUP-033. A document is read only in the shape the pinned manager writes: `importers`
+// always, `packages` and `snapshots` together or not at all, and no other top-level key. Merge keys and
+// directives, which another YAML reader could resolve differently, are refused wherever they appear.
+const empty = 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: {}\nsnapshots: {}\n';
+test('lockfile accepts a document that locks nothing', () => {
+  assert.deepEqual(inspect('lockfile', { text: empty }), []);
+});
+test('lockfile accepts a document with importers only, as pnpm writes for a workspace without registry packages', () => {
+  const text = "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n";
+  assert.deepEqual(inspect('lockfile', { text }), []);
+});
+for (const [name, text] of [
+  ['a document without importers', 'lockfileVersion: "9.0"\npackages: {}\nsnapshots: {}\n'],
+  ['importers that are a source', 'lockfileVersion: "9.0"\nimporters: "npm:evil@1.0.0"\npackages: {}\nsnapshots: {}\n'],
+  ['importers that are a list', 'lockfileVersion: "9.0"\nimporters: []\npackages: {}\nsnapshots: {}\n'],
+  ['packages without snapshots', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: {}\n'],
+  ['snapshots without packages', 'lockfileVersion: "9.0"\nimporters: {".": {}}\nsnapshots: {}\n'],
+  ['packages and snapshots with no value', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages:\nsnapshots:\n'],
+  ['packages that are a list', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: []\nsnapshots: {}\n'],
+  ['snapshots that are a list', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: {}\nsnapshots: []\n'],
+  ['an unknown top-level key', `${empty}overrides: {yaml: 2.9.0}\n`],
+  ['a merge key that carries the importers', "lockfileVersion: '9.0'\npackages: {}\n<<: {importers: {.: {devDependencies: {yaml: {specifier: 2.9.1, version: 'link:../evil'}}}}}\n"],
+  ['a merge key at the top level', `${empty}<<: {}\n`],
+  ['a quoted merge key at the top level', `${empty}"<<": {}\n`],
+  ['a merge key inside an importer', 'lockfileVersion: "9.0"\nimporters: {".": {<<: {devDependencies: {yaml: {specifier: 2.9.1, version: "link:../evil"}}}}}\npackages: {}\nsnapshots: {}\n'],
+  ['a merge key inside a snapshot', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: {}\nsnapshots: {"yaml@2.9.1": {<<: {dependencies: {}}}}\n'],
+  ['a merge key inside a list', 'lockfileVersion: "9.0"\nimporters: {".": {}}\npackages: {}\nsnapshots: {"yaml@2.9.1": {cpu: [{<<: {}}]}}\n'],
+  ['a YAML 1.1 directive', `%YAML 1.1\n---\n${empty}`],
+  ['a YAML 1.2 directive', `%YAML 1.2\n---\n${empty}`],
+  ['a tag directive', `%TAG ! tag:example.test,2026:\n---\n${empty}`],
+  ['a directive before a later document', `${empty}...\n%YAML 1.1\n---\n${empty}`],
+] as const) {
+  test(`lockfile refuses ${name}`, () => {
+    assert.deepEqual(inspect('lockfile', { text }), refused('SEC-SUP-033', 'lockfile', 'invalid or ambiguous YAML'));
   });
 }
 
@@ -232,6 +280,11 @@ for (const [name, list] of [
   ['a reason without its opening quote', 'yaml = strict parser"\n'],
   ['a package name with a space', 'ya ml = "strict parser"\n'],
   ['a table header', '[dependencies]\nyaml = "strict parser"\n'],
+  ['an empty reason followed by a quoted comment', 'yaml = "" # "why"\n'],
+  ['a reason followed by a comment', 'yaml = "strict parser" # reviewed\n'],
+  ['a reason with a quotation mark inside', 'yaml = "a "strict" parser"\n'],
+  ['a reason with an escape', 'yaml = "strict\\u0020parser"\n'],
+  ['a name with only its opening quote', '"yaml = "strict parser"\n'],
 ] as const) {
   test(`dependency reason list refuses ${name}`, () => {
     assert.deepEqual(inspect('direct-dependencies', { manifests: reviewed, list }),
@@ -283,11 +336,26 @@ test('a reason of only spaces is not a written reason', () => {
   assert.deepEqual(inspect('direct-dependencies', { manifests: reviewed, list: 'yaml = "   "\n' }),
     refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'direct registry dependency must have a written reason'));
 });
+// Verifies: SEC-SUP-035. The reason check fails closed on its own: every entry that is not a
+// workspace member is a direct dependency, however its version is written and whichever group holds it.
 for (const version of ['^2.9.1', 5]) {
-  test(`a reason for a package no manifest pins exactly (${JSON.stringify(version)}) is reported as unused`, () => {
+  test(`a direct dependency that is not pinned exactly (${JSON.stringify(version)}) is covered by its reason and needs one`, () => {
+    const manifests = [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: version } } }];
+    assert.deepEqual(inspect('direct-dependencies', { manifests, list: 'yaml = "strict parser"\n' }), []);
+    assert.deepEqual(inspect('direct-dependencies', { manifests, list: '' }),
+      refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'direct registry dependency is missing a written reason'));
+  });
+}
+for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+  test(`an unexplained entry under ${field} fails the reason check on its own`, () => {
     assert.deepEqual(inspect('direct-dependencies', {
-      manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: version } } }], list: 'yaml = "strict parser"\n',
-    }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'reviewed dependency is not used by any manifest'));
+      manifests: [{ path: 'clients/package.json', manifest: { [field]: { evil: '^1.0.0', '@gunmetal/kit': 'workspace:*' } } }], list: '',
+    }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.evil', 'direct registry dependency is missing a written reason'));
+  });
+  test(`${field} that is not a mapping makes the reason check refuse its input`, () => {
+    assert.deepEqual(inspect('direct-dependencies', {
+      manifests: [{ path: 'clients/package.json', manifest: { [field]: ['evil'] } }], list: '',
+    }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml', 'dependency reason list is invalid'));
   });
 }
 

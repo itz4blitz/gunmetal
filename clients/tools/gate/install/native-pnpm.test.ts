@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { gzipSync } from 'node:zlib';
-import { nativePnpm } from './native-pnpm.ts';
+import { archiveFiles, nativePnpm } from './native-pnpm.ts';
 
 type Entry = { name: string; data: Buffer; type?: string; size?: string };
 // An independent reference writer for the ustar layout npm package archives use.
@@ -166,5 +166,38 @@ for (const [name, entry] of [
 ] as const) {
   test(`native pnpm rejects a verified archive with ${name}`, async () => {
     await refuses(await layout(tarball([...packed, entry])), unverifiable);
+  });
+}
+
+// Verifies: SEC-SUP-011. Asked for nested files, the reader returns a package's directories and is as
+// strict about every name: each stays under `package/`, with no empty, `.` or `..` part.
+function nested(entries: Entry[]): unknown {
+  try { return [...archiveFiles(tarball(entries), true)].map(([name, data]) => [name, data.toString()]); }
+  catch { return 'refused'; }
+}
+test('the archive reader returns nested regular files when asked to', () => {
+  assert.deepEqual(nested([
+    { name: 'package/package.json', data: Buffer.from('{}') },
+    { name: 'package/dist/index.js', data: Buffer.from('export {};') },
+    { name: 'package/dist/compose/.keep', data: Buffer.alloc(0) },
+    { name: 'package/dist/compose/a...b.d.ts', data: Buffer.from('export {};') },
+  ]), [
+    ['package/package.json', '{}'],
+    ['package/dist/index.js', 'export {};'],
+    ['package/dist/compose/.keep', ''],
+    ['package/dist/compose/a...b.d.ts', 'export {};'],
+  ]);
+});
+for (const name of [
+  'package/../escape.js', 'package/dist/../../escape.js', 'package/dist/..', 'package/./index.js', 'package/dist/.',
+  'package//index.js', 'package/dist/', '/package/index.js', 'other/index.js', 'package', 'package/dist/in dex.js', 'package/dist\\index.js',
+]) {
+  test(`the archive reader refuses the nested entry name ${JSON.stringify(name)}`, () => {
+    assert.deepEqual(nested([{ name: 'package/package.json', data: Buffer.from('{}') }, { name, data: program }]), 'refused');
+  });
+}
+for (const type of ['5', '2', '1', 'x']) {
+  test(`the archive reader refuses a nested entry of type ${type}`, () => {
+    assert.deepEqual(nested([{ name: 'package/package.json', data: Buffer.from('{}') }, { name: 'package/dist/index.js', data: Buffer.alloc(0), type }]), 'refused');
   });
 }

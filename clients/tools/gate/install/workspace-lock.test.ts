@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseAllDocuments } from 'yaml';
 import { nativePnpm } from './native-pnpm.ts';
+import { inspect } from './policy.ts';
 
 // What the pinned manager writes for one project that depends on another with `workspace:*`.
 const members = {
@@ -29,12 +30,15 @@ test('the pinned manager records a workspace member the way the lockfile fixture
     }
     const run = spawnSync(await nativePnpm(), ['install', '--lockfile-only', '--no-frozen-lockfile', '--ignore-scripts'], { cwd: directory, encoding: 'utf8', timeout: 60000 });
     assert.deepEqual({ status: run.status, signal: run.signal }, { status: 0, signal: null }, `${run.stdout}\n${run.stderr}`);
-    const recorded = parseAllDocuments(await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8')).map(document => document.toJS() as unknown);
+    const text = await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8');
+    const recorded = parseAllDocuments(text).map(document => document.toJS() as unknown);
+    // With no registry package to lock, the manager writes neither `packages` nor `snapshots`.
     assert.deepEqual(recorded, [{
       lockfileVersion: '9.0',
       settings: { autoInstallPeers: false, excludeLinksFromLockfile: false },
       importers: { '.': {}, ...members },
     }]);
+    assert.deepEqual(inspect('lockfile', { text }), []);
     const fixture = parseAllDocuments(await readFile(new URL('fixtures/lockfile-workspace.txt', import.meta.url), 'utf8')).map(document => document.toJS() as { importers: Record<string, unknown> });
     assert.deepEqual({ 'packages/consumer': fixture[1]?.importers['packages/consumer'], 'packages/member': fixture[1]?.importers['packages/member'] }, members);
   } finally { await rm(directory, { recursive: true, force: true }); }

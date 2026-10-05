@@ -42,34 +42,26 @@ test('the committed workspace requires frozen script-free mature trusted registr
 
 // Verifies: SEC-SUP-034
 // An unpinned runtime/package manager would allow unreviewed tool upgrades.
+// The whole manifest is compared, so a script, an override or a new dependency cannot arrive unnoticed.
 test('the root client manifest pins the reviewed runtime and package manager', async () => {
-  const manifest = await jsonFile('package.json') as Record<string, unknown> | null;
-  assert.deepEqual(manifest === null ? null : {
-    name: manifest.name,
-    private: manifest.private,
-    type: manifest.type,
-    engines: manifest.engines,
-    packageManager: manifest.packageManager,
-  }, {
+  assert.deepEqual(await jsonFile('package.json'), {
     name: '@gunmetal/clients',
     private: true,
     type: 'module',
     engines: { node: '24.20.0', pnpm: '12.7.0' },
     packageManager: 'pnpm@12.7.0',
+    devDependencies: { yaml: '2.9.1' },
   });
 });
 
+// The whole file is compared, so an added option such as `"strictNullChecks": false` cannot undo `strict`.
 test('the shared TypeScript settings reject unchecked indexed access and absent optional fields', async () => {
-  const config = await jsonFile('tsconfig.base.json') as { compilerOptions: Record<string, unknown> } | null;
-  assert.deepEqual(config === null ? null : {
-    strict: config.compilerOptions.strict,
-    noUncheckedIndexedAccess: config.compilerOptions.noUncheckedIndexedAccess,
-    exactOptionalPropertyTypes: config.compilerOptions.exactOptionalPropertyTypes,
-    noEmit: config.compilerOptions.noEmit,
-  }, {
-    strict: true,
-    noUncheckedIndexedAccess: true,
-    exactOptionalPropertyTypes: true,
-    noEmit: true,
+  assert.deepEqual(await jsonFile('tsconfig.base.json'), {
+    compilerOptions: {
+      strict: true,
+      noUncheckedIndexedAccess: true,
+      exactOptionalPropertyTypes: true,
+      noEmit: true,
+    },
   });
 });

@@ -8,7 +8,7 @@ importers:
         version: 12.7.0
 packages:
   pnpm@12.7.0:
-    resolution: {integrity: sha512-manager}
+    resolution: {integrity: sha512-nFZHfjYAaNbp3KapLvtORrPcWlL86/PYTXi5c2wN7ViaVhYhpS9oIZp6OfrMY83AecMibvnJ1fArefdOaagHtg==}
 snapshots:
   pnpm@12.7.0: {}
 ---
@@ -30,6 +30,6 @@ importers:
   packages/member: {}
 packages:
   yaml@2.9.1:
-    resolution: {integrity: sha512-yaml}
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
 snapshots:
   yaml@2.9.1: {}

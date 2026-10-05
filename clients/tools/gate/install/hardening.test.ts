@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { nativePnpm } from './native-pnpm.ts';
 import { inspect } from './policy.ts';
 
 const deny = (rule: string, path: string, message: string) => [{ rule, path, message }];
@@ -80,22 +83,39 @@ for (const name of ['analytics-helper', '@sentry-like/helper', '@firebase/util']
 }
 
 // Verifies: SEC-SUP-033. Built-in pnpm routes are harmless only when unused.
+// The route keys exactly as pnpm 12.7.0 prints them in `config list --json` for the committed workspace
+// (TeamCity Personal Build 52's report). `@` is the scope of the default registry.
 const routes = {
-  registry: 'https://registry.npmjs.org/',
+  '@jsr:registry': 'https://npm.jsr.io/',
   registries: {
-    'https://registry.npmjs.org/': { scopes: ['@'], prefix: 'npmjs' },
     'https://npm.jsr.io/': { scopes: ['@jsr'] },
     'https://npm.pkg.github.com/': { prefix: 'gh' },
+    'https://registry.npmjs.org/': { scopes: ['@'], prefix: 'npmjs' },
   },
+  registry: 'https://registry.npmjs.org/',
 };
 test('effective registry check accepts unused built-in alternative routes', () => {
   assert.deepEqual(inspect('effective-registries', { config: routes, names: ['yaml', '@pnpm/exe.linux-x64'] }), []);
 });
+// The routes above are not only written by hand: they are what the pinned manager reports today, and its
+// whole report passes or fails the check as they do.
+test('the pinned manager reports those routes, which pass for the used packages and fail for a jsr one', async () => {
+  const client = fileURLToPath(new URL('../../../', import.meta.url));
+  const listed = spawnSync(await nativePnpm(), ['--dir', client, 'config', 'list', '--json'], { encoding: 'utf8', timeout: 10000 });
+  const config = (listed.status === 0 ? JSON.parse(listed.stdout) : {}) as Record<string, unknown>;
+  assert.deepEqual({ '@jsr:registry': config['@jsr:registry'], registries: config.registries, registry: config.registry }, routes);
+  assert.deepEqual(inspect('effective-registries', { config, names: ['yaml', '@pnpm/exe.linux-x64'] }), []);
+  assert.deepEqual(inspect('effective-registries', { config, names: ['@jsr/std'] }), deny('SEC-SUP-033', 'effective.@jsr/std', 'only registry.npmjs.org is allowed'));
+});
 for (const [config, names, path] of [
   [{ ...routes, registry: 'https://evil.test/' }, ['yaml'], 'effective.registry'],
   [routes, ['@jsr/std'], 'effective.@jsr/std'],
+  [{ ...routes, '@jsr:registry': 'https://registry.npmjs.org/' }, ['@jsr/std'], 'effective.@jsr/std'],
   [{ ...routes, '@pnpm:registry': 'https://evil.test/' }, ['@pnpm/exe.linux-x64'], 'effective.@pnpm/exe.linux-x64'],
   [{ ...routes, registries: { ...routes.registries, 'https://evil.test/': { scopes: ['@pnpm'] } } }, ['@pnpm/exe.linux-x64'], 'effective.@pnpm/exe.linux-x64'],
+  // Another registry claiming the default scope takes every package, scoped or not.
+  [{ ...routes, registries: { ...routes.registries, 'https://evil.test/': { scopes: ['@'] } } }, ['yaml'], 'effective.registry'],
+  [{ ...routes, registries: { ...routes.registries, 'https://evil.test/': { scopes: ['@other', '@'] } } }, ['@pnpm/exe.linux-x64'], 'effective.registry'],
 ] as const) {
   test(`effective registry check refuses redirected used package ${path}`, () => {
     assert.deepEqual(inspect('effective-registries', { config, names }), deny('SEC-SUP-033', path, 'only registry.npmjs.org is allowed'));
