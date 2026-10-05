@@ -16,6 +16,7 @@ pub mod flac;
 pub mod flac_frames;
 pub mod id3v1;
 pub mod id3v2;
+pub mod library;
 pub mod mp4;
 pub mod mp4_samples;
 pub mod mpa;
