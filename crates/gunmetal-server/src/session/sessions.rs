@@ -195,8 +195,9 @@ impl Sessions {
         need: Need,
     ) -> Result<Principal, ApiError> {
         let now = self.clock.now().millis();
-        Some(cookie)
-            .filter(|_| listener.accepts(TokenKind::WebSession))
+        listener
+            .accepts(TokenKind::WebSession)
+            .then_some(cookie)
             .and_then(Token::parse)
             .ok_or(UNAUTHENTICATED)
             .and_then(|token| self.hash(&token).map_err(internal))
