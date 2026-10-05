@@ -45,8 +45,17 @@
 //! redeeming a code or a secret are other modules' work.
 
 use crate::base64::{self, Alphabet};
-use crate::otp::{ClaimCode, PairingCode};
+use crate::link::Link;
+use crate::otp::{self, ClaimCode, Code, CodeKind, PairingCode};
 use crate::untrusted::Untrusted;
+
+/// The longest text read, in octets. No link a server writes is longer than
+/// 326: `https://`, a name of at most 253 octets, a port, and the longest
+/// path and fragment, the pairing link's 59. Anything over this limit is
+/// not recognised before any of it is copied or decoded, which bounds the
+/// work on every input (SEC-TM-032) and the length of the server's address
+/// a confirmation screen has to show.
+const MAX_LINK_LEN: usize = 512;
 
 /// What an inbound link asks a client to do.
 ///
@@ -168,9 +177,90 @@ impl ServerKey {
 /// is no error and no partial reading.
 #[must_use]
 pub fn parse_link(input: Untrusted<&str>) -> Route {
-    // Not written yet: the text is taken and nothing is recognised.
-    let _unread = input.into_inner();
-    Route::NotRecognised
+    recognise(input.into_inner()).unwrap_or(Route::NotRecognised)
+}
+
+/// The route whose one spelling `raw` is, if it is the spelling of any.
+fn recognise(raw: &str) -> Option<Route> {
+    if raw.len() > MAX_LINK_LEN {
+        return None;
+    }
+    let (server, tail) = server_and_tail(raw)?;
+    let (path, fragment) = tail.split_once('#')?;
+    match path {
+        "claim" => claim(fragment).map(|code| Route::Claim { server, code }),
+        "invite" => link_secret(fragment).map(|secret| Route::Invitation { server, secret }),
+        "pair" => pairing(fragment).map(|(code, key)| Route::Pairing { server, code, key }),
+        "recover" => link_secret(fragment).map(|secret| Route::Recovery { server, secret }),
+        _ => None,
+    }
+}
+
+/// Splits `raw` into the server it names and what follows the `/` after
+/// the server's origin.
+///
+/// An `https` origin is one only when `raw` is, to the octet, the URL the
+/// one URL reader writes for it, which leaves a single spelling of the
+/// scheme, the host and the port, and nothing between them and the path
+/// that another reader could take for part of either.
+fn server_and_tail(raw: &str) -> Option<(Server, &str)> {
+    let (scheme, rest) = raw.split_once("://")?;
+    let (authority, tail) = rest.split_once('/')?;
+    let named = match scheme {
+        "https" => Link::parse(Untrusted::new(raw)).is_ok_and(|link| link.href() == raw),
+        "http" => this_machine(authority),
+        _ => false,
+    };
+    named.then(|| (Server(format!("{scheme}://{authority}")), tail))
+}
+
+/// Whether `authority` is this machine as a browser writes it: `localhost`,
+/// alone or with a port in plain decimal that is not 80, the port a browser
+/// leaves out.
+fn this_machine(authority: &str) -> bool {
+    authority == "localhost"
+        || authority
+            .strip_prefix("localhost:")
+            .and_then(|port| port.parse::<u16>().ok())
+            .is_some_and(|port| port != 80 && authority == format!("localhost:{port}"))
+}
+
+/// A claim code written as its server writes it. The spellings a person may
+/// type, in lower case or without hyphens, are not what a link carries.
+fn claim(text: &str) -> Option<ClaimCode> {
+    match otp::parse_code(Untrusted::new(text), CodeKind::Claim) {
+        Ok(Code::Claim(code)) if code.text() == text => Some(code),
+        _ => None,
+    }
+}
+
+/// A pairing code written as its server writes it.
+fn user_code(text: &str) -> Option<PairingCode> {
+    match otp::parse_code(Untrusted::new(text), CodeKind::Pairing) {
+        Ok(Code::Pairing(code)) if code.text() == text => Some(code),
+        _ => None,
+    }
+}
+
+/// The fragment of a pairing link: the pairing code, a dot, and the
+/// server's identity key.
+fn pairing(fragment: &str) -> Option<(PairingCode, ServerKey)> {
+    let (code, key) = fragment.split_once('.')?;
+    Some((user_code(code)?, ServerKey(octets(key)?)))
+}
+
+/// The fragment of an invitation or of a recovery link.
+fn link_secret(text: &str) -> Option<LinkSecret> {
+    octets(text).map(LinkSecret)
+}
+
+/// Exactly `N` octets written in URL-safe base64 without padding. The
+/// decoder also reads padded text, so only text that encodes back to
+/// itself is taken, which leaves one spelling.
+fn octets<const N: usize>(text: &str) -> Option<[u8; N]> {
+    let decoded = base64::decode(Untrusted::new(text.as_bytes()), Alphabet::UrlSafe, N).ok()?;
+    let exact = <[u8; N]>::try_from(decoded).ok()?;
+    (base64::encode(&exact, Alphabet::UrlSafe) == text).then_some(exact)
 }
 
 #[cfg(test)]
