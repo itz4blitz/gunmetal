@@ -1,0 +1,40 @@
+[package]
+name = "gunmetal-worker"
+description = "Gunmetal's worker process: the sandbox launcher and the worker's confinement"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+landlock.workspace = true
+rustix = { workspace = true, features = ["fs", "process", "std", "thread"] }
+seccompiler.workspace = true
+
+[dev-dependencies]
+rustix = { workspace = true, features = ["process", "std"] }
+
+# The hostile test worker is this test's own executable, started again by
+# the launcher, so the test needs its own `main` to enter the worker path.
+[[test]]
+name = "sandbox"
+harness = false
+
+# The workspace's lints, repeated, with one change: `unsafe_code` is
+# "deny" here instead of "forbid", so that the one `#[expect]` in
+# src/sandbox/descriptors.rs can allow the crate's single `unsafe` block
+# (ADR 13). `xtask lint-exceptions` checks that these tables are the
+# workspace's with only that line changed, and that `unsafe_code` is
+# named on that one line in this crate and nowhere else.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+await_holding_lock = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
