@@ -480,6 +480,7 @@ mod tests {
     use super::*;
     use crate::catalog::{AudioFormat, Codec, Container};
     use crate::formats::id3v1::Id3v1Error;
+    use crate::formats::id3v2::{Header, Id3v2Error, Id3v2Tag};
     use crate::probe::SeekIndex;
 
     fn empty_draft() -> Draft {
@@ -567,5 +568,88 @@ mod tests {
         assert_eq!(draft.tags, []);
         assert_eq!(draft.window, (0, 200));
         assert_eq!(draft.problems, []);
+    }
+
+    /// What an `ID3v2.3` tag with no frames, ten octets that start at
+    /// `offset`, is read as.
+    fn empty_tag_at(offset: u64) -> TagBlock {
+        TagBlock::Id3v2 {
+            offset,
+            tag: Id3v2Tag {
+                header: Header {
+                    major: 3,
+                    revision: 0,
+                    flags: 0,
+                    size: 0,
+                    len: 10,
+                },
+                extended: None,
+                frames: vec![],
+                problems: vec![],
+            },
+        }
+    }
+
+    /// Reads the tags in front of the audio of a file of 4,000 octets that
+    /// starts with `count` tags with no frames, back to back, with `steps`
+    /// steps to spend. Returns the tags read, the problems recorded and
+    /// the steps left.
+    fn leading(count: usize, steps: u64) -> (Vec<TagBlock>, Vec<PartProblem>, u64) {
+        let mut budget = Budget::for_input(0, 0, 0);
+        let mut probe = probe(None, Limits::DEFAULT, &mut budget);
+        probe.work = Budget::for_input(0, 0, steps);
+        let mut draft = empty_draft();
+        let octets = b"ID3\x03\0\0\0\0\0\0".repeat(count);
+        let gather = Gather {
+            start: 0,
+            end: u64::try_from(octets.len()).unwrap(),
+            octets,
+        };
+        probe.job(&mut draft, Job::Id3v2, gather, 4_000);
+        (draft.tags, draft.problems, probe.work.remaining())
+    }
+
+    /// Detection skips at most seven tags in front of the audio, so at
+    /// most seven are read from there. One more is left unread with every
+    /// tag after it, and what is recorded is where it starts: at 70. A
+    /// file that changes between its two reads cannot make the probe keep
+    /// 300 tags.
+    ///
+    /// Verifies: SEC-MED-017, SEC-TM-032
+    #[test]
+    fn reads_seven_tags_in_front_of_the_audio_and_records_an_eighth() {
+        let seven = [0, 10, 20, 30, 40, 50, 60].map(empty_tag_at).to_vec();
+        let eighth = vec![PartProblem::Fault(ParseFault::BudgetExceeded {
+            offset: 70,
+        })];
+        let read = |count| {
+            let (tags, problems, _) = leading(count, 1_000);
+            (tags, problems)
+        };
+        assert_eq!(read(7), (seven.clone(), vec![]));
+        assert_eq!(read(8), (seven.clone(), eighth.clone()));
+        assert_eq!(read(300), (seven, eighth));
+    }
+
+    /// A tag costs one step on top of what its parser charges, which is
+    /// nothing for a tag with no frames. With two steps the third tag, at
+    /// 20, is not read. The tag past the seventh is not paid for.
+    ///
+    /// Verifies: SEC-MED-007, SEC-MED-017, SEC-TM-032
+    #[test]
+    fn charges_a_step_for_each_tag_it_reads() {
+        let three = [0, 10, 20].map(empty_tag_at).to_vec();
+        let spent = PartProblem::Id3v2 {
+            offset: 20,
+            error: Id3v2Error::Fault(ParseFault::BudgetExceeded { offset: 0 }),
+        };
+        assert_eq!(
+            leading(3, 2),
+            ([0, 10].map(empty_tag_at).to_vec(), vec![spent], 0)
+        );
+        assert_eq!(leading(3, 3), (three.clone(), vec![], 0));
+        assert_eq!(leading(3, 4), (three, vec![], 1));
+        let (_, _, left) = leading(8, 20);
+        assert_eq!(left, 13);
     }
 }

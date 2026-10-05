@@ -8,7 +8,7 @@ use super::*;
 use crate::catalog::{FileFacts, IdentityInputs};
 use crate::formats::aiff::AiffError;
 use crate::formats::detect::Format;
-use crate::formats::id3v2::{Frame, FrameBody, FrameId, Header, Id3v2Tag};
+use crate::formats::id3v2::{Frame, FrameBody, FrameId, Header, Id3v2Error, Id3v2Tag};
 use crate::formats::riff::RiffError;
 use crate::parse::ParseFault;
 use crate::probe::{PartProblem, SeekIndex, TagBlock};
@@ -158,6 +158,107 @@ fn skips_an_info_list_larger_than_a_tag_may_be_in_memory() {
             220
         )
     );
+}
+
+/// `count` `ID3v2.3` tags with no frames, back to back: ten octets each.
+fn empty_tags(count: usize) -> Vec<u8> {
+    b"ID3\x03\0\0\0\0\0\0".repeat(count)
+}
+
+/// What one of the tags of [`empty_tags`] is read as, when it starts at
+/// `offset`.
+fn empty_tag_at(offset: u64) -> TagBlock {
+    TagBlock::Id3v2 {
+        offset,
+        tag: Id3v2Tag {
+            header: Header {
+                major: 3,
+                revision: 0,
+                flags: 0,
+                size: 0,
+                len: 10,
+            },
+            extended: None,
+            frames: vec![],
+            problems: vec![],
+        },
+    }
+}
+
+/// A WAV file whose `id3 ` chunk, after the samples, holds `count` tags
+/// with no frames. The chunk's header is at 60 and its body at 68.
+fn wav_with_tags(count: usize) -> Vec<u8> {
+    let mut rest = Bytes::new();
+    rest.riff_chunk(*b"id3 ", &empty_tags(count));
+    wav(1, 8, rest.as_slice())
+}
+
+/// An AIFF file whose `ID3 ` chunk, after the samples, holds `count` tags
+/// with no frames. The chunk's header is at 70 and its body at 78.
+fn aiff_with_tags(count: usize) -> Vec<u8> {
+    let mut chunks = Bytes::new();
+    chunks
+        .aiff_chunk(*b"COMM", &riff::comm(1, 16, 8, 8_000))
+        .aiff_chunk(*b"SSND", &riff::ssnd(0, 0, &SAMPLES))
+        .aiff_chunk(*b"ID3 ", &empty_tags(count));
+    riff::aiff(*b"AIFF", chunks.as_slice())
+}
+
+/// A chunk holds one tag. A second tag right after it is left unread, and
+/// so is every tag after that: of 300 tags in a chunk, one is kept. What
+/// is recorded is where the second tag starts.
+///
+/// Verifies: SEC-MED-017, SEC-TM-032
+#[test]
+fn reads_one_tag_from_a_chunk_and_records_a_second() {
+    let cases: [(fn(usize) -> Vec<u8>, &str, u64, u64); 2] = [
+        (wav_with_tags, "wav", 68, 78),
+        (aiff_with_tags, "aiff", 78, 88),
+    ];
+    for (file_with, ext, first, second) in cases {
+        let tags_of = |count| {
+            let probed = run(&file_with(count), Some(ext)).unwrap();
+            (probed.tags, probed.problems)
+        };
+        let one = vec![empty_tag_at(first)];
+        let unread = vec![PartProblem::Fault(ParseFault::BudgetExceeded {
+            offset: second,
+        })];
+        assert_eq!(tags_of(1), (one.clone(), vec![]), "{ext}");
+        assert_eq!(tags_of(2), (one.clone(), unread.clone()), "{ext}");
+        assert_eq!(tags_of(300), (one, unread), "{ext}");
+    }
+}
+
+/// The chunk walk is given its allowance of one step an octet, 78 for
+/// this file, and the steps beyond it pay for the tag: one, since a tag
+/// with no frames costs its parser nothing.
+///
+/// Verifies: SEC-MED-007, SEC-MED-017, SEC-TM-032
+#[test]
+fn charges_a_step_for_the_tag_of_a_chunk() {
+    let file = wav_with_tags(1);
+    let probe_with = |steps| {
+        run_with(&file, Some("wav"), Limits::DEFAULT, steps)
+            .0
+            .unwrap()
+            .map(|probed| (probed.tags, probed.problems))
+    };
+    assert_eq!(
+        probe_with(77),
+        Err(ProbeError::Fault(ParseFault::BudgetExceeded { offset: 0 }))
+    );
+    assert_eq!(
+        probe_with(78),
+        Ok((
+            vec![],
+            vec![PartProblem::Id3v2 {
+                offset: 68,
+                error: Id3v2Error::Fault(ParseFault::BudgetExceeded { offset: 0 }),
+            }]
+        ))
+    );
+    assert_eq!(probe_with(79), Ok((vec![empty_tag_at(68)], vec![])));
 }
 
 /// Floating-point samples are PCM too.

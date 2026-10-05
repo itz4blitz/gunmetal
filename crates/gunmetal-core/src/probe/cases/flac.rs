@@ -6,7 +6,7 @@ use gunmetal_testkit::vorbis_comment::CommentBlock;
 
 use super::*;
 use crate::catalog::{FileFacts, IdentityInputs};
-use crate::formats::detect::Format;
+use crate::formats::detect::{DetectError, Format};
 use crate::formats::flac::metadata::{BlockProblem, FlacError, SeekPoint};
 use crate::formats::id3v2::{Frame, FrameBody, FrameId, Header, Id3v2Error, Id3v2Tag};
 use crate::formats::vorbis_comment::{Comments, Field};
@@ -342,6 +342,128 @@ fn keeps_a_flac_file_whose_leading_tag_cannot_be_read() {
         error: Id3v2Error::Compressed { offset: 5 },
     }];
     assert_eq!(run(&file, Some("flac")), Ok(expected));
+}
+
+/// A file that starts with `count` `ID3v2.3` tags with no frames, ten
+/// octets each. After them come `fLaC` and STREAMINFO, 42 octets, and the
+/// 20 octets of audio.
+fn after_empty_tags(count: usize) -> Vec<u8> {
+    let mut file = b"ID3\x03\0\0\0\0\0\0".repeat(count);
+    file.extend(flac::stream(&[Block::StreamInfo(stream_info())]));
+    file.extend(AUDIO);
+    file
+}
+
+/// What the tags of [`after_empty_tags`] that start at `offsets` are read
+/// as.
+fn empty_tags_at(offsets: &[u64]) -> Vec<TagBlock> {
+    offsets
+        .iter()
+        .map(|&offset| TagBlock::Id3v2 {
+            offset,
+            tag: Id3v2Tag {
+                header: Header {
+                    major: 3,
+                    revision: 0,
+                    flags: 0,
+                    size: 0,
+                    len: 10,
+                },
+                extended: None,
+                frames: vec![],
+                problems: vec![],
+            },
+        })
+        .collect()
+}
+
+/// Detection skips up to seven tags in front of a stream, and the probe
+/// reads as many. With seven the file is 132 octets. The metadata parser
+/// is left one step an octet, and each tag costs one of the steps beyond
+/// those, though a tag with no frames costs its parser nothing: with six
+/// such steps the seventh tag, at 60, is not read. An eighth tag is more
+/// than detection skips, so the file is not probed at all.
+///
+/// Verifies: SEC-MED-007, SEC-MED-017, SEC-TM-032
+#[test]
+fn reads_the_seven_leading_tags_detection_skips_at_a_step_each() {
+    let probe_with = |count, steps| {
+        run_with(
+            &after_empty_tags(count),
+            Some("flac"),
+            Limits::DEFAULT,
+            steps,
+        )
+        .0
+        .unwrap()
+        .map(|probed| (probed.tags, probed.problems))
+    };
+    assert_eq!(
+        probe_with(7, 138),
+        Ok((
+            empty_tags_at(&[0, 10, 20, 30, 40, 50]),
+            vec![PartProblem::Id3v2 {
+                offset: 60,
+                error: Id3v2Error::Fault(ParseFault::BudgetExceeded { offset: 0 }),
+            }]
+        ))
+    );
+    assert_eq!(
+        probe_with(7, 139),
+        Ok((empty_tags_at(&[0, 10, 20, 30, 40, 50, 60]), vec![]))
+    );
+    assert_eq!(
+        probe_with(8, 10_000),
+        Err(ProbeError::Detect(DetectError::Fault(
+            ParseFault::BudgetExceeded { offset: 80 }
+        )))
+    );
+}
+
+/// A file holds at most 16 pictures, wherever they are. The `PICTURE`
+/// blocks come first and the picture of the tag in front after them, so
+/// with 15 blocks the tag's picture, of one octet, is the sixteenth, and
+/// with 16 blocks it is one too many: it is left out, and the 17 found are
+/// recorded against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_sixteen_pictures_of_a_flac_file_and_its_leading_tag() {
+    let found_with = |blocks: usize| {
+        let mut file = Tag::new(Version::V24)
+            .frame(
+                b"APIC",
+                0,
+                &id3v2::picture(Encoding::Latin1, "image/png", 3, "", &[0x89]),
+            )
+            .build();
+        let mut metadata = vec![Block::StreamInfo(stream_info())];
+        metadata.extend(std::iter::repeat_with(|| Block::Picture(cover())).take(blocks));
+        file.extend(flac::stream(&metadata));
+        file.extend(AUDIO);
+        let probed = run(&file, Some("flac")).unwrap();
+        (probed.facts.artwork, probed.problems)
+    };
+    let in_blocks = |count: u16| -> Vec<ArtworkRef> {
+        (0..count)
+            .map(|index| artwork(index, PictureType::FrontCover, 4))
+            .collect()
+    };
+    let mut sixteen = in_blocks(15);
+    sixteen.push(artwork(15, PictureType::FrontCover, 1));
+    assert_eq!(found_with(15), (sixteen, vec![]));
+    assert_eq!(
+        found_with(16),
+        (
+            in_blocks(16),
+            vec![PartProblem::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Pictures,
+                value: 17,
+                max: 16,
+                offset: 0,
+            })]
+        )
+    );
 }
 
 /// The comment block declares a vendor string longer than the block.

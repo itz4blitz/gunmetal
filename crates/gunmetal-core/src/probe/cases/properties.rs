@@ -17,7 +17,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use super::*;
-use crate::parse::{ReadGuard, SansIo, Step, Window};
+use crate::formats::flac::metadata::FlacError;
+use crate::parse::{ParseFault, ReadGuard, SansIo, Step, Window};
 
 /// The most resumes any test input here needs. A probe that never stopped
 /// asking fails the test instead of hanging it.
@@ -216,6 +217,12 @@ fn the_documented_budget_is_enough_for_a_valid_file_of_each_format() {
 /// typed error or a recorded problem, never with a refused read or a
 /// hang.
 ///
+/// With no step at all, each sample ends with the error of the first step
+/// it cannot pay for. The FLAC parser's is for the header of STREAMINFO,
+/// at 54: the tag in front is 50 octets and `fLaC` four. The Ogg file's
+/// is for reading its start, which is all of its 145 octets. Every other
+/// container parser is given its whole allowance before it starts.
+///
 /// Verifies: SEC-MED-007, SEC-MED-008, SEC-TM-032
 #[test]
 fn returns_for_every_budget_a_valid_file_can_run_out_of() {
@@ -225,6 +232,72 @@ fn returns_for_every_budget_a_valid_file_can_run_out_of() {
             let read = outcome.map_or(served, |probed| probed.facts.bytes_read);
             assert_eq!(read, served, "{ext} with {steps} steps");
         }
+    }
+    let spent = |offset| ProbeError::Fault(ParseFault::BudgetExceeded { offset });
+    let first = [
+        ProbeError::Flac(FlacError::Fault(ParseFault::BudgetExceeded { offset: 54 })),
+        spent(0),
+        spent(0),
+        spent(145),
+        spent(0),
+        spent(0),
+    ];
+    for ((file, ext), error) in samples().into_iter().zip(first) {
+        let (outcome, _) = host(file, Some(ext), Limits::DEFAULT, 0);
+        assert_eq!(outcome, Err(error), "{ext}");
+    }
+}
+
+/// Files made to repeat one thing: 300 `ID3v2` tags with no frames, back
+/// to back, in the chunk of a WAV file and of an AIFF file, and the seven
+/// that detection skips in front of an MP3 stream. With each, how many
+/// tag blocks the probe keeps of it.
+fn repeats() -> Vec<(Vec<u8>, &'static str, usize)> {
+    let tags = |count: usize| b"ID3\x03\0\0\0\0\0\0".repeat(count);
+
+    let mut chunks = Bytes::new();
+    chunks
+        .riff_chunk(*b"fmt ", &riff::format(1, 1, 8_000, 8))
+        .riff_chunk(*b"data", &[0x80; 16])
+        .riff_chunk(*b"id3 ", &tags(300));
+    let wav = riff::wave(chunks.as_slice());
+
+    let mut chunks = Bytes::new();
+    chunks
+        .aiff_chunk(*b"COMM", &riff::comm(1, 16, 8, 8_000))
+        .aiff_chunk(*b"SSND", &riff::ssnd(0, 0, &[0x80; 16]))
+        .aiff_chunk(*b"ID3 ", &tags(300));
+    let aiff = riff::aiff(*b"AIFF", chunks.as_slice());
+
+    let frame = Frame::layer3(mpa::Version::Mpeg2, 1, 1, Mode::Mono);
+    let mp3 = [tags(7), mpa::stream(&[frame, frame, frame])].concat();
+
+    vec![(wav, "wav", 1), (aiff, "aiff", 1), (mp3, "mp3", 7)]
+}
+
+/// However many tags lie back to back, and whatever budget runs out among
+/// them, the probe returns, reports the octets it was served, and keeps no
+/// more tag blocks than the place they lie in may hold: one for a chunk,
+/// and seven in front of the audio. With the documented budget it keeps
+/// exactly that many.
+///
+/// Verifies: SEC-MED-007, SEC-MED-008, SEC-TM-032
+#[test]
+fn keeps_no_more_tags_than_their_place_may_hold_under_any_budget() {
+    for (file, ext, most) in repeats() {
+        for steps in (0..enough(&file)).step_by(31) {
+            let (outcome, served) = host(file.clone(), Some(ext), Limits::DEFAULT, steps);
+            let (read, kept) = outcome.map_or((served, 0), |probed| {
+                (probed.facts.bytes_read, probed.tags.len())
+            });
+            assert_eq!(read, served, "{ext} with {steps} steps");
+            assert!(
+                kept <= most,
+                "{ext} with {steps} steps keeps {kept} tag blocks"
+            );
+        }
+        let kept = run(&file, Some(ext)).map(|probed| probed.tags.len());
+        assert_eq!(kept, Ok(most), "{ext}");
     }
 }
 

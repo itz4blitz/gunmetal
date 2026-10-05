@@ -667,6 +667,62 @@ fn takes_ape_pictures_and_lyrics_by_key_and_kind() {
     assert_eq!(problems, []);
 }
 
+/// A file holds at most 16 pictures, whichever tags they are in. The
+/// pictures of the leading tag, four octets each, come first and the APE
+/// tag's covers after them: a front cover of ten octets, then a back cover
+/// of four. The sixteenth picture found is kept. Those after it are left
+/// out, and how many were found is recorded against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_sixteen_pictures_of_an_mp3_file_across_its_tags() {
+    let found_with = |frames: usize| {
+        let picture = id3v2::picture(
+            Encoding::Latin1,
+            "image/png",
+            3,
+            "",
+            &[0x89, b'P', b'N', b'G'],
+        );
+        let mut tag = Tag::new(Version::V24);
+        for _ in 0..frames {
+            tag = tag.frame(b"APIC", 0, &picture);
+        }
+        let covers = Ape::new()
+            .without_header()
+            .item(b"Cover Art (Front)", ape::BINARY, b"c.png\0\x89PNG")
+            .item(b"Cover Art (Back)", ape::BINARY, b"b\0xy")
+            .build();
+        let file = [tag.build(), small(), covers].concat();
+        let (_, found, _, _, problems) = tags_of(&file, Limits::DEFAULT);
+        (found, problems)
+    };
+    let in_frames = |count: u16| -> Vec<ArtworkRef> {
+        (0..count)
+            .map(|index| artwork(index, PictureType::FrontCover, 4))
+            .collect()
+    };
+    let over = |found| {
+        vec![PartProblem::Fault(ParseFault::LimitExceeded {
+            limit: LimitKind::Pictures,
+            value: found,
+            max: 16,
+            offset: 0,
+        })]
+    };
+    // 14 frames and both covers are 16 pictures.
+    let mut sixteen = in_frames(14);
+    sixteen.push(artwork(14, PictureType::FrontCover, 10));
+    sixteen.push(artwork(15, PictureType::BackCover, 4));
+    assert_eq!(found_with(14), (sixteen, vec![]));
+    // With 15 frames the back cover is the seventeenth.
+    let mut sixteen = in_frames(15);
+    sixteen.push(artwork(15, PictureType::FrontCover, 10));
+    assert_eq!(found_with(15), (sixteen, over(17)));
+    // With 16 frames neither cover is kept.
+    assert_eq!(found_with(16), (in_frames(16), over(18)));
+}
+
 /// A footer of version 3000 is no APE tag this parser reads. The footer
 /// starts 32 octets before the `ID3v1` tag.
 ///
