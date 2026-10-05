@@ -22,23 +22,26 @@ const TAIL: u64 = 65_536;
 
 /// The draft of the Ogg file of `file_len` octets that starts with
 /// `head`, or `None` when `head` holds fewer than the stream's two header
-/// packets and `more` of the file is left to read.
+/// packets and `more` of the file may be read for them.
 ///
 /// The stream is the one the first sound page belongs to. Its first packet
 /// is an Opus or a Vorbis identification header, which playback needs. Its
 /// second packet is the comment header, which is optional here: when it is
-/// missing or cannot be read, that is recorded and the file kept. The end
-/// of the file is read next, for the granule position of the last page.
+/// missing or cannot be read, that is recorded and the file kept. With no
+/// second packet, `stopped` is recorded too: why `head` ends before the
+/// file does, when no more of the file may be read. The end of the file
+/// is read next, for the granule position of the last page.
 ///
 /// # Errors
 ///
-/// [`ProbeError::Ogg`] when the file holds no packet of a stream,
+/// [`ProbeError::Ogg`] when `head` holds no packet of a stream,
 /// [`ProbeError::Opus`] for a damaged Opus header, and
 /// [`ProbeError::Vorbis`] for a damaged Vorbis header or a first packet
 /// that is neither.
 pub(super) fn head(
     head: &[u8],
     more: bool,
+    stopped: Option<PartProblem>,
     file_len: u64,
     limits: &Limits,
     budget: &mut Budget,
@@ -89,7 +92,10 @@ pub(super) fn head(
     let mut tags = Vec::new();
     let mut problems = Vec::new();
     match packets.next() {
-        None => problems.extend(error.map(PartProblem::Ogg)),
+        None => {
+            problems.extend(error.map(PartProblem::Ogg));
+            problems.extend(stopped);
+        }
         Some(packet) => {
             let block = if codec == Codec::Opus {
                 opus::opus_tags(&packet.data, limits, budget, depth).map_err(PartProblem::Opus)
@@ -128,6 +134,7 @@ pub(super) fn head(
         seek: SeekIndex::None,
         pictures: Vec::new(),
         tags,
+        covers: Vec::new(),
         problems,
         jobs: vec![(
             Job::OggTail {

@@ -800,6 +800,51 @@ fn keeps_sixteen_pictures_of_an_mp3_file_across_its_tags() {
     assert_eq!(found_with(16), (in_frames(16), over(18)));
 }
 
+/// The pictures of two tags in front of the stream count together as
+/// well. The first tag holds nine. With seven in the second all sixteen
+/// are kept; with eight the seventeenth is left out, and the 17 that were
+/// found are recorded against the limit.
+///
+/// Verifies: SEC-MED-006, SEC-MED-017, SEC-TM-032
+#[test]
+fn keeps_sixteen_pictures_of_an_mp3_file_across_two_leading_tags() {
+    let found_with = |second: usize| {
+        let picture = id3v2::picture(
+            Encoding::Latin1,
+            "image/png",
+            3,
+            "",
+            &[0x89, b'P', b'N', b'G'],
+        );
+        let tag_of = |frames: usize| {
+            let mut tag = Tag::new(Version::V24);
+            for _ in 0..frames {
+                tag = tag.frame(b"APIC", 0, &picture);
+            }
+            tag.build()
+        };
+        let file = [tag_of(9), tag_of(second), small()].concat();
+        let (_, found, _, _, problems) = tags_of(&file, Limits::DEFAULT);
+        (found, problems)
+    };
+    let sixteen: Vec<ArtworkRef> = (0..16)
+        .map(|index| artwork(index, PictureType::FrontCover, 4))
+        .collect();
+    assert_eq!(found_with(7), (sixteen.clone(), vec![]));
+    assert_eq!(
+        found_with(8),
+        (
+            sixteen,
+            vec![PartProblem::Fault(ParseFault::LimitExceeded {
+                limit: LimitKind::Pictures,
+                value: 17,
+                max: 16,
+                offset: 0,
+            })]
+        )
+    );
+}
+
 /// The tag-field limit is the file's, so the frames of every tag count
 /// together. A tag of one frame comes first here, then [`leading_tag`]
 /// with its three, at 23. Under a limit of four fields all are kept. Under

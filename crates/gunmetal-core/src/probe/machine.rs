@@ -13,9 +13,32 @@
 //! admitted are reported in
 //! [`FileFacts::bytes_read`](crate::catalog::FileFacts::bytes_read).
 //!
+//! The probe checks what a host answers its own reads with, those for a
+//! tag block and for the start of an Ogg file. The window must start
+//! where the read does and hold at least one octet of it. A window
+//! shorter than the read is taken, and the rest is asked for. Any other
+//! answer fails the file at once with [`ProbeError::Unanswered`]: a file
+//! cut short after its length was taken answers with no octets, and
+//! asking again would get no further (SEC-MED-008).
+//!
 //! The media itself is not read: the probe reads headers, tags and, for
 //! an MP3 file without a table of contents, the four-octet header of each
 //! frame (LIB-019).
+//!
+//! # The start of an Ogg file
+//!
+//! An Ogg file's header packets are found by reading its start: 8 KiB,
+//! then twice as much while the two packets are not both there. The
+//! second packet is the comment header, a tag block, so the read grows no
+//! further than [`LimitKind::Id3v2TagBytes`], the one row of the limits
+//! table for how large a tag block may be in memory, which the probe
+//! applies to an APE tag and to an `INFO` list as well. By default that
+//! is 64 MiB, which holds a comment header with a picture of the largest
+//! size the table allows, 32 MiB, in base64. When the read stops there,
+//! or the limits refuse a read for more of it, the probe goes on with the
+//! octets it holds. The file is kept if they hold the identification
+//! header, without its comments, and what stopped the read is recorded
+//! (SEC-MED-017).
 //!
 //! # Steps
 //!
@@ -26,8 +49,13 @@
 //! blocks and the lyrics. For any other format the probe moves all of
 //! them, and gives the container parser the allowance it documents out of
 //! them. A budget of [`Budget::for_input`]`(n, `[`STEPS_PER_OCTET`]`,
-//! `[`FIXED_STEPS`]`)` is enough for any file of `n` octets
-//! (SEC-MED-007).
+//! `[`FIXED_STEPS`]`)` is enough for a file of `n` octets, with one
+//! exception: an Ogg file in which false pages overlap one another, which
+//! no encoder writes. A walk over such pages costs more than the two
+//! steps an octet these constants count on
+//! ([`ogg::STEPS_PER_OCTET`]). The budget then runs out, and the probe
+//! ends as it does for any budget that is too small, with a typed fault
+//! or a recorded problem (SEC-MED-007).
 //!
 //! Each `ID3v2` tag the probe reads costs one step on top of what its
 //! parser charges, so a tag with no frames is not free. A tag is at least
@@ -38,7 +66,8 @@
 //! The probe nests nothing itself: each parser counts its own depth from
 //! its own root (SEC-MED-005). Every turn of the machine either asks for
 //! a read that holds at least one octet, moves to a later stage, or ends,
-//! and the reads for one tag block move forward through it (SEC-MED-008).
+//! and the reads for one tag block move forward through it: the probe
+//! never asks for the same read twice in a row (SEC-MED-008).
 //!
 //! # Counts
 //!
@@ -47,8 +76,9 @@
 //! in front of the audio, which is as many as detection skips, and one in
 //! a chunk of a WAV or AIFF file, which holds one tag. The first tag past
 //! the cap is left unread with every tag after it, and recorded
-//! (SEC-TM-032). The pictures of all a file's tag blocks count together
-//! against the per-file picture limit (SEC-MED-006).
+//! (SEC-TM-032). The fields of all a file's tag blocks count together
+//! against the per-file tag-field limit, and their pictures against the
+//! per-file picture limit (SEC-MED-006).
 
 use std::mem;
 
@@ -69,18 +99,20 @@ use crate::parse::{
 
 use crate::values::SampleRate;
 
-use super::draft::{Draft, Gather, Job, span};
+use super::draft::{Draft, Gather, Job, ape_covers, span};
 use super::facts::{PartProblem, ProbeError, Probed, TagBlock};
 use super::{flac, mp4 as mp4_facts, mpeg, ogg as ogg_facts, pcm};
 
 /// The steps a probe may charge its budget for each octet of the file.
 /// With [`FIXED_STEPS`], `Budget::for_input(file_len, STEPS_PER_OCTET,
-/// FIXED_STEPS)` is always enough (SEC-MED-007).
+/// FIXED_STEPS)` is enough for every file but an Ogg file in which false
+/// pages overlap one another, which no encoder writes (SEC-MED-007).
 ///
 /// The most any format needs is an Ogg file's: its header packets may be
 /// read twice over while the read of them grows, at the two steps an
 /// octet of a page costs, the end of the file once more, and the comment
-/// block and its lyrics at two steps an octet each.
+/// block and its lyrics at two steps an octet each. False pages that
+/// overlap cost more than two steps an octet, and the budget stops them.
 pub const STEPS_PER_OCTET: u64 = 16;
 
 /// The steps a probe may charge beyond [`STEPS_PER_OCTET`]: the fixed
@@ -89,7 +121,8 @@ pub const STEPS_PER_OCTET: u64 = 16;
 pub const FIXED_STEPS: u64 = 256;
 
 /// How many octets of an Ogg file are read first for its header packets.
-/// The read doubles until it holds them.
+/// The read doubles until it holds them, or until it is as long as a tag
+/// block may be in memory.
 const OGG_HEAD: u64 = 8_192;
 
 /// The most `ID3v2` tags read from the front of a file: as many as
@@ -229,28 +262,30 @@ impl<'b> Probe<'b> {
                 Step::Done(Ok(file)) => self.next(pcm::aiff(file, &self.limits)),
                 Step::Done(Err(error)) => Err(fail(ProbeError::Aiff(error))),
             },
-            Stage::OggHead(mut gather) => match self.fill(&mut gather, window) {
+            Stage::OggHead(mut gather) => match self.fill(&mut gather, window).map_err(fail)? {
                 Ok(Some(request)) => {
                     self.stage = Stage::OggHead(gather);
                     Err(Box::new(Step::Need(request)))
                 }
                 Ok(None) => self.ogg_head(gather, file_len),
-                Err(error) => Err(fail(ProbeError::Read(error))),
+                Err(error) => self.ogg_cut(&gather, error, file_len),
             },
-            Stage::Jobs(mut draft, job, mut gather) => match self.fill(&mut gather, window) {
-                Ok(Some(request)) => {
-                    self.stage = Stage::Jobs(draft, job, gather);
-                    Err(Box::new(Step::Need(request)))
+            Stage::Jobs(mut draft, job, mut gather) => {
+                match self.fill(&mut gather, window).map_err(fail)? {
+                    Ok(Some(request)) => {
+                        self.stage = Stage::Jobs(draft, job, gather);
+                        Err(Box::new(Step::Need(request)))
+                    }
+                    Ok(None) => {
+                        self.job(&mut draft, job, gather, file_len);
+                        self.next(*draft)
+                    }
+                    Err(error) => {
+                        draft.problems.push(PartProblem::Read(error));
+                        self.next(*draft)
+                    }
                 }
-                Ok(None) => {
-                    self.job(&mut draft, job, gather, file_len);
-                    self.next(*draft)
-                }
-                Err(error) => {
-                    draft.problems.push(PartProblem::Read(error));
-                    self.next(*draft)
-                }
-            },
+            }
             Stage::Finished => Err(fail(ProbeError::Finished)),
         }
     }
@@ -268,22 +303,71 @@ impl<'b> Probe<'b> {
         }
     }
 
+    /// How far into an Ogg file of `file_len` octets the read for its
+    /// header packets may reach: to the end of the file, or as far as a
+    /// tag block may be held in memory.
+    fn ogg_most(&self, file_len: u64) -> u64 {
+        file_len.min(self.limits.get(LimitKind::Id3v2TagBytes))
+    }
+
     /// Reads the header packets of an Ogg file from the octets gathered,
-    /// or doubles the read when it does not hold them yet. Each attempt
-    /// costs a step on top of the parsers' own, so the attempts end.
+    /// or doubles the read when it does not hold them yet and may grow.
+    /// Each attempt costs a step on top of the parsers' own, so the
+    /// attempts end.
+    ///
+    /// A file longer than the read may reach is never held whole. When
+    /// the read has reached that far and holds no comment header, the
+    /// limit that stopped it is recorded, with the length of the file.
     fn ogg_head(&mut self, mut gather: Gather, file_len: u64) -> Turn<'b> {
         self.work
             .charge(1, gather.end)
             .map_err(|fault| fail(ProbeError::Fault(fault)))?;
-        let more = gather.end < file_len;
-        let found = ogg_facts::head(&gather.octets, more, file_len, &self.limits, &mut self.work);
+        let most = self.ogg_most(file_len);
+        let more = gather.end < most;
+        let stopped = self
+            .limits
+            .check(LimitKind::Id3v2TagBytes, file_len, 0)
+            .err()
+            .map(PartProblem::Fault);
+        let found = ogg_facts::head(
+            &gather.octets,
+            more,
+            stopped,
+            file_len,
+            &self.limits,
+            &mut self.work,
+        );
         match found {
             None => {
-                gather.end = gather.end.saturating_mul(2).min(file_len);
+                gather.end = gather.end.saturating_mul(2).min(most);
                 Ok(Stage::OggHead(gather))
             }
             Some(Ok(draft)) => self.next(draft),
             Some(Err(error)) => Err(fail(error)),
+        }
+    }
+
+    /// Goes on with the octets of an Ogg file's start that are held, when
+    /// the limits refuse a read for more of them with `error`.
+    ///
+    /// The file is kept when they hold the identification header, and
+    /// the refused read is recorded if they hold no comment header. When
+    /// they hold no packet to read a header from, what playback needs was
+    /// refused, and the file fails with the refused read.
+    fn ogg_cut(&mut self, gather: &Gather, error: DriveError, file_len: u64) -> Turn<'b> {
+        let stopped = Some(PartProblem::Read(error));
+        let found = ogg_facts::head(
+            &gather.octets,
+            false,
+            stopped,
+            file_len,
+            &self.limits,
+            &mut self.work,
+        );
+        match found {
+            Some(Ok(draft)) => self.next(draft),
+            Some(Err(ProbeError::Ogg(_))) | None => Err(fail(ProbeError::Read(error))),
+            Some(Err(other)) => Err(fail(other)),
         }
     }
 
@@ -331,7 +415,10 @@ impl<'b> Probe<'b> {
                 let budget = self.carve(riff::STEPS_PER_OCTET, riff::STEPS_FIXED, file_len)?;
                 Ok(Stage::Aiff(Aiff::new(&self.limits, budget)))
             }
-            Format::Ogg => Ok(Stage::OggHead(Gather::new(0, OGG_HEAD.min(file_len)))),
+            Format::Ogg => {
+                let first = OGG_HEAD.min(self.ogg_most(file_len));
+                Ok(Stage::OggHead(Gather::new(0, first)))
+            }
             Format::Jpeg | Format::Png | Format::Webp | Format::Gif | Format::Lrc | Format::M3u => {
                 Err(fail(ProbeError::NotAudio { format }))
             }
@@ -372,23 +459,40 @@ impl<'b> Probe<'b> {
         ))))
     }
 
-    /// Adds the octets of `window` to `gather` and asks for the next read
-    /// of it: `None` once it holds every octet.
+    /// Takes `window` in as the host's answer to the read `gather` asked
+    /// for, if it asked for one, and asks for its next read: `None` once
+    /// it holds every octet.
+    ///
+    /// An answer must start where the read does and hold at least one
+    /// octet, so every answer moves the read on and the same read is
+    /// never asked for twice in a row. An answer shorter than the read is
+    /// taken, and the rest is asked for.
     ///
     /// # Errors
     ///
-    /// The [`DriveError`] of a read the limits refuse.
+    /// [`ProbeError::Unanswered`] for a window that is no answer to the
+    /// read asked for. Inside, the [`DriveError`] of a next read that the
+    /// limits refuse.
     fn fill(
         &mut self,
         gather: &mut Gather,
         window: Window<'_>,
-    ) -> Result<Option<ReadRequest>, DriveError> {
-        gather.octets.extend_from_slice(window.bytes);
+    ) -> Result<Result<Option<ReadRequest>, DriveError>, ProbeError> {
+        if let Some(asked) = gather.asked.take() {
+            if window.offset != asked.offset || window.bytes.is_empty() {
+                return Err(ProbeError::Unanswered {
+                    asked,
+                    offset: window.offset,
+                    len: u64::try_from(window.bytes.len()).unwrap_or(u64::MAX),
+                });
+            }
+            gather.octets.extend_from_slice(window.bytes);
+        }
         let held = u64::try_from(gather.octets.len()).unwrap_or(u64::MAX);
         let at = gather.start.saturating_add(held);
         let left = gather.end.saturating_sub(at);
         if left == 0 {
-            return Ok(None);
+            return Ok(Ok(None));
         }
         let len = left.min(self.limits.get(LimitKind::ReadBytes));
         let request = ReadRequest {
@@ -396,7 +500,10 @@ impl<'b> Probe<'b> {
             // A read is at most 16 MiB, which fits.
             len: u32::try_from(len).unwrap_or(u32::MAX),
         };
-        self.admit(request, window.file_len).map(|()| Some(request))
+        Ok(self.admit(request, window.file_len).map(|()| {
+            gather.asked = Some(request);
+            Some(request)
+        }))
     }
 
     /// Reads the tag block `job` asked for from the octets gathered.
@@ -420,16 +527,23 @@ impl<'b> Probe<'b> {
                 octets: gather.octets,
             }),
             Job::Tail => self.tail(draft, gather.window(file_len)),
+            Job::Ape => self.ape(draft, gather.window(file_len)),
             Job::OggTail { serial, skip } => {
                 let tail = gather.window(file_len).cursor();
                 match ogg::last_granule(tail, serial, &mut self.work) {
-                    Ok(granule) => {
+                    Ok(Some(granule)) => {
                         draft.audio.duration = span(
-                            granule.map(|granule| granule.saturating_sub(skip)),
+                            Some(granule.saturating_sub(skip)),
                             draft.audio.sample_rate.map(SampleRate::hz),
                             &mut draft.problems,
                         );
                     }
+                    // Without the last page there is no telling how long
+                    // the file plays, so that is recorded.
+                    Ok(None) => draft.problems.push(PartProblem::NoLastPage {
+                        offset: gather.start,
+                        serial,
+                    }),
                     Err(fault) => draft.problems.push(PartProblem::Fault(fault)),
                 }
             }
@@ -483,31 +597,11 @@ impl<'b> Probe<'b> {
     /// Reads the APE and `ID3v1` tags at the end of the file from
     /// `window`, and ends the audio window where the first of them starts.
     ///
-    /// An APE tag that starts before the window is read again from its
-    /// start, unless it is larger than a tag may be in memory.
+    /// The `ID3v1` tag is read from this window whatever becomes of the
+    /// APE tag, so it is kept even when the APE tag has to be read again
+    /// and that read is refused (SEC-MED-017).
     fn tail(&mut self, draft: &mut Draft, window: Window<'_>) {
-        match ape::parse_ape(window, &self.limits, &mut self.work) {
-            Err(ApeError::Fault(ParseFault::Truncated { offset, .. }))
-                if offset < window.offset =>
-            {
-                let len = window.file_len.saturating_sub(offset);
-                match self.limits.check(LimitKind::Id3v2TagBytes, len, offset) {
-                    Ok(()) => {
-                        draft
-                            .jobs
-                            .push((Job::Tail, Gather::new(offset, window.file_len)));
-                        return;
-                    }
-                    Err(fault) => draft.problems.push(PartProblem::Fault(fault)),
-                }
-            }
-            Ok(Some(tag)) => {
-                draft.window.1 = draft.window.1.min(tag.range.start);
-                draft.tags.push(TagBlock::Ape(tag));
-            }
-            Ok(None) => {}
-            Err(error) => draft.problems.push(PartProblem::Ape(error)),
-        }
+        self.ape(draft, window);
         match id3v1::find_v1(window, &self.limits, &mut self.work) {
             Ok(Some(tag)) => {
                 draft.window.1 = draft.window.1.min(tag.range.start);
@@ -515,6 +609,41 @@ impl<'b> Probe<'b> {
             }
             Ok(None) => {}
             Err(error) => draft.problems.push(PartProblem::Id3v1(error)),
+        }
+    }
+
+    /// Reads the APE tag at the end of the file from `window`, and ends
+    /// the audio window where it starts.
+    ///
+    /// An APE tag that starts before the window is read again from its
+    /// start, as [`Job::Ape`], unless it is larger than a tag may be in
+    /// memory. The tag comes before the `ID3v1` tag in the order of
+    /// precedence, also when that tag was read first.
+    fn ape(&mut self, draft: &mut Draft, window: Window<'_>) {
+        match ape::parse_ape(window, &self.limits, &mut self.work) {
+            Err(ApeError::Fault(ParseFault::Truncated { offset, .. }))
+                if offset < window.offset =>
+            {
+                let len = window.file_len.saturating_sub(offset);
+                match self.limits.check(LimitKind::Id3v2TagBytes, len, offset) {
+                    Ok(()) => draft
+                        .jobs
+                        .push((Job::Ape, Gather::new(offset, window.file_len))),
+                    Err(fault) => draft.problems.push(PartProblem::Fault(fault)),
+                }
+            }
+            Ok(Some(tag)) => {
+                draft.window.1 = draft.window.1.min(tag.range.start);
+                draft.covers = ape_covers(&tag, window);
+                let at = draft
+                    .tags
+                    .iter()
+                    .position(|block| matches!(block, TagBlock::Id3v1(_)))
+                    .unwrap_or(draft.tags.len());
+                draft.tags.insert(at, TagBlock::Ape(tag));
+            }
+            Ok(None) => {}
+            Err(error) => draft.problems.push(PartProblem::Ape(error)),
         }
     }
 }
@@ -546,6 +675,7 @@ mod tests {
             seek: SeekIndex::None,
             pictures: vec![],
             tags: vec![],
+            covers: vec![],
             problems: vec![],
             jobs: vec![],
         }
@@ -592,9 +722,11 @@ mod tests {
     }
 
     /// A tail starting at 100 lacks the start of the final 128 octets.
-    /// Retrying from 72 extends it, so the missing data can be supplied.
+    /// Reading for the APE tag again from 72 extends it, so the missing
+    /// octets can be supplied. The `ID3v1` tag is read from the first
+    /// window alone, so that this window cannot give it is recorded.
     ///
-    /// Verifies: SEC-MED-008, SEC-MED-017
+    /// Verifies: SEC-MED-008
     #[test]
     fn retries_a_truncated_tail_only_from_an_earlier_offset() {
         let mut budget = Budget::for_input(0, 0, 0);
@@ -608,10 +740,19 @@ mod tests {
                 file_len: 200,
             },
         );
-        assert_eq!(draft.jobs, [(Job::Tail, Gather::new(72, 200))]);
+        assert_eq!(draft.jobs, [(Job::Ape, Gather::new(72, 200))]);
         assert_eq!(draft.tags, []);
         assert_eq!(draft.window, (0, 200));
-        assert_eq!(draft.problems, []);
+        assert_eq!(
+            draft.problems,
+            [PartProblem::Id3v1(Id3v1Error::Fault(
+                ParseFault::Truncated {
+                    offset: 72,
+                    needed: 128,
+                    available: 0,
+                }
+            ))]
+        );
     }
 
     /// What an `ID3v2.3` tag with no frames, ten octets that start at
@@ -648,6 +789,7 @@ mod tests {
             start: 0,
             end: u64::try_from(octets.len()).unwrap(),
             octets,
+            asked: None,
         };
         probe.job(&mut draft, Job::Id3v2, gather, 4_000);
         (draft.tags, draft.problems, probe.work.remaining())

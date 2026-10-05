@@ -299,19 +299,20 @@ fn keeps_no_more_tags_than_their_place_may_hold_under_any_budget() {
     }
 }
 
-/// The limits a probe may run under here: the defaults, and read and file
-/// caps low enough for a small file to reach.
+/// The limits a probe may run under here: the defaults, or read and file
+/// caps low enough for a small file to reach. A case gets either with the
+/// same chance.
 fn limits() -> impl Strategy<Value = Limits> {
-    (512_u64..2_048, 1_u64..8_192).prop_map(|(read, total)| {
-        Limits::DEFAULT
-            .with_override(LimitKind::ReadBytes, read)
-            .and_then(|limits| limits.with_override(LimitKind::FileBytes, total))
-            .unwrap_or(Limits::DEFAULT)
-    })
+    let capped = (512_u64..2_048, 1_u64..8_192).prop_map(|(read, total)| {
+        lowered(LimitKind::ReadBytes, read)
+            .with_override(LimitKind::FileBytes, total)
+            .unwrap()
+    });
+    prop_oneof![Just(Limits::DEFAULT), capped]
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(128))]
 
     /// Verifies: SEC-MED-001, SEC-MED-008, SEC-MED-010
     #[test]

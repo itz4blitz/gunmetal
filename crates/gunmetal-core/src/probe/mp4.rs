@@ -121,6 +121,7 @@ pub(super) fn draft(audio: Mp4Audio, file_len: u64) -> Draft {
         seek: SeekIndex::Mp4(sample_tables),
         pictures: Vec::new(),
         tags: vec![TagBlock::Mp4(items)],
+        covers: Vec::new(),
         problems,
         jobs: Vec::new(),
     }

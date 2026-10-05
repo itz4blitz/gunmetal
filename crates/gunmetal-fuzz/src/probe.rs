@@ -14,7 +14,10 @@ pub enum Outcome {
 
 /// Feeds `data` to [`probe`] as a file with no extension, so that every
 /// format with a signature is a candidate, under the default limits and
-/// the budget the probe documents as enough for any file of this length.
+/// the budget the probe documents for a file of this length. That budget
+/// is enough for every file but an Ogg file in which false pages overlap
+/// one another; for such a file the probe ends with the budget spent,
+/// which is an outcome like any other here.
 ///
 /// # Panics
 ///
