@@ -28,14 +28,23 @@
 //! (WP-146), and the reader of a track's credits arrives with the credits
 //! panel that needs it.
 
+use std::iter;
+
 use gunmetal_core::authz::{HasLibrary, Permit};
 use gunmetal_core::catalog::{
-    AlbumId, AlbumRecord, ArtistId, ArtistRecord, CatalogChange, Credit, LibraryId, RecordId,
-    TrackId, TrackRecord,
+    Advisory, AlbumId, AlbumRecord, ArtistId, ArtistRecord, AudioFormat, Availability, Bitrate,
+    CatalogChange, CatalogError, ChangeOp, Codec, Container, Credit, Gain, GainScale, GainTags,
+    ItemKind, LibraryId, LyricsOrigin, LyricsSource, LyricsTiming, PrimaryType, RecordId,
+    ReleaseType, SecondaryType, TechInfo, TrackId, TrackPosition, TrackRecord, Trim,
 };
-use gunmetal_core::id::PublicId;
+use gunmetal_core::id::{IdKind, PublicId};
 use gunmetal_core::schema::{Column, DataClass, SchemaPart};
-use gunmetal_fs::sqlite::{DbError, Query, Value};
+use gunmetal_core::time::Timestamp;
+use gunmetal_core::untrusted::Untrusted;
+use gunmetal_core::values::{
+    BitDepth, Channels, Duration, GainDb, Isrc, Mbid, PartialDate, PeakRatio, SampleRate,
+};
+use gunmetal_fs::sqlite::{DbError, Query, Row, Value};
 
 use crate::readers::Reader;
 use crate::store::StoreError;
@@ -279,6 +288,59 @@ pub enum ReadError {
     Damaged,
 }
 
+/// One table as a batch writes it: three whole statements.
+struct Table {
+    /// Reads every row stored under a key, in the order a batch gives them.
+    held: &'static str,
+    /// Removes every row stored under a key.
+    clear: &'static str,
+    /// Adds one row.
+    add: &'static str,
+}
+
+static TRACKS: Table = Table {
+    held: "SELECT * FROM tracks WHERE id = ?1",
+    clear: "DELETE FROM tracks WHERE id = ?1",
+    add: "INSERT INTO tracks VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, \
+          ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, \
+          ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)",
+};
+
+static ALBUMS: Table = Table {
+    held: "SELECT * FROM albums WHERE id = ?1",
+    clear: "DELETE FROM albums WHERE id = ?1",
+    add: "INSERT INTO albums VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, \
+          ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+};
+
+static ARTISTS: Table = Table {
+    held: "SELECT * FROM artists WHERE id = ?1",
+    clear: "DELETE FROM artists WHERE id = ?1",
+    add: "INSERT INTO artists VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+};
+
+/// A track's credits, under the track's identifier.
+static CREDITS: Table = Table {
+    held: "SELECT * FROM credits WHERE track = ?1 ORDER BY seq",
+    clear: "DELETE FROM credits WHERE track = ?1",
+    add: "INSERT INTO credits VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+};
+
+/// One extra, under its track's identifier and its kind's code.
+static EXTRAS: Table = Table {
+    held: "SELECT * FROM extras WHERE track = ?1 AND kind = ?2",
+    clear: "DELETE FROM extras WHERE track = ?1 AND kind = ?2",
+    add: "INSERT INTO extras VALUES (?1, ?2, ?3)",
+};
+
+/// Every extra of a track, under the track's identifier alone, for
+/// removing a track.
+static TRACK_EXTRAS: Table = Table {
+    held: "SELECT * FROM extras WHERE track = ?1 ORDER BY kind",
+    clear: "DELETE FROM extras WHERE track = ?1",
+    add: "INSERT INTO extras VALUES (?1, ?2, ?3)",
+};
+
 /// A page of tracks in identifier order. The first value is the permit's
 /// libraries, as [`visible`] writes them.
 const TRACK_PAGE: &str = "SELECT * FROM tracks \
@@ -324,10 +386,135 @@ const EXTRA_ONE: &str = "SELECT extras.track, tracks.library, extras.body \
 /// Returns [`StoreError::Db`] when SQLite fails or refuses a statement. The
 /// caller's transaction then rolls back, so nothing of the batch is kept.
 pub fn apply_batch(
-    _tx: &Transaction<'_>,
-    _batch: &CatalogBatch,
+    tx: &Transaction<'_>,
+    batch: &CatalogBatch,
 ) -> Result<Vec<CatalogChange>, StoreError> {
-    Ok(Vec::new())
+    steps(batch)
+        .into_iter()
+        .try_fold(Vec::new(), |mut changes, step| {
+            replace(tx, step.table, &step.key, step.rows).map(|wrote| {
+                let news = step
+                    .change
+                    .filter(|change| wrote && !changes.contains(change));
+                changes.extend(news);
+                changes
+            })
+        })
+}
+
+/// One thing a batch does: make the rows a table holds under a key exactly
+/// these.
+struct Step {
+    table: &'static Table,
+    key: Vec<Value>,
+    rows: Vec<Row>,
+    /// What to report when that wrote anything.
+    change: Option<CatalogChange>,
+}
+
+/// Everything `batch` does, in the order [`apply_batch`] documents.
+fn steps(batch: &CatalogBatch) -> Vec<Step> {
+    let artists = batch
+        .artists
+        .iter()
+        .map(|artist| record(&ARTISTS, RecordId::Artist(artist.id), artist_cells(artist)));
+    let albums = batch
+        .albums
+        .iter()
+        .map(|album| record(&ALBUMS, RecordId::Album(album.id), album_cells(album)));
+    let tracks = batch
+        .tracks
+        .iter()
+        .map(|track| record(&TRACKS, RecordId::Track(track.id), track_cells(track)));
+    let credits = batch.credits.iter().map(|entry| Step {
+        table: &CREDITS,
+        key: vec![id_cell(entry.track.get())],
+        rows: credit_rows(entry),
+        change: Some(upsert(RecordId::Track(entry.track))),
+    });
+    let extras = batch.extras.iter().map(|entry| Step {
+        table: &EXTRAS,
+        key: vec![
+            id_cell(entry.track.get()),
+            Value::Integer(entry.kind.code()),
+        ],
+        rows: extra_rows(entry),
+        change: Some(upsert(RecordId::Track(entry.track))),
+    });
+    let removed = batch.removed.iter().copied().flat_map(removal);
+    artists
+        .chain(albums)
+        .chain(tracks)
+        .chain(credits)
+        .chain(extras)
+        .chain(removed)
+        .collect()
+}
+
+/// Stores one record as the one row under its identifier.
+fn record(table: &'static Table, id: RecordId, cells: Vec<Value>) -> Step {
+    Step {
+        table,
+        key: vec![id_cell(id.public_id())],
+        rows: vec![Row(cells)],
+        change: Some(upsert(id)),
+    }
+}
+
+/// Removes a record: its own row, which is what the removal is reported
+/// for, and for a track its credits and its extras.
+fn removal(record: RecordId) -> Vec<Step> {
+    let tables: Vec<&'static Table> = match record {
+        RecordId::Track(_) => vec![&TRACKS, &CREDITS, &TRACK_EXTRAS],
+        RecordId::Album(_) => vec![&ALBUMS],
+        RecordId::Artist(_) => vec![&ARTISTS],
+    };
+    let removed = CatalogChange {
+        record,
+        op: ChangeOp::Removal,
+    };
+    tables
+        .into_iter()
+        .zip(iter::once(Some(removed)).chain(iter::repeat(None)))
+        .map(|(table, change)| Step {
+            table,
+            key: vec![id_cell(record.public_id())],
+            rows: Vec::new(),
+            change,
+        })
+        .collect()
+}
+
+fn upsert(record: RecordId) -> CatalogChange {
+    CatalogChange {
+        record,
+        op: ChangeOp::Upsert,
+    }
+}
+
+/// Makes the rows `table` holds under `key` exactly `rows`, and says
+/// whether that wrote anything. Rows that are already there are not
+/// touched.
+fn replace(
+    tx: &Transaction<'_>,
+    table: &Table,
+    key: &[Value],
+    rows: Vec<Row>,
+) -> Result<bool, StoreError> {
+    tx.query(&bound(table.held, key.to_vec()))
+        .and_then(|held| {
+            if held == rows {
+                Ok(false)
+            } else {
+                tx.execute(&bound(table.clear, key.to_vec()))
+                    .and_then(|_| {
+                        rows.into_iter()
+                            .try_for_each(|row| tx.execute(&bound(table.add, row.0)).map(|_| ()))
+                    })
+                    .map(|()| true)
+            }
+        })
+        .map_err(StoreError::from)
 }
 
 /// The statement `text` with `cells` bound to its parameters in order.
@@ -337,6 +524,200 @@ fn bound(text: &'static str, cells: impl IntoIterator<Item = Value>) -> Query {
 
 fn id_cell(id: PublicId) -> Value {
     Value::Text(id.to_string())
+}
+
+fn text_cell(text: &str) -> Value {
+    Value::Text(text.to_owned())
+}
+
+fn int_cell<N: Into<i64>>(value: N) -> Value {
+    Value::Integer(value.into())
+}
+
+/// A value that may be missing: `NULL`, or the cell `cell` makes of it.
+fn opt_cell<T>(value: Option<T>, cell: impl FnOnce(T) -> Value) -> Value {
+    value.map_or(Value::Null, cell)
+}
+
+/// A list of texts as one blob: for each text, its length in octets as
+/// eight big-endian octets, then the text.
+fn list_cell(texts: impl IntoIterator<Item = impl AsRef<str>>) -> Value {
+    let mut blob = Vec::new();
+    for text in texts {
+        let text = text.as_ref();
+        // A usize is at most 64 bits on every target Rust supports, so the
+        // conversion cannot fail and the fallback is never used.
+        blob.extend_from_slice(&u64::try_from(text.len()).unwrap_or(u64::MAX).to_be_bytes());
+        blob.extend_from_slice(text.as_bytes());
+    }
+    Value::Blob(blob)
+}
+
+/// A date as one number: year * 10000 + month * 100 + day, with 0 for a
+/// month or day that is not known.
+fn date_cell(date: PartialDate) -> Value {
+    Value::Integer(
+        i64::from(date.year()) * 10_000
+            + i64::from(date.month().unwrap_or(0)) * 100
+            + i64::from(date.day().unwrap_or(0)),
+    )
+}
+
+fn mbid_cell(mbid: Mbid) -> Value {
+    Value::Text(mbid.to_string())
+}
+
+/// A gain or a peak as the bit pattern of its float, so that it reads back
+/// exactly.
+fn float_cell(value: f32) -> Value {
+    int_cell(value.to_bits())
+}
+
+fn millis_cell(duration: Duration) -> Value {
+    // A duration is at most 30 days, so its milliseconds always fit.
+    Value::Integer(i64::try_from(duration.millis()).unwrap_or(i64::MAX))
+}
+
+/// A gain's scale, gain and peak, each `NULL` when there is none.
+fn gain_cells(gain: Option<Gain>) -> [Value; 3] {
+    [
+        opt_cell(gain.map(|gain| gain.scale.code()), int_cell),
+        opt_cell(gain.map(|gain| gain.gain.db()), float_cell),
+        opt_cell(
+            gain.and_then(|gain| gain.peak).map(PeakRatio::ratio),
+            float_cell,
+        ),
+    ]
+}
+
+/// A track's cells, in the order of the table's columns.
+fn track_cells(track: &TrackRecord) -> Vec<Value> {
+    let position = track.position;
+    let format = track.tech.format();
+    let mut cells = vec![
+        id_cell(track.id.get()),
+        int_cell(track.kind.code()),
+        id_cell(track.library.get()),
+        text_cell(&track.title),
+        opt_cell(track.title_sort.as_deref(), text_cell),
+        text_cell(&track.artist_credit),
+        list_cell(track.artists.iter().map(|artist| artist.get().to_string())),
+        opt_cell(track.album.map(AlbumId::get), id_cell),
+        opt_cell(position.track(), int_cell),
+        opt_cell(position.track_total(), int_cell),
+        opt_cell(position.disc(), int_cell),
+        opt_cell(position.disc_total(), int_cell),
+        opt_cell(track.disc_subtitle.as_deref(), text_cell),
+        opt_cell(track.date, date_cell),
+        opt_cell(track.original_date, date_cell),
+        list_cell(&track.genres),
+        list_cell(&track.moods),
+        list_cell(&track.styles),
+        list_cell(&track.labels),
+        list_cell(&track.grouping),
+        opt_cell(track.advisory.map(Advisory::code), int_cell),
+        list_cell(track.isrc.iter().map(Isrc::as_str)),
+        opt_cell(track.recording_mbid, mbid_cell),
+        int_cell(track.tech.codec().code()),
+        int_cell(track.tech.container().code()),
+        opt_cell(format.sample_rate.map(|rate| rate.hz().get()), int_cell),
+        opt_cell(format.bit_depth.map(|depth| depth.get().get()), int_cell),
+        opt_cell(format.channels.map(|count| count.get().get()), int_cell),
+        opt_cell(format.bitrate.map(|bitrate| bitrate.bps().get()), int_cell),
+        opt_cell(format.duration, millis_cell),
+    ];
+    cells.extend(gain_cells(track.gain.track));
+    cells.extend(gain_cells(track.gain.album));
+    cells.extend([
+        opt_cell(track.trim.map(|trim| trim.delay), int_cell),
+        opt_cell(track.trim.map(|trim| trim.padding), int_cell),
+        opt_cell(track.lyrics.map(|lyrics| lyrics.timing().code()), int_cell),
+        int_cell(track.availability.code()),
+        Value::Integer(track.added.millis()),
+        opt_cell(track.lyrics.map(|lyrics| lyrics.origin().code()), int_cell),
+    ]);
+    cells
+}
+
+/// An album's cells, in the order of the table's columns.
+fn album_cells(album: &AlbumRecord) -> Vec<Value> {
+    vec![
+        id_cell(album.id.get()),
+        id_cell(album.library.get()),
+        text_cell(&album.title),
+        opt_cell(album.title_sort.as_deref(), text_cell),
+        text_cell(&album.artist_credit),
+        list_cell(album.artists.iter().map(|artist| artist.get().to_string())),
+        opt_cell(album.date, date_cell),
+        opt_cell(album.original_date, date_cell),
+        opt_cell(album.release_type.primary.map(PrimaryType::code), int_cell),
+        Value::Blob(
+            album
+                .release_type
+                .secondary
+                .iter()
+                .copied()
+                .map(SecondaryType::code)
+                .collect(),
+        ),
+        int_cell(album.compilation),
+        list_cell(&album.genres),
+        list_cell(&album.labels),
+        int_cell(album.track_count),
+        int_cell(album.disc_count),
+        millis_cell(album.duration),
+        int_cell(album.has_artwork),
+        opt_cell(album.release_mbid, mbid_cell),
+        opt_cell(album.release_group_mbid, mbid_cell),
+        Value::Integer(album.added.millis()),
+    ]
+}
+
+/// An artist's cells, in the order of the table's columns.
+fn artist_cells(artist: &ArtistRecord) -> Vec<Value> {
+    vec![
+        id_cell(artist.id.get()),
+        id_cell(artist.library.get()),
+        text_cell(&artist.name),
+        opt_cell(artist.name_sort.as_deref(), text_cell),
+        opt_cell(artist.mbid, mbid_cell),
+        int_cell(artist.album_count),
+        int_cell(artist.track_count),
+        list_cell(&artist.genres),
+        int_cell(artist.has_artwork),
+    ]
+}
+
+/// One row for each credit, numbered from 0 in the order given.
+fn credit_rows(entry: &TrackCredits) -> Vec<Row> {
+    (0_i64..)
+        .zip(&entry.credits)
+        .map(|(seq, credit)| {
+            Row(vec![
+                id_cell(entry.track.get()),
+                Value::Integer(seq),
+                text_cell(credit.name()),
+                int_cell(credit.role().code()),
+                opt_cell(credit.detail(), text_cell),
+                opt_cell(credit.mbid(), mbid_cell),
+            ])
+        })
+        .collect()
+}
+
+/// The one row of an extra, or no row for an extra to remove.
+fn extra_rows(entry: &TrackExtra) -> Vec<Row> {
+    entry
+        .body
+        .iter()
+        .map(|body| {
+            Row(vec![
+                id_cell(entry.track.get()),
+                Value::Integer(entry.kind.code()),
+                Value::Blob(body.clone()),
+            ])
+        })
+        .collect()
 }
 
 /// The libraries `permit` holds, as the one value every reader's statement
@@ -526,25 +907,387 @@ pub fn extra(
     rows(reader, &query, |cells| extra_row(cells, kind)).map(only)
 }
 
+fn text(cell: &Value) -> Option<String> {
+    if let Value::Text(text) = cell {
+        Some(text.clone())
+    } else {
+        None
+    }
+}
+
+fn int(cell: &Value) -> Option<i64> {
+    if let Value::Integer(value) = cell {
+        Some(*value)
+    } else {
+        None
+    }
+}
+
+/// A whole number that fits `T`.
+fn num<T: TryFrom<i64>>(cell: &Value) -> Option<T> {
+    int(cell).and_then(|value| T::try_from(value).ok())
+}
+
+/// A cell that may be `NULL`: `None` for `NULL`, and otherwise what `read`
+/// makes of it, which fails when `read` refuses the cell.
+fn nullable<T>(
+    cell: &Value,
+    read: impl FnOnce(&Value) -> Option<T>,
+) -> Result<Option<T>, ReadError> {
+    if matches!(cell, Value::Null) {
+        Ok(None)
+    } else {
+        read(cell).map(Some).ok_or(ReadError::Damaged)
+    }
+}
+
+/// A value of a closed vocabulary, from its code.
+fn coded<N: TryFrom<i64>, T>(cell: &Value, from_code: fn(N) -> Option<T>) -> Option<T> {
+    num(cell).and_then(from_code)
+}
+
+/// A number its type's constructor `new` accepts.
+fn checked<N: TryFrom<i64>, T, E>(cell: &Value, new: fn(N) -> Result<T, E>) -> Option<T> {
+    num(cell).and_then(|value| new(value).ok())
+}
+
+/// `text` as an identifier of kind `kind`, typed by `new`.
+fn parsed<T>(text: &str, kind: IdKind, new: fn(PublicId) -> Result<T, CatalogError>) -> Option<T> {
+    PublicId::parse(text, kind).ok().and_then(|id| new(id).ok())
+}
+
+/// An identifier of kind `kind`, typed by `new`.
+fn typed<T>(cell: &Value, kind: IdKind, new: fn(PublicId) -> Result<T, CatalogError>) -> Option<T> {
+    text(cell).and_then(|text| parsed(&text, kind, new))
+}
+
+/// A list of texts, as [`list_cell`] writes one. Each pass of the loop
+/// takes at least the eight octets of a length, so it ends.
+fn texts(cell: &Value) -> Option<Vec<String>> {
+    let Value::Blob(blob) = cell else {
+        return None;
+    };
+    let mut blob = blob.as_slice();
+    let mut texts = Vec::new();
+    while !blob.is_empty() {
+        let (len, rest) = blob.split_first_chunk::<8>()?;
+        let (text, rest) = usize::try_from(u64::from_be_bytes(*len))
+            .ok()
+            .and_then(|len| rest.split_at_checked(len))?;
+        texts.push(String::from_utf8(text.to_vec()).ok()?);
+        blob = rest;
+    }
+    Some(texts)
+}
+
+/// A list of identifiers of kind `kind`, typed by `new`.
+fn ids<T>(
+    cell: &Value,
+    kind: IdKind,
+    new: fn(PublicId) -> Result<T, CatalogError>,
+) -> Option<Vec<T>> {
+    texts(cell).and_then(|texts| texts.iter().map(|text| parsed(text, kind, new)).collect())
+}
+
+/// A date, as [`date_cell`] writes one.
+fn partial_date(cell: &Value) -> Option<PartialDate> {
+    num::<u32>(cell).and_then(|packed| {
+        let part = |value: u32| u8::try_from(value).ok().filter(|part| *part != 0);
+        u16::try_from(packed / 10_000).ok().and_then(|year| {
+            PartialDate::new(year, part(packed / 100 % 100), part(packed % 100)).ok()
+        })
+    })
+}
+
+fn mbid(cell: &Value) -> Option<Mbid> {
+    text(cell).and_then(|text| Mbid::parse(Untrusted::new(text.as_str())).ok())
+}
+
+fn isrcs(cell: &Value) -> Option<Vec<Isrc>> {
+    texts(cell).and_then(|codes| {
+        codes
+            .iter()
+            .map(|code| Isrc::parse(Untrusted::new(code.as_str())).ok())
+            .collect()
+    })
+}
+
+/// True or false, stored as 1 or 0 and as nothing else.
+fn flag(cell: &Value) -> Option<bool> {
+    match int(cell) {
+        Some(0) => Some(false),
+        Some(1) => Some(true),
+        _ => None,
+    }
+}
+
+/// A float, as [`float_cell`] writes one.
+fn float(cell: &Value) -> Option<f32> {
+    num::<u32>(cell).map(f32::from_bits)
+}
+
+fn position(
+    track: &Value,
+    track_total: &Value,
+    disc: &Value,
+    disc_total: &Value,
+) -> Option<TrackPosition> {
+    TrackPosition::new(
+        nullable(track, num::<u16>).ok()?,
+        nullable(track_total, num::<u16>).ok()?,
+        nullable(disc, num::<u16>).ok()?,
+        nullable(disc_total, num::<u16>).ok()?,
+    )
+    .ok()
+}
+
+/// The technical facts, from the codec, the container and the five cells
+/// of the audio format.
+fn tech(codec: &Value, container: &Value, format: [&Value; 5]) -> Option<TechInfo> {
+    let [sample_rate, bit_depth, channels, bitrate, duration] = format;
+    let format = AudioFormat {
+        sample_rate: nullable(sample_rate, |cell| checked(cell, SampleRate::new)).ok()?,
+        bit_depth: nullable(bit_depth, |cell| checked(cell, BitDepth::new)).ok()?,
+        channels: nullable(channels, |cell| checked(cell, Channels::new)).ok()?,
+        bitrate: nullable(bitrate, |cell| checked(cell, Bitrate::new)).ok()?,
+        duration: nullable(duration, |cell| checked(cell, Duration::from_millis)).ok()?,
+    };
+    TechInfo::new(
+        coded(codec, Codec::from_code)?,
+        coded(container, Container::from_code)?,
+        format,
+    )
+    .ok()
+}
+
+/// A gain, which is there when its scale is.
+fn gain(scale: &Value, db: &Value, peak: &Value) -> Result<Option<Gain>, ReadError> {
+    nullable(scale, |scale| {
+        Some(Gain {
+            scale: coded(scale, GainScale::from_code)?,
+            gain: float(db).and_then(|db| GainDb::new(db).ok())?,
+            peak: nullable(peak, |peak| {
+                float(peak).and_then(|ratio| PeakRatio::new(ratio).ok())
+            })
+            .ok()?,
+        })
+    })
+}
+
+/// The encoder's trim, which is there when its delay is.
+fn trim(delay: &Value, padding: &Value) -> Result<Option<Trim>, ReadError> {
+    nullable(delay, |delay| {
+        Some(Trim {
+            delay: num(delay)?,
+            padding: num(padding)?,
+        })
+    })
+}
+
+/// Where the lyrics came from, which is there when their origin is.
+fn lyrics(origin: &Value, timing: &Value) -> Result<Option<LyricsSource>, ReadError> {
+    nullable(origin, |origin| {
+        LyricsSource::new(
+            coded(origin, LyricsOrigin::from_code)?,
+            coded(timing, LyricsTiming::from_code)?,
+        )
+        .ok()
+    })
+}
+
 /// Reads a track from the cells of its row.
-fn track_row(_cells: &[Value]) -> Option<TrackRow> {
-    None
+fn track_row(cells: &[Value]) -> Option<TrackRow> {
+    let [
+        id,
+        kind,
+        library,
+        title,
+        title_sort,
+        artist_credit,
+        artists,
+        album,
+        track_number,
+        track_total,
+        disc_number,
+        disc_total,
+        disc_subtitle,
+        date,
+        original_date,
+        genres,
+        moods,
+        styles,
+        labels,
+        grouping,
+        advisory,
+        isrc,
+        recording_mbid,
+        codec,
+        container,
+        sample_rate,
+        bit_depth,
+        channels,
+        bitrate,
+        duration,
+        track_gain_scale,
+        track_gain,
+        track_peak,
+        album_gain_scale,
+        album_gain,
+        album_peak,
+        trim_delay,
+        trim_padding,
+        lyrics_timing,
+        availability,
+        added,
+        lyrics_origin,
+    ] = cells
+    else {
+        return None;
+    };
+    Some(TrackRow(TrackRecord {
+        id: typed(id, IdKind::Track, TrackId::new)?,
+        kind: coded(kind, ItemKind::from_code)?,
+        library: typed(library, IdKind::Library, LibraryId::new)?,
+        title: text(title)?,
+        title_sort: nullable(title_sort, text).ok()?,
+        artist_credit: text(artist_credit)?,
+        artists: ids(artists, IdKind::Artist, ArtistId::new)?,
+        album: nullable(album, |cell| typed(cell, IdKind::Album, AlbumId::new)).ok()?,
+        position: position(track_number, track_total, disc_number, disc_total)?,
+        disc_subtitle: nullable(disc_subtitle, text).ok()?,
+        date: nullable(date, partial_date).ok()?,
+        original_date: nullable(original_date, partial_date).ok()?,
+        genres: texts(genres)?,
+        moods: texts(moods)?,
+        styles: texts(styles)?,
+        labels: texts(labels)?,
+        grouping: texts(grouping)?,
+        advisory: nullable(advisory, |cell| coded(cell, Advisory::from_code)).ok()?,
+        isrc: isrcs(isrc)?,
+        recording_mbid: nullable(recording_mbid, mbid).ok()?,
+        tech: tech(
+            codec,
+            container,
+            [sample_rate, bit_depth, channels, bitrate, duration],
+        )?,
+        gain: GainTags {
+            track: gain(track_gain_scale, track_gain, track_peak).ok()?,
+            album: gain(album_gain_scale, album_gain, album_peak).ok()?,
+        },
+        trim: trim(trim_delay, trim_padding).ok()?,
+        lyrics: lyrics(lyrics_origin, lyrics_timing).ok()?,
+        availability: coded(availability, Availability::from_code)?,
+        added: checked(added, Timestamp::from_millis)?,
+    }))
+}
+
+/// An album's secondary types, one code an octet.
+fn secondary_types(cell: &Value) -> Option<Vec<SecondaryType>> {
+    if let Value::Blob(codes) = cell {
+        codes
+            .iter()
+            .copied()
+            .map(SecondaryType::from_code)
+            .collect()
+    } else {
+        None
+    }
 }
 
 /// Reads an album from the cells of its row.
-fn album_row(_cells: &[Value]) -> Option<AlbumRow> {
-    None
+fn album_row(cells: &[Value]) -> Option<AlbumRow> {
+    let [
+        id,
+        library,
+        title,
+        title_sort,
+        artist_credit,
+        artists,
+        date,
+        original_date,
+        primary_type,
+        secondary,
+        compilation,
+        genres,
+        labels,
+        track_count,
+        disc_count,
+        duration,
+        has_artwork,
+        release_mbid,
+        release_group_mbid,
+        added,
+    ] = cells
+    else {
+        return None;
+    };
+    Some(AlbumRow(AlbumRecord {
+        id: typed(id, IdKind::Album, AlbumId::new)?,
+        library: typed(library, IdKind::Library, LibraryId::new)?,
+        title: text(title)?,
+        title_sort: nullable(title_sort, text).ok()?,
+        artist_credit: text(artist_credit)?,
+        artists: ids(artists, IdKind::Artist, ArtistId::new)?,
+        date: nullable(date, partial_date).ok()?,
+        original_date: nullable(original_date, partial_date).ok()?,
+        release_type: ReleaseType {
+            primary: nullable(primary_type, |cell| coded(cell, PrimaryType::from_code)).ok()?,
+            secondary: secondary_types(secondary)?,
+        },
+        compilation: flag(compilation)?,
+        genres: texts(genres)?,
+        labels: texts(labels)?,
+        track_count: num(track_count)?,
+        disc_count: num(disc_count)?,
+        duration: checked(duration, Duration::from_millis)?,
+        has_artwork: flag(has_artwork)?,
+        release_mbid: nullable(release_mbid, mbid).ok()?,
+        release_group_mbid: nullable(release_group_mbid, mbid).ok()?,
+        added: checked(added, Timestamp::from_millis)?,
+    }))
 }
 
 /// Reads an artist from the cells of its row.
-fn artist_row(_cells: &[Value]) -> Option<ArtistRow> {
-    None
+fn artist_row(cells: &[Value]) -> Option<ArtistRow> {
+    let [
+        id,
+        library,
+        name,
+        name_sort,
+        artist_mbid,
+        album_count,
+        track_count,
+        genres,
+        has_artwork,
+    ] = cells
+    else {
+        return None;
+    };
+    Some(ArtistRow(ArtistRecord {
+        id: typed(id, IdKind::Artist, ArtistId::new)?,
+        library: typed(library, IdKind::Library, LibraryId::new)?,
+        name: text(name)?,
+        name_sort: nullable(name_sort, text).ok()?,
+        mbid: nullable(artist_mbid, mbid).ok()?,
+        album_count: num(album_count)?,
+        track_count: num(track_count)?,
+        genres: texts(genres)?,
+        has_artwork: flag(has_artwork)?,
+    }))
 }
 
 /// Reads an extra of kind `kind` from its track, the track's library and
 /// its octets.
-fn extra_row(_cells: &[Value], _kind: ExtraKind) -> Option<ExtraRow> {
-    None
+fn extra_row(cells: &[Value], kind: ExtraKind) -> Option<ExtraRow> {
+    let [track, library, Value::Blob(body)] = cells else {
+        return None;
+    };
+    Some(ExtraRow {
+        track: typed(track, IdKind::Track, TrackId::new)?,
+        library: typed(library, IdKind::Library, LibraryId::new)?,
+        kind,
+        body: body.clone(),
+    })
 }
 
 /// What code outside this crate must not be able to do with the catalogue.
