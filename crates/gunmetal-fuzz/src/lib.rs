@@ -50,6 +50,7 @@ pub mod riff;
 pub mod text;
 pub mod time;
 pub mod token;
+pub mod userdata_codec;
 pub mod values;
 pub mod vorbis;
 pub mod vorbis_comment;
