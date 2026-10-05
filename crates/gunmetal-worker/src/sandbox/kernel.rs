@@ -482,7 +482,11 @@ mod tests {
             reason = "the tests read what the kernel publishes, its list of security modules first, by fixed paths, to know what to expect of Landlock (SEC-MED-024)"
         )]
         let read = std::fs::read_to_string(path);
-        read.map(Some).map_err(|error| error.kind())
+        match read {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.kind()),
+        }
     }
 
     /// Whether a security module is active on the running kernel. Where
@@ -490,8 +494,10 @@ mod tests {
     /// a module is one whole name in it. Where it publishes none,
     /// `answered` decides: what the kernel said when it was asked about
     /// that module directly.
-    fn active(list: Option<&str>, module: &str, _answered: bool) -> bool {
-        list.is_some_and(|names| names.trim().split(',').any(|name| name == module))
+    fn active(list: Option<&str>, module: &str, answered: bool) -> bool {
+        list.map_or(answered, |names| {
+            names.trim().split(',').any(|name| name == module)
+        })
     }
 
     /// Whether the running kernel answers the Landlock version query with
@@ -506,7 +512,11 @@ mod tests {
     /// `no_new_privs` alone asks for the version and does nothing else.
     /// None of the code under test is involved.
     fn landlock_answers() -> bool {
-        false
+        let answer = landlock::RestrictSelf::default()
+            .no_new_privs(false)
+            .apply()
+            .unwrap();
+        landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported
     }
 
     /// Whether the running kernel has Landlock active: read from the
