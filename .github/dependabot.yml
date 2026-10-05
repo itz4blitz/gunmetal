@@ -1,7 +1,7 @@
 # Grouped weekly version updates with a seven-day cooldown (SEC-SUP-028).
 # The cooldown applies to version updates only, so security updates are not
-# delayed. Add the docker ecosystem with the first Dockerfile, and the
-# JavaScript one with the web client.
+# delayed. The npm entry covers the client workspace under /clients. Add the
+# docker ecosystem with the first Dockerfile.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -26,6 +26,18 @@ updates:
       default-days: 7
     groups:
       github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /clients
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
         applies-to: version-updates
         patterns:
           - "*"

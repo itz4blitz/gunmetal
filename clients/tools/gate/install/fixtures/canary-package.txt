@@ -1,0 +1,8 @@
+{
+  "name": "gunmetal-install-canary",
+  "version": "1.0.0",
+  "license": "ISC",
+  "scripts": {
+    "preinstall": "node -e \"require('node:fs').writeFileSync(process.env.GUNMETAL_CANARY_MARKERS + '/preinstall.marker', 'preinstall ran')\""
+  }
+}
