@@ -24,6 +24,7 @@
 //!
 //! This file is a registry: it holds only module lines and re-exports.
 
+mod boxes;
 mod error;
 mod index;
 mod init;

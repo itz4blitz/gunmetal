@@ -7,6 +7,8 @@
 //! `n` to the point after it, so the packager can write any segment from
 //! that range of the file alone, without the segments before it.
 
+use super::boxes::count;
+
 /// A frame boundary a segment starts or ends at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexPoint {
@@ -34,16 +36,22 @@ impl FrameIndex {
     /// How many segments the index describes.
     #[must_use]
     pub fn segments(&self) -> u64 {
-        let _ = self;
-        0
+        count(&self.starts)
     }
 
     /// Where segment `n` starts and where it ends, counting segments from
     /// 0, or `None` when the index has no such segment.
     #[must_use]
     pub fn segment(&self, n: u32) -> Option<(IndexPoint, IndexPoint)> {
-        let _ = (self, n);
-        None
+        // A number too large for this target's usize names no segment.
+        let at = usize::try_from(n).unwrap_or(usize::MAX);
+        let start = *self.starts.get(at)?;
+        let end = self
+            .starts
+            .get(at.saturating_add(1))
+            .copied()
+            .unwrap_or(self.end);
+        Some((start, end))
     }
 }
 

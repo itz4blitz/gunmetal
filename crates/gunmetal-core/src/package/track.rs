@@ -1,12 +1,23 @@
 //! The track a packager writes: its codec configuration and the trim that
 //! makes it play without a gap.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::catalog::Trim;
 use crate::formats::flac::metadata::StreamInfo;
 
 use super::error::PackError;
+
+/// The most channels a STREAMINFO block can state: three bits hold the
+/// count less one.
+const MAX_CHANNELS: u64 = 8;
+/// The most bits per sample a STREAMINFO block can state: five bits hold
+/// the depth less one.
+const MAX_BITS: u64 = 32;
+/// The largest frame size a STREAMINFO block can state: 24 bits.
+const MAX_FRAME_SIZE: u64 = 0xFF_FFFF;
+/// The most samples a STREAMINFO block can state: 36 bits.
+const MAX_SAMPLES: u64 = 0xF_FFFF_FFFF;
 
 /// Which value of a track does not fit the box field that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +60,22 @@ impl PackTrack {
     /// sample, a frame size of more than 24 bits or a sample count of more
     /// than 36 bits.
     pub fn flac(info: &StreamInfo, trim: Trim) -> Result<Self, PackError> {
+        let channels = u64::from(info.channels.get().get());
+        let bits = u64::from(info.bits_per_sample.get().get());
+        let samples = info.total_samples.map_or(0, NonZeroU64::get);
+        fits(TrackField::Channels, channels, MAX_CHANNELS)?;
+        fits(TrackField::BitDepth, bits, MAX_BITS)?;
+        fits(
+            TrackField::FrameSize,
+            u64::from(frame_size(info.min_frame_size)),
+            MAX_FRAME_SIZE,
+        )?;
+        fits(
+            TrackField::FrameSize,
+            u64::from(frame_size(info.max_frame_size)),
+            MAX_FRAME_SIZE,
+        )?;
+        fits(TrackField::TotalSamples, samples, MAX_SAMPLES)?;
         Ok(Self { info: *info, trim })
     }
 
@@ -57,6 +84,19 @@ impl PackTrack {
     pub fn timescale(&self) -> NonZeroU32 {
         self.info.sample_rate.hz()
     }
+}
+
+/// A frame size as STREAMINFO states it, where zero says it is not known.
+pub(super) fn frame_size(size: Option<NonZeroU32>) -> u32 {
+    size.map_or(0, NonZeroU32::get)
+}
+
+/// Refuses `value` when it is larger than `max`, the most `field` holds.
+fn fits(field: TrackField, value: u64, max: u64) -> Result<(), PackError> {
+    if value > max {
+        return Err(PackError::Field { field, value, max });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

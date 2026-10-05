@@ -2,7 +2,7 @@
 
 use crate::formats::flac::frames::FlacFrameError;
 use crate::parse::ParseFault;
-use crate::problem::{Describe, Problem, ProblemCode};
+use crate::problem::{Arg, Describe, Problem, ProblemCode};
 
 use super::track::TrackField;
 
@@ -66,6 +66,21 @@ pub enum PackError {
     },
 }
 
+impl PackError {
+    /// A fixed name for the kind of error, for the problem's arguments.
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Fault(_) => "fault",
+            Self::Field { .. } => "track_field",
+            Self::NoSegment { .. } => "no_segment",
+            Self::SourceLength { .. } => "source_length",
+            Self::Flac(_) => "flac_frames",
+            Self::Gap { .. } => "frame_gap",
+            Self::Duration { .. } => "duration",
+        }
+    }
+}
+
 impl From<ParseFault> for PackError {
     fn from(fault: ParseFault) -> Self {
         Self::Fault(fault)
@@ -73,17 +88,22 @@ impl From<ParseFault> for PackError {
 }
 
 impl From<FlacFrameError> for PackError {
+    /// A fault every parser shares stays one; anything else says the octets
+    /// are not FLAC frames.
     fn from(error: FlacFrameError) -> Self {
-        Self::Flac(error)
+        match error {
+            FlacFrameError::Fault(fault) => Self::Fault(fault),
+            other => Self::Flac(other),
+        }
     }
 }
 
 impl Describe for PackError {
-    /// A file that could not be packaged.
+    /// A file that could not be packaged, with the reason by name.
     fn problem(&self) -> Problem {
         Problem {
             code: ProblemCode::FileUnreadable,
-            args: Vec::new(),
+            args: vec![("reason", Arg::Name(self.reason()))],
         }
     }
 }

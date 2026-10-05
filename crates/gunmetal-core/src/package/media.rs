@@ -35,8 +35,14 @@
 //! takes at most the per-file read cap of octets, and one segment holds at
 //! most as many frames as an index may hold entries.
 
-use crate::parse::{Budget, Limits};
+use std::ops::Range;
 
+use crate::formats::flac::frames::{
+    FlacFrameError, FrameContext, FrameEntry, FrameIndex as FlacIndex, FrameIndexer,
+};
+use crate::parse::{Budget, LimitKind, Limits, ReadRequest, SansIo, Step, Window};
+
+use super::boxes::{Body, TRACK_ID, count, narrow};
 use super::error::PackError;
 use super::index::FrameIndex;
 use super::track::PackTrack;
@@ -46,6 +52,28 @@ pub const STEPS_PER_OCTET: u64 = 2;
 
 /// Steps a segment may cost on top of [`STEPS_PER_OCTET`] (SEC-MED-007).
 pub const FIXED_STEPS: u64 = 0;
+
+/// The octets of a media segment that are neither an entry of its run nor
+/// media data: the headers and the fixed fields of `moof`, `mfhd`, `traf`,
+/// `tfhd`, `tfdt` and `trun`, 88 octets, and the 8 of the `mdat` header.
+const FIXED_OCTETS: u64 = 96;
+
+/// The `tfhd` flag `default-base-is-moof`: data offsets count from the
+/// first octet of the `moof` box.
+const BASE_IS_MOOF: u32 = 0x02_0000;
+
+/// The `trun` flags of a run that gives a data offset and, for every
+/// sample, a duration and a size.
+const RUN_FLAGS: u32 = 0x00_0301;
+
+/// One frame of a segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Frame {
+    /// How many octets it takes.
+    size: u32,
+    /// How many samples it plays for.
+    duration: u32,
+}
 
 /// Writes media segment `n` of `track`, counting from 0, from `source`:
 /// the octets of the file from the point where `index` says the segment
@@ -71,8 +99,149 @@ pub fn media_segment(
     limits: &Limits,
     budget: &mut Budget,
 ) -> Result<Vec<u8>, PackError> {
-    let _ = (track, index, n, source, limits, budget);
-    Ok(Vec::new())
+    let Some((start, end)) = index.segment(n) else {
+        return Err(PackError::NoSegment {
+            segment: n,
+            segments: index.segments(),
+        });
+    };
+    let len = count(source);
+    if end.offset.checked_sub(start.offset) != Some(len) {
+        return Err(PackError::SourceLength {
+            segment: n,
+            start: start.offset,
+            end: end.offset,
+            found: len,
+        });
+    }
+    limits.check(LimitKind::FileBytes, len, start.offset)?;
+    let span = start.offset..end.offset;
+    let frames = flac_frames(track, n, source, &span, limits, budget)?;
+    let played = frames.iter().fold(0_u64, |played, frame| {
+        played.saturating_add(u64::from(frame.duration))
+    });
+    if end.sample.checked_sub(start.sample) != Some(played) {
+        return Err(PackError::Duration {
+            segment: n,
+            start: start.sample,
+            end: end.sample,
+            found: played,
+        });
+    }
+    Ok(fragment(n, start.sample, &frames, source))
+}
+
+/// The frames of segment `segment` of a FLAC track, whose octets `source`
+/// lie at `span` in the file: the size and the duration of each, in order.
+fn flac_frames(
+    track: &PackTrack,
+    segment: u32,
+    source: &[u8],
+    span: &Range<u64>,
+    limits: &Limits,
+    budget: &mut Budget,
+) -> Result<Vec<Frame>, PackError> {
+    let context = FrameContext {
+        stream_sample_rate: Some(track.info.sample_rate),
+        stream_bits: Some(track.info.bits_per_sample),
+    };
+    let found = find_frames(context, source, span, limits, budget)?;
+    // The indexer thins what it keeps past this limit, and a thinned index
+    // no longer says where every frame starts.
+    limits.check(LimitKind::IndexEntries, found.frames, span.start)?;
+    if found.gaps != 0 {
+        return Err(PackError::Gap {
+            segment,
+            gaps: found.gaps,
+        });
+    }
+    // The last frame runs to the end of the octets and of the samples.
+    let end = FrameEntry {
+        offset: span.end,
+        first_sample: found.end_sample,
+    };
+    let nexts = found.entries.iter().skip(1).chain([&end]);
+    let mut frames = Vec::new();
+    for (frame, next) in found.entries.iter().zip(nexts) {
+        budget.charge(1, frame.offset)?;
+        frames.push(Frame {
+            size: narrow(next.offset.saturating_sub(frame.offset)),
+            duration: narrow(next.first_sample.saturating_sub(frame.first_sample)),
+        });
+    }
+    Ok(frames)
+}
+
+/// Runs the FLAC frame indexer over `source`, the octets of the file at
+/// `span`, answering its read requests from memory. Every offset it
+/// reports is an offset in the file.
+fn find_frames(
+    context: FrameContext,
+    source: &[u8],
+    span: &Range<u64>,
+    limits: &Limits,
+    budget: &mut Budget,
+) -> Result<FlacIndex, FlacFrameError> {
+    let mut indexer = FrameIndexer::new(context, span.clone(), limits, budget);
+    let mut window = Window::start(span.end);
+    loop {
+        match indexer.resume(window) {
+            Step::Done(outcome) => return outcome,
+            Step::Need(request) => {
+                window = Window {
+                    offset: request.offset,
+                    bytes: requested(source, span.start, request),
+                    file_len: span.end,
+                };
+            }
+        }
+    }
+}
+
+/// The octets `request` asks for, out of `source`, whose first octet lies
+/// at `start` in the file. A request that reaches outside `source` gets no
+/// octets, which the indexer refuses.
+fn requested(source: &[u8], start: u64, request: ReadRequest) -> &[u8] {
+    let from = usize::try_from(request.offset.saturating_sub(start)).unwrap_or(usize::MAX);
+    let len = usize::try_from(request.len).unwrap_or(usize::MAX);
+    source
+        .get(from..)
+        .and_then(|rest| rest.get(..len))
+        .unwrap_or_default()
+}
+
+/// The media segment numbered `segment`, counting from 0: a movie fragment
+/// that starts at `decode_time` and describes `frames`, and the media data
+/// box that holds `source`, their octets.
+fn fragment(segment: u32, decode_time: u64, frames: &[Frame], source: &[u8]) -> Vec<u8> {
+    // Every entry of the run takes 8 octets, and the media data starts
+    // after the `moof` box and the `mdat` header.
+    let data_offset = count(frames).saturating_mul(8).saturating_add(FIXED_OCTETS);
+    let run = frames
+        .iter()
+        .fold(
+            Body::full(0, RUN_FLAGS)
+                .u32(narrow(count(frames)))
+                .u32(narrow(data_offset)),
+            |run, frame| run.u32(frame.duration).u32(frame.size),
+        )
+        .boxed(*b"trun");
+    let header = Body::full(0, BASE_IS_MOOF).u32(TRACK_ID).boxed(*b"tfhd");
+    let time = Body::full(1, 0).u64(decode_time).boxed(*b"tfdt");
+    let track = Body::new()
+        .bytes(&header)
+        .bytes(&time)
+        .bytes(&run)
+        .boxed(*b"traf");
+    // Fragments are numbered from 1.
+    let number = Body::full(0, 0)
+        .u32(segment.saturating_add(1))
+        .boxed(*b"mfhd");
+    let mut whole = Body::new().bytes(&number).bytes(&track).boxed(*b"moof");
+    whole.extend_from_slice(&narrow(count(source).saturating_add(8)).to_be_bytes());
+    whole.extend_from_slice(b"mdat");
+    whole.extend_from_slice(source);
+    whole
 }
 
 #[cfg(test)]

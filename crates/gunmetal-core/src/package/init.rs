@@ -22,8 +22,28 @@
 //! the packager writes points anywhere else (architecture record 4,
 //! decision 6).
 
+use std::num::NonZeroU64;
+
+use crate::formats::flac::metadata::StreamInfo;
+
+use super::boxes::{Body, TRACK_ID};
 use super::index::FrameIndex;
-use super::track::PackTrack;
+use super::track::{PackTrack, frame_size};
+
+/// The matrix of a movie or track header that changes nothing: 1.0 on the
+/// diagonal, in 16.16 fixed point and, in the last column, 2.30.
+const MATRIX: [u8; 36] = [
+    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0x40, 0, 0, 0,
+];
+
+/// The ISO 639-2 code `und`, for a language that is not stated, packed as
+/// three letters of five bits.
+const UNDETERMINED: u16 = 0x55C4;
+
+/// The sample flags every sample of a fragment gets unless its run says
+/// otherwise: the sample depends on no other, so each is a place to start.
+const INDEPENDENT: u32 = 0x0200_0000;
 
 /// Writes the initialisation segment of `track`: the file type box and the
 /// movie box.
@@ -32,8 +52,201 @@ use super::track::PackTrack;
 /// many samples are left once the track's trim is cut.
 #[must_use]
 pub fn init_segment(track: &PackTrack, index: &FrameIndex) -> Vec<u8> {
-    let _ = (track.trim, index);
-    Vec::new()
+    let timescale = track.timescale().get();
+    let header = Body::full(0, 0)
+        .u32(0) // creation time
+        .u32(0) // modification time
+        .u32(timescale)
+        .u32(0) // duration: the fragments hold every sample
+        .u32(0x0001_0000) // rate 1.0
+        .u16(0x0100) // volume 1.0
+        .bytes(&[0; 10]) // reserved
+        .bytes(&MATRIX)
+        .bytes(&[0; 24]) // pre_defined
+        .u32(2) // the next track ID
+        .boxed(*b"mvhd");
+    let defaults = Body::full(0, 0)
+        .u32(TRACK_ID)
+        .u32(1) // the sample description every fragment uses
+        .u32(0) // no default duration: every run states its own
+        .u32(0) // no default size
+        .u32(INDEPENDENT)
+        .boxed(*b"trex");
+    let movie = Body::new()
+        .bytes(&header)
+        .bytes(&track_box(track, index))
+        .bytes(&Body::new().bytes(&defaults).boxed(*b"mvex"))
+        .boxed(*b"moov");
+    let mut segment = Body::new()
+        .bytes(b"iso5") // the major brand
+        .u32(0) // its minor version
+        .bytes(b"iso5iso6mp41") // the compatible brands
+        .boxed(*b"ftyp");
+    segment.extend_from_slice(&movie);
+    segment
+}
+
+/// The `trak` box: the track header, the edit that carries the trim, and
+/// the media.
+fn track_box(track: &PackTrack, index: &FrameIndex) -> Vec<u8> {
+    let header = Body::full(0, 3) // enabled, and part of the movie
+        .u32(0) // creation time
+        .u32(0) // modification time
+        .u32(TRACK_ID)
+        .u32(0) // reserved
+        .u32(0) // duration
+        .bytes(&[0; 8]) // reserved
+        .u16(0) // layer
+        .u16(0) // alternate group
+        .u16(0x0100) // volume 1.0
+        .u16(0) // reserved
+        .bytes(&MATRIX)
+        .u32(0) // width
+        .u32(0) // height
+        .boxed(*b"tkhd");
+    let delay = u64::from(track.trim.delay);
+    let played = index
+        .end
+        .sample
+        .saturating_sub(delay)
+        .saturating_sub(u64::from(track.trim.padding));
+    let edits = Body::full(1, 0)
+        .u32(1) // one edit
+        .u64(played) // how long it plays
+        .u64(delay) // where it starts in the media
+        .u16(1) // at rate 1.0
+        .u16(0)
+        .boxed(*b"elst");
+    Body::new()
+        .bytes(&header)
+        .bytes(&Body::new().bytes(&edits).boxed(*b"edts"))
+        .bytes(&media_box(track))
+        .boxed(*b"trak")
+}
+
+/// The `mdia` box: the media header, the sound handler and the media
+/// information with its one self-contained data reference.
+fn media_box(track: &PackTrack) -> Vec<u8> {
+    let header = Body::full(0, 0)
+        .u32(0) // creation time
+        .u32(0) // modification time
+        .u32(track.timescale().get())
+        .u32(0) // duration
+        .u16(UNDETERMINED)
+        .u16(0) // pre_defined
+        .boxed(*b"mdhd");
+    let handler = Body::full(0, 0)
+        .u32(0) // pre_defined
+        .bytes(b"soun")
+        .bytes(&[0; 12]) // reserved
+        .bytes(&[0]) // an empty name
+        .boxed(*b"hdlr");
+    let sound = Body::full(0, 0)
+        .u16(0) // balance
+        .u16(0) // reserved
+        .boxed(*b"smhd");
+    // Flag 1: the media data is in the same file as this box.
+    let here = Body::full(0, 1).boxed(*b"url ");
+    let references = Body::full(0, 0)
+        .u32(1) // one reference
+        .bytes(&here)
+        .boxed(*b"dref");
+    let information = Body::new()
+        .bytes(&sound)
+        .bytes(&Body::new().bytes(&references).boxed(*b"dinf"))
+        .bytes(&sample_table(track))
+        .boxed(*b"minf");
+    Body::new()
+        .bytes(&header)
+        .bytes(&handler)
+        .bytes(&information)
+        .boxed(*b"mdia")
+}
+
+/// The `stbl` box: the sample description, and the four tables a movie
+/// must have, each empty because the fragments hold every sample.
+fn sample_table(track: &PackTrack) -> Vec<u8> {
+    let description = Body::full(0, 0)
+        .u32(1) // one sample entry
+        .bytes(&flac_entry(&track.info))
+        .boxed(*b"stsd");
+    let empty = |kind| Body::full(0, 0).u32(0).boxed(kind);
+    let sizes = Body::full(0, 0)
+        .u32(0) // no size every sample shares
+        .u32(0) // no samples
+        .boxed(*b"stsz");
+    Body::new()
+        .bytes(&description)
+        .bytes(&empty(*b"stts"))
+        .bytes(&empty(*b"stsc"))
+        .bytes(&sizes)
+        .bytes(&empty(*b"stco"))
+        .boxed(*b"stbl")
+}
+
+/// The `fLaC` sample entry with its `dfLa` box, which holds the stream's
+/// STREAMINFO block as the last metadata block.
+fn flac_entry(info: &StreamInfo) -> Vec<u8> {
+    let channels = info.channels.get().get();
+    let bits = info.bits_per_sample.get().get();
+    let hz = info.sample_rate.hz().get();
+    let [_, min_high, min_middle, min_low] = frame_size(info.min_frame_size).to_be_bytes();
+    let [_, max_high, max_middle, max_low] = frame_size(info.max_frame_size).to_be_bytes();
+    // The sample rate in 20 bits, the channels less one in 3, the bits per
+    // sample less one in 5 and the sample count in 36. A track holds only
+    // values that fit their fields, so the fields never overlap and adding
+    // them sets each one.
+    let packed = (u64::from(hz) << 44)
+        .saturating_add(u64::from(channels.saturating_sub(1)) << 41)
+        .saturating_add(u64::from(bits.saturating_sub(1)) << 36)
+        .saturating_add(info.total_samples.map_or(0, NonZeroU64::get));
+    let block = Body::full(0, 0)
+        .bytes(&[0x80, 0, 0, 34]) // the last block: STREAMINFO, 34 octets
+        .u16(info.min_block_size)
+        .u16(info.max_block_size)
+        .bytes(&[min_high, min_middle, min_low])
+        .bytes(&[max_high, max_middle, max_low])
+        .u64(packed)
+        .bytes(&info.md5.map_or([0; 16], |md5| md5.0))
+        .boxed(*b"dfLa");
+    Body::new()
+        .bytes(&[0; 6]) // reserved
+        .u16(1) // the data reference this entry uses
+        .bytes(&[0; 8]) // reserved
+        .u16(low_half(channels))
+        .u16(low_half(bits))
+        .u16(0) // pre_defined
+        .u16(0) // reserved
+        .u16(entry_rate(hz))
+        .u16(0) // the fraction of the rate
+        .bytes(&block)
+        .boxed(*b"fLaC")
+}
+
+/// `value` as a 16-bit field. A track's channel count and bit depth are
+/// far below its limit.
+fn low_half(value: u32) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
+/// The sample rate a sample entry states for a stream of `hz` hertz.
+///
+/// The field holds 16 bits. A rate that does not fit is halved until it
+/// does, which is the greatest regular division the FLAC mapping asks for:
+/// 48,000 for 96,000 and for 192,000. An odd rate that still does not fit
+/// is written as 65,535. The `dfLa` box and the media header state the real
+/// rate either way.
+fn entry_rate(hz: u32) -> u16 {
+    let mut rate = hz;
+    loop {
+        if let Ok(fits) = u16::try_from(rate) {
+            return fits;
+        }
+        if rate & 1 == 1 {
+            return u16::MAX;
+        }
+        rate >>= 1;
+    }
 }
 
 #[cfg(test)]
