@@ -67,7 +67,7 @@ pub fn fingerprint(_file: &MediaFile) -> Result<Fingerprint, FsError> {
 /// skipped) and, for a file, its device, inode, size, and the seconds and
 /// nanoseconds of its modification time, each as eight little-endian bytes.
 #[must_use]
-pub fn summarise(entries: impl IntoIterator<Item = (&[u8], Mark)>) -> DirSummary {
+pub fn summarise<'a>(entries: impl IntoIterator<Item = (&'a [u8], Mark)>) -> DirSummary {
     drop(entries);
     DirSummary([0; 16])
 }
