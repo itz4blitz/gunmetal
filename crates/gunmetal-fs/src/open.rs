@@ -16,11 +16,31 @@
 //! (SEC-MED-036, SEC-API-018).
 
 use std::fs::File;
+use std::io;
 use std::os::fd::{AsFd, BorrowedFd};
+use std::os::unix::fs::FileExt as _;
 
+use cap_std::fs::{
+    FileType, FileTypeExt as _, Metadata, MetadataExt as _, OpenOptions, OpenOptionsExt as _,
+};
 use gunmetal_core::path::RelPath;
+use rustix::fs::OFlags;
+use rustix::io::Errno;
 
-use crate::root::{FsError, Root, UNBUILT};
+use crate::root::{Base, FsError, Op, Root, io_error, os_path};
+
+/// The flags every file is opened with, besides read-only: a FIFO must not
+/// block the open, a terminal must not become the controlling terminal, the
+/// descriptor must not leak into a program the server starts, and the path
+/// the links were followed to must not have become a link since.
+const FLAGS: i32 = i32::from_ne_bytes(
+    OFlags::NONBLOCK
+        .union(OFlags::NOCTTY)
+        .union(OFlags::CLOEXEC)
+        .union(OFlags::NOFOLLOW)
+        .bits()
+        .to_ne_bytes(),
+);
 
 /// What kind of filesystem object something is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +57,25 @@ pub enum FileKind {
     Socket,
     /// A device, or anything else.
     Other,
+}
+
+impl FileKind {
+    /// Reads the kind from what the operating system reported.
+    fn of(kind: FileType) -> Self {
+        if kind.is_file() {
+            Self::File
+        } else if kind.is_dir() {
+            Self::Dir
+        } else if kind.is_symlink() {
+            Self::Symlink
+        } else if kind.is_fifo() {
+            Self::Fifo
+        } else if kind.is_socket() {
+            Self::Socket
+        } else {
+            Self::Other
+        }
+    }
 }
 
 /// When a file was last modified, as the filesystem records it.
@@ -63,33 +102,57 @@ pub struct Identity {
     pub modified: Modified,
 }
 
+/// An object's kind, identity and number of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Facts {
+    /// What kind of object it is.
+    pub(crate) kind: FileKind,
+    /// Its identity.
+    pub(crate) identity: Identity,
+    /// How many hard links name it.
+    pub(crate) links: u64,
+}
+
+impl Facts {
+    /// Reads the facts from what the operating system reported.
+    pub(crate) fn of(metadata: &Metadata) -> Self {
+        Self {
+            kind: FileKind::of(metadata.file_type()),
+            identity: Identity {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+                size: metadata.len(),
+                modified: Modified {
+                    seconds: metadata.mtime(),
+                    nanoseconds: metadata.mtime_nsec(),
+                },
+            },
+            links: metadata.nlink(),
+        }
+    }
+}
+
 /// A regular file beneath a library root, open for reading and nothing
 /// else.
 #[derive(Debug)]
 pub struct MediaFile {
     file: File,
+    identity: Identity,
+    links: u64,
 }
 
 impl MediaFile {
     /// The file's identity, read from the open handle.
     #[must_use]
     pub const fn identity(&self) -> Identity {
-        Identity {
-            device: 0,
-            inode: 0,
-            size: 0,
-            modified: Modified {
-                seconds: 0,
-                nanoseconds: 0,
-            },
-        }
+        self.identity
     }
 
     /// How many hard links name the file. More than one means it has a name
     /// somewhere else, which may be outside the library.
     #[must_use]
     pub const fn links(&self) -> u64 {
-        0
+        self.links
     }
 
     /// Reads up to `buffer.len()` bytes starting `offset` bytes into the
@@ -99,10 +162,10 @@ impl MediaFile {
     /// # Errors
     ///
     /// Returns [`FsError::Io`] with [`Op::Read`] when the read fails.
-    ///
-    /// [`Op::Read`]: crate::root::Op::Read
-    pub fn read_at(&self, _buffer: &mut [u8], _offset: u64) -> Result<usize, FsError> {
-        Err(UNBUILT)
+    pub fn read_at(&self, buffer: &mut [u8], offset: u64) -> Result<usize, FsError> {
+        self.file
+            .read_at(buffer, offset)
+            .map_err(io_error(Op::Read))
     }
 
     /// Fills `buffer` with the bytes starting `offset` bytes into the file.
@@ -110,11 +173,11 @@ impl MediaFile {
     /// # Errors
     ///
     /// Returns [`FsError::Io`] with [`Op::Read`] when the read fails, with
-    /// [`std::io::ErrorKind::UnexpectedEof`] when the file ends first.
-    ///
-    /// [`Op::Read`]: crate::root::Op::Read
-    pub fn read_exact_at(&self, _buffer: &mut [u8], _offset: u64) -> Result<(), FsError> {
-        Err(UNBUILT)
+    /// [`io::ErrorKind::UnexpectedEof`] when the file ends first.
+    pub fn read_exact_at(&self, buffer: &mut [u8], offset: u64) -> Result<(), FsError> {
+        self.file
+            .read_exact_at(buffer, offset)
+            .map_err(io_error(Op::Read))
     }
 }
 
@@ -122,6 +185,52 @@ impl AsFd for MediaFile {
     /// The read-only descriptor, to hand to a worker process.
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.file.as_fd()
+    }
+}
+
+/// The only options a file is ever opened with: reading, and [`FLAGS`].
+fn read_only() -> OpenOptions {
+    OpenOptions::new().read(true).custom_flags(FLAGS).clone()
+}
+
+/// Maps the failure of an open of something that looked like `seen`. A
+/// socket cannot be opened at all, so that failure is reported as what it
+/// is: not a regular file.
+fn refused(seen: FileKind) -> impl FnOnce(io::Error) -> FsError {
+    move |error| {
+        if error.raw_os_error() == Some(Errno::NXIO.raw_os_error()) {
+            FsError::NotRegular { found: seen }
+        } else {
+            FsError::Io {
+                op: Op::Open,
+                kind: error.kind(),
+            }
+        }
+    }
+}
+
+impl Base {
+    /// Opens the file at `names`, which looked like `seen` before it was
+    /// opened, and refuses it unless the open handle is a regular file.
+    pub(crate) fn file(&self, names: &[Vec<u8>], seen: FileKind) -> Result<MediaFile, FsError> {
+        self.dir
+            .open_with(os_path(names), &read_only())
+            .and_then(|file| {
+                file.metadata()
+                    .map(|metadata| (file.into_std(), Facts::of(&metadata)))
+            })
+            .map_err(refused(seen))
+            .and_then(|(file, facts)| {
+                if facts.kind == FileKind::File {
+                    Ok(MediaFile {
+                        file,
+                        identity: facts.identity,
+                        links: facts.links,
+                    })
+                } else {
+                    Err(FsError::NotRegular { found: facts.kind })
+                }
+            })
     }
 }
 
@@ -135,8 +244,9 @@ impl Root {
     /// [`FsError::NotRegular`] when the path leads to anything but a regular
     /// file, and [`FsError::Io`] when the file does not exist or may not be
     /// read.
-    pub fn open_file(&self, _rel: &RelPath) -> Result<MediaFile, FsError> {
-        Err(UNBUILT)
+    pub fn open_file(&self, rel: &RelPath) -> Result<MediaFile, FsError> {
+        self.locate(self.own(), &[], rel.components())
+            .and_then(|found| found.base.file(&found.names, found.facts.kind))
     }
 
     /// Opens the regular file at `rel` for serving, and refuses it unless
@@ -147,12 +257,17 @@ impl Root {
     ///
     /// Returns [`FsError::Changed`] when the file is not the one recorded,
     /// and otherwise as [`Root::open_file`].
-    pub fn open_verified(
-        &self,
-        _rel: &RelPath,
-        _expected: &Identity,
-    ) -> Result<MediaFile, FsError> {
-        Err(UNBUILT)
+    pub fn open_verified(&self, rel: &RelPath, expected: &Identity) -> Result<MediaFile, FsError> {
+        self.open_file(rel).and_then(|file| {
+            if file.identity == *expected {
+                Ok(file)
+            } else {
+                Err(FsError::Changed {
+                    expected: *expected,
+                    found: file.identity,
+                })
+            }
+        })
     }
 }
 

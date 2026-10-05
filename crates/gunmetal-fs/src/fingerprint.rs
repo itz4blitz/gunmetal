@@ -15,8 +15,10 @@
 //!
 //! [`Root::open_verified`]: crate::root::Root::open_verified
 
+use gunmetal_core::crypto::sha256;
+
 use crate::open::{Identity, MediaFile};
-use crate::root::{FsError, UNBUILT};
+use crate::root::FsError;
 
 /// How many bytes are hashed from each end of a file.
 pub const SAMPLE_BYTES: u64 = 4096;
@@ -48,14 +50,51 @@ pub enum Mark {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirSummary(pub [u8; 16]);
 
+/// The first 16 bytes of a digest.
+fn short(digest: [u8; 32]) -> [u8; 16] {
+    digest.first_chunk().copied().unwrap_or_default()
+}
+
 /// Fingerprints an open file.
 ///
 /// # Errors
 ///
 /// Returns [`FsError::Io`] with [`crate::root::Op::Read`] when the file
 /// cannot be read, or became shorter after it was opened.
-pub fn fingerprint(_file: &MediaFile) -> Result<Fingerprint, FsError> {
-    Err(UNBUILT)
+pub fn fingerprint(file: &MediaFile) -> Result<Fingerprint, FsError> {
+    let identity = file.identity();
+    let take = identity.size.min(SAMPLE_BYTES);
+    let length = usize::try_from(take).unwrap_or_default();
+    let mut head = vec![0; length];
+    let mut tail = vec![0; length];
+    file.read_exact_at(&mut head, 0)
+        .and_then(|()| file.read_exact_at(&mut tail, identity.size.saturating_sub(take)))
+        .map(|()| {
+            head.extend_from_slice(&tail);
+            Fingerprint {
+                identity,
+                sample: short(sha256(&head)),
+            }
+        })
+}
+
+/// Writes one entry of a listing as [`summarise`] describes it.
+fn encode(bytes: &mut Vec<u8>, name: &[u8], mark: Mark) {
+    let length = u64::try_from(name.len()).unwrap_or(u64::MAX);
+    bytes.extend_from_slice(&length.to_le_bytes());
+    bytes.extend_from_slice(name);
+    match mark {
+        Mark::File(identity) => {
+            bytes.push(0);
+            bytes.extend_from_slice(&identity.device.to_le_bytes());
+            bytes.extend_from_slice(&identity.inode.to_le_bytes());
+            bytes.extend_from_slice(&identity.size.to_le_bytes());
+            bytes.extend_from_slice(&identity.modified.seconds.to_le_bytes());
+            bytes.extend_from_slice(&identity.modified.nanoseconds.to_le_bytes());
+        }
+        Mark::Dir => bytes.push(1),
+        Mark::Skipped => bytes.push(2),
+    }
 }
 
 /// Summarises a directory's listing: `entries` are its names in name order,
@@ -68,6 +107,9 @@ pub fn fingerprint(_file: &MediaFile) -> Result<Fingerprint, FsError> {
 /// nanoseconds of its modification time, each as eight little-endian bytes.
 #[must_use]
 pub fn summarise<'a>(entries: impl IntoIterator<Item = (&'a [u8], Mark)>) -> DirSummary {
-    drop(entries);
-    DirSummary([0; 16])
+    let mut bytes = Vec::new();
+    entries
+        .into_iter()
+        .for_each(|(name, mark)| encode(&mut bytes, name, mark));
+    DirSummary(short(sha256(&bytes)))
 }

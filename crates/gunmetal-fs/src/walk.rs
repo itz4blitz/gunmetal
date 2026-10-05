@@ -13,11 +13,13 @@
 //! it, so a link back to a folder above it is skipped the second time
 //! round. Exclusion rules join the walk in R1.1 (WP-140).
 
+use std::collections::{BTreeSet, VecDeque};
+
 use gunmetal_core::path::RelPath;
 
-use crate::fingerprint::DirSummary;
-use crate::open::Identity;
-use crate::root::{FsError, Root};
+use crate::fingerprint::{DirSummary, Mark, summarise};
+use crate::open::{FileKind, Identity};
+use crate::root::{Base, Found, FsError, Root};
 
 /// One thing a walk found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,18 +51,123 @@ pub enum Visit {
     },
 }
 
+/// A directory waiting to be listed.
+#[derive(Debug)]
+struct Spot<'r> {
+    /// Its path as the walk reports it, through any links.
+    shown: RelPath,
+    /// The folder it is really beneath.
+    base: &'r Base,
+    /// Its names beneath that folder.
+    names: Vec<Vec<u8>>,
+}
+
 /// A walk of one library root. See [`Root::walk`].
 #[derive(Debug)]
 pub struct Walk<'r> {
-    _root: &'r Root,
+    root: &'r Root,
+    pending: Vec<Spot<'r>>,
+    ready: VecDeque<Visit>,
+    seen: BTreeSet<(u64, u64)>,
 }
 
 impl Root {
     /// Walks everything beneath the root. Nothing is read until the walk
     /// is advanced, and each step lists one directory at most.
     #[must_use]
-    pub const fn walk(&self) -> Walk<'_> {
-        Walk { _root: self }
+    pub fn walk(&self) -> Walk<'_> {
+        Walk {
+            root: self,
+            pending: vec![Spot {
+                shown: self.top().clone(),
+                base: self.own(),
+                names: Vec::new(),
+            }],
+            ready: VecDeque::new(),
+            seen: BTreeSet::new(),
+        }
+    }
+}
+
+impl<'r> Walk<'r> {
+    /// Records that the directory with `identity` is being listed, and
+    /// refuses a directory that already was.
+    fn fresh(&mut self, identity: Identity) -> Result<(), FsError> {
+        if self.seen.insert((identity.device, identity.inode)) {
+            Ok(())
+        } else {
+            Err(FsError::AlreadyWalked)
+        }
+    }
+
+    /// Lists the directory at `spot`, unless it was listed before, and
+    /// queues what it holds.
+    fn enter(&mut self, spot: Spot<'r>) {
+        let listed = spot
+            .base
+            .inspect(&spot.names)
+            .and_then(|facts| self.fresh(facts.identity))
+            .and_then(|()| spot.base.list(&spot.shown, &spot.names));
+        match listed {
+            Ok(entries) => self.take(spot, entries),
+            Err(reason) => self.ready.push_back(Visit::Skipped {
+                path: spot.shown,
+                reason,
+            }),
+        }
+    }
+
+    /// Queues the directory at `spot` with its summary, then its files and
+    /// what was skipped, and leaves the directories inside it to be listed
+    /// next, in name order.
+    fn take(&mut self, spot: Spot<'r>, entries: Vec<(RelPath, Vec<u8>)>) {
+        let root = self.root;
+        let mut marks = Vec::new();
+        let mut visits = Vec::new();
+        let mut inside = Vec::new();
+        for (path, name) in entries {
+            let found = root.locate(spot.base, &spot.names, std::slice::from_ref(&name));
+            let mark = match found {
+                Ok(Found { base, names, facts }) => match facts.kind {
+                    FileKind::File => {
+                        visits.push(Visit::File {
+                            path,
+                            identity: facts.identity,
+                            links: facts.links,
+                        });
+                        Mark::File(facts.identity)
+                    }
+                    FileKind::Dir => {
+                        inside.push(Spot {
+                            shown: path,
+                            base,
+                            names,
+                        });
+                        Mark::Dir
+                    }
+                    found => {
+                        visits.push(Visit::Skipped {
+                            path,
+                            reason: FsError::NotRegular { found },
+                        });
+                        Mark::Skipped
+                    }
+                },
+                Err(reason) => {
+                    visits.push(Visit::Skipped { path, reason });
+                    Mark::Skipped
+                }
+            };
+            marks.push((name, mark));
+        }
+        let summary = summarise(marks.iter().map(|(name, mark)| (name.as_slice(), *mark)));
+        self.ready.push_back(Visit::Dir {
+            path: spot.shown,
+            summary,
+        });
+        self.ready.extend(visits);
+        inside.reverse();
+        self.pending.extend(inside);
     }
 }
 
@@ -68,6 +175,12 @@ impl Iterator for Walk<'_> {
     type Item = Visit;
 
     fn next(&mut self) -> Option<Visit> {
-        None
+        loop {
+            if let Some(visit) = self.ready.pop_front() {
+                return Some(visit);
+            }
+            let spot = self.pending.pop()?;
+            self.enter(spot);
+        }
     }
 }

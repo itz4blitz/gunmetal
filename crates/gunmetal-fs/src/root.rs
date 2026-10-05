@@ -19,18 +19,38 @@
 //! folder is approved, so every link that leaves the root is refused. The
 //! final open is still confined by the kernel beneath the handle the
 //! verdict named, so a link swapped during the check cannot redirect it.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a library root is resolved and opened by path once, here; everything else is opened beneath its handle (SEC-MED-033, SEC-HIS-016)"
+)]
 
+use std::collections::VecDeque;
+use std::ffi::OsString;
+use std::fs::File;
 use std::io;
+use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::{Path, PathBuf};
 
-use gunmetal_core::path::{PathError, RawPath};
+use cap_std::fs::Dir;
+use gunmetal_core::path::{
+    LinkVerdict, PathError, RawPath, RelPath, classify_link, link_target, normalise,
+};
+use gunmetal_core::untrusted::Untrusted;
+use rustix::fs::{Mode, OFlags};
 
 use crate::host::Filesystem;
-use crate::open::{FileKind, Identity};
+use crate::open::{Facts, FileKind, Identity};
 
 /// The most symbolic links one path may lead through, which is the Linux
 /// kernel's own limit. A loop of links ends here.
 pub const MAX_LINKS: u8 = 40;
+
+/// How a root is opened: read-only, as a directory and nothing else, and
+/// closed when another program starts.
+const ROOT_FLAGS: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::NOFOLLOW)
+    .union(OFlags::CLOEXEC);
 
 /// The operation that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,11 +133,13 @@ pub enum FsError {
     AlreadyWalked,
 }
 
-/// What every operation answers until the door is built.
-pub(crate) const UNBUILT: FsError = FsError::Io {
-    op: Op::Open,
-    kind: io::ErrorKind::Unsupported,
-};
+/// Maps an operating-system error during `op`.
+pub(crate) fn io_error(op: Op) -> impl FnOnce(io::Error) -> FsError {
+    move |error| FsError::Io {
+        op,
+        kind: error.kind(),
+    }
+}
 
 /// Which symbolic links a library's root follows (SEC-MED-034). A link that
 /// stays beneath the root is always followed. The default approves nothing
@@ -132,10 +154,34 @@ pub struct LinkPolicy {
     pub others: Vec<RawPath>,
 }
 
+/// One folder opened as a handle: the library's root or an approved link
+/// target.
+#[derive(Debug)]
+pub(crate) struct Base {
+    /// The handle everything beneath the folder is opened through.
+    pub(crate) dir: Dir,
+    /// The folder's resolved path, which link targets are compared with.
+    pub(crate) path: RawPath,
+}
+
+/// Where a path leads once every link on it has been followed.
+pub(crate) struct Found<'r> {
+    /// The folder it is beneath.
+    pub(crate) base: &'r Base,
+    /// Its names beneath that folder, none of them a link.
+    pub(crate) names: Vec<Vec<u8>>,
+    /// What is there.
+    pub(crate) facts: Facts,
+}
+
 /// A library root, opened once.
 #[derive(Debug)]
 pub struct Root {
-    path: RawPath,
+    own: Base,
+    approved: Vec<Base>,
+    targets: Vec<RawPath>,
+    others: Vec<RawPath>,
+    top: RelPath,
 }
 
 /// Resolves `path`, following every link in it, to the canonical form that
@@ -145,8 +191,102 @@ pub struct Root {
 ///
 /// Returns [`FsError::Io`] with [`Op::Resolve`] when the path does not
 /// exist or cannot be reached.
-pub fn resolve(_path: &Path) -> Result<RawPath, FsError> {
-    Err(UNBUILT)
+pub fn resolve(path: &Path) -> Result<RawPath, FsError> {
+    canonical(path).map(|(_, raw)| raw)
+}
+
+/// The resolved form of `path`, as a path to open and as a path to compare.
+fn canonical(path: &Path) -> Result<(PathBuf, RawPath), FsError> {
+    std::fs::canonicalize(path)
+        .map_err(io_error(Op::Resolve))
+        .and_then(|resolved| {
+            RawPath::parse(Untrusted::new(resolved.as_os_str().as_bytes()))
+                .map(|raw| (resolved, raw))
+                .map_err(FsError::Path)
+        })
+}
+
+/// The path of `names` beneath a handle, or `.` for the handle's own
+/// directory. The names stay bytes (SEC-MED-040).
+pub(crate) fn os_path(names: &[Vec<u8>]) -> OsString {
+    if names.is_empty() {
+        OsString::from(".")
+    } else {
+        OsString::from_vec(names.join(&b'/'))
+    }
+}
+
+/// `names` as a path beneath a root.
+pub(crate) fn rel(names: &[Vec<u8>]) -> Result<RelPath, FsError> {
+    let names: Vec<&[u8]> = names.iter().map(Vec::as_slice).collect();
+    normalise(Untrusted::new(names.as_slice())).map_err(FsError::Path)
+}
+
+/// The path of the entry `name` in the directory `dir`.
+pub(crate) fn child(dir: &RelPath, name: &[u8]) -> Result<RelPath, FsError> {
+    let names: Vec<&[u8]> = dir
+        .components()
+        .iter()
+        .map(Vec::as_slice)
+        .chain(std::iter::once(name))
+        .collect();
+    normalise(Untrusted::new(names.as_slice())).map_err(FsError::Path)
+}
+
+impl Base {
+    /// Resolves `path` and opens the folder there.
+    fn at(path: &Path) -> Result<Self, FsError> {
+        canonical(path).and_then(|(resolved, path)| {
+            rustix::fs::open(resolved, ROOT_FLAGS, Mode::empty())
+                .map(|fd| Self {
+                    dir: Dir::from_std_file(File::from(fd)),
+                    path,
+                })
+                .map_err(io::Error::from)
+                .map_err(io_error(Op::OpenRoot))
+        })
+    }
+
+    /// What is at `names`, without following a link there and without
+    /// opening it.
+    pub(crate) fn inspect(&self, names: &[Vec<u8>]) -> Result<Facts, FsError> {
+        self.dir
+            .symlink_metadata(os_path(names))
+            .map(|metadata| Facts::of(&metadata))
+            .map_err(io_error(Op::Inspect))
+    }
+
+    /// The text of the symbolic link at `names`.
+    fn link_text(&self, names: &[Vec<u8>]) -> Result<Vec<u8>, FsError> {
+        self.dir
+            .read_link_contents(os_path(names))
+            .map(|text| text.into_os_string().into_vec())
+            .map_err(io_error(Op::ReadLink))
+    }
+
+    /// The entries of the directory at `names`, in name order, each with
+    /// its path beneath the directory shown as `shown`.
+    pub(crate) fn list(
+        &self,
+        shown: &RelPath,
+        names: &[Vec<u8>],
+    ) -> Result<Vec<(RelPath, Vec<u8>)>, FsError> {
+        self.dir
+            .read_dir(os_path(names))
+            .and_then(|entries| {
+                entries
+                    .map(|entry| entry.map(|entry| entry.file_name().into_vec()))
+                    .collect::<io::Result<Vec<Vec<u8>>>>()
+            })
+            .map_err(io_error(Op::List))
+            .and_then(|mut found| {
+                found.sort();
+                found
+                    .into_iter()
+                    .map(|name| child(shown, &name).map(|path| (path, name)))
+                    .collect()
+            })
+    }
 }
 
 impl Root {
@@ -158,15 +298,27 @@ impl Root {
     /// Returns [`FsError::Io`] with [`Op::Resolve`] when a folder does not
     /// exist, and with [`Op::OpenRoot`] when it is not a directory or may
     /// not be read.
-    pub fn open(_path: &Path, policy: LinkPolicy) -> Result<Self, FsError> {
-        drop(policy);
-        Err(UNBUILT)
+    pub fn open(path: &Path, policy: LinkPolicy) -> Result<Self, FsError> {
+        let own = Base::at(path)?;
+        let approved = policy
+            .approved
+            .iter()
+            .map(|target| Base::at(target))
+            .collect::<Result<Vec<_>, _>>()?;
+        let targets = approved.iter().map(|base| base.path.clone()).collect();
+        rel(&[]).map(|top| Self {
+            own,
+            approved,
+            targets,
+            others: policy.others,
+            top,
+        })
     }
 
     /// The root's resolved path.
     #[must_use]
     pub const fn path(&self) -> &RawPath {
-        &self.path
+        &self.own.path
     }
 
     /// The type of the filesystem the root is on, for the library's health
@@ -177,6 +329,84 @@ impl Root {
     /// Returns [`FsError::Io`] with [`Op::Probe`] when the handle cannot be
     /// examined.
     pub fn filesystem(&self) -> Result<Filesystem, FsError> {
-        Err(UNBUILT)
+        Filesystem::of(&self.own.dir).map_err(io_error(Op::Probe))
+    }
+
+    /// The library's own folder.
+    pub(crate) const fn own(&self) -> &Base {
+        &self.own
+    }
+
+    /// The path of the root itself: no names.
+    pub(crate) const fn top(&self) -> &RelPath {
+        &self.top
+    }
+
+    /// Follows `names` from the directory `dir` beneath `start`, one name
+    /// at a time, judging every symbolic link on the way, and reports where
+    /// they lead and what is there.
+    pub(crate) fn locate<'r>(
+        &'r self,
+        start: &'r Base,
+        dir: &[Vec<u8>],
+        names: &[Vec<u8>],
+    ) -> Result<Found<'r>, FsError> {
+        let mut base = start;
+        let mut done = dir.to_vec();
+        let mut todo: VecDeque<Vec<u8>> = names.iter().cloned().collect();
+        let mut last = None;
+        let mut fuel = MAX_LINKS;
+        while let Some(name) = todo.pop_front() {
+            done.push(name);
+            let facts = base.inspect(&done)?;
+            if facts.kind == FileKind::Symlink {
+                fuel = fuel.checked_sub(1).ok_or(FsError::TooManyLinks)?;
+                let (next, rest) = self.follow(base, &done)?;
+                base = next;
+                done.clear();
+                todo = rest.components().iter().cloned().chain(todo).collect();
+                last = None;
+            } else {
+                last = Some(facts);
+            }
+        }
+        last.map_or_else(|| base.inspect(&done), Ok)
+            .map(|facts| Found {
+                base,
+                names: done,
+                facts,
+            })
+    }
+
+    /// Reads the symbolic link at `link` beneath `base` and decides where
+    /// to carry on: the folder its target is beneath, and the path of the
+    /// target there.
+    fn follow(&self, base: &Base, link: &[Vec<u8>]) -> Result<(&Base, RelPath), FsError> {
+        let dir = link.split_last().map_or(link, |(_, dir)| dir);
+        base.link_text(link)
+            .and_then(|text| {
+                rel(dir).and_then(|dir| {
+                    link_target(&base.path, &dir, Untrusted::new(text.as_slice()))
+                        .map_err(FsError::Path)
+                })
+            })
+            .and_then(|target| self.admit(target))
+    }
+
+    /// Decides whether a link that leads to `target` may be followed
+    /// (SEC-MED-034).
+    fn admit(&self, target: RawPath) -> Result<(&Base, RelPath), FsError> {
+        let verdict = classify_link(&target, &self.own.path, &self.targets, &self.others);
+        let refuse = |reason| FsError::Link(LinkRefusal { target, reason });
+        match verdict {
+            LinkVerdict::Own(rest) => Ok((&self.own, rest)),
+            LinkVerdict::Approved { index, rest } => self
+                .approved
+                .get(index)
+                .map(|base| (base, rest))
+                .ok_or(refuse(LinkReason::Outside)),
+            LinkVerdict::OtherLibrary { index } => Err(refuse(LinkReason::OtherLibrary { index })),
+            LinkVerdict::Outside => Err(refuse(LinkReason::Outside)),
+        }
     }
 }
