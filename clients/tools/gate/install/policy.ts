@@ -129,10 +129,13 @@ function unsupportedProtocol(value: unknown): boolean {
 // are dropped here and every importer string that remains has to be a registry one.
 function withoutWorkspaceMembers(importers: unknown): unknown {
   if (!object(importers)) return importers;
+  const member = (project: string, entry: unknown): boolean => {
+    if (!object(entry) || entry.specifier !== 'workspace:*' || typeof entry.version !== 'string' || !entry.version.startsWith('link:')) return false;
+    const target = posix.join(project, entry.version.slice(5));
+    return target !== project && Object.hasOwn(importers, target);
+  };
   const registry = (project: string, entries: unknown): unknown => !object(entries) ? entries :
-    Object.fromEntries(Object.entries(entries).filter(([, entry]) => !(object(entry) && entry.specifier === 'workspace:*' &&
-      typeof entry.version === 'string' && entry.version.startsWith('link:') &&
-      Object.hasOwn(importers, posix.join(project, entry.version.slice(5))))));
+    Object.fromEntries(Object.entries(entries).filter(([, entry]) => !member(project, entry)));
   return Object.fromEntries(Object.entries(importers).map(([project, groups]) => [project, !object(groups) ? groups :
     Object.fromEntries(Object.entries(groups).map(([group, entries]) => [group, registry(project, entries)]))]));
 }

@@ -15,13 +15,12 @@ export class NativePnpmRefusal extends Refusal {
 
 export const nativePnpmChecksum = 'gGW7NJFmr33IJ6KZu+1w90KBtFxMVf/+AUG8aKJpy4v6dRnUd5v84PcH2ejUuxp/fm3zM0IY6h9LwcYPu9dxdg==';
 
-// Reads an npm package archive: gzip over ustar, regular files directly under `package/`.
-// Any other entry is refused rather than skipped.
+// Reads an npm package archive: gzip over ustar, regular files directly under `package/`, up to
+// the zero block that ends it. Any other entry, or an archive that stops early, is refused rather than skipped.
 export function archiveFiles(archive: Uint8Array): Map<string, Buffer> {
   const tar = gunzipSync(archive);
   const files = new Map<string, Buffer>();
-  let offset = 0;
-  while (offset + 512 <= tar.length && tar[offset] !== 0) {
+  for (let offset = 0; tar[offset] !== 0;) {
     const header = tar.subarray(offset, offset + 512);
     const name = header.subarray(0, 100).toString('latin1').replace(/\0[\s\S]*$/, '');
     const size = Number.parseInt(header.subarray(124, 136).toString('latin1'), 8);
