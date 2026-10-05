@@ -710,7 +710,7 @@ mod tests {
         };
         Seccomp {
             mode: number("Seccomp:").unwrap(),
-            filters: None,
+            filters: number("Seccomp_filters:"),
         }
     }
 
@@ -926,11 +926,28 @@ mod tests {
         assert_eq!(changes, [(2, 2, Some(1)), (2, 2, Some(0))]);
     }
 
-    /// Makes the kernel answer `EINVAL` to `prctl(PR_SET_NO_NEW_PRIVS)` on
-    /// the calling thread from now on, as a kernel older than Linux 3.5
-    /// does. Every other `prctl` still goes through.
+    /// The `prctl` call's number on this architecture.
+    #[cfg(target_arch = "x86_64")]
+    const PRCTL_CALL: i64 = 157;
+    #[cfg(target_arch = "aarch64")]
+    const PRCTL_CALL: i64 = 167;
+
+    /// Makes the kernel answer `EINVAL`, 22, to `prctl(PR_SET_NO_NEW_PRIVS)`,
+    /// option 38, on the calling thread from now on, as a kernel older than
+    /// Linux 3.5 does. Every other `prctl` still goes through.
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    fn refuse_no_new_privs() {}
+    fn refuse_no_new_privs() {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+
+        let (arch, _) = super::NATIVE.unwrap();
+        let option =
+            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, 38).unwrap();
+        let rules = [(PRCTL_CALL, vec![SeccompRule::new(vec![option]).unwrap()])].into();
+        let filter =
+            SeccompFilter::new(rules, SeccompAction::Allow, SeccompAction::Errno(22), arch)
+                .unwrap();
+        seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
+    }
 
     /// The `no_new_privs` step asks the kernel, and a refusal is not taken
     /// for success: on a thread where the kernel refuses that one `prctl`
