@@ -629,10 +629,13 @@ mod tests {
                     (last << 1) ^ 0x1D
                 });
             }
-            let mut logarithms = vec![0; 256];
-            for (exponent, &power) in powers.iter().enumerate() {
-                logarithms[usize::from(power)] = exponent;
-            }
+            // 0 is no power of 2; its entry is never read.
+            let logarithms = (0..=u8::MAX)
+                .map(|element| {
+                    let exponent = powers.iter().position(|&power| power == element);
+                    exponent.unwrap_or(0)
+                })
+                .collect();
             Self { powers, logarithms }
         }
 
@@ -732,11 +735,23 @@ mod tests {
         ];
         const ALIGNMENT: [&str; 5] = ["11111", "10001", "10101", "10001", "11111"];
         let size = 17 + 4 * version;
-        let mut cells = vec![vec![Cell::Data; size]; size];
-        for along in 0..size {
-            paint(&mut cells, 6, along, Cell::Pattern(along % 2 == 0));
-            paint(&mut cells, along, 6, Cell::Pattern(along % 2 == 0));
-        }
+        // The timing patterns run the length of row 6 and of column 6; what
+        // is painted afterwards covers their ends.
+        let mut cells: Vec<Vec<Cell>> = (0..size)
+            .map(|row| {
+                (0..size)
+                    .map(|column| {
+                        if row == 6 {
+                            Cell::Pattern(column % 2 == 0)
+                        } else if column == 6 {
+                            Cell::Pattern(row % 2 == 0)
+                        } else {
+                            Cell::Data
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
         // A finder pattern sits in a corner square of eight modules. The
         // row and the column of that square that face inwards are its
         // light separator.
@@ -793,7 +808,7 @@ mod tests {
     /// dividing it by another, each written as the bits of a number: the
     /// check on the format and the version information (Annexes C and D).
     fn remainder(dividend: u32, divisor: u32) -> u32 {
-        let degree = 31 - divisor.leading_zeros();
+        let degree = divisor.ilog2();
         (degree..32).rev().fold(dividend, |rest, bit| {
             if (rest >> bit) & 1 == 1 {
                 rest ^ (divisor << (bit - degree))
@@ -888,23 +903,23 @@ mod tests {
         let (count, correction) = BLOCKS[version - 1];
         let data = codewords.len() - count * correction;
         let (short, longer) = (data / count, data % count);
-        let mut blocks = vec![Vec::new(); count];
-        let mut rest = codewords.iter().copied();
-        // The last `longer` blocks hold one data codeword more than the
-        // others.
-        for index in 0..=short {
-            for (number, block) in blocks.iter_mut().enumerate() {
-                if index < short || number >= count - longer {
-                    block.push(rest.next().expect("a data codeword"));
-                }
-            }
-        }
-        for _ in 0..correction {
-            for block in &mut blocks {
-                block.push(rest.next().expect("an error correction codeword"));
-            }
-        }
-        assert_eq!(rest.next(), None, "codewords are left over");
+        // The codewords come in rounds, one from each block: `short` rounds
+        // of data, a round in which only the last `longer` blocks give one
+        // more, and then the rounds of error correction codewords.
+        let first_longer = count - longer;
+        let blocks: Vec<Vec<u8>> = (0..count)
+            .map(|number| {
+                let whole = (0..short).map(|round| round * count + number);
+                let extra = (short..short + usize::from(number >= first_longer))
+                    .map(|round| round * count + number - first_longer);
+                let checks = (0..correction).map(|round| data + round * count + number);
+                whole
+                    .chain(extra)
+                    .chain(checks)
+                    .map(|place| codewords[place])
+                    .collect()
+            })
+            .collect();
         let field = Field::new();
         for block in &blocks {
             assert!(
@@ -1620,7 +1635,7 @@ mod tests {
             Err(QrError::TooLong { len: 413, max: 412 })
         );
         assert_eq!(
-            encode(&vec![0; 100_000]),
+            encode(&sample(100_000)),
             Err(QrError::TooLong {
                 len: 100_000,
                 max: 412
@@ -1640,7 +1655,7 @@ mod tests {
         #[test]
         fn refuses_every_payload_over_the_cap(len in 413_usize..2_000) {
             prop_assert_eq!(
-                encode(&vec![0x61; len]),
+                encode(&sample(len)),
                 Err(QrError::TooLong { len, max: 412 })
             );
         }
