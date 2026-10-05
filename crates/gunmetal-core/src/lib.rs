@@ -21,6 +21,7 @@ pub mod inflate;
 pub mod link;
 pub mod logframe;
 pub mod lyrics;
+pub mod music;
 pub mod net;
 pub mod otp;
 pub mod parse;
