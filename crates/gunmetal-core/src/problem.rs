@@ -89,6 +89,10 @@ problems! {
     EventClockAhead = ("event_clock_ahead", Some(400), "This device's clock is set ahead of the server's, so the change wasn't recorded. Check the device's date and time."),
     /// A stored user event could not be read: its bytes are damaged or are not an event. It is reported, never guessed at (ADR 3, section 4).
     EventMalformed = ("event_malformed", None, "A saved listening or library change is damaged and couldn't be read."),
+    /// One optional part of a media file, such as a tag, a picture or its lyrics, could not be read and was skipped; the file's other facts were kept and it stays playable (SEC-MED-017).
+    FilePartSkipped = ("file_part_skipped", None, "We skipped a part of this file that we couldn't read. The rest of it was kept."),
+    /// A media file could not be probed: its format is not one we read, or the part of it that playback needs is damaged; the problem's argument gives the reason.
+    FileUnreadable = ("file_unreadable", None, "We couldn't read this file. It may be damaged, or in a format we don't support."),
     /// The caller is signed in but may not do this (SEC-IAM-068).
     Forbidden = ("forbidden", Some(403), "You don't have permission to do that."),
     /// Request handling failed unexpectedly. Nothing about the failure reaches the client (SEC-API-073, SEC-TM-040).
@@ -164,7 +168,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 30] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 32] = [
         (
             "aiff_unreadable",
             None,
@@ -210,6 +214,16 @@ mod tests {
             "event_malformed",
             None,
             "A saved listening or library change is damaged and couldn't be read.",
+        ),
+        (
+            "file_part_skipped",
+            None,
+            "We skipped a part of this file that we couldn't read. The rest of it was kept.",
+        ),
+        (
+            "file_unreadable",
+            None,
+            "We couldn't read this file. It may be damaged, or in a format we don't support.",
         ),
         (
             "forbidden",

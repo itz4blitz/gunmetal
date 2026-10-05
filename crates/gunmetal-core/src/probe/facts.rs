@@ -1,0 +1,436 @@
+//! What a probe returns: the facts of one file, its raw tag blocks, its
+//! seek index and the problems of the parts that were skipped.
+
+use crate::catalog::{CatalogError, FileFacts};
+use crate::formats::aiff::AiffError;
+use crate::formats::ape::{ApeError, ApeTag};
+use crate::formats::detect::{DetectError, Format};
+use crate::formats::flac::metadata::{BlockProblem, FlacError, SeekPoint};
+use crate::formats::id3v1::{Id3v1Error, Id3v1Tag};
+use crate::formats::id3v2::{Id3v2Error, Id3v2Tag};
+use crate::formats::mp4::{IlstItem, Mp4Error, Mp4Problem, SampleTableRanges};
+use crate::formats::mpa::{self, MpaError};
+use crate::formats::ogg::PacketError;
+use crate::formats::opus::OpusError;
+use crate::formats::riff::RiffError;
+use crate::formats::vorbis::VorbisError;
+use crate::formats::vorbis_comment::Comments;
+use crate::parse::{DriveError, ParseFault};
+use crate::problem::{Arg, Describe, Problem, ProblemCode};
+use crate::values::ValueError;
+
+/// The version of the parser that reads each audio format. A version goes
+/// up when a newer parser would read a file differently, so the scan can
+/// tell which files to read again.
+pub const PARSER_VERSIONS: &[(Format, u16)] = &[
+    (Format::Flac, 1),
+    (Format::Mpeg, 1),
+    (Format::Mp4, 1),
+    (Format::Ogg, 1),
+    (Format::Wav, 1),
+    (Format::Aiff, 1),
+];
+
+/// What a probe found in one file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Probed {
+    /// The format the file's content has.
+    pub format: Format,
+    /// The catalogue's facts: technical facts, trim, artwork, lyrics,
+    /// identity inputs, the parser version and the octets read.
+    ///
+    /// Artwork is numbered in this order: the pictures the container
+    /// itself holds (FLAC `PICTURE` blocks), then those of each tag block
+    /// in the order of [`Probed::tags`]. The per-file picture limit counts
+    /// them all together: the pictures past it are not listed, and
+    /// [`Probed::problems`] holds how many were found.
+    pub facts: FileFacts,
+    /// The raw tag blocks, in their order of precedence: the first block
+    /// that holds a field wins.
+    ///
+    /// - MP3: every leading `ID3v2` tag in file order, then APE, then
+    ///   `ID3v1`.
+    /// - FLAC: the Vorbis comment, then every leading `ID3v2` tag.
+    /// - Ogg: the Vorbis comment.
+    /// - MP4: the item list, which is empty when the file has none.
+    /// - WAV: the `ID3v2` tag of its `id3 ` chunk, then the `INFO` list.
+    /// - AIFF: the `ID3v2` tag of its `ID3 ` chunk.
+    ///
+    /// A file has at most seven leading `ID3v2` tags, since detection
+    /// skips no more. A chunk holds one tag: a tag that follows it in the
+    /// chunk is not read, and is recorded in [`Probed::problems`].
+    pub tags: Vec<TagBlock>,
+    /// Where to start reading to play from a given time.
+    pub seek: SeekIndex,
+    /// Every optional part that was skipped, in the order found
+    /// (SEC-MED-017). What a tag block skipped inside itself is in the
+    /// block.
+    pub problems: Vec<PartProblem>,
+}
+
+/// One tag block of a file, as its parser read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagBlock {
+    /// An `ID3v2` tag.
+    Id3v2 {
+        /// Where the tag starts in the file. Offsets inside the tag count
+        /// from here.
+        offset: u64,
+        /// The tag.
+        tag: Id3v2Tag,
+    },
+    /// An APE tag.
+    Ape(ApeTag),
+    /// An `ID3v1` tag.
+    Id3v1(Id3v1Tag),
+    /// A Vorbis comment block. In a FLAC file its offsets are file
+    /// offsets; in an Ogg file they count octets of the comment block.
+    Vorbis(Comments),
+    /// The items of an MP4 file's item lists.
+    Mp4(Vec<IlstItem>),
+    /// The sub-chunks of a WAV file's `INFO` list, as they are.
+    RiffInfo {
+        /// Where the sub-chunks start in the file.
+        offset: u64,
+        /// Their octets.
+        octets: Vec<u8>,
+    },
+}
+
+/// Where to start reading to play from a given time (MUS-071), as far as
+/// the file's headers say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SeekIndex {
+    /// The headers hold none: an Ogg file is searched by its pages, and
+    /// PCM is found by arithmetic.
+    None,
+    /// The seek points of a FLAC file's `SEEKTABLE` block. Their offsets
+    /// count from the first frame, where the audio window starts.
+    Flac(Vec<SeekPoint>),
+    /// The index of an MP3 file: from its Xing table of contents, or from
+    /// its frame headers.
+    Mpeg(mpa::SeekIndex),
+    /// Where an MP4 file's sample tables are, from which the index is
+    /// built.
+    Mp4(SampleTableRanges),
+}
+
+/// An optional part of a file that was skipped, or a value that was
+/// dropped, while the rest of the file was kept (SEC-MED-017).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartProblem {
+    /// A FLAC seek table, picture or duplicate block.
+    Flac(BlockProblem),
+    /// Part of an MP4 file's metadata, or an extra audio track.
+    Mp4(Mp4Problem),
+    /// The walk over a WAV or AIFF file's chunks stopped early.
+    Stopped(ParseFault),
+    /// An encoder header in an MP3 file's first frame.
+    Encoder(ParseFault),
+    /// An `ID3v2` tag.
+    Id3v2 {
+        /// Where the tag starts in the file.
+        offset: u64,
+        /// Why it could not be read.
+        error: Id3v2Error,
+    },
+    /// An APE tag.
+    Ape(ApeError),
+    /// An `ID3v1` tag.
+    Id3v1(Id3v1Error),
+    /// A Vorbis comment block.
+    Comment(ParseFault),
+    /// An Ogg stream has no comment header packet, because of this.
+    Ogg(PacketError),
+    /// The framing of an Opus comment header.
+    Opus(OpusError),
+    /// The framing of a Vorbis comment header.
+    Vorbis(VorbisError),
+    /// A lyrics text.
+    Lyrics(ParseFault),
+    /// A value outside its range, such as a duration (SEC-MED-014).
+    Value(ValueError),
+    /// A tag block larger than may be held in memory, or the search for an
+    /// Ogg stream's last page.
+    ///
+    /// Also a count past what a file may hold. More pictures than the
+    /// per-file limit are [`ParseFault::LimitExceeded`] at offset 0, the
+    /// file's, with how many were found. More `ID3v2` tags in a row than
+    /// are read from one place are [`ParseFault::BudgetExceeded`] where
+    /// the first tag left unread starts, as detection reports more
+    /// leading tags than it skips.
+    Fault(ParseFault),
+    /// A read that the limits refuse (SEC-MED-010).
+    Read(DriveError),
+}
+
+impl PartProblem {
+    /// The name of the part, for the problem catalogue.
+    const fn part(&self) -> &'static str {
+        match self {
+            Self::Flac(_) => "flac_block",
+            Self::Mp4(_) => "mp4_metadata",
+            Self::Stopped(_) => "chunks",
+            Self::Encoder(_) => "encoder_header",
+            Self::Id3v2 { .. } => "id3v2_tag",
+            Self::Ape(_) => "ape_tag",
+            Self::Id3v1(_) => "id3v1_tag",
+            Self::Comment(_) => "vorbis_comment",
+            Self::Ogg(_) => "ogg_comment_packet",
+            Self::Opus(_) => "opus_comment_header",
+            Self::Vorbis(_) => "vorbis_comment_header",
+            Self::Lyrics(_) => "lyrics",
+            Self::Value(_) => "value",
+            Self::Fault(_) => "limit",
+            Self::Read(_) => "read",
+        }
+    }
+}
+
+impl Describe for PartProblem {
+    /// A skipped part, by name.
+    fn problem(&self) -> Problem {
+        Problem {
+            code: ProblemCode::FilePartSkipped,
+            args: vec![("part", Arg::Name(self.part()))],
+        }
+    }
+}
+
+/// Why a file could not be probed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeError {
+    /// The content is no format on the allowlist, so the file must be
+    /// skipped (SEC-MED-011), or a leading `ID3v2` tag is damaged.
+    Detect(DetectError),
+    /// The content is a picture, lyrics or a playlist, not audio.
+    NotAudio {
+        /// The format it is.
+        format: Format,
+    },
+    /// A FLAC file's marker, STREAMINFO or block chain.
+    Flac(FlacError),
+    /// An MP3 file with no stream this parser accepts.
+    Mpeg(MpaError),
+    /// An MP4 file's boxes, movie or audio track.
+    Mp4(Mp4Error),
+    /// A WAV file's form, format or samples.
+    Wav(RiffError),
+    /// An AIFF file's form, format or samples.
+    Aiff(AiffError),
+    /// An Ogg file with no packet to read a stream header from, with the
+    /// first thing that went wrong, if anything did.
+    Ogg(Option<PacketError>),
+    /// An Opus identification header.
+    Opus(OpusError),
+    /// A Vorbis identification header, or the header of a codec that is
+    /// neither Opus nor Vorbis.
+    Vorbis(VorbisError),
+    /// The file holds a codec that is not read.
+    Unsupported {
+        /// The container.
+        format: Format,
+        /// Where the audio in that codec starts: the samples of a WAV or
+        /// AIFF file, or the audio track of an MP4 file.
+        offset: u64,
+    },
+    /// The step budget was spent (SEC-MED-007).
+    Fault(ParseFault),
+    /// A read that playback needs is one the limits refuse (SEC-MED-010).
+    Read(DriveError),
+    /// The facts found do not make a catalogue value.
+    Catalog(CatalogError),
+    /// The probe was resumed after it gave its result. A probe reads one
+    /// file once.
+    Finished,
+}
+
+impl ProbeError {
+    /// The name of the reason, for the problem catalogue.
+    const fn reason(&self) -> &'static str {
+        match self {
+            Self::Detect(_) => "unknown_format",
+            Self::NotAudio { .. } => "not_audio",
+            Self::Flac(_) => "flac",
+            Self::Mpeg(_) => "mpeg",
+            Self::Mp4(_) => "mp4",
+            Self::Wav(_) => "wav",
+            Self::Aiff(_) => "aiff",
+            Self::Ogg(_) => "ogg",
+            Self::Opus(_) => "opus",
+            Self::Vorbis(_) => "vorbis",
+            Self::Unsupported { .. } => "unsupported_codec",
+            Self::Fault(_) => "budget",
+            Self::Read(_) => "read",
+            Self::Catalog(_) => "catalogue",
+            Self::Finished => "finished",
+        }
+    }
+}
+
+impl Describe for ProbeError {
+    /// An unreadable file, with the reason by name.
+    fn problem(&self) -> Problem {
+        Problem {
+            code: ProblemCode::FileUnreadable,
+            args: vec![("reason", Arg::Name(self.reason()))],
+        }
+    }
+}
+
+/// The version in `versions` of the parser for `format`, or 0 for a
+/// format that has none.
+pub(super) fn version(versions: &[(Format, u16)], format: Format) -> u16 {
+    versions
+        .iter()
+        .find(|(known, _)| *known == format)
+        .map_or(0, |&(_, version)| version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::formats::id3v2::Id3v2Error;
+    use crate::parse::LimitKind;
+    use crate::values::Field;
+
+    const FAULT: ParseFault = ParseFault::BudgetExceeded { offset: 7 };
+
+    fn named(code: ProblemCode, key: &'static str, name: &'static str) -> Problem {
+        Problem {
+            code,
+            args: vec![(key, Arg::Name(name))],
+        }
+    }
+
+    #[test]
+    fn lists_a_parser_version_for_every_audio_format() {
+        assert_eq!(
+            PARSER_VERSIONS,
+            [
+                (Format::Flac, 1),
+                (Format::Mpeg, 1),
+                (Format::Mp4, 1),
+                (Format::Ogg, 1),
+                (Format::Wav, 1),
+                (Format::Aiff, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn finds_the_version_of_the_format_asked_for() {
+        let versions = [(Format::Flac, 3), (Format::Mpeg, 5), (Format::Ogg, 8)];
+        assert_eq!(version(&versions, Format::Flac), 3);
+        assert_eq!(version(&versions, Format::Mpeg), 5);
+        assert_eq!(version(&versions, Format::Ogg), 8);
+        assert_eq!(version(&versions, Format::Png), 0);
+    }
+
+    #[test]
+    fn describes_every_skipped_part_by_name() {
+        let drive = DriveError::Empty { offset: 1 };
+        let value = ValueError::OutOfRange {
+            field: Field::Duration,
+            value: 9,
+        };
+        let cases = [
+            (
+                PartProblem::Flac(BlockProblem::LinkedPicture { block: 1 }),
+                "flac_block",
+            ),
+            (
+                PartProblem::Mp4(Mp4Problem::ExtraAudioTrack { offset: 1 }),
+                "mp4_metadata",
+            ),
+            (PartProblem::Stopped(FAULT), "chunks"),
+            (PartProblem::Encoder(FAULT), "encoder_header"),
+            (
+                PartProblem::Id3v2 {
+                    offset: 0,
+                    error: Id3v2Error::Fault(FAULT),
+                },
+                "id3v2_tag",
+            ),
+            (
+                PartProblem::Ape(ApeError::NotAFooter { offset: 1 }),
+                "ape_tag",
+            ),
+            (PartProblem::Id3v1(Id3v1Error::Fault(FAULT)), "id3v1_tag"),
+            (PartProblem::Comment(FAULT), "vorbis_comment"),
+            (
+                PartProblem::Ogg(PacketError::Orphan { offset: 1 }),
+                "ogg_comment_packet",
+            ),
+            (
+                PartProblem::Opus(OpusError::Fault(FAULT)),
+                "opus_comment_header",
+            ),
+            (
+                PartProblem::Vorbis(VorbisError::Fault(FAULT)),
+                "vorbis_comment_header",
+            ),
+            (PartProblem::Lyrics(FAULT), "lyrics"),
+            (PartProblem::Value(value), "value"),
+            (PartProblem::Fault(FAULT), "limit"),
+            (PartProblem::Read(drive), "read"),
+        ];
+        for (problem, part) in cases {
+            assert_eq!(
+                problem.problem(),
+                named(ProblemCode::FilePartSkipped, "part", part)
+            );
+        }
+    }
+
+    #[test]
+    fn describes_every_failure_by_reason() {
+        let cases = [
+            (
+                ProbeError::Detect(DetectError::Unknown { offset: 0 }),
+                "unknown_format",
+            ),
+            (
+                ProbeError::NotAudio {
+                    format: Format::Png,
+                },
+                "not_audio",
+            ),
+            (
+                ProbeError::Flac(FlacError::ForbiddenBlockType { offset: 4 }),
+                "flac",
+            ),
+            (ProbeError::Mpeg(MpaError::NoFrames { offset: 0 }), "mpeg"),
+            (ProbeError::Mp4(Mp4Error::NoMovie { offset: 0 }), "mp4"),
+            (ProbeError::Wav(RiffError::Fault(FAULT)), "wav"),
+            (ProbeError::Aiff(AiffError::Fault(FAULT)), "aiff"),
+            (ProbeError::Ogg(None), "ogg"),
+            (ProbeError::Opus(OpusError::Fault(FAULT)), "opus"),
+            (ProbeError::Vorbis(VorbisError::Fault(FAULT)), "vorbis"),
+            (
+                ProbeError::Unsupported {
+                    format: Format::Wav,
+                    offset: 12,
+                },
+                "unsupported_codec",
+            ),
+            (ProbeError::Fault(FAULT), "budget"),
+            (
+                ProbeError::Read(DriveError::TooLong {
+                    offset: 0,
+                    len: 2,
+                    max: LimitKind::ReadBytes.ceiling(),
+                }),
+                "read",
+            ),
+            (ProbeError::Catalog(CatalogError::ZeroBitrate), "catalogue"),
+            (ProbeError::Finished, "finished"),
+        ];
+        for (error, reason) in cases {
+            assert_eq!(
+                error.problem(),
+                named(ProblemCode::FileUnreadable, "reason", reason)
+            );
+        }
+    }
+}
