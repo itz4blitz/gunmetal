@@ -2042,15 +2042,17 @@ fi
     // mutant. A pull request into a wave branch scopes them to its diff,
     // which needs the base branch's history. Where a shard runs and how long
     // it may take are one condition, written twice (record 15): a pull
-    // request into a wave branch, from a fork or opened by a bot stays on
-    // GitHub's runners with 75 minutes, and every other event goes to the
-    // project's own runners with 15 hours. The bot term is the only thing
-    // that keeps an app's pull request off the project's hardware, so both
-    // lines are pinned whole.
+    // request into a wave branch, from a fork, or whose author is anything
+    // but a person's account stays on GitHub's runners with 75 minutes, and
+    // every other event goes to the project's own runners with 15 hours.
+    // The author term is the only thing that keeps a bot account's pull
+    // request off the project's hardware, and it is written to fail closed:
+    // an author type that is missing or unknown stays on GitHub's runners.
+    // Both lines are pinned whole.
     let mutants = workflow_job(CI, "mutants");
     for line in [
-        r#"runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot') && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}"#,
-        "timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot') && 75 || 900 }}",
+        r#"runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type != 'User') && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}"#,
+        "timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type != 'User') && 75 || 900 }}",
         "fail-fast: false",
         "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
         "fetch-depth: 0",
