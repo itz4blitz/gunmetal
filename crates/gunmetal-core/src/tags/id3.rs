@@ -1949,6 +1949,34 @@ mod tests {
         }
     }
 
+    /// The track number `number` read from the `TRCK` frame at 10, with
+    /// `problems`.
+    fn tracked(number: u16, problems: Vec<TagProblem>) -> Mapped {
+        Mapped {
+            tags: TrackTags {
+                position: TrackPosition::new(Some(number), None, None, None).unwrap(),
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                track: Some(v2_at(b"TRCK", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        }
+    }
+
+    /// Nothing mapped, and one problem: the frame `id` at 10 holds a value
+    /// the parser cut at `limit`.
+    fn only_cut(id: &[u8], limit: LimitKind) -> Mapped {
+        Mapped {
+            problems: vec![TagProblem::Truncated {
+                source: v2_at(id, 10),
+                limit,
+            }],
+            ..Mapped::default()
+        }
+    }
+
     /// `frames` with frame `i` at offset `10 + 20 * i`, so that two frames
     /// with the same identifier are different sources.
     fn spaced(frames: Vec<Frame>) -> Vec<Frame> {
@@ -4759,6 +4787,420 @@ mod tests {
                     },
                 ],
             }
+        );
+    }
+
+    /// With a short-text limit of one octet the parser cuts `31` to `3`,
+    /// which is not the number that was written.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_a_track_number_at_the_short_text_limit_and_not_one_past_it() {
+        let bytes = one_frame(b"TRCK", &kit::text(Kit::Latin1, &["31"]));
+        let two = lowered(LimitKind::ShortText, 2);
+        let one = lowered(LimitKind::ShortText, 1);
+        assert_eq!(map_bytes(&bytes, &two, &two), tracked(31, vec![]));
+        assert_eq!(
+            map_bytes(&bytes, &one, &one),
+            only_cut(b"TRCK", LimitKind::ShortText)
+        );
+    }
+
+    /// Under the default limits the same takes padding: 4,095 spaces and
+    /// then `31` is one octet over the short-text limit, and what the
+    /// parser keeps of it ends in `3`.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_read_a_padded_track_number_the_default_limit_cut() {
+        let padded = |spaces: u16| {
+            let number: String = (0..spaces).map(|_| ' ').chain("31".chars()).collect();
+            one_frame(b"TRCK", &kit::text(Kit::Latin1, &[number.as_str()]))
+        };
+        assert_eq!(
+            map_bytes(&padded(4_094), &Limits::DEFAULT, &Limits::DEFAULT),
+            tracked(31, vec![])
+        );
+        assert_eq!(
+            map_bytes(&padded(4_095), &Limits::DEFAULT, &Limits::DEFAULT),
+            only_cut(b"TRCK", LimitKind::ShortText)
+        );
+    }
+
+    /// A field that takes one value takes the first it can use, and a list
+    /// goes on after a value it cannot: in both frames the first value is
+    /// cut and the second is whole.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_the_value_after_one_the_parser_cut() {
+        let one = lowered(LimitKind::ShortText, 1);
+        let track = one_frame(b"TRCK", &kit::text(Kit::Latin1, &["31", "7"]));
+        assert_eq!(
+            map_bytes(&track, &one, &one),
+            tracked(
+                7,
+                vec![TagProblem::Truncated {
+                    source: v2_at(b"TRCK", 10),
+                    limit: LimitKind::ShortText,
+                }]
+            )
+        );
+        let twelve = lowered(LimitKind::ShortText, 12);
+        let codes = one_frame(
+            b"TSRC",
+            &kit::text(Kit::Latin1, &["USS1Z99000011", "GBUM71029604"]),
+        );
+        assert_eq!(
+            map_bytes(&codes, &twelve, &twelve),
+            Mapped {
+                tags: TrackTags {
+                    isrc: vec![isrc("GBUM71029604")],
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    isrc: Some(v2_at(b"TSRC", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![TagProblem::Truncated {
+                    source: v2_at(b"TSRC", 10),
+                    limit: LimitKind::ShortText,
+                }],
+            }
+        );
+    }
+
+    /// One octet past the limit the date no longer reads at all, and cut to
+    /// seven or to four octets it would read as a month or as a year that
+    /// were not written. None of them is read, and nothing but the cut is
+    /// recorded.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_a_date_at_the_short_text_limit_and_not_past_it() {
+        let bytes = one_frame(b"TDRC", &kit::text(Kit::Latin1, &["2016-01-08"]));
+        let ten = lowered(LimitKind::ShortText, 10);
+        assert_eq!(
+            map_bytes(&bytes, &ten, &ten),
+            Mapped {
+                tags: TrackTags {
+                    date: Some(date(2016, Some(1), Some(8))),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    date: Some(v2_at(b"TDRC", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+        for limit in [9, 7, 4] {
+            let limits = lowered(LimitKind::ShortText, limit);
+            assert_eq!(
+                map_bytes(&bytes, &limits, &limits),
+                only_cut(b"TDRC", LimitKind::ShortText),
+                "a short-text limit of {limit}"
+            );
+        }
+    }
+
+    /// The parser caps the value of a `TXXX` frame at the long-text limit.
+    /// Cut to five octets this gain would read as -10.2 dB.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_a_gain_at_the_long_text_limit_and_not_one_past_it() {
+        let bytes = one_frame(
+            b"TXXX",
+            &kit::user_text(Kit::Latin1, "REPLAYGAIN_TRACK_GAIN", &["-10.25"]),
+        );
+        let six = lowered(LimitKind::LongText, 6);
+        let five = lowered(LimitKind::LongText, 5);
+        assert_eq!(
+            map_bytes(&bytes, &six, &six),
+            Mapped {
+                tags: TrackTags {
+                    gain: GainTags {
+                        track: Some(gain("-10.25")),
+                        ..GainTags::default()
+                    },
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    track_gain: Some(v2_at(b"TXXX", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+        assert_eq!(
+            map_bytes(&bytes, &five, &five),
+            only_cut(b"TXXX", LimitKind::LongText)
+        );
+    }
+
+    /// Whole, the description `MOODY` names nothing the mapper reads. Cut
+    /// to `MOOD` it would name the mood.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn skips_a_user_text_frame_whose_description_the_parser_cut() {
+        let bytes = one_frame(b"TXXX", &kit::user_text(Kit::Latin1, "MOODY", &["Dark"]));
+        let five = lowered(LimitKind::ShortText, 5);
+        let four = lowered(LimitKind::ShortText, 4);
+        assert_eq!(map_bytes(&bytes, &five, &five), Mapped::default());
+        assert_eq!(
+            map_bytes(&bytes, &four, &four),
+            only_cut(b"TXXX", LimitKind::ShortText)
+        );
+    }
+
+    /// Whole, the owner is the one `MusicBrainz` identifiers are filed
+    /// under. With one more letter it is not, until the parser cuts that
+    /// letter off.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn skips_a_file_identifier_whose_owner_the_parser_cut() {
+        let recording = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+        let limits = lowered(LimitKind::ShortText, 22);
+        let whole = one_frame(
+            b"UFID",
+            &kit::ufid("http://musicbrainz.org", recording.as_bytes()),
+        );
+        let longer = one_frame(
+            b"UFID",
+            &kit::ufid("http://musicbrainz.orgx", recording.as_bytes()),
+        );
+        assert_eq!(
+            map_bytes(&whole, &limits, &limits),
+            Mapped {
+                tags: TrackTags {
+                    musicbrainz: MbIds {
+                        recording: Some(mbid(recording)),
+                        ..MbIds::default()
+                    },
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    recording_mbid: Some(v2_at(b"UFID", 10)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+        assert_eq!(
+            map_bytes(&longer, &limits, &limits),
+            only_cut(b"UFID", LimitKind::ShortText)
+        );
+    }
+
+    /// What is left of each value here would read as a number, a date, a
+    /// flag or a recording code that was not written.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_read_a_typed_value_of_a_text_frame_the_parser_cut() {
+        let cases: [(&[u8], &str, u64); 9] = [
+            (b"TRCK", "31", 1),
+            (b"TPOS", "21", 1),
+            (b"TDRC", "2016-01", 4),
+            (b"TDOR", "2015-12", 4),
+            (b"TYER", "1971-12", 4),
+            (b"TDAT", "17121", 4),
+            (b"TORY", "1969-07", 4),
+            (b"TCMP", "10", 1),
+            (b"TSRC", "USS1Z99000011", 12),
+        ];
+        for (id, value, limit) in cases {
+            let limits = lowered(LimitKind::ShortText, limit);
+            let bytes = one_frame(id, &kit::text(Kit::Latin1, &[value]));
+            assert_eq!(
+                map_bytes(&bytes, &limits, &limits),
+                only_cut(id, LimitKind::ShortText),
+                "{value}"
+            );
+        }
+    }
+
+    /// The same for the values of `TXXX` frames, which the parser cuts at
+    /// the long-text limit: each identifier is one character too long.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_read_a_typed_value_of_a_user_text_frame_the_parser_cut() {
+        let id = "5b11f54e-8a37-11df-8f36-0025905a57140";
+        let cases: [(&str, &str, u64); 10] = [
+            ("MusicBrainz Album Id", id, 36),
+            ("MusicBrainz Release Group Id", id, 36),
+            ("MusicBrainz Release Track Id", id, 36),
+            ("MusicBrainz Artist Id", id, 36),
+            ("MusicBrainz Album Artist Id", id, 36),
+            ("MusicBrainz Album Type", "albums", 5),
+            ("REPLAYGAIN_TRACK_GAIN", "-10.25", 5),
+            ("REPLAYGAIN_ALBUM_GAIN", "-10.25", 5),
+            ("REPLAYGAIN_TRACK_PEAK", "0.55", 3),
+            ("ITUNESADVISORY", "12", 1),
+        ];
+        for (description, value, limit) in cases {
+            let limits = lowered(LimitKind::LongText, limit);
+            let bytes = one_frame(b"TXXX", &kit::user_text(Kit::Latin1, description, &[value]));
+            assert_eq!(
+                map_bytes(&bytes, &limits, &limits),
+                only_cut(b"TXXX", LimitKind::LongText),
+                "{description}"
+            );
+        }
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn reads_an_id3v1_year_at_the_short_text_limit_and_not_one_past_it() {
+        let bytes = Id3v1::new().year(b"1991").genre(255).build();
+        let read = |limit: u64| {
+            let limits = lowered(LimitKind::ShortText, limit);
+            let window = Window {
+                offset: 0,
+                bytes: &bytes,
+                file_len: 128,
+            };
+            let v1 = find_v1(window, &limits, &mut Budget::for_input(0, 0, 1))
+                .unwrap()
+                .unwrap();
+            from_id3(None, Some(&v1), &limits)
+        };
+        assert_eq!(
+            read(4),
+            Mapped {
+                tags: TrackTags {
+                    date: Some(date(1991, None, None)),
+                    ..TrackTags::default()
+                },
+                sources: FieldSources {
+                    date: Some(v1_source(Id3v1Field::Year)),
+                    ..FieldSources::default()
+                },
+                problems: vec![],
+            }
+        );
+        assert_eq!(
+            read(3),
+            Mapped {
+                problems: vec![TagProblem::Truncated {
+                    source: v1_source(Id3v1Field::Year),
+                    limit: LimitKind::ShortText,
+                }],
+                ..Mapped::default()
+            }
+        );
+    }
+
+    /// `17` is Rock. Cut to `1` it would read as Classic Rock, so what is
+    /// left of a cut genre is kept as text and not read as a reference,
+    /// whether the parser cut it or the mapper does.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_read_a_cut_genre_as_a_reference() {
+        let bytes = one_frame(b"TCON", &kit::text(Kit::Latin1, &["17"]));
+        let two = lowered(LimitKind::ShortText, 2);
+        let one = lowered(LimitKind::ShortText, 1);
+        let expected = |genre: &str, problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                genres: vec![genre.to_owned()],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                genres: Some(v2_at(b"TCON", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        let cut = TagProblem::Truncated {
+            source: v2_at(b"TCON", 10),
+            limit: LimitKind::ShortText,
+        };
+        assert_eq!(map_bytes(&bytes, &two, &two), expected("Rock", vec![]));
+        assert_eq!(
+            map_bytes(&bytes, &one, &one),
+            expected("1", vec![cut.clone()])
+        );
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &one),
+            expected("1", vec![cut])
+        );
+    }
+
+    /// `producers` is not a role the mapper knows. Cut to `producer` it
+    /// would read as one, so what is left of a cut role is kept as the
+    /// detail of a performer and not looked up, whether the parser cut it
+    /// or the mapper does.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_look_up_a_cut_role() {
+        let bytes = one_frame(b"TIPL", &kit::text(Kit::Latin1, &["producers", "Tony"]));
+        let nine = lowered(LimitKind::ShortText, 9);
+        let eight = lowered(LimitKind::ShortText, 8);
+        let expected = |detail: &str, problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                credits: vec![performer("Tony", detail)],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                credits: Some(v2_at(b"TIPL", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        let cut = TagProblem::Truncated {
+            source: v2_at(b"TIPL", 10),
+            limit: LimitKind::ShortText,
+        };
+        assert_eq!(
+            map_bytes(&bytes, &nine, &nine),
+            expected("producers", vec![])
+        );
+        assert_eq!(
+            map_bytes(&bytes, &eight, &eight),
+            expected("producer", vec![cut.clone()])
+        );
+        assert_eq!(
+            map_bytes(&bytes, &Limits::DEFAULT, &eight),
+            expected("producer", vec![cut])
+        );
+    }
+
+    /// A mood that only the parser cut names the parser's limit, the
+    /// long-text limit, which is the lower of the two here.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn names_the_long_text_limit_for_a_mood_only_the_parser_cut() {
+        let bytes = one_frame(b"TXXX", &kit::user_text(Kit::Latin1, "MOOD", &["Dark"]));
+        let four = lowered(LimitKind::LongText, 4);
+        let three = lowered(LimitKind::LongText, 3);
+        let expected = |mood: &str, problems: Vec<TagProblem>| Mapped {
+            tags: TrackTags {
+                moods: vec![mood.to_owned()],
+                ..TrackTags::default()
+            },
+            sources: FieldSources {
+                moods: Some(v2_at(b"TXXX", 10)),
+                ..FieldSources::default()
+            },
+            problems,
+        };
+        assert_eq!(map_bytes(&bytes, &four, &four), expected("Dark", vec![]));
+        assert_eq!(
+            map_bytes(&bytes, &three, &three),
+            expected(
+                "Dar",
+                vec![TagProblem::Truncated {
+                    source: v2_at(b"TXXX", 10),
+                    limit: LimitKind::LongText,
+                }]
+            )
         );
     }
 
