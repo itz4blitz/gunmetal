@@ -20,6 +20,7 @@
 pub mod aiff;
 pub mod ape;
 pub mod base64;
+pub mod deeplink;
 pub mod detect;
 pub mod ebml;
 pub mod flac_frames;

@@ -53,6 +53,7 @@ harnesses! {
     aiff,
     ape,
     base64,
+    deeplink,
     detect,
     ebml,
     flac_frames,
