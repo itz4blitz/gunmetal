@@ -29,12 +29,26 @@
 //! `[`FIXED_STEPS`]`)` is enough for any file of `n` octets
 //! (SEC-MED-007).
 //!
+//! Each `ID3v2` tag the probe reads costs one step on top of what its
+//! parser charges, so a tag with no frames is not free. A tag is at least
+//! ten octets, so that step is within the steps the file's octets allow.
+//!
 //! # Depth and iteration
 //!
 //! The probe nests nothing itself: each parser counts its own depth from
 //! its own root (SEC-MED-005). Every turn of the machine either asks for
 //! a read that holds at least one octet, moves to a later stage, or ends,
 //! and the reads for one tag block move forward through it (SEC-MED-008).
+//!
+//! # Counts
+//!
+//! `ID3v2` tags may lie back to back, and each holds up to the tag-field
+//! limit of frames, so how many are read from one place is capped: seven
+//! in front of the audio, which is as many as detection skips, and one in
+//! a chunk of a WAV or AIFF file, which holds one tag. The first tag past
+//! the cap is left unread with every tag after it, and recorded
+//! (SEC-TM-032). The pictures of all a file's tag blocks count together
+//! against the per-file picture limit (SEC-MED-006).
 
 use std::mem;
 
@@ -77,6 +91,15 @@ pub const FIXED_STEPS: u64 = 256;
 /// How many octets of an Ogg file are read first for its header packets.
 /// The read doubles until it holds them.
 const OGG_HEAD: u64 = 8_192;
+
+/// The most `ID3v2` tags read from the front of a file: as many as
+/// detection skips there. No row of the limits table counts tags, so the
+/// probe keeps to the one bound the project has for them.
+const LEADING_TAGS: u64 = 7;
+
+/// The most `ID3v2` tags read from a chunk of a WAV or AIFF file: the
+/// chunk holds one tag.
+const CHUNK_TAGS: u64 = 1;
 
 /// What a probe answers with at its end.
 type Outcome = Result<Probed, ProbeError>;
@@ -379,7 +402,8 @@ impl<'b> Probe<'b> {
     /// Reads the tag block `job` asked for from the octets gathered.
     fn job(&mut self, draft: &mut Draft, job: Job, gather: Gather, file_len: u64) {
         match job {
-            Job::Id3v2 => self.id3v2(draft, gather.window(file_len)),
+            Job::Id3v2 => self.id3v2(draft, gather.window(file_len), LEADING_TAGS),
+            Job::ChunkTag => self.id3v2(draft, gather.window(file_len), CHUNK_TAGS),
             Job::Comment => {
                 match vorbis_comment::parse(
                     &gather.octets,
@@ -412,13 +436,33 @@ impl<'b> Probe<'b> {
         }
     }
 
-    /// Reads the `ID3v2` tags that lie back to back in `window`. A tag
-    /// that cannot be read ends them, and is recorded.
-    fn id3v2(&mut self, draft: &mut Draft, window: Window<'_>) {
+    /// Reads the `ID3v2` tags that lie back to back in `window`, `most`
+    /// of them at the most. A tag that cannot be read ends them, and is
+    /// recorded.
+    ///
+    /// Each tag costs one step on top of what its parser charges, so a
+    /// tag with no frames, which costs its parser nothing, is paid for
+    /// too (SEC-MED-007). The tags have a budget of their own as well,
+    /// of `most` tags, as detection has one of eight reads: the tag that
+    /// would be one more is left unread with every tag after it, and the
+    /// spent budget is recorded where that tag starts (SEC-TM-032). A tag
+    /// that is not read costs no step.
+    fn id3v2(&mut self, draft: &mut Draft, window: Window<'_>, most: u64) {
         let mut cursor = window.cursor();
+        let mut tags = Budget::for_input(0, 0, most);
         loop {
             let offset = cursor.offset();
-            match id3v2::parse(cursor.rest(), &self.limits, &mut self.work) {
+            if let Err(fault) = tags.charge(1, offset) {
+                draft.problems.push(PartProblem::Fault(fault));
+                break;
+            }
+            // A tag's own faults count octets from where the tag starts.
+            let read = self
+                .work
+                .charge(1, 0)
+                .map_err(id3v2::Id3v2Error::Fault)
+                .and_then(|()| id3v2::parse(cursor.rest(), &self.limits, &mut self.work));
+            match read {
                 Ok(tag) => {
                     // A tag is at least its ten-octet header, so every
                     // turn moves on.

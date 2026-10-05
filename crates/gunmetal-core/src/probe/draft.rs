@@ -48,8 +48,10 @@ const FRONT_COVER: u32 = 3;
 /// A read still to make for a tag block, and what to do with its octets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Job {
-    /// `ID3v2` tags, back to back.
+    /// The `ID3v2` tags in front of the audio, back to back.
     Id3v2,
+    /// The `ID3v2` tag of a WAV or AIFF file's chunk. A chunk holds one.
+    ChunkTag,
     /// The Vorbis comment block of a FLAC file.
     Comment,
     /// The sub-chunks of a WAV file's `INFO` list.
@@ -281,6 +283,10 @@ impl Draft {
     /// The result, once every read is made. `budget` pays for reading the
     /// lyrics, and `bytes_read` is how many octets of the file were read.
     ///
+    /// The pictures of the container and of every tag block count together
+    /// against [`LimitKind::Pictures`]: those past it are left out of the
+    /// artwork, and the breach is recorded (SEC-MED-006).
+    ///
     /// # Errors
     ///
     /// [`ProbeError::Unsupported`] when the codec is not one that is read,
@@ -323,6 +329,17 @@ impl Draft {
                 }
             }
         }
+        // The picture limit is the file's, so it counts the pictures of
+        // every block together. The first ones are kept, in the order they
+        // are numbered, and a breach is recorded against the file, with
+        // how many were found. The limit is far below the 65,536 numbers
+        // there are, so every picture kept has one.
+        let count = u64::try_from(found.len()).unwrap_or(u64::MAX);
+        if let Err(fault) = limits.check(LimitKind::Pictures, count, 0) {
+            problems.push(PartProblem::Fault(fault));
+        }
+        let most = usize::try_from(limits.get(LimitKind::Pictures)).unwrap_or(usize::MAX);
+        found.truncate(most);
         let artwork = (0..=u16::MAX)
             .zip(found)
             .map(|(index, (kind, byte_len))| ArtworkRef {
@@ -411,6 +428,13 @@ pub(super) fn id3v2(range: riff::ByteRange, limits: &Limits) -> (Job, Gather) {
         Job::Id3v2,
         Gather::new(range.offset, range.offset.saturating_add(len)),
     )
+}
+
+/// The read of the one `ID3v2` tag of the chunk whose body is `range`: the
+/// octets [`id3v2`] reads of a tag, for a chunk's job.
+pub(super) fn chunk_tag(range: riff::ByteRange, limits: &Limits) -> (Job, Gather) {
+    let (_, gather) = id3v2(range, limits);
+    (Job::ChunkTag, gather)
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use crate::formats::detect::Format;
 use crate::formats::riff::{ByteRange, WavCodec, WavFile};
 use crate::parse::{LimitKind, Limits, ParseFault};
 
-use super::draft::{Draft, Gather, Job, id3v2, span};
+use super::draft::{Draft, Gather, Job, chunk_tag, span};
 use super::facts::{PartProblem, SeekIndex};
 
 /// The draft of a WAV file.
@@ -93,7 +93,8 @@ pub(super) fn aiff(file: AiffFile, limits: &Limits) -> Draft {
 }
 
 /// What WAV and AIFF files share: PCM samples in one chunk, an `ID3v2` tag
-/// in another, and a walk over the chunks that may have stopped early.
+/// in another, and a walk over the chunks that may have stopped early. The
+/// chunk holds one tag, so one is read from it.
 fn pcm(
     format: Format,
     container: Container,
@@ -115,6 +116,9 @@ fn pcm(
         pictures: Vec::new(),
         tags: Vec::new(),
         problems: stopped.map(PartProblem::Stopped).into_iter().collect(),
-        jobs: id3.map(|range| id3v2(range, limits)).into_iter().collect(),
+        jobs: id3
+            .map(|range| chunk_tag(range, limits))
+            .into_iter()
+            .collect(),
     }
 }

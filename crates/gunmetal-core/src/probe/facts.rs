@@ -41,7 +41,9 @@ pub struct Probed {
     ///
     /// Artwork is numbered in this order: the pictures the container
     /// itself holds (FLAC `PICTURE` blocks), then those of each tag block
-    /// in the order of [`Probed::tags`].
+    /// in the order of [`Probed::tags`]. The per-file picture limit counts
+    /// them all together: the pictures past it are not listed, and
+    /// [`Probed::problems`] holds how many were found.
     pub facts: FileFacts,
     /// The raw tag blocks, in their order of precedence: the first block
     /// that holds a field wins.
@@ -53,6 +55,10 @@ pub struct Probed {
     /// - MP4: the item list, which is empty when the file has none.
     /// - WAV: the `ID3v2` tag of its `id3 ` chunk, then the `INFO` list.
     /// - AIFF: the `ID3v2` tag of its `ID3 ` chunk.
+    ///
+    /// A file has at most seven leading `ID3v2` tags, since detection
+    /// skips no more. A chunk holds one tag: a tag that follows it in the
+    /// chunk is not read, and is recorded in [`Probed::problems`].
     pub tags: Vec<TagBlock>,
     /// Where to start reading to play from a given time.
     pub seek: SeekIndex,
@@ -146,6 +152,13 @@ pub enum PartProblem {
     Value(ValueError),
     /// A tag block larger than may be held in memory, or the search for an
     /// Ogg stream's last page.
+    ///
+    /// Also a count past what a file may hold. More pictures than the
+    /// per-file limit are [`ParseFault::LimitExceeded`] at offset 0, the
+    /// file's, with how many were found. More `ID3v2` tags in a row than
+    /// are read from one place are [`ParseFault::BudgetExceeded`] where
+    /// the first tag left unread starts, as detection reports more
+    /// leading tags than it skips.
     Fault(ParseFault),
     /// A read that the limits refuse (SEC-MED-010).
     Read(DriveError),
