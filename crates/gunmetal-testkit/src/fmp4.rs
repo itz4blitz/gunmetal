@@ -729,24 +729,55 @@ mod tests {
         );
     }
 
+    /// What reading each proper prefix of `segment` gives, shortest first.
+    fn prefixes(segment: &[u8]) -> Vec<Result<Fragment, FragmentError>> {
+        (0..segment.len())
+            .map(|cut| read_fragment(&segment[..cut]))
+            .collect()
+    }
+
+    /// What reading each proper prefix of a segment must give when its
+    /// fields start at `starts`, whose last entry is the segment's length:
+    /// the field the prefix ends inside is the one cut short.
+    fn cut_short(starts: &[usize]) -> Vec<Result<Fragment, FragmentError>> {
+        starts
+            .windows(2)
+            .flat_map(|field| {
+                let offset = field[0];
+                (offset..field[1]).map(move |_| Err(FragmentError::Truncated { offset }))
+            })
+            .collect()
+    }
+
     #[test]
-    fn refuses_every_proper_prefix_as_truncated() {
-        for segment in [
-            run_segment(),
-            defaults_segment(),
-            mixed_segment(0x08, 40, 0x02, 1, 3),
-        ] {
-            // The lengths at which the prefix is anything but cut short.
-            let others: Vec<usize> = (0..segment.len())
-                .filter(|&cut| {
-                    !matches!(
-                        read_fragment(&segment[..cut]),
-                        Err(FragmentError::Truncated { .. })
-                    )
-                })
-                .collect();
-            assert_eq!(others, Vec::<usize>::new());
-        }
+    fn refuses_every_proper_prefix_where_the_field_it_cuts_starts() {
+        // Sizes, types, versions with flags and 32-bit fields, four octets
+        // each, then the 64-bit decode time at 60, and the payload at 112.
+        assert_eq!(
+            prefixes(&run_segment()),
+            cut_short(&[
+                0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 68, 72, 76, 80, 84,
+                88, 92, 96, 100, 104, 108, 112, 117,
+            ])
+        );
+        // Two defaults at 48 and 52, a 32-bit decode time at 68, no entries
+        // in the run, and the payload at 100.
+        assert_eq!(
+            prefixes(&defaults_segment()),
+            cut_short(&[
+                0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80,
+                84, 88, 92, 96, 100, 106,
+            ])
+        );
+        // One default at 48, one field for each sample at 88 and 92, and
+        // the payload at 104.
+        assert_eq!(
+            prefixes(&mixed_segment(0x08, 40, 0x02, 1, 3)),
+            cut_short(&[
+                0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80,
+                84, 88, 92, 96, 100, 104, 108,
+            ])
+        );
     }
 
     #[test]
