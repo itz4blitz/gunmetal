@@ -4,3 +4,4 @@
 //! This file is a registry: it holds only `mod` lines.
 
 pub mod identity;
+pub mod userlog;
