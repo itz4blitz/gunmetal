@@ -15,9 +15,12 @@ export class NativePnpmRefusal extends Refusal {
 
 export const nativePnpmChecksum = 'gGW7NJFmr33IJ6KZu+1w90KBtFxMVf/+AUG8aKJpy4v6dRnUd5v84PcH2ejUuxp/fm3zM0IY6h9LwcYPu9dxdg==';
 
-// Reads an npm package archive: gzip over ustar, regular files directly under `package/`, up to
-// the zero block that ends it. Any other entry, or an archive that stops early, is refused rather than skipped.
-export function archiveFiles(archive: Uint8Array): Map<string, Buffer> {
+// Reads an npm package archive: gzip over ustar, regular files under `package/`, up to the zero block
+// that ends it. Files must sit directly under `package/` unless `nested` is asked for, and then every part
+// of the path must be a plain name, never empty, `.` or `..`. Any other entry or name, or an archive that
+// stops early, is refused rather than skipped.
+export function archiveFiles(archive: Uint8Array, nested = false): Map<string, Buffer> {
+  const allowed = nested ? /^package(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9._-]+)+$/ : /^package\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
   const tar = gunzipSync(archive);
   const files = new Map<string, Buffer>();
   for (let offset = 0; tar[offset] !== 0;) {
@@ -25,8 +28,8 @@ export function archiveFiles(archive: Uint8Array): Map<string, Buffer> {
     const name = header.subarray(0, 100).toString('latin1').replace(/\0[\s\S]*$/, '');
     const size = Number.parseInt(header.subarray(124, 136).toString('latin1'), 8);
     const start = offset + 512;
-    if (header[156] !== 0x30 || !/^package\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || !(size >= 0) || start + size > tar.length) {
-      throw new Error('unsupported native pnpm archive entry');
+    if (header[156] !== 0x30 || !allowed.test(name) || !(size >= 0) || start + size > tar.length) {
+      throw new Error(`unsupported archive entry ${JSON.stringify(name)} of type ${String(header[156])}`);
     }
     files.set(name, tar.subarray(start, start + size));
     offset = start + Math.ceil(size / 512) * 512;

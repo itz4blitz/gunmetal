@@ -5,12 +5,35 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAllDocuments } from 'yaml';
 import { inspect } from './policy.ts';
-import { nativePnpm, Refusal } from './native-pnpm.ts';
+import { nativePnpm, nativePnpmChecksum, Refusal } from './native-pnpm.ts';
 
+// What this module establishes, and what it does not.
+//
+// Before any registry request (`collectInstalled`):
+// - the lockfile passes the source policy;
+// - the native manager is the pinned archive and its executable (`native-pnpm.ts`), and the lockfile's
+//   entry for it carries that same pinned checksum;
+// - every package directory under `node_modules/.pnpm`, and the manager, names an identity the lockfile holds;
+// - nothing locked is missing: every dependency of every importer that is not a workspace link, and every
+//   package of every project document, is among those installed identities.
+// With the registry (`verify`):
+// - the registry's metadata for each installed identity carries the lockfile's integrity;
+// - the bundled npm verifies the registry signatures, and the provenance that metadata announces, for
+//   exactly those identities.
+//
+// Not established: that the files of an installed project package are the bytes of its locked archive.
+// No installed file is hashed here except the manager's. A package's identity is read from its own
+// installed `package.json`, and that the files on disk are the locked archive's rests on pnpm's frozen
+// install with `verifyStoreIntegrity`. Platform-optional packages and versions with a peer suffix are
+// not understood, and fail closed as missing.
 export { Refusal };
 type Identity = { name: string; version: string; integrity: string };
 export type Installed = Identity & { path: string };
 type ObjectValue = Record<string, unknown>;
+type Locked = {
+  importers: Record<string, Record<string, Record<string, { version?: unknown }> | undefined>>;
+  packages?: Record<string, { resolution: { integrity: string } }>;
+};
 function object(value: unknown): value is ObjectValue {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -53,22 +76,42 @@ async function installedPaths(directory: string): Promise<string[]> {
 export async function collectInstalled(directory: string): Promise<{ installed: Installed[]; manager: string; locked: Map<string, Identity> }> {
   const text = await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8');
   requirePolicy('lockfile', { text });
+  const documents = parseAllDocuments(text).map(document => document.toJS() as Locked);
   const locked = new Map<string, Identity>();
-  for (const document of parseAllDocuments(text)) {
-    const value = document.toJS() as { packages: Record<string, { resolution: { integrity: string } }> };
-    for (const [key, entry] of Object.entries(value.packages)) {
+  for (const document of documents) {
+    for (const [key, entry] of Object.entries(document.packages ?? {})) {
       const boundary = key.lastIndexOf('@');
       locked.set(key, { name: key.slice(0, boundary), version: key.slice(boundary + 1), integrity: entry.resolution.integrity });
     }
   }
   const manager = await nativePnpm();
-  const paths = [...await installedPaths(directory), dirname(manager)];
+  const managerRoot = dirname(manager);
   const packages = new Map<string, Installed>();
-  for (const path of paths) {
+  for (const path of [...await installedPaths(directory), managerRoot]) {
     const value = await manifest(path);
     const identity = locked.get(`${String(value.name)}@${String(value.version)}`);
     if (identity === undefined) refuse('verification.installation', 'installed package identity must match its locked registry identity');
+    // `nativePnpm` has just compared the manager's archive with the pinned checksum; the lockfile must name that same archive.
+    if (path === managerRoot && identity.integrity !== `sha512-${nativePnpmChecksum}`) {
+      refuse('verification.installation', 'locked native manager integrity must be the pinned checksum');
+    }
     packages.set(`${identity.name}@${identity.version}`, { ...identity, path: await realpath(path) });
+  }
+  for (const document of documents) {
+    const projects = Object.values(document.importers);
+    // The manager's own document locks one executable for each platform. Only this platform's exists here,
+    // and it was checked above, so that document's packages are not all expected on disk.
+    const required = projects.some(project => project.packageManagerDependencies !== undefined) ? [] : Object.keys(document.packages ?? {});
+    for (const project of projects) {
+      for (const group of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+        for (const [name, entry] of Object.entries(project[group] ?? {})) {
+          // A workspace member is a link to another project, not a package to find installed.
+          const version = String(entry.version);
+          if (!version.startsWith('link:')) required.push(`${name}@${version}`);
+        }
+      }
+    }
+    if (required.some(key => !packages.has(key))) refuse('verification.installation', 'every locked package must be installed');
   }
   const installed = [...packages.values()].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : left.version.localeCompare(right.version));
   const config = command(manager, ['--dir', directory, 'config', 'list', '--json'], directory);
@@ -76,11 +119,12 @@ export async function collectInstalled(directory: string): Promise<{ installed: 
   return { installed, manager, locked };
 }
 
-async function verify(directory: string): Promise<unknown> {
+// `request` stands in for the registry in tests; the command line always uses the real `fetch`.
+export async function verify(directory: string, request: typeof fetch = fetch): Promise<unknown> {
   const { installed, locked } = await collectInstalled(directory);
   const present: { name: string; version: string }[] = [];
   for (const entry of installed) {
-    const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(entry.name)}/${encodeURIComponent(entry.version)}`, {
+    const response = await request(`https://registry.npmjs.org/${encodeURIComponent(entry.name)}/${encodeURIComponent(entry.version)}`, {
       signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) refuse('verification.registry', 'registry metadata is unavailable');

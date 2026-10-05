@@ -47,7 +47,11 @@ export function settings(input: unknown): Finding[] {
   return findings;
 }
 
+// This reads YAML 1.2, where `<<` is an ordinary key and a directive changes nothing it relies on.
+// The manager reads the same files with its own parser, which may merge `<<` or obey a directive, so a
+// document carrying either could mean one thing here and another there. Both are refused outright.
 export function parseYaml(text: string): unknown[] {
+    if (/^%/m.test(text)) throw new Error('directives are forbidden');
     const documents = parseAllDocuments(text, {
       strict: true, uniqueKeys: true, stringKeys: true, version: '1.2',
     });
@@ -55,8 +59,15 @@ export function parseYaml(text: string): unknown[] {
     return documents.map(document => {
       if (document.errors.length !== 0 || document.warnings.length !== 0) throw new Error('invalid YAML');
       visit(document, { Alias: () => { throw new Error('aliases are forbidden'); } });
-      return document.toJS({ maxAliasCount: 0 }) as unknown;
+      const value = document.toJS({ maxAliasCount: 0 }) as unknown;
+      if (mergeKey(value)) throw new Error('merge keys are forbidden');
+      return value;
     });
+}
+
+function mergeKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(mergeKey);
+  return object(value) && Object.entries(value).some(([key, entry]) => key === '<<' || mergeKey(entry));
 }
 
 export function lockfile(input: unknown): Finding[] {
@@ -70,19 +81,27 @@ export function lockfile(input: unknown): Finding[] {
   }
   const findings: Finding[] = [];
   for (const [index, value] of values.entries()) {
-    if (!object(value) || value.lockfileVersion !== '9.0' || !object(value.packages)) return invalid();
+    // The shape pnpm 12.7.0 writes, and nothing else: `importers` always; `packages` and `snapshots`
+    // together, or neither when the document locks no registry package (workspace-lock.test.ts has the
+    // pinned manager write such a document); and no other top-level key, so nothing sits where it is not read.
+    if (!object(value) || value.lockfileVersion !== '9.0' || !object(value.importers) ||
+        Object.keys(value).some(key => !['lockfileVersion', 'settings', 'importers', 'packages', 'snapshots'].includes(key)) ||
+        ('packages' in value) !== ('snapshots' in value)) return invalid();
+    const packages = 'packages' in value ? value.packages : {};
+    const snapshots = 'snapshots' in value ? value.snapshots : {};
+    if (!object(packages) || !object(snapshots)) return invalid();
     const importers = withoutWorkspaceMembers(value.importers);
     if (unsupportedProtocol(importers)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'unsupported dependency protocol is forbidden'));
     } else if (exoticSource(importers)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].importers`, 'exotic dependency sources are forbidden'));
     }
-    if (unsupportedProtocol(value.snapshots)) {
+    if (unsupportedProtocol(snapshots)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'unsupported dependency protocol is forbidden'));
-    } else if (exoticSource(value.snapshots)) {
+    } else if (exoticSource(snapshots)) {
       findings.push(...finding('SEC-SUP-033', `lockfile[${index}].snapshots`, 'exotic dependency sources are forbidden'));
     }
-    for (const [key, entry] of Object.entries(value.packages)) {
+    for (const [key, entry] of Object.entries(packages)) {
       const path = `lockfile[${index}].packages.${key}`;
       const identity = /^(?:(@[a-z0-9._-]+\/[a-z0-9._-]+)|([a-z0-9._-]+))@(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?)$/.exec(key);
       if (identity === null) {
@@ -92,9 +111,10 @@ export function lockfile(input: unknown): Finding[] {
       if (tracking(name)) {
         findings.push(...finding('SEC-CLI-027', path, `tracking package ${name} is forbidden`));
       }
+      // A registry package is locked by one SHA-512 integrity and nothing else: 64 bytes, so 86 base64 characters and `==`.
       const resolution = object(entry) ? entry.resolution : null;
-      if (!object(resolution) || typeof resolution.integrity !== 'string' ||
-          Object.keys(resolution).some(field => field !== 'integrity' && field !== 'revision')) {
+      if (!object(resolution) || Object.keys(resolution).length !== 1 || typeof resolution.integrity !== 'string' ||
+          !/^sha512-[A-Za-z0-9+/]{86}==$/.test(resolution.integrity)) {
         findings.push(...finding('SEC-SUP-033', `${path}.resolution`, 'registry integrity only; exotic sources are forbidden'));
       }
     }
@@ -127,8 +147,7 @@ function unsupportedProtocol(value: unknown): boolean {
 // pnpm records a dependency on another project of the same workspace as `specifier: workspace:*`
 // with `version: link:<path to that project>`. Those entries are the one non-registry source, so they
 // are dropped here and every importer string that remains has to be a registry one.
-function withoutWorkspaceMembers(importers: unknown): unknown {
-  if (!object(importers)) return importers;
+function withoutWorkspaceMembers(importers: ObjectValue): ObjectValue {
   const member = (project: string, entry: unknown): boolean => {
     if (!object(entry) || entry.specifier !== 'workspace:*' || typeof entry.version !== 'string' || !entry.version.startsWith('link:')) return false;
     const target = posix.join(project, entry.version.slice(5));
@@ -169,26 +188,23 @@ export function directDependencies(input: unknown): Finding[] {
   for (const line of input.list.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed === '' || trimmed.startsWith('#')) continue;
-    const boundary = trimmed.indexOf(' = ');
-    if (boundary === -1) return invalid();
-    const rawName = trimmed.slice(0, boundary);
-    const name = rawName.startsWith('"') && rawName.endsWith('"') ? rawName.slice(1, -1) : rawName;
-    const rawReason = trimmed.slice(boundary + 3);
-    if (!rawReason.startsWith('"') || !rawReason.endsWith('"')) return invalid();
-    const reason = rawReason.slice(1, -1);
-    if (!/^[a-z0-9@/._-]+$/i.test(name) || listed.has(name)) return invalid();
-    listed.set(name, reason);
+    // One row: a package name, bare or in double quotes, then ` = ` and a single double-quoted reason
+    // that holds no quote and no escape. Nothing may follow it, so a comment cannot pose as the reason.
+    const row = /^("?)([a-z0-9@/._-]+)\1 = "([^"\\]*)"$/i.exec(trimmed);
+    if (row === null || listed.has(row[2] as string)) return invalid();
+    listed.set(row[2] as string, row[3] as string);
   }
   const used = new Set<string>();
   for (const entry of input.manifests) {
     if (!object(entry) || typeof entry.path !== 'string' || !object(entry.manifest)) return invalid();
-    for (const field of ['dependencies', 'devDependencies']) {
+    for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
       const group = entry.manifest[field];
       if (group === undefined) continue;
       if (!object(group)) return invalid();
+      // Every entry that is not a workspace member needs its reason, however its version is written:
+      // whether that version is acceptable is another check's question, and this one fails closed alone.
       for (const [name, version] of Object.entries(group)) {
-        if (version === 'workspace:*') continue;
-        if (typeof version === 'string' && /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/.test(version)) used.add(name);
+        if (version !== 'workspace:*') used.add(name);
       }
     }
   }
@@ -247,19 +263,44 @@ export function effectiveRegistries(input: unknown): Finding[] {
   if (!object(input) || !object(input.config) || input.config.registry !== 'https://registry.npmjs.org/' ||
       !Array.isArray(input.names) || !object(input.config.registries)) return invalid('effective.registry');
   const config = input.config;
+  const claimed = (scope: string): boolean => Object.entries(config.registries as ObjectValue).some(([url, declaration]) =>
+    url !== 'https://registry.npmjs.org/' && object(declaration) && Array.isArray(declaration.scopes) && declaration.scopes.includes(scope));
+  // In pnpm's report `@` is the scope of the default registry, so another registry holding it takes every package.
+  if (claimed('@')) return invalid('effective.registry');
   const findings: Finding[] = [];
   for (const name of input.names) {
     if (typeof name !== 'string') return invalid('effective.registry');
     if (!name.startsWith('@')) continue;
     const scope = name.slice(0, name.indexOf('/'));
     const explicit = config[`${scope}:registry`];
-    const alternatives = Object.entries(config.registries as ObjectValue).filter(([url, declaration]) =>
-      url !== 'https://registry.npmjs.org/' && object(declaration) && Array.isArray(declaration.scopes) && declaration.scopes.includes(scope));
-    if ((explicit !== undefined && explicit !== 'https://registry.npmjs.org/') || alternatives.length !== 0) {
+    if ((explicit !== undefined && explicit !== 'https://registry.npmjs.org/') || claimed(scope)) {
       findings.push(...invalid(`effective.${name}`));
     }
   }
   return findings;
+}
+
+// Reads `allow` from the `[licenses]` table of the project's deny.toml, with no TOML library and no other
+// program. It knows one spelling, the one that file uses: the table once, `allow = [` once, then one
+// double-quoted licence and a comma on each line up to `]`. Anything else returns null, so the caller
+// fails closed instead of guessing what a full TOML reader would have made of it.
+export function licenceAllowList(text: string): string[] | null {
+  if (text.includes('"""') || text.includes("'''")) return null;
+  const lines = text.split(/\r?\n/).map(line => line.trim());
+  const start = lines.indexOf('[licenses]');
+  if (start === -1 || lines.lastIndexOf('[licenses]') !== start) return null;
+  const next = lines.findIndex((line, index) => index > start && line.startsWith('['));
+  const table = lines.slice(start + 1, next === -1 ? lines.length : next);
+  const open = table.indexOf('allow = [');
+  const close = table.indexOf(']');
+  if (open === -1 || close < open || table.some((line, index) => index !== open && /^"?allow"?\s*=/.test(line))) return null;
+  const allowed: string[] = [];
+  for (const line of table.slice(open + 1, close)) {
+    const licence = /^"([^"\\]*)",$/.exec(line);
+    if (licence === null) return null;
+    allowed.push(licence[1] as string);
+  }
+  return allowed;
 }
 
 function identities(input: unknown, integrity: boolean): string[] | null {

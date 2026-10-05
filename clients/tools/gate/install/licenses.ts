@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { collectInstalled, Refusal } from './verify.ts';
-import { inspect } from './policy.ts';
+import { inspect, licenceAllowList } from './policy.ts';
 
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): value is ObjectValue {
@@ -12,18 +12,11 @@ function invalidPolicy(): never {
   throw new Refusal([{ rule: 'SEC-SUP-029', path: 'licenses.policy', message: 'invalid project licence allow-list' }]);
 }
 async function check(directory: string): Promise<unknown> {
-  // Python is already needed by the actual implicit-node-gyp positive control.
-  // Its standard-library TOML parser reads the single existing project policy.
-  const policy = spawnSync('python3', ['-I', '-S', '-c',
-    'import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))["licenses"]["allow"]))',
-    join(dirname(directory), 'deny.toml'),
-  ], { encoding: 'utf8', timeout: 10000 });
-  if (policy.status !== 0) invalidPolicy();
-  let allowed: unknown;
-  try { allowed = JSON.parse(policy.stdout) as unknown; }
+  // The project's one licence policy is read in-process, so no program found on PATH decides what is allowed.
+  let allowed: string[] | null;
+  try { allowed = licenceAllowList(await readFile(join(dirname(directory), 'deny.toml'), 'utf8')); }
   catch { return invalidPolicy(); }
-  if (!Array.isArray(allowed) || allowed.length === 0 || allowed.some(value => typeof value !== 'string' || value === '') ||
-      new Set(allowed).size !== allowed.length) invalidPolicy();
+  if (allowed === null || allowed.length === 0 || allowed.includes('') || new Set(allowed).size !== allowed.length) invalidPolicy();
   const { installed, manager } = await collectInstalled(directory);
   const packages: { name: string; version: string; license: string }[] = [];
   const findings = [];

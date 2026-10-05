@@ -2,8 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { archiveFiles } from './native-pnpm.ts';
 
 const checksum = '3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==';
 class Refusal extends Error {
@@ -24,11 +25,13 @@ async function check(directory: string, cache: string | undefined): Promise<void
   }
   const tools = await mkdtemp(join(tmpdir(), 'gunmetal-parser-bootstrap-'));
   try {
-    const parser = join(tools, 'node_modules/yaml');
-    await mkdir(parser, { recursive: true });
-    await writeFile(join(tools, 'yaml.tgz'), archive);
-    const extraction = spawnSync('tar', ['--extract', '--gzip', '--file', join(tools, 'yaml.tgz'), '--directory', parser, '--strip-components=1'], { encoding: 'utf8', timeout: 10000 });
-    if (extraction.status !== 0 || extraction.signal !== null) throw new Refusal('bootstrap.parser', 'verified parser archive could not be extracted');
+    // The parser is unpacked here, in-process, from the bytes whose checksum was just compared.
+    // No `tar` or other program found on PATH handles the archive or can add a file to the parser.
+    for (const [name, data] of archiveFiles(archive, true)) {
+      const path = join(tools, 'node_modules/yaml', name.slice('package/'.length));
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, data);
+    }
     await writeFile(join(tools, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
     for (const file of ['installation.ts', 'native-pnpm.ts', 'policy.ts', 'verify.ts']) {
       await cp(fileURLToPath(new URL(file, import.meta.url)), join(tools, file));

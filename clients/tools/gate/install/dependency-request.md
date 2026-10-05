@@ -1,5 +1,7 @@
-`yaml@2.9.1` is a provisional development dependency request for CP-001,
-requiring human confirmation before merge. It parses ordinary pnpm lockfiles,
+`yaml@2.9.1` is a development dependency of CP-001's install gate. It was
+approved on 2026-10-05 under the owner's delegation of the choice ("you pick
+the best ones that are needed"); the decision is recorded in a comment of that
+date on pull request 79. It parses ordinary pnpm lockfiles,
 including both environment and project documents, so source and tracking checks
 cannot silently omit either graph. It is not bundled into the application.
 
@@ -22,9 +24,11 @@ explicit document diagnostics and alias traversal. Tests require rejection of
 escaped exotic sources in both documents, duplicate keys and aliases.
 
 Primary evidence: https://registry.npmjs.org/yaml and https://eemeli.org/yaml/.
-Root integrator reviewed this proposal as provisional; that review is not the
-owner's dependency approval. CODEOWNERS and Dependabot integration changes also
-need code-owner approval before merge.
+The owner should still confirm one point that decision raised: `docs/decisions.md`
+says YAML stays banned for R1, which the decision read as a rule for the shipped
+server and its parsers of untrusted input, not for build tooling that reads the
+project's own lockfile. CODEOWNERS and Dependabot integration changes also need
+code-owner approval before merge.
 
 Pending integration: after CP-002 creates the complete TypeScript gate, the
 integrator wires `pnpm --dir clients run gate` into `scripts/gate.sh` and pins the

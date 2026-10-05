@@ -5,9 +5,17 @@ provide the complete TypeScript gate before `scripts/gate.sh` invokes it.
 Native Node test-first results do not supply coverage or mutation proof.
 
 The proven Linux x64/glibc toolchain is Node 24.20.0, native pnpm 12.7.0 and
-existing Python 3.12.3. Python 3.11 or later is needed for stdlib `tomllib`;
-the actual implicit-node-gyp positive control also requires Python. The pinned
-Node tarball includes npm and node-gyp, so neither needs a new npm dependency.
+existing Python 3.12.3. Only the canary's implicit-node-gyp positive control
+needs Python, because node-gyp runs it; no check reads a policy through it.
+The pinned Node tarball includes npm and node-gyp, so neither needs a new npm
+dependency.
+
+No check lets a program found on `PATH` decide a result. The parser archive is
+unpacked in-process by the same strict reader that verifies the manager's
+archive, the licence allow-list is read from `deny.toml` in-process, and pnpm
+is run only from the verified layout below. Decoy `tar`, `python3` and `pnpm`
+programs placed first on `PATH` are shown never to run. This matters once the
+gate is started through `pnpm run`, which puts `node_modules/.bin` on `PATH`.
 
 Bootstrap inputs must be fetched from their fixed primary URLs, checked before
 extraction and placed outside the project dependency graph:
@@ -22,8 +30,8 @@ extraction and placed outside the project dependency graph:
 The YAML parser is needed before the project install to inspect a normal pnpm
 multi-document lockfile and workspace settings. Importing it from the project
 only after an unchecked install would make that first validation circular.
-The tested remote bootstrap extracts the checksum-verified parser into an
-isolated temporary `node_modules/yaml`; copy only the reviewed `installation.ts`,
+The tested remote bootstrap unpacks the checksum-verified parser, in-process,
+into an isolated temporary `node_modules/yaml`; copy only the reviewed `installation.ts`,
 `native-pnpm.ts`, `policy.ts` and `verify.ts` check modules beside it; execute
 the initial check against the real `clients/` directory. It must place native
 pnpm in this exact layout and export `GUNMETAL_NATIVE_PNPM_ROOT` to it; the
@@ -83,6 +91,21 @@ It copies observed package bytes into a temporary projection; no second install
 or lockfile is created. Current observed packages have no runtime dependencies;
 a future dependency topology change needs its own inventory-composition proof.
 
+The head of `verify.ts` lists exactly what that verifier establishes. In short:
+the manager is the pinned archive and its lock entry carries the pinned
+checksum; every installed directory names a locked identity; nothing an
+importer depends on, and no package of a project lock document, is missing;
+and the registry's metadata and signatures agree with the lockfile for those
+identities. It does not hash the files of an installed project package: that
+they are the locked archive's bytes rests on pnpm's frozen install with
+`verifyStoreIntegrity`. A dependency with platform-optional packages or a
+peer-suffixed version is not understood yet and fails closed.
+
+The canary now gives its own verdict. It prints what each install left behind
+and exits non-zero unless the secure install, run under the workspace settings
+exactly as committed, installed both canaries without running their scripts,
+and the control, with scripts switched on, ran both.
+
 The licence collector reads actual installed MPL source/notice files one at a
 time. Only the complete standard SPDX MPL-2.0 text is exempt from the declaration
 scan; a standard LICENSE cannot exempt a separate notice or source header.
@@ -94,6 +117,13 @@ Once CP-002's gate exists, integrate it into the root definition of done. Keep
 Node/pnpm bootstrap and Python runtime checks in both TeamCity and CI/release
 execution paths. WP-136 must reuse `installation.ts` and signature/licence
 checks rather than duplicate their policy. No Zen execution is authorized.
+
+Request for the owner of `crates/xtask/src/js_deps.rs`: the client check now
+reads a reason in `supply-chain/js-direct-deps.toml` as one double-quoted
+string with nothing after it, so `yaml = "" # "why"` is refused. The Rust
+reader of the same file still takes the text between the first and last quote
+as the reason, so that line passes there. The two readers should agree; this
+package does not edit Rust.
 
 Additional integrator requests from the plan remain: JavaScript/TypeScript
 CodeQL, future client lint/test/mutation/tools CODEOWNERS, wasm/browser toolchain

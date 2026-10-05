@@ -1,4 +1,4 @@
 # Direct JavaScript dependencies of every package.json, each with a written
-# reason (SEC-SUP-035). One sorted `name = "reason"` line per package. Empty
-# until the web client adds a direct dependency.
-yaml = "Dev-only strict multi-document pnpm lockfile parser; duplicate keys, aliases and escaped exotic sources fail closed (CP-001, SEC-SUP-033). Provisional dependency request: ISC, eemeli, zero transitive packages; human confirmation required before merge."
+# reason (SEC-SUP-035). One sorted `name = "reason"` line per package: the
+# reason is a single double-quoted string, with no quote or escape inside it.
+yaml = "Dev-only strict multi-document pnpm lockfile parser for the client install gate; duplicate keys, aliases and escaped exotic sources fail closed (CP-001, SEC-SUP-033). ISC, eemeli, zero transitive packages. Approved 2026-10-05 under the owner's delegation, recorded on pull request 79."

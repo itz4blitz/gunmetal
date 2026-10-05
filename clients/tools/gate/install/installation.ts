@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { glob, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { inspect, parseYaml } from './policy.ts';
 import { Refusal } from './verify.ts';
 import { nativePnpm } from './native-pnpm.ts';
@@ -16,7 +18,11 @@ function requirePolicy(kind: string, input: unknown): void {
   const findings = inspect(kind, input);
   if (findings.length !== 0) throw new Refusal(findings);
 }
-async function check(directory: string): Promise<unknown> {
+// `seams` lets a test stand in for the registry request and for the manager's own answers, which the
+// real registry and the verified manager cannot be made to get wrong. The command line passes none.
+export async function check(directory: string, seams: { request?: typeof fetch; run?: typeof spawnSync } = {}): Promise<unknown> {
+  const request = seams.request ?? fetch;
+  const run = seams.run ?? spawnSync;
   let settings: unknown;
   try {
     const documents = parseYaml(await readFile(join(directory, 'pnpm-workspace.yaml'), 'utf8'));
@@ -29,8 +35,9 @@ async function check(directory: string): Promise<unknown> {
   }
   const lockText = await readFile(join(directory, 'pnpm-lock.yaml'), 'utf8');
   requirePolicy('lockfile', { text: lockText });
+  // A document that locks no registry package has no `packages` at all.
   const lockedNames = parseYaml(lockText).flatMap(document =>
-    Object.keys((document as { packages: ObjectValue }).packages).map(key => key.slice(0, key.lastIndexOf('@'))));
+    Object.keys((document as { packages?: ObjectValue }).packages ?? {}).map(key => key.slice(0, key.lastIndexOf('@'))));
   const manifests: string[] = [];
   const values = new Map<string, ObjectValue>();
   const options = { cwd: directory, exclude: ['**/node_modules/**'], followSymlinks: false };
@@ -55,14 +62,15 @@ async function check(directory: string): Promise<unknown> {
   const node = process.versions.node;
   if (!object(engines) || engines.node !== node) refuse('SEC-SUP-011', 'runtime.node', 'observed runtime must match the manifest pin');
   const manager = await nativePnpm();
-  const result = spawnSync(manager, ['--version'], { encoding: 'utf8', timeout: 10000 });
+  const result = run(manager, ['--version'], { encoding: 'utf8', timeout: 10000 });
   const pnpm = result.stdout.trim();
   if (result.status !== 0 || result.signal !== null || engines.pnpm !== pnpm || root?.packageManager !== `pnpm@${pnpm}`) {
     refuse('SEC-SUP-011', 'runtime.pnpm', 'observed runtime must match the manifest pin');
   }
-  const observed = spawnSync(manager, ['--dir', directory, 'config', 'list', '--json'], { encoding: 'utf8', timeout: 10000 });
-  if (observed.status !== 0 || observed.signal !== null) refuse('SEC-SUP-033', 'effective', 'effective settings could not be read');
-  const config: unknown = JSON.parse(observed.stdout);
+  const observed = run(manager, ['--dir', directory, 'config', 'list', '--json'], { encoding: 'utf8', timeout: 10000 });
+  let config: unknown;
+  try { config = observed.status === 0 && observed.signal === null ? JSON.parse(observed.stdout) : null; }
+  catch { config = null; }
   if (!object(config)) refuse('SEC-SUP-033', 'effective', 'effective settings could not be read');
   const findings = inspect('settings', { ...config, registries: { default: config.registry } })
     .map(entry => ({ ...entry, path: entry.path.replace(/^workspace\./, 'effective.') }));
@@ -71,7 +79,7 @@ async function check(directory: string): Promise<unknown> {
     ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].flatMap(field =>
       object(value[field]) ? Object.entries(value[field]).filter(([, version]) => version !== 'workspace:*').map(([name]) => name) : []))])];
   requirePolicy('effective-registries', { config, names });
-  const response = await fetch('https://registry.npmjs.org/pnpm', { signal: AbortSignal.timeout(30000) });
+  const response = await request('https://registry.npmjs.org/pnpm', { signal: AbortSignal.timeout(30000) });
   if (!response.ok) refuse('SEC-SUP-034', 'pnpm.publication', 'publication must be known and at least seven days old');
   const metadata: unknown = await response.json();
   const pnpmPublication = object(metadata) && object(metadata.time) ? metadata.time[pnpm] : undefined;
@@ -79,12 +87,15 @@ async function check(directory: string): Promise<unknown> {
   return { runtime: { node, pnpm }, pnpmPublication, manifests: manifests.sort(), findings: [] };
 }
 
-try {
-  const directory = process.argv[2];
-  if (directory === undefined) refuse('SEC-SUP-033', 'workspace', 'client workspace directory is required');
-  process.stdout.write(`${JSON.stringify(await check(directory))}\n`);
-} catch (error) {
-  const findings = error instanceof Refusal ? error.findings : [{ rule: 'SEC-SUP-033', path: 'workspace', message: 'workspace check could not complete' }];
-  process.stdout.write(`${JSON.stringify(findings)}\n`);
-  process.exitCode = 1;
+// Run as a program, this checks the directory it is given. Imported, it only offers `check`.
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const directory = process.argv[2];
+    if (directory === undefined) refuse('SEC-SUP-033', 'workspace', 'client workspace directory is required');
+    process.stdout.write(`${JSON.stringify(await check(directory))}\n`);
+  } catch (error) {
+    const findings = error instanceof Refusal ? error.findings : [{ rule: 'SEC-SUP-033', path: 'workspace', message: 'workspace check could not complete' }];
+    process.stdout.write(`${JSON.stringify(findings)}\n`);
+    process.exitCode = 1;
+  }
 }
