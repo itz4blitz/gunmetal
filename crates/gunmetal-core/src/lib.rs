@@ -14,6 +14,7 @@ pub mod decision;
 pub mod ebml;
 pub mod formats;
 pub mod gain;
+pub mod home;
 pub mod http;
 pub mod id;
 pub mod imagedata;
