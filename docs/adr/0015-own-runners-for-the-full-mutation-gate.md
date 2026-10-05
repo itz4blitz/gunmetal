@@ -30,25 +30,34 @@ every other workflow.
   a wave branch, the nightly run, and a pull request into any branch that
   is not a wave branch go to the project's runners. Three kinds of pull
   request stay on GitHub's runners: one into a wave branch, one opened by
-  Dependabot, and one from a fork. The job's time limit follows the same
+  a bot, and one from a fork. The job's time limit follows the same
   condition: 75 minutes on GitHub's runners, 15 hours on the project's.
-- A Dependabot pull request stays on GitHub's runners because of what it
-  carries. Its branch is in this repository, but it brings new versions of
-  crates and actions that nobody has read yet, and their build scripts,
-  macros and code would run on the build host. The workflow tests the pull
-  request's author (`github.event.pull_request.user.login`), which never
-  changes. It does not test `github.actor`, which names whoever caused the
-  event that started the run: that stops being Dependabot when a
-  maintainer pushes to the branch, updates it or reopens the pull request,
-  while the unread dependencies are still in it. For Dependabot this line
-  of the workflow is the only control; no setting stands behind it.
+- A bot's pull request stays on GitHub's runners because nobody has read
+  what it carries. Dependabot's branch is in this repository, but it
+  brings new versions of crates and actions, and their build scripts,
+  macros and code would run on the build host. Any other GitHub App that
+  can write to the repository can open a pull request from one of its
+  branches in the same way. The workflow tests the type of the pull
+  request's author (`github.event.pull_request.user.type == 'Bot'`),
+  which never changes and is true for Dependabot and for every app. It
+  does not test `github.actor`, which names whoever caused the event that
+  started the run: that stops being the bot when a maintainer pushes to
+  the branch, updates it or reopens the pull request, while the unread
+  change is still in it. For a bot's pull request this line of the
+  workflow is the only control; no setting stands behind it. The
+  workspace rules test pins the line and the time limit's line whole.
 - The job is unchanged otherwise: it has a read-only token and no secrets
   (SEC-SUP-012, SEC-SUP-013), every action is pinned (SEC-SUP-010), and it
   runs `scripts/gate.sh` with the same switches.
-- The runners are containers on the project's build host with a CPU and
-  memory cap, no Docker socket and no new privileges. They are registered
-  to this repository alone. Their set-up and the commands to manage them
-  are kept beside them on the host.
+- The runners are four containers on the project's build host, registered
+  to this repository alone. As read on 2026-10-05 from their compose file
+  and from the running containers: each is capped at 4 CPUs, 12 GB and
+  4,096 processes, has `no-new-privileges` set, is not privileged, has no
+  Docker socket, and runs its jobs as an unprivileged user with no
+  capabilities. Their network is not restricted: a job can reach the
+  internet and whatever the build host's network lets a container reach.
+  Their set-up and the commands to manage them are kept beside them on
+  the host.
 - These runners keep state between jobs. Release workflows never use them:
   release builds need fresh runners (SEC-SUP-015, SEC-SUP-040).
 
@@ -59,27 +68,58 @@ so it can rewrite the line that chooses the runner. The fork test in that
 line sends an honest fork pull request to GitHub's runners and does
 nothing against a hostile one.
 
-Three settings are the control. This is how they read through GitHub's API
-on 2026-10-05:
+Three settings are the control against people outside the project. This
+is how they read through GitHub's API on 2026-10-05:
 
-- **The repository is private** (`private` is `true`). Only people the
-  organisation has given access can read it or open a pull request.
+- **The repository is private** (`private` is `true`). Only people and
+  apps the organisation has given access can read it or open a pull
+  request.
 - **Forking is off** (`allow_forking` is `false` on the repository, and
   `members_can_fork_private_repositories` is `false` on the organisation).
   Someone who can read the repository cannot fork it, so no fork pull
-  request can exist.
+  request can exist. The repository has no forks.
 - **Workflows from fork pull requests are off**
   (`run_workflows_from_fork_pull_requests` is `false` in the
-  organisation's setting for private repositories). If a fork did exist,
-  its pull request would start no workflow. The repository's own value
-  could not be read when this was written; GitHub documents that a
-  repository cannot turn on what its organisation has turned off.
+  organisation's setting for private repositories and in the
+  repository's own). If a fork did exist, its pull request would start no
+  workflow.
 
 All three must stay as they are for as long as these runners are
-registered to the repository. Before the repository is made public the
-runners are removed from it, or a new record replaces this one: anyone can
-fork a public repository, and the third setting covers private
-repositories only.
+registered to the repository. Proposed, and waiting for the owner's
+answer: before the repository is made public the runners are removed from
+it, or a new record replaces this one, because anyone can fork a public
+repository and the third setting covers private repositories only.
+
+## Who can run code on the build host
+
+Write access to the repository is the ability to run code inside those
+containers, because the runners build and test whatever is pushed to the
+repository's own branches. On 2026-10-05 that is:
+
+- **Three accounts with admin rights:** `itz4blitz`, `kbdevopz` and
+  `towersofscenery`. A fourth account has read access only.
+- **Coding agents acting as those accounts.** Their merges into a wave
+  branch, and the lock-file changes in them, run on the build host before
+  the owner reads the wave.
+- **What every full run executes:** the build scripts and procedural
+  macros of every locked crate, and the pinned actions the job uses.
+- **GitHub Apps installed on the organisation with write access to
+  repository contents.** On every repository: `slack` and `expo`, which
+  may also edit workflows, and `cloudflare-workers-and-pages`, which may
+  also change repository settings. On selected repositories:
+  `chatgpt-codex-connector`, which may also edit workflows, `coderabbitai`
+  and `premierstudio-local-dev`; whether this repository is among those
+  selected was not checked.
+
+The workflow holds only part of that. A pull request an app opens stays
+on GitHub's runners, by the bot test above. Two things it does not hold:
+an app that may edit workflows can rewrite the line in its own pull
+request, and a push straight to a wave branch is an ordinary full run,
+whoever pushed. The wave branches have no ruleset; only `main` has one.
+So the list of installed apps and their permissions, and the absence of
+protection on the wave branches, are settings this decision depends on.
+Whether to narrow the apps to the repositories that need them and to
+protect the wave branches is the owner's to decide.
 
 Nothing watches these settings when this record is written. The `Settings
 drift` workflow is on the wave branches but not yet on `main`, so its
@@ -93,19 +133,25 @@ to any of them goes unnoticed.
 ## Consequences
 
 If the runners work as intended, a full gate finishes, in hours that
-depend on how many runners are online: ten shards share them. A full run
-no longer costs hosted runner time.
+depend on how many runners are online: ten shards share them. The shards
+of a person's full run no longer cost hosted runner time. The `checks`
+job still runs on GitHub's runners, and so do all ten shards of a bot's
+pull request into `main`, to the 75-minute limit, each time it is updated.
 
 When the runners are stopped, full-run shards wait in the queue and `gate`
 does not pass; package pull requests are not affected.
 
-A Dependabot pull request into `main` runs its full mutation shards on
+The gate's result now depends on the build host: its kernel, its Docker
+version and the containers' settings are part of what a full run tests
+against, and they differ from GitHub's runners (see "What is not proven").
+
+A bot's pull request into `main` runs its full mutation shards on
 GitHub's runners with the 75-minute limit, which the full runs on `wave-1`
-and `wave-2` did not fit in, so it will not pass `gate`. A maintainer who
-has read the update brings it in through a branch and pull request of
-their own, which go to the project's runners. The same would hold for a
-pull request from a fork into `main`, if the settings above ever allowed
-one.
+and `wave-2` did not fit in, so it will not pass `gate`. Proposed, and
+waiting for the owner's answer: a maintainer who has read the update
+brings it in through a branch and pull request of their own, which go to
+the project's runners. The same would hold for a pull request from a fork
+into `main`, if the settings above ever allowed one.
 
 The nightly run uses `main`'s copy of the workflow, so it moves to the
 project's runners only when this change reaches `main`.
@@ -117,21 +163,29 @@ when nothing merges for that long. While a wave has a pull request into
 `main` open, each push starts two full runs, one for the push and one for
 the pull request, and twenty shards share the runners.
 
-The runners build and test whatever is pushed to the repository's own
-branches, so write access to the repository is also the ability to run
-code on the build host inside those containers.
-
 ## What is not proven
 
 No job has run on these runners when this record is written. The four
 runners are registered and show as online, and that is all that has been
 seen. The pull request that brings this change goes into a wave branch, so
 its own shards run on GitHub's runners and prove nothing about the
-project's. The first proof is the first full run after it merges: the push
-to `wave-1`.
+project's.
+
+One failure is already known, so it is not an open question. Inside the
+runner containers, as read on 2026-10-05, the kernel is 6.18.38-Unraid,
+`/sys/kernel/security` does not exist, Yama is absent, and Docker 29.5.3's
+default profile has already installed a seccomp filter. The worker
+sandbox's tests on `wave-1` read `/sys/kernel/security/lsm` and assume a
+thread starts with no filter, so there every shard would fail on the
+unmutated tree. Pull request #88 changes those tests and is the
+prerequisite: a full run before it is on the branch proves nothing about
+mutation testing on these runners. The first proof is the first full run
+with both this change and #88 on `wave-1`.
 
 Until that run finishes, these are expectations and not results: that the
 job's steps (the toolchain, the cache, the tool installer and
-`scripts/gate.sh`) work on these runners at all; the 4.5 to 8 hours for a
-shard; and that 15 hours is enough. The Dependabot rule is untried as
-well: Dependabot has opened no pull request in this repository yet.
+`scripts/gate.sh`) work on these runners at all; that the worker's
+confinement tests pass under Docker's default profile, in particular
+whether the Landlock calls get through it; the 4.5 to 8 hours for a
+shard; and that 15 hours is enough. The bot rule is untried as well: no
+bot has opened a pull request in this repository yet.
