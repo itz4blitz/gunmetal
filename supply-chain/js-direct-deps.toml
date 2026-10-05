@@ -1,4 +1,18 @@
 # Direct JavaScript dependencies of every package.json, each with a written
 # reason (SEC-SUP-035). One sorted `name = "reason"` line per package: the
 # reason is a single double-quoted string, with no quote or escape inside it.
+"@testing-library/dom" = "Dev-only required peer of @testing-library/react: queries the rendered tree by role and accessible name (CP-002, ground rule 3). MIT, Testing Library. Named in the client plan's dependency table."
+"@testing-library/react" = "Dev-only renderer for component tests, so a screen is checked the way a screen reader finds a control (CP-002, ground rule 3). MIT, Testing Library. Named in the client plan's dependency table."
+"@types/node" = "Dev-only type declarations for the gate's own checks and configuration files, which run in Node 24 (CP-002 type step). MIT, DefinitelyTyped. Named in the client plan's dependency table."
+"@types/react" = "Dev-only type declarations for React, needed to type-check components (CP-002 type step). MIT, DefinitelyTyped. Named in the client plan's dependency table."
+"@types/react-dom" = "Dev-only type declarations for the web renderer, an optional peer of @testing-library/react that the type step needs (CP-002). MIT, DefinitelyTyped. Named in the client plan's dependency table."
+"@vitest/coverage-v8" = "Dev-only coverage for Vitest with per-file thresholds at 100 for lines, functions, statements and branches (CP-002, CONTRIBUTING rule 5). MIT, the Vitest team. Named in the client plan's dependency table."
+eslint = "Dev-only linter that fails the gate on the HTML and code sinks the baseline bans and on every escape hatch from the testing rules (CP-002, SEC-CLI-001, SEC-API-045). MIT, OpenJS Foundation. Named in the client plan's dependency table."
+jsdom = "Dev-only DOM for component tests under Vitest (CP-002). MIT, the jsdom project. Named in the client plan's dependency table."
+prettier = "Dev-only formatter, run with --check in the gate as cargo fmt is for Rust (CP-002). MIT, the Prettier team. Named in the client plan's dependency table."
+react = "The UI library (record 1, decision 8); it ships in the bundle. Added by CP-002 for the canary component the gate is proved on. MIT, Meta. Named in the client plan's dependency table."
+react-dom = "The web renderer for React; it ships in the bundle. Added by CP-002 so the canary component can be rendered in a component test. MIT, Meta. Named in the client plan's dependency table."
+typescript = "Dev-only compiler: tsc --noEmit is a gate step, and the linter uses its parser (CP-002). Apache-2.0, Microsoft. Named in the client plan's dependency table."
+typescript-eslint = "Dev-only TypeScript parser and rules for ESLint, including the ban on unexplained type suppressions (CP-002, ground rule 2). MIT, the typescript-eslint project. Named in the client plan's dependency table."
+vitest = "Dev-only test runner for unit and component tests, with the bundler's own transform (CP-002). MIT, the Vitest team. Named in the client plan's dependency table."
 yaml = "Dev-only strict multi-document pnpm lockfile parser for the client install gate; duplicate keys, aliases and escaped exotic sources fail closed (CP-001, SEC-SUP-033). ISC, eemeli, zero transitive packages. Approved 2026-10-05 under the owner's delegation, recorded on pull request 79."
