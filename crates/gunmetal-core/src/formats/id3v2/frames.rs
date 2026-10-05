@@ -45,6 +45,11 @@ pub(super) struct Reader<'p> {
     pub(super) problems: Vec<TagProblem>,
     /// Pictures kept so far.
     pub(super) pictures: u64,
+    /// Values kept so far, in every text, user text and involved people
+    /// frame of the tag.
+    pub(super) values: u64,
+    /// Lines kept so far, in every synchronised lyrics frame of the tag.
+    pub(super) lines: u64,
     /// Frames walked so far, kept or not, including those inside chapters.
     pub(super) walked: u64,
 }

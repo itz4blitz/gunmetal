@@ -33,11 +33,12 @@ fn seeds_dir() -> PathBuf {
 }
 
 /// Every file the corpus holds, in byte order of their names.
-const SEEDS: [&str; 13] = [
+const SEEDS: [&str; 14] = [
     "chapters-five-deep",
     "comment-with-markup",
     "empty",
     "footer-alone",
+    "grouping-and-sort-names",
     "picture-link-to-a-private-address",
     "picture-of-svg-markup",
     "plain-frame-sizes",
@@ -163,6 +164,37 @@ fn replays_a_utf8_title() {
         tag: Ok(tag(
             head,
             vec![frame(b"TIT2", 10, FrameBody::Text(vec![plain("Gunmetal")]))],
+        )),
+        octets: vec![],
+    });
+}
+
+/// The grouping iTunes writes and the sort names of a 2.3 tag, which are
+/// text information frames under identifiers that do not start with `T`.
+/// The frames take 15, 20, 23 and 14 octets.
+///
+/// Verifies: SEC-MED-028
+#[test]
+fn replays_the_grouping_and_the_2_3_sort_names() {
+    let bytes = Tag::new(Version::V23)
+        .frame(b"GRP1", 0, &text(Encoding::Latin1, &["Work"]))
+        .frame(b"XSOT", 0, &text(Encoding::Latin1, &["Blackstar"]))
+        .frame(b"XSOP", 0, &text(Encoding::Latin1, &["Bowie, David"]))
+        .frame(b"XSOA", 0, &text(Encoding::Latin1, &["Low"]))
+        .build();
+    let head = header(3, 0, 72, 82);
+    let values = |value: &str| FrameBody::Text(vec![plain(value)]);
+    replay("grouping-and-sort-names", &bytes, |_| Outcome {
+        header: Ok(head),
+        footer: NOT_A_FOOTER,
+        tag: Ok(tag(
+            head,
+            vec![
+                frame(b"GRP1", 10, values("Work")),
+                frame(b"XSOT", 25, values("Blackstar")),
+                frame(b"XSOP", 45, values("Bowie, David")),
+                frame(b"XSOA", 68, values("Low")),
+            ],
         )),
         octets: vec![],
     });
