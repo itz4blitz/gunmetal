@@ -61,18 +61,22 @@ jobs:
 
   # The mutation run, one shard per job, for every event.
   mutants:
-    runs-on: ubuntu-latest
-    # Wave 0's 1,084 mutants took 45 minutes in one hosted job, about 2.5
-    # seconds each. Wave 1 has 6,008 when this is written, about 4.2 hours
-    # in one job and so about 25 minutes for each of ten shards, plus a few
-    # minutes to install tools and build and test the unmutated tree. A
-    # package pull request's diff-scoped run tests far fewer mutants but
-    # each costs more, since only its crates rebuild: one with 199 mutants
-    # passed 60 minutes in one job. 75 minutes leaves room for the workspace
-    # to triple before a shard times out. A timed-out shard fails `gate`;
-    # raise the shard count here and in GATE_MUTANTS_SHARD when shards pass
-    # 45 minutes.
-    timeout-minutes: 75
+    # A package pull request's diff-scoped shards run on GitHub's runners:
+    # they test few mutants and finish in minutes. A full run's shards (a
+    # push to main or a wave branch, a pull request into main from this
+    # repository, the nightly run) go to the project's own runners, labelled
+    # gunmetal-mutants (record 15): the workspace has about 8,000 mutants at
+    # 20 to 35 seconds each, and on hosted runners every one of ten shards
+    # hit its limit. A pull request from a fork never reaches those runners;
+    # it stays on GitHub's, so nobody outside the project runs code on the
+    # project's hardware.
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}
+    # 75 minutes for a diff-scoped shard: one package's 199 mutants took 60
+    # minutes in a single hosted job, so a tenth of that has room to grow.
+    # 15 hours for a full shard on the project's runners: about 800 mutants
+    # at 20 to 35 seconds each is 4.5 to 8 hours, and the limit leaves room
+    # for the workspace to double. A timed-out shard fails `gate`.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository) && 75 || 900 }}
     permissions:
       contents: read
     strategy:
