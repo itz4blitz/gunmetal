@@ -168,10 +168,127 @@ for (const source of ['npm:yaml@2.9.1', 'catalog:yaml']) {
     }
   });
 }
-test('lockfile importer accepts the recorded workspace-only member protocol', async () => {
-  const text = (await fixture('lockfile')).replace('specifier: 2.9.1', 'specifier: "workspace:*"');
-  assert.deepEqual(inspect('lockfile', { text }), []);
+for (const source of ['workspace:^', 'workspace:~', 'workspace:../member']) {
+  test(`lockfile importer refuses the workspace range ${source}`, async () => {
+    const text = (await fixture('lockfile')).replace('specifier: 2.9.1', `specifier: "${source}"`);
+    assert.deepEqual(inspect('lockfile', { text }),
+      refused('SEC-SUP-033', 'lockfile[1].importers', 'unsupported dependency protocol is forbidden'));
+  });
+}
+for (const document of [0, 1]) {
+  for (const source of ['npm:other@1.0.0', 'catalog:default', 'workspace:*']) {
+    test(`lockfile snapshot refuses ${source} in document ${document}`, async () => {
+      const key = document === 0 ? 'pnpm@12.7.0' : 'yaml@2.9.1';
+      const text = (await fixture('lockfile')).replace(`${key}: {}`, `${key}: {dependencies: {other: "${source}"}}`);
+      assert.deepEqual(inspect('lockfile', { text }),
+        refused('SEC-SUP-033', `lockfile[${document}].snapshots`, 'unsupported dependency protocol is forbidden'));
+    });
+  }
+}
+for (const [name, importers] of [
+  ['importers that are a source', 'npm:evil@1.0.0'],
+  ['a project that is a source', { '.': 'npm:evil@1.0.0' }],
+  ['a dependency group that is a source', { '.': { dependencies: 'npm:evil@1.0.0' } }],
+  ['a dependency entry that is a source', { '.': { dependencies: { evil: 'npm:evil@1.0.0' } } }],
+] as const) {
+  test(`lockfile refuses ${name}`, () => {
+    const text = `lockfileVersion: "9.0"\nimporters: ${JSON.stringify(importers)}\npackages: {}\n`;
+    assert.deepEqual(inspect('lockfile', { text }),
+      refused('SEC-SUP-033', 'lockfile[0].importers', 'unsupported dependency protocol is forbidden'));
+  });
+}
+
+// Verifies: SEC-SUP-033. A workspace member is accepted only in the shape the pinned manager records:
+// `workspace:*` linked to another project of the same lockfile document.
+test('lockfile accepts workspace members as the pinned manager records them', async () => {
+  assert.deepEqual(inspect('lockfile', { text: await fixture('lockfile-workspace') }), []);
 });
+for (const [name, original, replacement, message] of [
+  ['a workspace link to a project the lockfile does not record', 'link:../member', 'link:../outside', 'unsupported dependency protocol is forbidden'],
+  ['a workspace link that leaves the workspace', 'link:../member', 'link:../../../member', 'unsupported dependency protocol is forbidden'],
+  ['a workspace specifier recorded with a registry version', 'version: link:../member', 'version: 1.0.0', 'unsupported dependency protocol is forbidden'],
+  ['a workspace specifier recorded without a version', '        version: link:../member\n', '', 'unsupported dependency protocol is forbidden'],
+  ['a workspace range recorded with a link', 'specifier: workspace:*', 'specifier: workspace:^', 'unsupported dependency protocol is forbidden'],
+  ['a link recorded for a registry specifier', 'specifier: workspace:*', 'specifier: 1.0.0', 'exotic dependency sources are forbidden'],
+] as const) {
+  test(`lockfile refuses ${name}`, async () => {
+    const text = (await fixture('lockfile-workspace')).replace(original, replacement);
+    assert.deepEqual(inspect('lockfile', { text }), refused('SEC-SUP-033', 'lockfile[1].importers', message));
+  });
+}
+test('lockfile refuses a workspace link inside a snapshot', async () => {
+  const text = (await fixture('lockfile-workspace')).replace('yaml@2.9.1: {}', 'yaml@2.9.1: {dependencies: {member: "link:../member"}}');
+  assert.deepEqual(inspect('lockfile', { text }), refused('SEC-SUP-033', 'lockfile[1].snapshots', 'exotic dependency sources are forbidden'));
+});
+
+// Verifies: SEC-SUP-035. The reason list is read strictly: one quoted reason per named package.
+const reviewed = [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } }];
+for (const [name, list] of [
+  ['a duplicate row', 'yaml = "first"\nyaml = "second"\n'],
+  ['a row without a separator', 'yaml "strict parser"\n'],
+  ['an unquoted reason', 'yaml = strict parser\n'],
+  ['a reason without its closing quote', 'yaml = "strict parser\n'],
+  ['a reason without its opening quote', 'yaml = strict parser"\n'],
+  ['a package name with a space', 'ya ml = "strict parser"\n'],
+  ['a table header', '[dependencies]\nyaml = "strict parser"\n'],
+] as const) {
+  test(`dependency reason list refuses ${name}`, () => {
+    assert.deepEqual(inspect('direct-dependencies', { manifests: reviewed, list }),
+      refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml', 'dependency reason list is invalid'));
+  });
+}
+for (const input of [
+  null,
+  { manifests: 'clients/package.json', list: '' },
+  { manifests: [], list: 5 },
+  { manifests: [null], list: '' },
+  { manifests: [{ path: 5, manifest: {} }], list: '' },
+  { manifests: [{ path: 'clients/package.json', manifest: null }], list: '' },
+  { manifests: [{ path: 'clients/package.json', manifest: { dependencies: [] } }], list: '' },
+]) {
+  test(`dependency reason check refuses the malformed input ${JSON.stringify(input)}`, () => {
+    assert.deepEqual(inspect('direct-dependencies', input),
+      refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml', 'dependency reason list is invalid'));
+  });
+}
+test('dependency reason list accepts comments, blank lines, CRLF endings and a quoted scoped name', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [{ path: 'clients/package.json', manifest: { dependencies: { '@gunmetal/kit': '1.2.3' }, devDependencies: { yaml: '2.9.1' } } }],
+    list: '# Reasons.\r\n\r\n  # An indented comment.\r\n"@gunmetal/kit" = "shared kit"\r\nyaml = "strict parser"\r\n',
+  }), []);
+});
+test('one reason covers a package used by several manifests, and workspace members need none', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [
+      { path: 'clients/package.json', manifest: { devDependencies: { yaml: '2.9.1' } } },
+      { path: 'clients/packages/ui/package.json', manifest: { dependencies: { yaml: '2.9.1', '@gunmetal/kit': 'workspace:*' } } },
+    ],
+    list: 'yaml = "strict parser"\n',
+  }), []);
+});
+test('every unexplained direct dependency is reported once, in name order', () => {
+  assert.deepEqual(inspect('direct-dependencies', {
+    manifests: [
+      { path: 'clients/package.json', manifest: { dependencies: { zod: '4.0.0', ajv: '8.0.0' } } },
+      { path: 'clients/packages/ui/package.json', manifest: { devDependencies: { ajv: '8.0.0' } } },
+    ],
+    list: '',
+  }), [
+    { rule: 'SEC-SUP-035', path: 'supply-chain/js-direct-deps.toml.ajv', message: 'direct registry dependency is missing a written reason' },
+    { rule: 'SEC-SUP-035', path: 'supply-chain/js-direct-deps.toml.zod', message: 'direct registry dependency is missing a written reason' },
+  ]);
+});
+test('a reason of only spaces is not a written reason', () => {
+  assert.deepEqual(inspect('direct-dependencies', { manifests: reviewed, list: 'yaml = "   "\n' }),
+    refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'direct registry dependency must have a written reason'));
+});
+for (const version of ['^2.9.1', 5]) {
+  test(`a reason for a package no manifest pins exactly (${JSON.stringify(version)}) is reported as unused`, () => {
+    assert.deepEqual(inspect('direct-dependencies', {
+      manifests: [{ path: 'clients/package.json', manifest: { devDependencies: { yaml: version } } }], list: 'yaml = "strict parser"\n',
+    }), refused('SEC-SUP-035', 'supply-chain/js-direct-deps.toml.yaml', 'reviewed dependency is not used by any manifest'));
+  });
+}
 
 // Verifies: SEC-SUP-035. Every direct registry package has one non-empty reason.
 test('direct registry dependencies require their exact reviewed mapping', () => {

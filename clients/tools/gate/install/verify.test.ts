@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const client = fileURLToPath(new URL('../../../', import.meta.url));
-function verify(directory: string): { status: number | null; signal: string | null; findings: unknown; stderr: string } {
+function verify(directory: string, env = process.env): { status: number | null; signal: string | null; findings: unknown; stderr: string } {
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('verify.ts', import.meta.url)), directory], {
-    encoding: 'utf8', timeout: 180000,
+    env, encoding: 'utf8', timeout: 180000,
   });
   return { status: result.status, signal: result.signal, findings: result.stdout.trim() === '' ? null : JSON.parse(result.stdout), stderr: result.stderr };
 }
@@ -25,6 +25,16 @@ test('real signature and provenance audit covers the exact installed project and
       installed: identities, verified: identities,
       signatures: { invalid: [], missing: [], provenance: [{ name: '@pnpm/exe.linux-x64', version: '12.7.0' }] },
     },
+  });
+});
+
+// Verifies: SEC-SUP-011. The manager refusal reaches the verifier's result as itself.
+test('without a native manager root the verifier reports that refusal', () => {
+  const { GUNMETAL_NATIVE_PNPM_ROOT: _root, ...withoutRoot } = process.env;
+  assert.deepEqual(verify(client, withoutRoot), {
+    status: 1, signal: null, stderr: '', findings: [{
+      rule: 'SEC-SUP-011', path: 'runtime.pnpm', message: 'native pnpm root is required',
+    }],
   });
 });
 

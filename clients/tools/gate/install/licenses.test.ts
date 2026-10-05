@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const client = fileURLToPath(new URL('../../../', import.meta.url));
-function check(directory: string): unknown {
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('licenses.ts', import.meta.url)), directory], { encoding: 'utf8', timeout: 120000 });
+function check(directory: string, env = process.env): unknown {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('licenses.ts', import.meta.url)), directory], { env, encoding: 'utf8', timeout: 120000 });
   return { status: result.status, signal: result.signal, stderr: result.stderr, result: result.stdout.trim() === '' ? null : JSON.parse(result.stdout) };
 }
 const allowed = ['0BSD', 'AGPL-3.0-or-later', 'Apache-2.0', 'Apache-2.0 WITH LLVM-exception', 'BSD-2-Clause', 'BSD-3-Clause', 'BSL-1.0', 'CC0-1.0', 'GPL-3.0-or-later', 'ISC', 'LGPL-2.1-or-later', 'LGPL-3.0-or-later', 'MIT', 'MPL-2.0', 'Unicode-3.0', 'Unlicense', 'Zlib'];
@@ -22,6 +22,30 @@ test('real licence collection covers the project and physically installed manage
       { name: 'yaml', version: '2.9.1', license: 'ISC' },
     ],
   } });
+});
+
+// Verifies: SEC-SUP-029. Where the manager root lives must not change the inventory it is matched against.
+test('real licence collection gives the same result when the native manager root is reached through a symlink', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gunmetal-linked-manager-'));
+  try {
+    const linked = join(directory, 'native-pnpm');
+    await symlink(String(process.env.GUNMETAL_NATIVE_PNPM_ROOT), linked);
+    assert.deepEqual(check(client, { ...process.env, GUNMETAL_NATIVE_PNPM_ROOT: linked }), { status: 0, signal: null, stderr: '', result: {
+      allowed,
+      packages: [
+        { name: '@pnpm/exe.linux-x64', version: '12.7.0', license: 'MIT' },
+        { name: 'yaml', version: '2.9.1', license: 'ISC' },
+      ],
+    } });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+// Verifies: SEC-SUP-011. The manager refusal reaches the licence collector's result as itself.
+test('without a native manager root the licence collector reports that refusal', () => {
+  const { GUNMETAL_NATIVE_PNPM_ROOT: _root, ...withoutRoot } = process.env;
+  assert.deepEqual(check(client, withoutRoot), { status: 1, signal: null, stderr: '', result: [{
+    rule: 'SEC-SUP-011', path: 'runtime.pnpm', message: 'native pnpm root is required',
+  }] });
 });
 
 for (const license of ['SSPL-1.0', undefined]) {
