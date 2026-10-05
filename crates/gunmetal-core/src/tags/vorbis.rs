@@ -2589,6 +2589,287 @@ mod tests {
         );
     }
 
+    /// `fields` written as a comment block and read by the comment parser
+    /// under `limits`.
+    fn read(fields: &[(&str, &str)], limits: &Limits) -> Comments {
+        let mut block = CommentBlock::new(b"kit");
+        for (key, value) in fields {
+            block.field(key, value);
+        }
+        let mut budget = Budget::for_input(0, 0, 1 << 20);
+        vorbis_comment::parse(&block.build(), 0, limits, &mut budget).unwrap()
+    }
+
+    /// `fields` read by the comment parser and mapped, both under `limits`.
+    fn parsed(fields: &[(&str, &str)], limits: &Limits) -> Mapped {
+        from_vorbis(&read(fields, limits), limits)
+    }
+
+    /// The problem of comment `index`, whose value the comment parser cut.
+    fn cut(index: usize) -> Problem {
+        Problem::Truncated {
+            source: src(index),
+            limit: LimitKind::LongText,
+        }
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn lyrics_the_comment_parser_cut_are_kept_and_recorded_once() {
+        let seven = limits(&[(LimitKind::LongText, 7)]);
+        assert_eq!(
+            parsed(&[("LYRICS", "So what")], &seven),
+            sung(LyricsTiming::Plain, "So what", 0)
+        );
+        let cut_once = Mapped {
+            problems: vec![cut(0)],
+            ..sung(LyricsTiming::Plain, "So what", 0)
+        };
+        assert_eq!(parsed(&[("LYRICS", "So what?")], &seven), cut_once);
+        // The parser cuts at eight octets and the mapper at seven: one
+        // text, recorded once.
+        let eight = limits(&[(LimitKind::LongText, 8)]);
+        assert_eq!(
+            from_vorbis(&read(&[("LYRICS", "So what?!")], &eight), &seven),
+            cut_once
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn lyrics_the_comment_parser_cut_at_the_default_limit_are_recorded() {
+        // 4,096 lines of 16 octets: 65,536 octets, the default limit.
+        let at_limit = "fifteen letters\n".repeat(4_096);
+        let past = format!("{at_limit}x");
+        assert_eq!(
+            parsed(&[("LYRICS", at_limit.as_str())], &Limits::DEFAULT),
+            sung(LyricsTiming::Plain, &at_limit, 0)
+        );
+        assert_eq!(
+            parsed(&[("LYRICS", past.as_str())], &Limits::DEFAULT),
+            Mapped {
+                problems: vec![cut(0)],
+                ..sung(LyricsTiming::Plain, &at_limit, 0)
+            }
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn lyrics_the_comment_parser_cut_and_the_lyrics_parser_refuses_give_both_problems() {
+        let limits = limits(&[(LimitKind::LongText, 12), (LimitKind::LyricsBytes, 7)]);
+        assert_eq!(
+            parsed(&[("LYRICS", "thirteenwords")], &limits),
+            only_problems(vec![
+                cut(0),
+                Problem::Lyrics {
+                    source: src(0),
+                    fault: ParseFault::LimitExceeded {
+                        limit: LimitKind::LyricsBytes,
+                        value: 12,
+                        max: 7,
+                        offset: 0,
+                    },
+                },
+            ])
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_short_text_the_comment_parser_cut_is_recorded_once_with_the_limit_it_was_cut_at() {
+        let limits = limits(&[(LimitKind::ShortText, 6), (LimitKind::LongText, 8)]);
+        let short = LimitKind::ShortText;
+        assert_eq!(
+            parsed(
+                &[
+                    // Eight octets: whole for the parser, cut by the mapper.
+                    ("TITLE", "abcdefgh"),
+                    // Nine: cut by the parser at eight, then by the mapper
+                    // at six.
+                    ("ALBUM", "abcdefghi"),
+                    // Nine: cut by the parser at eight, of which the mapper
+                    // keeps the two that are not line feeds.
+                    ("GENRE", "ab\n\n\n\n\n\nc"),
+                    // Eight, the same without its last letter: whole.
+                    ("MOOD", "ab\n\n\n\n\n\n"),
+                ],
+                &limits,
+            ),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("abcdef")),
+                    album: Some(String::from("abcdef")),
+                    genres: strings(&["ab"]),
+                    moods: strings(&["ab"]),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    title: Some(src(0)),
+                    album: Some(src(1)),
+                    genres: Some(src(2)),
+                    moods: Some(src(3)),
+                    ..Sources::default()
+                },
+                problems: vec![
+                    Problem::Truncated {
+                        source: src(0),
+                        limit: short,
+                    },
+                    Problem::Truncated {
+                        source: src(1),
+                        limit: short,
+                    },
+                    cut(2),
+                ],
+            }
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_value_the_comment_parser_cut_to_white_space_is_recorded_and_not_kept() {
+        let limits = limits(&[(LimitKind::LongText, 2)]);
+        assert_eq!(
+            parsed(&[("TITLE", "  "), ("GENRE", "  ")], &limits),
+            Mapped::default()
+        );
+        assert_eq!(
+            parsed(
+                &[
+                    ("TITLE", "  x"),
+                    ("TITLE", "ab"),
+                    ("GENRE", "  y"),
+                    ("DATE", "  1997"),
+                ],
+                &limits,
+            ),
+            Mapped {
+                tags: TrackTags {
+                    title: Some(String::from("ab")),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    title: Some(src(1)),
+                    ..Sources::default()
+                },
+                problems: vec![cut(0), cut(2), cut(3)],
+            }
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_value_that_is_not_text_is_dropped_when_the_comment_parser_cut_it() {
+        let limits = limits(&[(LimitKind::LongText, 12)]);
+        // Every value is twelve octets, the limit.
+        let whole = [
+            ("TRACKNUMBER", "      3 / 12"),
+            ("DISCTOTAL", "           2"),
+            ("DATE", "  1997-03-04"),
+            ("COMPILATION", "           1"),
+            ("RELEASETYPE", "album;  live"),
+            ("ISRC", "USS1Z9900001"),
+            ("R128_TRACK_GAIN", "         256"),
+            ("REPLAYGAIN_ALBUM_GAIN", "    -6.25 dB"),
+            ("REPLAYGAIN_ALBUM_PEAK", "         0.5"),
+        ];
+        assert_eq!(
+            parsed(&whole, &limits),
+            clean(
+                TrackTags {
+                    position: position(Some(3), Some(12), None, Some(2)),
+                    date: Some(date(1997, Some(3), Some(4))),
+                    compilation: Some(true),
+                    release_type: Some(ReleaseType {
+                        primary: Some(PrimaryType::Album),
+                        secondary: vec![SecondaryType::Live],
+                    }),
+                    isrc: vec![isrc("USS1Z9900001")],
+                    gain: crate::catalog::GainTags {
+                        track: Some(gain(GainScale::R128, 1.0, None)),
+                        album: Some(gain(GainScale::ReplayGain, -6.25, Some(0.5))),
+                    },
+                    ..TrackTags::default()
+                },
+                Sources {
+                    track: Some(src(0)),
+                    track_total: Some(src(0)),
+                    disc_total: Some(src(1)),
+                    date: Some(src(2)),
+                    compilation: Some(src(3)),
+                    release_type: Some(src(4)),
+                    isrc: Some(src(5)),
+                    track_gain: Some(src(6)),
+                    album_gain: Some(src(7)),
+                    ..Sources::default()
+                },
+            )
+        );
+        // One octet more each, so what the parser leaves is the value
+        // above: it could be read, and it is not what was written.
+        let longer = [
+            ("TRACKNUMBER", "      3 / 120"),
+            ("DISCTOTAL", "           20"),
+            ("DATE", "  1997-03-040"),
+            ("COMPILATION", "           10"),
+            ("RELEASETYPE", "album;  live0"),
+            ("ISRC", "USS1Z99000010"),
+            ("R128_TRACK_GAIN", "         2560"),
+            ("REPLAYGAIN_ALBUM_GAIN", "    -6.25 dB0"),
+            ("REPLAYGAIN_ALBUM_PEAK", "         0.50"),
+        ];
+        assert_eq!(
+            parsed(&longer, &limits),
+            only_problems(vec![
+                cut(0),
+                cut(1),
+                cut(2),
+                cut(3),
+                cut(4),
+                cut(5),
+                cut(6),
+                cut(7),
+                cut(8),
+            ])
+        );
+    }
+
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn the_next_value_is_tried_after_one_the_comment_parser_cut() {
+        let limits = limits(&[(LimitKind::LongText, 4)]);
+        assert_eq!(
+            parsed(
+                &[
+                    ("DATE", "19981"),
+                    ("DATE", "1997"),
+                    ("DATE", "19961"),
+                    ("TRACKNUMBER", "00041"),
+                    ("TRACKNUMBER", "3"),
+                    ("COMPILATION", "1   0"),
+                    ("COMPILATION", "0"),
+                ],
+                &limits,
+            ),
+            Mapped {
+                tags: TrackTags {
+                    position: position(Some(3), None, None, None),
+                    date: Some(date(1997, None, None)),
+                    compilation: Some(false),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    track: Some(src(4)),
+                    date: Some(src(1)),
+                    compilation: Some(src(6)),
+                    ..Sources::default()
+                },
+                problems: vec![cut(3), cut(0), cut(5)],
+            }
+        );
+    }
+
     /// The comment `problem` names.
     fn problem_source(problem: &Problem) -> Source {
         match *problem {
