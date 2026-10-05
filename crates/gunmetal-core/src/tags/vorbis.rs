@@ -2923,6 +2923,243 @@ mod tests {
         );
     }
 
+    /// A list of names is read from the first of its keys that gives it a
+    /// value. A key whose values are only characters that cleaning removes
+    /// gives none, so the next key is read.
+    #[test]
+    fn a_key_whose_values_clean_to_nothing_leaves_the_list_to_the_next_key() {
+        assert_eq!(
+            map(&[
+                ("ARTISTS", "\u{202A}"),
+                ("ARTIST", "Miles Davis"),
+                ("ALBUMARTIST", "\u{7}"),
+                ("ALBUM ARTIST", "Various"),
+                ("LABEL", "\u{1}"),
+                ("ORGANIZATION", "\u{2066}"),
+                ("PUBLISHER", "Third"),
+                ("GROUPING", "\u{202E}"),
+                ("CONTENTGROUP", "Other"),
+            ]),
+            clean(
+                TrackTags {
+                    artist: strings(&["Miles Davis"]),
+                    album_artist: strings(&["Various"]),
+                    labels: strings(&["Third"]),
+                    grouping: strings(&["Other"]),
+                    ..TrackTags::default()
+                },
+                Sources {
+                    artist: Some(src(1)),
+                    album_artist: Some(src(3)),
+                    labels: Some(src(6)),
+                    grouping: Some(src(8)),
+                    ..Sources::default()
+                },
+            )
+        );
+    }
+
+    /// A value of a list of names that the comment parser cut down to white
+    /// space is recorded, and gives the list nothing, so the next key is
+    /// read.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_name_the_comment_parser_cut_to_white_space_leaves_the_list_to_the_next_key() {
+        let limits = limits(&[(LimitKind::LongText, 2)]);
+        assert_eq!(
+            parsed(
+                &[
+                    ("ARTISTS", "  x"),
+                    ("ARTIST", "ab"),
+                    ("LABEL", "  y"),
+                    ("ORGANIZATION", "cd"),
+                ],
+                &limits,
+            ),
+            Mapped {
+                tags: TrackTags {
+                    artist: strings(&["ab"]),
+                    labels: strings(&["cd"]),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    artist: Some(src(1)),
+                    labels: Some(src(3)),
+                    ..Sources::default()
+                },
+                problems: vec![cut(0), cut(2)],
+            }
+        );
+    }
+
+    /// Lyrics and the release type choose their key before any value is
+    /// read. A value the comment parser cut down to white space is recorded
+    /// and not kept, and it still counts as a value of its key: the next
+    /// key is not read.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_value_cut_to_white_space_still_counts_for_its_key_of_lyrics_or_a_release_type() {
+        let limits = limits(&[(LimitKind::LongText, 2)]);
+        assert_eq!(
+            parsed(
+                &[
+                    ("LYRICS", "  x"),
+                    ("UNSYNCEDLYRICS", "ab"),
+                    ("RELEASETYPE", "  y"),
+                    ("MUSICBRAINZ_ALBUMTYPE", "ep"),
+                ],
+                &limits,
+            ),
+            only_problems(vec![cut(2), cut(0)])
+        );
+    }
+
+    /// A value the comment parser cut is recorded only when the mapper
+    /// reads it. Under a key that an earlier key of its field came before,
+    /// it is not read.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_cut_value_under_a_key_that_lost_precedence_is_not_recorded() {
+        let limits = limits(&[(LimitKind::LongText, 2)]);
+        assert_eq!(
+            parsed(
+                &[
+                    ("ARTISTS", "ab"),
+                    ("ARTIST", "abc"),
+                    ("LYRICS", "cd"),
+                    ("UNSYNCEDLYRICS", "cde"),
+                    ("RELEASETYPE", "ep"),
+                    ("MUSICBRAINZ_ALBUMTYPE", "epx"),
+                ],
+                &limits,
+            ),
+            clean(
+                TrackTags {
+                    artist: strings(&["ab"]),
+                    release_type: Some(ReleaseType {
+                        primary: Some(PrimaryType::Ep),
+                        secondary: vec![],
+                    }),
+                    lyrics: vec![lyrics(LyricsTiming::Plain, "cd")],
+                    ..TrackTags::default()
+                },
+                Sources {
+                    artist: Some(src(0)),
+                    release_type: Some(src(4)),
+                    lyrics: Some(src(2)),
+                    ..Sources::default()
+                },
+            )
+        );
+    }
+
+    /// The white space around a number is not part of it, here as in
+    /// `NumberOf::parse`. So `3 of` with nothing after it is one malformed
+    /// number and gives no number, while a number before a total that
+    /// cannot be read is still kept.
+    ///
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn a_number_with_nothing_after_of_is_one_malformed_number() {
+        use ValueField::{Number, Total};
+        assert_eq!(
+            map(&[
+                ("TRACKNUMBER", "3 of "),
+                ("DISCNUMBER", " 2 / x "),
+                ("TRACKNUMBER", " 4 of x"),
+            ]),
+            Mapped {
+                tags: TrackTags {
+                    position: position(Some(4), None, Some(2), None),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    track: Some(src(2)),
+                    disc: Some(src(1)),
+                    ..Sources::default()
+                },
+                problems: vec![
+                    invalid(0, malformed(Number)),
+                    invalid(2, malformed(Total)),
+                    invalid(1, malformed(Total)),
+                ],
+            }
+        );
+    }
+
+    /// A number that cannot be read costs the total written after it. The
+    /// total is then read from its own key.
+    ///
+    /// Verifies: SEC-MED-014
+    #[test]
+    fn a_number_that_cannot_be_read_costs_the_total_written_after_it() {
+        use ValueField::Number;
+        assert_eq!(
+            map(&[("TRACKNUMBER", "0/12"), ("DISCNUMBER", "x of 2")]),
+            only_problems(vec![
+                invalid(0, out_of_range(Number, 0)),
+                invalid(1, malformed(Number)),
+            ])
+        );
+        assert_eq!(
+            map(&[("TRACKNUMBER", "0/12"), ("TRACKTOTAL", "14")]),
+            Mapped {
+                tags: TrackTags {
+                    position: position(None, Some(14), None, None),
+                    ..TrackTags::default()
+                },
+                sources: Sources {
+                    track_total: Some(src(1)),
+                    ..Sources::default()
+                },
+                problems: vec![invalid(0, out_of_range(Number, 0))],
+            }
+        );
+    }
+
+    /// Each of the three keys of a gain is read whatever the other two
+    /// hold. A value that cannot be read, or that the comment parser cut,
+    /// is recorded even when another key gives the gain, and a peak even
+    /// when it has no gain to belong to.
+    ///
+    /// Verifies: SEC-MED-006, SEC-MED-014
+    #[test]
+    fn every_key_of_a_gain_is_read_whatever_the_others_hold() {
+        use ValueField::{Gain, Peak};
+        let r128 = |problems| Mapped {
+            problems,
+            ..r128_track(1.0)
+        };
+        assert_eq!(
+            map(&[
+                ("R128_TRACK_GAIN", "256"),
+                ("REPLAYGAIN_TRACK_GAIN", "loud"),
+                ("REPLAYGAIN_TRACK_PEAK", "NaN"),
+                ("REPLAYGAIN_ALBUM_PEAK", "17"),
+            ]),
+            r128(vec![
+                invalid(1, malformed(Gain)),
+                invalid(2, malformed(Peak)),
+                invalid(3, ValueError::Unusable { field: Peak }),
+            ])
+        );
+        let limits = limits(&[(LimitKind::LongText, 8)]);
+        assert_eq!(
+            parsed(
+                &[
+                    ("R128_TRACK_GAIN", "256"),
+                    ("REPLAYGAIN_TRACK_GAIN", "-6.50 dB0"),
+                    ("REPLAYGAIN_ALBUM_PEAK", "0.2500001"),
+                ],
+                &limits,
+            ),
+            r128(vec![cut(1), cut(2)])
+        );
+    }
+
     /// The comment `problem` names.
     fn problem_source(problem: &Problem) -> Source {
         match *problem {
@@ -2935,33 +3172,53 @@ mod tests {
         }
     }
 
-    /// A key the mapper knows or any other, any text as its value, and
-    /// whether the comment parser cut the value.
+    /// A key the mapper knows, in upper, lower or mixed case, or any
+    /// other; any text as its value, or text shaped like the values the
+    /// mapper reads; and whether the comment parser cut the value.
     fn any_field() -> impl Strategy<Value = (String, String, bool)> {
         let known = prop::sample::select(vec![
             "TITLE",
+            "Title",
             "ARTIST",
+            "artist",
             "ARTISTS",
+            "Artists",
             "GENRE",
+            "genre",
             "PERFORMER",
             "COMPOSER",
+            "Composer",
             "TRACKNUMBER",
+            "TrackNumber",
             "TRACKTOTAL",
+            "tracktotal",
             "DISCNUMBER",
+            "DiscNumber",
             "DATE",
+            "Date",
             "COMPILATION",
             "RELEASETYPE",
+            "ReleaseType",
             "ISRC",
+            "isrc",
             "MUSICBRAINZ_ARTISTID",
+            "MusicBrainz_ArtistId",
             "REPLAYGAIN_TRACK_GAIN",
+            "replaygain_track_gain",
             "REPLAYGAIN_TRACK_PEAK",
+            "replaygain_track_peak",
             "R128_TRACK_GAIN",
+            "r128_track_gain",
             "LYRICS",
+            "Lyrics",
+            "UNSYNCEDLYRICS",
+            "unsyncedlyrics",
         ])
         .prop_map(str::to_owned);
         let value = prop_oneof![
             any::<String>(),
             "[0-9/ ]{0,6}",
+            "[0-9]{1,2} [oO][fF] [0-9]{0,2}",
             "\\[0[0-9]:0[0-9]\\][a-z\n]{0,6}",
             "[a-z ;,]{0,16}",
             Just(String::from(ARTIST_A)),
@@ -2976,15 +3233,24 @@ mod tests {
         /// parser cut, no list is longer than the tag-field limit, no text
         /// is longer than its limit, every source names a comment of the
         /// block, and no comment gives more than two problems.
+        ///
+        /// The lyrics limit is 9 or its default. At 9 it is below the
+        /// long-text limit of 12, so the lyrics parser refuses lyrics of 10
+        /// to 12 octets. At its default nothing is refused for its length,
+        /// so the mapper's own cut at 12 octets is what bounds the lyrics.
         #[test]
-        fn any_fields_map_within_the_limits(fields in vec(any_field(), 0..12)) {
-            // The lyrics limit is below the long-text limit, so that the
-            // lyrics parser refuses some of the lyrics it is given.
+        fn any_fields_map_within_the_limits(
+            fields in vec(any_field(), 0..12),
+            lyrics_bytes in prop::sample::select(vec![
+                9,
+                Limits::DEFAULT.get(LimitKind::LyricsBytes),
+            ])
+        ) {
             let limits = limits(&[
                 (LimitKind::TagFields, 2),
                 (LimitKind::ShortText, 6),
                 (LimitKind::LongText, 12),
-                (LimitKind::LyricsBytes, 9),
+                (LimitKind::LyricsBytes, lyrics_bytes),
             ]);
             let borrowed: Vec<(&str, &str)> = fields
                 .iter()
@@ -3013,7 +3279,9 @@ mod tests {
                 .map(String::len)
                 .chain(tags.credits.iter().map(|credit| credit.name().len()));
             prop_assert!(short.into_iter().all(|len| len <= 6));
-            prop_assert!(tags.lyrics.iter().all(|lyrics| lyrics.text.len() <= 12));
+            // Kept lyrics fit the long-text limit and the lyrics limit.
+            let longest = usize::try_from(lyrics_bytes.min(12)).unwrap();
+            prop_assert!(tags.lyrics.iter().all(|lyrics| lyrics.text.len() <= longest));
             let sources = &mapped.sources;
             let named = [
                 sources.title,

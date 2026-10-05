@@ -338,6 +338,21 @@ mod tests {
         assert_eq!(read(&list), titled("ef", 28));
     }
 
+    /// An ID is matched octet for octet, as the WAV parser matches the
+    /// chunk IDs it knows: in another case it is another ID.
+    #[test]
+    fn matches_ids_exactly_so_another_case_is_another_id() {
+        let list = [
+            chunk(*b"inam", b"ab"),
+            chunk(*b"Inam", b"cd"),
+            chunk(*b"iart", b"ef"),
+            chunk(*b"INAm", b"gh"),
+            chunk(*b"INAM", b"ij"),
+        ]
+        .concat();
+        assert_eq!(read(&list), titled("ij", 40));
+    }
+
     #[test]
     fn an_empty_list_maps_to_no_tags() {
         assert_eq!(read(b""), whole(TrackTags::default(), Vec::new()));

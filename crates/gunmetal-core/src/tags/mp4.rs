@@ -1643,6 +1643,85 @@ mod tests {
         );
     }
 
+    /// The secondary release types are a list like any other: as many as
+    /// the tag-field limit are kept, and one past it is dropped with the
+    /// reason. The primary type is not part of the list.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn keeps_as_many_secondary_release_types_as_the_tag_field_limit() {
+        let limits = lowered(&[(LimitKind::TagFields, 2)]);
+        let kind = TagField::ReleaseType;
+        assert_eq!(
+            set_under(&limits, &[(kind, "live"), (kind, "remix")]),
+            mapped(
+                TrackTags {
+                    release_type: Some(ReleaseType {
+                        primary: None,
+                        secondary: vec![SecondaryType::Live, SecondaryType::Remix],
+                    }),
+                    ..TrackTags::default()
+                },
+                vec![(kind, 0), (kind, 1)],
+            )
+        );
+        assert_eq!(
+            set_under(
+                &limits,
+                &[
+                    (kind, "live"),
+                    (kind, "remix"),
+                    (kind, "demo"),
+                    (kind, "ep")
+                ]
+            ),
+            Mapped {
+                tags: TrackTags {
+                    release_type: Some(ReleaseType {
+                        primary: Some(PrimaryType::Ep),
+                        secondary: vec![SecondaryType::Live, SecondaryType::Remix],
+                    }),
+                    ..TrackTags::default()
+                },
+                sources: vec![(kind, 0), (kind, 1), (kind, 3)],
+                problems: vec![problem(kind, 2, limit(LimitKind::TagFields))],
+            }
+        );
+    }
+
+    /// Under a tag-field limit of 0 no secondary type is kept, and a
+    /// release type that would hold nothing is not left behind. A release
+    /// type that already holds its primary type keeps it.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn a_secondary_release_type_past_the_limit_leaves_no_empty_release_type() {
+        let limits = lowered(&[(LimitKind::TagFields, 0)]);
+        let kind = TagField::ReleaseType;
+        assert_eq!(
+            set_under(&limits, &[(kind, "live")]),
+            Mapped {
+                tags: TrackTags::default(),
+                sources: Vec::new(),
+                problems: vec![problem(kind, 0, limit(LimitKind::TagFields))],
+            }
+        );
+        assert_eq!(
+            set_under(&limits, &[(kind, "album"), (kind, "live")]),
+            Mapped {
+                tags: TrackTags {
+                    release_type: Some(ReleaseType {
+                        primary: Some(PrimaryType::Album),
+                        secondary: Vec::new(),
+                    }),
+                    ..TrackTags::default()
+                },
+                sources: vec![(kind, 0)],
+                problems: vec![problem(kind, 1, limit(LimitKind::TagFields))],
+            }
+        );
+    }
+
     /// Verifies: SEC-MED-014
     #[test]
     fn reads_identifiers_and_drops_malformed_ones_with_the_reason() {
@@ -1767,7 +1846,8 @@ mod tests {
         );
     }
 
-    /// A peak whose gain was dropped is dropped too, after the gain.
+    /// A peak whose gain was dropped is dropped too. Each problem is where
+    /// its value was read: the peaks before the gains that came after them.
     #[test]
     fn drops_a_peak_whose_gain_was_dropped() {
         assert_eq!(
@@ -1785,6 +1865,8 @@ mod tests {
                 },
                 sources: vec![(TagField::Title, 1)],
                 problems: vec![
+                    problem(TagField::AlbumPeak, 0, Reason::Unpaired),
+                    problem(TagField::TrackPeak, 2, Reason::Unpaired),
                     problem(
                         TagField::AlbumGain,
                         3,
@@ -1795,8 +1877,64 @@ mod tests {
                         4,
                         invalid(ValueError::Unusable { field: Field::Gain })
                     ),
-                    problem(TagField::TrackPeak, 2, Reason::Unpaired),
-                    problem(TagField::AlbumPeak, 0, Reason::Unpaired),
+                ],
+            }
+        );
+    }
+
+    /// The problems are in the order their values were read. A peak without
+    /// its gain is listed where the peak was read, among the others, and a
+    /// peak whose gain comes later is no problem.
+    #[test]
+    fn lists_a_peak_without_its_gain_where_the_peak_was_read() {
+        assert_eq!(
+            set(&[
+                (TagField::Date, "soon"),
+                (TagField::AlbumPeak, "0.5"),
+                (TagField::TrackPeak, "0.25"),
+                (TagField::Compilation, "yes"),
+                (TagField::TrackGain, "-6.5 dB"),
+            ]),
+            Mapped {
+                tags: TrackTags {
+                    gain: GainTags {
+                        track: Some(replay_gain(-6.5, Some(0.25))),
+                        album: None,
+                    },
+                    ..TrackTags::default()
+                },
+                sources: vec![(TagField::TrackPeak, 2), (TagField::TrackGain, 4)],
+                problems: vec![
+                    problem(
+                        TagField::Date,
+                        0,
+                        invalid(ValueError::Malformed { field: Field::Year })
+                    ),
+                    problem(TagField::AlbumPeak, 1, Reason::Unpaired),
+                    problem(TagField::Compilation, 3, Reason::Unreadable),
+                ],
+            }
+        );
+        // The same with the album's peak paired and the track's not.
+        assert_eq!(
+            set(&[
+                (TagField::TrackPeak, "0.25"),
+                (TagField::Compilation, "yes"),
+                (TagField::AlbumPeak, "0.5"),
+                (TagField::AlbumGain, "2 dB"),
+            ]),
+            Mapped {
+                tags: TrackTags {
+                    gain: GainTags {
+                        track: None,
+                        album: Some(replay_gain(2.0, Some(0.5))),
+                    },
+                    ..TrackTags::default()
+                },
+                sources: vec![(TagField::AlbumPeak, 2), (TagField::AlbumGain, 3)],
+                problems: vec![
+                    problem(TagField::TrackPeak, 0, Reason::Unpaired),
+                    problem(TagField::Compilation, 1, Reason::Unreadable),
                 ],
             }
         );
@@ -2972,6 +3110,47 @@ mod tests {
                     problem(TagField::OriginalDate, ItemIndex(2), cut),
                 ],
             }
+        );
+    }
+
+    /// Whole, the name `MOODY` is no name the mapper knows. Cut to `MOOD` it
+    /// would name the mood, but what is left of a name is not the name that
+    /// was written: the item is not mapped, and each of its values is
+    /// recorded with the limit the name was cut at. Cut to `MOO` it names
+    /// nothing, like any item the mapper does not know. A name of exactly
+    /// the limit is whole, and its item is mapped.
+    ///
+    /// Verifies: SEC-MED-006
+    #[test]
+    fn does_not_map_a_freeform_item_whose_name_the_parser_cut() {
+        let values = [kit::data(1, b"Dark"), kit::data(1, b"Calm")];
+        let moody = kit::freeform(None, Some("MOODY"), &values);
+        let short = |limit| lowered(&[(LimitKind::ShortText, limit)]);
+        let nothing = mapped(TrackTags::default(), Vec::new());
+        assert_eq!(probed(&moody, &short(5)), nothing);
+        assert_eq!(probed(&moody, &short(3)), nothing);
+        let cut = problem(
+            TagField::Moods,
+            ItemIndex(0),
+            Reason::Truncated(LimitKind::ShortText),
+        );
+        assert_eq!(
+            probed(&moody, &short(4)),
+            Mapped {
+                tags: TrackTags::default(),
+                sources: Vec::new(),
+                problems: vec![cut, cut],
+            }
+        );
+        assert_eq!(
+            probed(&mood_item(b"Dark"), &short(4)),
+            mapped(
+                TrackTags {
+                    moods: strings(&["Dark"]),
+                    ..TrackTags::default()
+                },
+                vec![(TagField::Moods, ItemIndex(0))],
+            )
         );
     }
 
