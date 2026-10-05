@@ -5,3 +5,4 @@
 pub mod ape;
 pub mod mp4;
 pub mod riff;
+pub mod vorbis;
