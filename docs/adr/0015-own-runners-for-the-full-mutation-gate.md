@@ -82,11 +82,13 @@ fork a public repository, and the third setting covers private
 repositories only.
 
 Nothing watches these settings when this record is written. The `Settings
-drift` workflow downloads the repository's and the organisation's settings
-every day, which is where the first two are found, but it compares
-neither: in those answers it checks secret scanning, push protection and
-the two-factor requirement. It does not download the third at all. Until
-it compares all three, a change to any of them goes unnoticed.
+drift` workflow is on the wave branches but not yet on `main`, so its
+daily schedule has never run. When it runs it will download the
+repository's and the organisation's settings, which is where the first two
+are found, but it compares neither: in those answers it checks secret
+scanning, push protection and the two-factor requirement. It does not
+download the third at all. Until it runs and compares all three, a change
+to any of them goes unnoticed.
 
 ## Consequences
 
@@ -99,11 +101,14 @@ does not pass; package pull requests are not affected.
 
 A Dependabot pull request into `main` runs its full mutation shards on
 GitHub's runners with the 75-minute limit, which the full runs on `wave-1`
-and `wave-2` did not fit in. Once those waves are in `main` it cannot pass
-`gate`. A maintainer who has read the update brings it in through a branch
-and pull request of their own, which go to the project's runners. The
-same would hold for a pull request from a fork into `main`, if the
-settings above ever allowed one.
+and `wave-2` did not fit in, so it will not pass `gate`. A maintainer who
+has read the update brings it in through a branch and pull request of
+their own, which go to the project's runners. The same would hold for a
+pull request from a fork into `main`, if the settings above ever allowed
+one.
+
+The nightly run uses `main`'s copy of the workflow, so it moves to the
+project's runners only when this change reaches `main`.
 
 The workflow cancels a branch's run when a newer commit is pushed to that
 branch, and that is unchanged. A full run now takes hours, so every merge
