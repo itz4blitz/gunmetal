@@ -7,6 +7,7 @@ use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
+use gunmetal_core::parse::{LimitError, LimitKind};
 use gunmetal_core::path::RelPath;
 use gunmetal_fs::fingerprint::Mark;
 use gunmetal_fs::open::FileKind;
@@ -447,18 +448,12 @@ fn nested(depth: usize) -> RelPath {
 
 /// The limits that change only how many entries a directory may hold.
 fn entries(entries: u64) -> WalkLimits {
-    WalkLimits {
-        entries,
-        depth: WalkLimits::DEFAULT.depth,
-    }
+    WalkLimits::new(entries, WalkLimits::DEFAULT.depth()).expect("limits within their ceilings")
 }
 
 /// The limits that change only how deep a directory may lie.
 fn depth(depth: u64) -> WalkLimits {
-    WalkLimits {
-        entries: WalkLimits::DEFAULT.entries,
-        depth,
-    }
+    WalkLimits::new(WalkLimits::DEFAULT.entries(), depth).expect("limits within their ceilings")
 }
 
 /// A plain walk runs under the limits the core's limits table gives a
@@ -468,11 +463,8 @@ fn depth(depth: u64) -> WalkLimits {
 #[test]
 fn walks_folders_as_deep_as_the_default_limit_and_no_deeper() {
     assert_eq!(
-        WalkLimits::DEFAULT,
-        WalkLimits {
-            entries: 65_536,
-            depth: 32
-        }
+        (WalkLimits::DEFAULT.entries(), WalkLimits::DEFAULT.depth()),
+        (65_536, 32)
     );
     let scratch = Scratch::new("fs-walk-default-depth");
     scratch.dir(&format!("music/{}", ["d"; 33].join("/")));
@@ -604,6 +596,75 @@ fn judges_a_directory_again_when_it_comes_to_list_it() {
             skipped("b", outside(scratch.raw("outside"))),
             skipped("c", io(Op::List, ErrorKind::NotADirectory)),
             skipped("d", FsError::AlreadyWalked),
+        ]
+    );
+}
+
+/// The limits may be lowered freely, and raised only to the ceilings the
+/// core's limits table gives the rows their numbers come from: four times
+/// the default for a directory's entries, and no higher than the default
+/// for depth. So no caller can switch a limit off.
+#[test]
+fn holds_the_limits_to_the_ceilings_of_the_core_limits_table() {
+    let highest = WalkLimits::new(262_144, 32).expect("the ceilings themselves are allowed");
+    assert_eq!((highest.entries(), highest.depth()), (262_144, 32));
+    let lowest = WalkLimits::new(0, 0).expect("a limit may be lowered to nothing");
+    assert_eq!((lowest.entries(), lowest.depth()), (0, 0));
+    assert_eq!(
+        WalkLimits::new(262_145, 32),
+        Err(LimitError::AboveCeiling {
+            limit: LimitKind::Children,
+            value: 262_145,
+            ceiling: 262_144,
+        })
+    );
+    assert_eq!(
+        WalkLimits::new(65_536, 33),
+        Err(LimitError::AboveCeiling {
+            limit: LimitKind::ContainerDepth,
+            value: 33,
+            ceiling: 32,
+        })
+    );
+    assert_eq!(
+        WalkLimits::new(u64::MAX, u64::MAX),
+        Err(LimitError::AboveCeiling {
+            limit: LimitKind::Children,
+            value: u64::MAX,
+            ceiling: 262_144,
+        })
+    );
+}
+
+/// A link the policy refuses is listed with where it leads, but the walk
+/// does not hold on to that while it reports the rest of the directory, or
+/// a folder of such links could make it hold their targets all at once. It
+/// reads the link again when it comes to report it. So the target reported
+/// is the one the link has then, and a refused link that has become
+/// something else since is reported as replaced.
+///
+/// Verifies: SEC-MED-034
+#[test]
+fn reads_a_refused_link_again_when_it_comes_to_report_it() {
+    let scratch = Scratch::new("fs-walk-refused-again");
+    scratch.link("/outside/first", "music/a.flac");
+    scratch.link("/outside/first", "music/b.flac");
+    let root = scratch.root();
+    let mut walk = root.walk();
+    assert_eq!(
+        walk.next(),
+        Some(dir(rel(&[]), &[left(b"a.flac"), left(b"b.flac")]))
+    );
+    for name in ["a.flac", "b.flac"] {
+        fs::remove_file(scratch.path(&format!("music/{name}"))).expect("remove the link");
+    }
+    scratch.link("/outside/second", "music/a.flac");
+    scratch.file("music/b.flac", b"fLaC");
+    assert_eq!(
+        collect(walk),
+        [
+            skipped("a.flac", outside(raw("/outside/second"))),
+            skipped("b.flac", FsError::Replaced),
         ]
     );
 }

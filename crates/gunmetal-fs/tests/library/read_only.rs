@@ -2,7 +2,7 @@
 //! and a watch on the library sees no change.
 
 use std::fs::{self, File};
-use std::io::{self, Write as _};
+use std::io::Write as _;
 use std::mem::MaybeUninit;
 use std::os::fd::AsFd as _;
 use std::os::unix::fs::MetadataExt as _;
@@ -163,12 +163,12 @@ fn a_descriptor_cloned_from_an_open_file_still_cannot_write() {
             .expect("clone the descriptor"),
     );
     assert_eq!(
-        owned.write_all(b"x").map_err(|error| error.kind()),
-        Err(io::Error::from(Errno::BADF).kind())
+        owned.write_all(b"x").map_err(|error| error.raw_os_error()),
+        Err(Some(Errno::BADF.raw_os_error()))
     );
     assert_eq!(
-        owned.set_len(0).map_err(|error| error.kind()),
-        Err(io::Error::from(Errno::INVAL).kind())
+        owned.set_len(0).map_err(|error| error.raw_os_error()),
+        Err(Some(Errno::INVAL.raw_os_error()))
     );
     assert_eq!(
         fs::read(scratch.path("music/track.flac")).expect("read the file back"),

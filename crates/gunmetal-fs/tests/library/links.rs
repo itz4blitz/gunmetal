@@ -4,7 +4,9 @@
 use std::fs;
 use std::io::ErrorKind;
 
-use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, MAX_LINKS, Op};
+use gunmetal_fs::root::{
+    FsError, LinkPolicy, LinkReason, LinkRefusal, MAX_LINK_TEXT, MAX_LINKS, Op,
+};
 
 use crate::support::{Scratch, at, contents, identity, io, outside, raw};
 
@@ -237,6 +239,40 @@ fn collapses_dot_dot_in_link_text_by_name() {
         let file = root.open_file(&at(path)).expect("the link is followed");
         assert_eq!(contents(&file), b"by name", "{path}");
     }
+}
+
+/// A link's text is judged only up to a length, so that one link cannot
+/// ask for more work or more memory than that: 1,024 bytes, the longest
+/// path POSIX lets a portable program count on. A link whose text is
+/// exactly that long is followed like any other. One a byte longer is
+/// refused before any of its text is resolved, with its length and without
+/// its text, although it would lead to the same file.
+///
+/// Verifies: SEC-MED-034
+#[test]
+fn judges_link_text_up_to_the_limit_and_refuses_longer_text_unresolved() {
+    assert_eq!(MAX_LINK_TEXT, 1024);
+    let scratch = Scratch::new("fs-link-length");
+    scratch.file("music/track.flac", b"the track");
+    // 507 times `./` and the ten bytes of the name, then the same with one
+    // more separator.
+    let at_the_limit = format!("{}track.flac", "./".repeat(507));
+    let one_over = format!("{}/track.flac", "./".repeat(507));
+    assert_eq!((at_the_limit.len(), one_over.len()), (1024, 1025));
+    scratch.link(&at_the_limit, "music/limit.flac");
+    scratch.link(&one_over, "music/over.flac");
+    let root = scratch.root();
+    let file = root
+        .open_file(&at("limit.flac"))
+        .expect("the link is followed");
+    assert_eq!(contents(&file), b"the track");
+    assert_eq!(
+        root.open_file(&at("over.flac")).map(|_| ()),
+        Err(FsError::LinkTooLong {
+            len: 1025,
+            max: 1024
+        })
+    );
 }
 
 #[test]

@@ -44,7 +44,7 @@ use std::convert::identity;
 use std::slice;
 use std::vec;
 
-use gunmetal_core::parse::{LimitKind, Limits};
+use gunmetal_core::parse::{LimitError, LimitKind, Limits};
 use gunmetal_core::path::RelPath;
 
 use crate::fingerprint::{DirSummary, Mark, summarise};
@@ -56,10 +56,10 @@ use crate::root::{Base, Found, FsError, Root, child, read_names};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WalkLimits {
     /// The most entries a directory may hold and still be listed.
-    pub entries: u64,
+    entries: u64,
     /// The deepest a directory may lie and still be listed. The root lies
     /// at depth 0, and a directory in it at depth 1.
-    pub depth: u64,
+    depth: u64,
 }
 
 impl WalkLimits {
@@ -72,6 +72,29 @@ impl WalkLimits {
         entries: Limits::DEFAULT.get(LimitKind::Children),
         depth: Limits::DEFAULT.get(LimitKind::ContainerDepth),
     };
+
+    /// Limits of `entries` entries a directory and `depth` levels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LimitError::AboveCeiling`] when a limit is above its
+    /// ceiling.
+    pub const fn new(entries: u64, depth: u64) -> Result<Self, LimitError> {
+        Ok(Self { entries, depth })
+    }
+
+    /// The most entries a directory may hold and still be listed.
+    #[must_use]
+    pub const fn entries(self) -> u64 {
+        self.entries
+    }
+
+    /// The deepest a directory may lie and still be listed. The root lies
+    /// at depth 0, and a directory in it at depth 1.
+    #[must_use]
+    pub const fn depth(self) -> u64 {
+        self.depth
+    }
 }
 
 /// One thing a walk found.

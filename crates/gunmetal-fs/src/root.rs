@@ -55,6 +55,13 @@ use crate::open::{Facts, FileKind, Identity};
 /// kernel's own limit. A loop of links ends here.
 pub const MAX_LINKS: u8 = 40;
 
+/// The longest text, in bytes, a symbolic link may hold and still be
+/// judged: `_XOPEN_PATH_MAX`, the longest path POSIX lets a portable
+/// program count on. A link with longer text is refused without any of it
+/// being resolved ([`FsError::LinkTooLong`]), so the work one link can ask
+/// for is bounded by this and not by what the filesystem will store.
+pub const MAX_LINK_TEXT: usize = 1024;
+
 /// How a root is opened: read-only, as a directory and nothing else, and
 /// closed when another program starts.
 const ROOT_FLAGS: OFlags = OFlags::RDONLY
@@ -141,6 +148,14 @@ pub enum FsError {
     Link(LinkRefusal),
     /// The path led through more than [`MAX_LINKS`] symbolic links.
     TooManyLinks,
+    /// A symbolic link's text is longer than [`MAX_LINK_TEXT`] bytes, so
+    /// it was neither judged nor followed.
+    LinkTooLong {
+        /// How long its text is, in bytes.
+        len: usize,
+        /// The longest text that is judged.
+        max: usize,
+    },
     /// The file is no longer the one the index recorded, so its bytes must
     /// not be served until it has been scanned again (SEC-MED-036).
     Changed {
@@ -552,7 +567,9 @@ impl Root {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pool::Pool;
     use gunmetal_testkit::tempdir::TempDir;
+    use std::time::Duration;
 
     /// A scratch directory holding a library folder with two regular
     /// files, `track.flac` and `other.flac`, and the root opened on it.
@@ -615,7 +632,9 @@ mod tests {
     }
 
     /// The type is read again from the open handle: a FIFO the judgement
-    /// took for a regular file is opened without blocking and refused.
+    /// took for a regular file is opened without blocking and refused. No
+    /// writer ever comes, so the open runs on a pool: a door that waited
+    /// for one would fail this test instead of hanging it.
     ///
     /// Verifies: SEC-MED-035
     #[test]
@@ -629,11 +648,14 @@ mod tests {
         .expect("make a FIFO");
         let mut judged = judge(&root, "pipe.flac");
         judged.kind = FileKind::File;
+        let opened = Pool::new(1).run(Duration::from_secs(30), move || {
+            root.own().file(&names("pipe.flac"), &judged).err()
+        });
         assert_eq!(
-            root.own().file(&names("pipe.flac"), &judged).err(),
-            Some(FsError::NotRegular {
+            opened,
+            Ok(Some(FsError::NotRegular {
                 found: FileKind::Fifo
-            })
+            }))
         );
     }
 }
