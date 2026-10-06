@@ -450,6 +450,7 @@ dependencies = [
  "gunmetal-core",
  "gunmetal-fs",
  "gunmetal-testkit",
+ "proptest",
 ]
 
 [[package]]
