@@ -210,16 +210,16 @@ fn refused(seen: FileKind) -> impl FnOnce(io::Error) -> FsError {
 }
 
 impl Base {
-    /// Opens the file at `names`, which looked like `seen` before it was
-    /// opened, and refuses it unless the open handle is a regular file.
-    pub(crate) fn file(&self, names: &[Vec<u8>], seen: FileKind) -> Result<MediaFile, FsError> {
+    /// Opens the file at `names`, which was judged to be `judged` before it
+    /// was opened, and refuses it unless the open handle is a regular file.
+    pub(crate) fn file(&self, names: &[Vec<u8>], judged: &Facts) -> Result<MediaFile, FsError> {
         self.dir
             .open_with(os_path(names), &read_only())
             .and_then(|file| {
                 file.metadata()
                     .map(|metadata| (file.into_std(), Facts::of(&metadata)))
             })
-            .map_err(refused(seen))
+            .map_err(refused(judged.kind))
             .and_then(|(file, facts)| {
                 if facts.kind == FileKind::File {
                     Ok(MediaFile {
@@ -246,7 +246,7 @@ impl Root {
     /// read.
     pub fn open_file(&self, rel: &RelPath) -> Result<MediaFile, FsError> {
         self.locate(self.own(), &[], rel.components())
-            .and_then(|found| found.base.file(&found.names, found.facts.kind))
+            .and_then(|found| found.base.file(&found.names, &found.facts))
     }
 
     /// Opens the regular file at `rel` for serving, and refuses it unless

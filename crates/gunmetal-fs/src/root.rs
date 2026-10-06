@@ -21,7 +21,7 @@
 //! verdict named, so a link swapped during the check cannot redirect it.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a library root is resolved and opened by path once, here; everything else is opened beneath its handle (SEC-MED-033, SEC-HIS-016)"
+    reason = "a library root is resolved and opened by path once, here, and the unit tests below build scratch libraries by path; everything else is opened beneath its handle (SEC-MED-033, SEC-HIS-016)"
 )]
 
 use std::collections::VecDeque;
@@ -438,5 +438,94 @@ impl Root {
             LinkVerdict::OtherLibrary { index } => Err(refuse(LinkReason::OtherLibrary { index })),
             LinkVerdict::Outside => Err(refuse(LinkReason::Outside)),
         }
+    }
+}
+
+/// What cannot be shown through the public interface without a race: what
+/// the door does when the object at a path changes between the moment the
+/// path is judged and the moment it is opened. Each test hands the door a
+/// judgement made before the change, as a swap in that moment would.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gunmetal_testkit::tempdir::TempDir;
+
+    /// A scratch directory holding a library folder with two regular
+    /// files, `track.flac` and `other.flac`, and the root opened on it.
+    fn library(label: &str) -> (TempDir, Root) {
+        let temp = TempDir::new(label).expect("a scratch directory");
+        let music = temp.path().join("music");
+        std::fs::create_dir(&music).expect("create the library");
+        std::fs::write(music.join("track.flac"), b"the track").expect("write a file");
+        std::fs::write(music.join("other.flac"), b"another").expect("write a file");
+        let root = Root::open(&music, LinkPolicy::default()).expect("the root opens");
+        (temp, root)
+    }
+
+    /// The names of the entry `name` of the root.
+    fn names(name: &str) -> Vec<Vec<u8>> {
+        vec![name.as_bytes().to_vec()]
+    }
+
+    /// What the entry `name` of the root is now, as a walk or an open
+    /// judges it before opening it.
+    fn judge(root: &Root, name: &str) -> Facts {
+        root.own()
+            .inspect(&names(name))
+            .expect("the entry is there")
+    }
+
+    /// A link swapped in for a file after the file was judged is not
+    /// followed to the file it names. Where the kernel resolves the path
+    /// the open refuses the link itself; where cap-std resolves it by hand
+    /// the open reaches `other.flac`, which is not the file judged. The
+    /// door reports both as the same swap.
+    ///
+    /// Verifies: SEC-MED-034
+    #[test]
+    fn refuses_a_link_swapped_in_for_a_file_after_it_was_judged() {
+        let (temp, root) = library("fs-unit-swapped-link");
+        let judged = judge(&root, "track.flac");
+        let track = temp.path().join("music/track.flac");
+        std::fs::remove_file(&track).expect("remove the file");
+        std::os::unix::fs::symlink("other.flac", &track).expect("make a link");
+        assert_eq!(
+            root.own().file(&names("track.flac"), &judged).err(),
+            Some(FsError::Replaced)
+        );
+    }
+
+    /// Verifies: SEC-MED-034
+    #[test]
+    fn refuses_a_file_that_is_not_the_one_judged() {
+        let (_temp, root) = library("fs-unit-another-file");
+        let judged = judge(&root, "other.flac");
+        assert_eq!(
+            root.own().file(&names("track.flac"), &judged).err(),
+            Some(FsError::Replaced)
+        );
+    }
+
+    /// The type is read again from the open handle: a FIFO the judgement
+    /// took for a regular file is opened without blocking and refused.
+    ///
+    /// Verifies: SEC-MED-035
+    #[test]
+    fn refuses_what_the_open_handle_shows_is_not_a_regular_file() {
+        let (temp, root) = library("fs-unit-handle-kind");
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            temp.path().join("music/pipe.flac"),
+            Mode::from_raw_mode(0o644),
+        )
+        .expect("make a FIFO");
+        let mut judged = judge(&root, "pipe.flac");
+        judged.kind = FileKind::File;
+        assert_eq!(
+            root.own().file(&names("pipe.flac"), &judged).err(),
+            Some(FsError::NotRegular {
+                found: FileKind::Fifo
+            })
+        );
     }
 }

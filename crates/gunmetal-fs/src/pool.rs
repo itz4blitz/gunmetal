@@ -20,6 +20,7 @@
 //! (WP-078) calls [`Pool::report_lost`] when a worker is stuck reading this
 //! root, so the rule that pauses a root is in one place.
 
+use std::io;
 use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -48,11 +49,24 @@ pub enum PoolError {
     TimedOut,
     /// The job panicked.
     Panicked,
+    /// The operating system would not start a thread for the job, and the
+    /// job was not started.
+    NoThread {
+        /// How the operating system refused.
+        kind: io::ErrorKind,
+    },
 }
 
 /// A job as the pool starts it: the caller's job and the channel its result
 /// goes back through.
 type Task = Box<dyn FnOnce() + Send>;
+
+/// Starts `task` on a thread of its own. The operating system may refuse,
+/// when the process or the system has as many threads as it allows, or no
+/// memory for another.
+fn spawn(task: Task) -> io::Result<()> {
+    thread::Builder::new().spawn(task).map(drop)
+}
 
 /// What a pool counts.
 #[derive(Debug)]
@@ -102,11 +116,11 @@ impl Pool {
         Ok(())
     }
 
-    /// Takes a place for `task` and starts it on a thread of its own, or
-    /// refuses it and drops it.
-    fn start(&self, task: Task) -> Result<(), PoolError> {
+    /// Takes a place for `task` and starts it with `spawn` on a thread of
+    /// its own, or refuses it and drops it.
+    fn start(&self, task: Task, spawn: fn(Task) -> io::Result<()>) -> Result<(), PoolError> {
         self.admit().map(|()| {
-            thread::spawn(task);
+            let _ = spawn(task);
         })
     }
 
@@ -147,10 +161,13 @@ impl Pool {
         F: FnOnce() -> T + Send + 'static,
     {
         let (sender, receiver) = sync_channel(1);
-        self.start(Box::new(move || {
-            // The caller may have given up, and then nobody is listening.
-            let _ = sender.send(job());
-        }))
+        self.start(
+            Box::new(move || {
+                // The caller may have given up, and then nobody is listening.
+                let _ = sender.send(job());
+            }),
+            spawn,
+        )
         .and_then(|()| {
             receiver
                 .recv_timeout(deadline)
@@ -180,5 +197,36 @@ impl Pool {
         } else {
             Status::Running
         }
+    }
+}
+
+/// The operating system's refusal to start a thread cannot be caused on
+/// demand from outside, so this test hands the pool a stand-in for the
+/// thread spawner that refuses as `pthread_create` does when the process
+/// may have no more threads (`EAGAIN`).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A spawner that refuses every thread, and drops the task unrun.
+    fn refuse(task: Task) -> io::Result<()> {
+        drop(task);
+        Err(io::Error::from(io::ErrorKind::WouldBlock))
+    }
+
+    #[test]
+    fn gives_the_place_back_when_no_thread_can_be_started() {
+        let pool = Pool::new(1);
+        let job = || ();
+        assert_eq!(
+            pool.start(Box::new(job), refuse),
+            Err(PoolError::NoThread {
+                kind: io::ErrorKind::WouldBlock
+            })
+        );
+        // The pool has one place, so had the refused job kept it this
+        // would be refused as busy.
+        assert_eq!(pool.run(Duration::from_secs(30), job), Ok(()));
+        assert_eq!(pool.status(), Status::Running);
     }
 }
