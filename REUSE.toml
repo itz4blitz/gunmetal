@@ -15,3 +15,13 @@ path = ["fuzz/seeds/**"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Justin Scroggins"
 SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Inter variable font, OFL-1.1 only (SEC-SUP-029).
+[[annotations]]
+path = [
+  "clients/apps/demo/public/fonts/InterVariable.woff2",
+  "clients/apps/demo/public/fonts/LICENSE.txt",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2016 The Inter Project Authors"
+SPDX-License-Identifier = "OFL-1.1"

@@ -65,6 +65,61 @@ test('track context menu and more control open go to artist', () => {
   expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
 });
 
+test('catalogue menu plays queues and opens the album from the track row', () => {
+  const onPlay = vi.fn();
+  const onPlayNext = vi.fn();
+  const onAddToQueue = vi.fn();
+  const onGoToAlbum = vi.fn();
+  const armed = render(
+    <TrackRow
+      track={track}
+      messages={destinationMessages()}
+      artistKey="mira-sol"
+      onPlay={onPlay}
+      onPlayNext={onPlayNext}
+      onAddToQueue={onAddToQueue}
+      onGoToAlbum={onGoToAlbum}
+      onOpenArtist={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
+  expect(onPlay).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(onPlayNext).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(onAddToQueue).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+  expect(onGoToAlbum).toHaveBeenCalledWith('demo-album-01');
+  armed.unmount();
+
+  const quiet = render(
+    <TrackRow
+      track={track}
+      messages={destinationMessages()}
+      artistKey="mira-sol"
+      onPlay={onPlay}
+      onOpenArtist={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+  expect(onPlay).toHaveBeenCalledTimes(2);
+  expect(onPlayNext).toHaveBeenCalledTimes(1);
+  expect(onAddToQueue).toHaveBeenCalledTimes(1);
+  expect(onGoToAlbum).toHaveBeenCalledTimes(1);
+  quiet.unmount();
+});
+
 test('track context menu plays, queues without shuffle, and goes to the album', () => {
   const onPlay = vi.fn();
   const onPlayNext = vi.fn();

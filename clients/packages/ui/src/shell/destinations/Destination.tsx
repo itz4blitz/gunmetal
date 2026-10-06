@@ -20,6 +20,7 @@ export type DestinationProps = {
   theme: ThemeId;
   onThemeChange: (theme: ThemeId) => void;
   onOpenAlbum: (albumId: string) => void;
+  onOpenArtist: (artistKey: string) => void;
   onBackFromAlbum: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
@@ -47,6 +48,7 @@ export function Destination({
   theme,
   onThemeChange,
   onOpenAlbum,
+  onOpenArtist,
   onBackFromAlbum,
   onPlayAlbum,
   onPlayTrack,
@@ -82,7 +84,7 @@ export function Destination({
             onBack={onBackFromAlbum}
             onOpenAlbum={onOpenAlbum}
             onPlayAlbum={onPlayAlbum}
-            onOpenArtist={onOpenAlbum}
+            onOpenArtist={onOpenArtist}
             onPlayNextAlbum={onPlayNextAlbum}
             onAddAlbumToQueue={onAddAlbumToQueue}
           />
@@ -98,7 +100,7 @@ export function Destination({
           onBack={onBackFromAlbum}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
-          onOpenArtist={onOpenAlbum}
+          onOpenArtist={onOpenArtist}
           onPlayNextTrack={onPlayNextTrack}
           onAddTrackToQueue={onAddTrackToQueue}
         />
@@ -123,7 +125,7 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
-          onOpenArtist={onOpenAlbum}
+          onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}
           onPlayNextAlbum={onPlayNextAlbum}
           onAddAlbumToQueue={onAddAlbumToQueue}
@@ -139,7 +141,7 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
-          onOpenArtist={onOpenAlbum}
+          onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
           onPlayNextAlbum={onPlayNextAlbum}
@@ -157,7 +159,7 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
-          onOpenArtist={onOpenAlbum}
+          onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
           onPlayNextAlbum={onPlayNextAlbum}

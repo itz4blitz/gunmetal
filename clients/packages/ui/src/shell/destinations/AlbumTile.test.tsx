@@ -147,6 +147,54 @@ test('stagger slots and go to artist open from context and more', () => {
   capped.unmount();
 });
 
+test('catalogue menu plays queues and opens the album from the tile', () => {
+  const onOpen = vi.fn();
+  const onPlay = vi.fn();
+  const onPlayNext = vi.fn();
+  const onAddToQueue = vi.fn();
+  const armed = render(
+    <AlbumTile
+      album={album}
+      messages={messages}
+      onOpen={onOpen}
+      onPlay={onPlay}
+      onPlayNext={onPlayNext}
+      onAddToQueue={onAddToQueue}
+      onOpenArtist={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
+  expect(onPlay).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(onPlayNext).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(onAddToQueue).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+  expect(onOpen).toHaveBeenCalledWith('demo-album-1');
+  armed.unmount();
+
+  const quiet = render(
+    <AlbumTile album={album} messages={messages} onOpen={onOpen} onOpenArtist={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
+  expect(onOpen).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+  expect(onPlay).toHaveBeenCalledTimes(1);
+  expect(onPlayNext).toHaveBeenCalledTimes(1);
+  expect(onAddToQueue).toHaveBeenCalledTimes(1);
+  quiet.unmount();
+});
+
 test('album context menu plays, queues without shuffle, and opens the album', () => {
   const onOpen = vi.fn();
   const onPlay = vi.fn();
