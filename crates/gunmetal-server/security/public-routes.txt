@@ -1,0 +1,8 @@
+# The reviewed list of routes that answer without a session (SEC-API-002):
+# every public, credential-exchange and capability route in the registry
+# (crates/gunmetal-server/src/routes.rs), and nothing else. When the two
+# differ the router is not built and the gate fails.
+#
+# One line per route: the method, one space, the path template. Lines are
+# sorted and each route appears once. A line that starts with # is a comment.
+# Every change to this file needs a code owner's review.

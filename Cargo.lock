@@ -434,9 +434,11 @@ dependencies = [
 name = "gunmetal-server"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "gunmetal-core",
  "gunmetal-durable",
  "gunmetal-fs",
+ "gunmetal-http",
  "gunmetal-secrets",
  "gunmetal-testkit",
  "proptest",
@@ -451,6 +453,7 @@ dependencies = [
  "gunmetal-core",
  "gunmetal-fs",
  "gunmetal-testkit",
+ "proptest",
 ]
 
 [[package]]
@@ -464,9 +467,11 @@ dependencies = [
 name = "gunmetal-worker"
 version = "0.0.0"
 dependencies = [
+ "gunmetal-core",
  "landlock",
  "rustix",
  "seccompiler",
+ "serde",
 ]
 
 [[package]]
@@ -1311,6 +1316,8 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "gunmetal-fuzz",
+ "gunmetal-http",
+ "gunmetal-server",
 ]
 
 [[package]]
