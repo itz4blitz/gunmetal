@@ -17,6 +17,7 @@ pub mod listener;
 pub mod log;
 pub mod routes;
 pub mod session;
+pub mod tasks;
 #[cfg(test)]
 mod testing;
 pub mod verifier;

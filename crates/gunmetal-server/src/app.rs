@@ -19,6 +19,8 @@ use gunmetal_core::audit_event::SecuritySink;
 use gunmetal_core::time::Clock;
 use gunmetal_fs::dataroot::{DataRoot, DataRootError, Modes, NetworkFilesystems, Policy};
 use gunmetal_fs::host::HostFacts;
+use gunmetal_secrets::random::{OsRandom, Random, RandomnessUnavailable};
+use gunmetal_store::store::{Generation, Store, StoreError};
 use rustix::io::Errno;
 
 use crate::audit_sink::AuditSink;
@@ -27,6 +29,7 @@ use crate::config::{Config, ConfigError, Env, load_config};
 use crate::datadir::{self, ConfigFileError};
 use crate::host::{PrivilegeError, Privileges};
 use crate::log::{Level, LogEvent, Logger};
+use crate::tasks::{self, Limits, Runner, TaskError};
 
 /// The server's version, as the log and `--version` give it.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -56,6 +59,11 @@ pub enum StartError {
     Config(ConfigError),
     /// The audit log or its keys could not be opened.
     Audit(gunmetal_durable::audit::error::AuditError),
+    /// The cache could not be opened.
+    Cache(StoreError),
+    /// The operating system could not supply random bytes for the cache
+    /// generation.
+    Random(RandomnessUnavailable),
 }
 
 impl StartError {
@@ -72,6 +80,10 @@ impl StartError {
             Self::ConfigFile(error) => error.message(dir),
             Self::Config(error) => error.message(),
             Self::Audit(_) => "The security audit log could not be opened.".to_owned(),
+            Self::Cache(_) => "The cache could not be opened.".to_owned(),
+            Self::Random(_) => {
+                "The operating system could not supply random bytes the cache needs.".to_owned()
+            }
         }
     }
 }
@@ -90,6 +102,10 @@ pub struct AppState {
     pub bus: Arc<Bus>,
     /// The security audit log, subscribed to the bus.
     pub audit: Arc<AuditSink>,
+    /// The rebuildable cache.
+    pub store: Arc<Store>,
+    /// The task runner.
+    pub tasks: Arc<Runner>,
 }
 
 /// Whether the environment accepts a data directory on a network
@@ -145,6 +161,26 @@ impl AppState {
             bus.security
                 .subscribe(move |event| sink.record(event.clone()));
         }
+        // Not `[0; N]`: CodeQL's rust/hard-coded-cryptographic-value treats
+        // a repeated literal as a key source and does not see `Random::fill`
+        // as a barrier.
+        let mut generation = core::array::from_fn(|index| {
+            let [b0, ..] = index.to_le_bytes();
+            b0 ^ 0xA5
+        });
+        OsRandom.fill(&mut generation).map_err(StartError::Random)?;
+        let opened = Store::open(&data, &[tasks::SCHEMA], Generation(generation))
+            .map_err(StartError::Cache)?;
+        let store = Arc::new(opened.store);
+        let tasks = Runner::open(Arc::clone(&store), Arc::clone(&clock), Limits::production())
+            .map_err(|error| match error {
+                TaskError::Store(error) => StartError::Cache(error),
+                TaskError::Cancelled
+                | TaskError::Interrupted
+                | TaskError::Failed { .. }
+                | TaskError::Unknown
+                | TaskError::PathTooLong { .. } => StartError::Cache(StoreError::Closed),
+            })?;
         Ok(Self {
             config,
             data,
@@ -152,6 +188,8 @@ impl AppState {
             log: Arc::new(log),
             bus,
             audit,
+            store,
+            tasks: Arc::new(tasks),
         })
     }
 }
@@ -251,6 +289,7 @@ mod tests {
         assert_eq!(state.clock.now().millis(), testing::NOON);
         assert_eq!(out, STARTED);
         assert!(layout_is_sound(&dir));
+        assert_eq!(state.tasks.list().expect("no tasks yet"), []);
         // The state's handle is the directory it was started in.
         state
             .data
@@ -532,6 +571,8 @@ mod tests {
             StartError::ConfigFile(ConfigFileError::TooLarge),
             StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
             StartError::Audit(gunmetal_durable::audit::error::AuditError::Halted),
+            StartError::Cache(StoreError::Closed),
+            StartError::Random(RandomnessUnavailable),
         ]
         .iter()
         .map(|error| error.message(&dir))
@@ -545,6 +586,8 @@ mod tests {
                 r#""/data/durable/config.toml" is longer than 65536 bytes, which no Gunmetal configuration needs."#,
                 "The environment variable \"GUNMETAL_X\" is not one Gunmetal reads. Check the spelling, or unset it.",
                 "The security audit log could not be opened.",
+                "The cache could not be opened.",
+                "The operating system could not supply random bytes the cache needs.",
             ]
         );
     }

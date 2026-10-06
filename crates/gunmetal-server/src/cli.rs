@@ -227,9 +227,9 @@ impl Exit {
     #[must_use]
     pub const fn of(error: &StartError) -> Self {
         match error {
-            StartError::Os(_) => Self::Os,
+            StartError::Os(_) | StartError::Random(_) => Self::Os,
             StartError::Privileged(_) => Self::Privileged,
-            StartError::DataDir(_) | StartError::Audit(_) => Self::DataDir,
+            StartError::DataDir(_) | StartError::Audit(_) | StartError::Cache(_) => Self::DataDir,
             StartError::ConfigFile(_) | StartError::Config(_) => Self::Config,
         }
     }
@@ -653,6 +653,8 @@ Run gunmetal --help for the commands and options.
             StartError::ConfigFile(ConfigFileError::NotUtf8),
             StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
             StartError::Audit(gunmetal_durable::audit::error::AuditError::Halted),
+            StartError::Cache(gunmetal_store::store::StoreError::Closed),
+            StartError::Random(gunmetal_secrets::random::RandomnessUnavailable),
         ]
         .map(|error| Exit::of(&error));
         assert_eq!(
@@ -664,7 +666,9 @@ Run gunmetal --help for the commands and options.
                 Exit::DataDir,
                 Exit::Config,
                 Exit::Config,
-                Exit::DataDir
+                Exit::DataDir,
+                Exit::DataDir,
+                Exit::Os,
             ]
         );
     }
