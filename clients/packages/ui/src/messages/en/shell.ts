@@ -14,6 +14,15 @@ export type ShellMessages = {
   primaryNav: string;
   playerRegion: string;
   rightPane: string;
+  play: string;
+  pause: string;
+  previous: string;
+  next: string;
+  queue: string;
+  queueEmpty: string;
+  queueHeading: string;
+  queueClose: string;
+  progress: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -33,5 +42,14 @@ export function shellMessages(): ShellMessages {
     primaryNav: 'Primary',
     playerRegion: 'Now playing',
     rightPane: 'Queue',
+    play: 'Play',
+    pause: 'Pause',
+    previous: 'Previous',
+    next: 'Next',
+    queue: 'Queue',
+    queueEmpty: 'Queue is empty',
+    queueHeading: 'Up next',
+    queueClose: 'Close queue',
+    progress: 'Progress',
   };
 }
