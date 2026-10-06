@@ -1,6 +1,6 @@
 # Security policy
 
-Last reviewed: 2026-10-03. This policy is reviewed at least once a year and
+Last reviewed: 2026-10-06. This policy is reviewed at least once a year and
 before each release.
 
 ## Reporting a vulnerability
@@ -20,7 +20,10 @@ For now, reports go through GitHub only: on 2026-10-02 the owner decided
 not to run a separate email alias or security@ mailbox yet
 ([decision register](docs/decisions.md#owner-answers-2026-10-02)).
 SEC-OPS-064 still requires an alias that reaches two people before R1 is
-tagged; this file will list it then.
+tagged; this file will list it then. On 2026-10-06 the source of truth
+moved to Forgejo on the Premier tailnet
+([D-89](docs/decisions.md#d-89-source-of-truth-forge)); that host is not
+a reporting channel, because reporters off the tailnet cannot reach it.
 
 A useful report says which component and commit or version is affected, how
 to reproduce the problem (a minimal input file or request is ideal), and
