@@ -70,8 +70,14 @@ test('playing bar lays out art, meta, transport, scrubber and actions', () => {
   fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
     key: ' ',
   });
+  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
+    key: ' ',
+  });
   fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
     key: 'Tab',
   });
-  expect(onOpenFull).toHaveBeenCalledTimes(3);
+  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
+    key: 'Tab',
+  });
+  expect(onOpenFull).toHaveBeenCalledTimes(4);
 });

@@ -171,16 +171,26 @@ test('player art and meta open the full player sheet; Escape and Close dismiss i
     '1',
   );
   expect(document.querySelector('#track-row-demo-track-01-01 [data-now-playing="1"]')).toBeTruthy();
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
+  expect(document.querySelector('#player-full')).toBeNull();
   fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
   expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
   expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
   fireEvent.keyDown(window, { key: 'Escape' });
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
+  expect(document.querySelector('#player-full')).toBeNull();
   fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[1]!);
   expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  fireEvent.click(document.querySelector('#player-full-play')!);
+  expect(document.querySelector('#shell-play')?.getAttribute('data-playing')).toStrictEqual('0');
+  expect(document.querySelector('#player-full-play')?.getAttribute('data-playing')).toStrictEqual(
+    '0',
+  );
+  fireEvent.keyDown(document.querySelector('#player-full-play')!, { key: 'Enter' });
+  fireEvent.keyDown(document.querySelector('#player-full-next')!, { key: ' ' });
+  expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Salt Window');
+  fireEvent.keyDown(document.querySelector('#player-full-prev')!, { key: 'Enter' });
+  expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
+  expect(document.querySelector('#player-full')).toBeNull();
 });
 
 test('missing album itemId and empty shell without library keep closed routes', () => {
@@ -272,11 +282,16 @@ test('artist rows with no albums and untitled discs are reachable', () => {
     ],
     artists: [
       { key: 'lonely', name: 'Lonely Artist', albumIds: [] },
+      { key: 'blank', name: '   ', albumIds: [] },
       { key: 'custom', name: first.artistName, albumIds: ['demo-album-custom'] },
     ],
   };
   render(<Shell path="/library" widthPx={1200} library={library} />);
   fireEvent.click(screen.getByRole('tab', { name: 'Artists' }));
+  expect(document.querySelector('[data-artist-avatar="1"]')?.textContent).toStrictEqual('L');
+  expect(
+    [...document.querySelectorAll('[data-artist-avatar="1"]')].some((node) => node.textContent === '?'),
+  ).toStrictEqual(true);
   fireEvent.click(screen.getByRole('button', { name: 'Lonely Artist' }));
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lonely Artist' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lonely Artist' }), { key: 'Tab' });

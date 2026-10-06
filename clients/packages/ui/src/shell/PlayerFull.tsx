@@ -39,34 +39,27 @@ export function PlayerFull({
     };
   }, [open, onClose]);
 
-  if (playback.trackId === undefined) {
+  if (playback.trackId === undefined || !open) {
     return null;
   }
 
   const progress =
     playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
-  const openFlag = open ? '1' : '0';
 
   return (
     <>
-      <View
-        id="player-full-scrim"
-        dataSet={{ open: openFlag }}
-        accessibilityElementsHidden={!open}
-        onClick={onClose}
-      />
+      <View id="player-full-scrim" dataSet={{ open: '1' }} onClick={onClose} />
       <View
         id="player-full"
         accessibilityRole="dialog"
         accessibilityLabel={messages.playerFullRegion}
-        accessibilityElementsHidden={!open}
-        dataSet={{ open: openFlag }}
+        dataSet={{ open: '1' }}
       >
         <View
           id="player-full-close"
           accessibilityRole="button"
           accessibilityLabel={messages.playerClose}
-          tabIndex={open ? 0 : -1}
+          tabIndex={0}
           onClick={onClose}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -109,22 +102,15 @@ export function PlayerFull({
             id="player-full-prev"
             label={messages.previous}
             onPress={onPrevious}
-            tabbable={open}
           />
           <FullControl
             id="player-full-play"
             label={playback.playing ? messages.pause : messages.play}
             onPress={onPlayPause}
-            tabbable={open}
             primary
             playing={playback.playing}
           />
-          <FullControl
-            id="player-full-next"
-            label={messages.next}
-            onPress={onNext}
-            tabbable={open}
-          />
+          <FullControl id="player-full-next" label={messages.next} onPress={onNext} />
         </View>
       </View>
     </>
@@ -135,7 +121,6 @@ type FullControlProps = {
   id: string;
   label: string;
   onPress?: () => void;
-  tabbable: boolean;
   primary?: boolean;
   playing?: boolean;
 };
@@ -144,7 +129,6 @@ function FullControl({
   id,
   label,
   onPress,
-  tabbable,
   primary = false,
   playing = false,
 }: FullControlProps) {
@@ -157,7 +141,7 @@ function FullControl({
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      tabIndex={tabbable ? 0 : -1}
+      tabIndex={0}
       onClick={() => {
         onPress?.();
       }}

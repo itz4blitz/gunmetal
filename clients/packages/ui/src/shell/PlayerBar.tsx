@@ -28,9 +28,7 @@ export function PlayerBar({
     playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
 
   const openFull = () => {
-    if (!empty) {
-      onOpenFull?.();
-    }
+    onOpenFull?.();
   };
 
   return (

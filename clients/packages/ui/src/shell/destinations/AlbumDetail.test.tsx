@@ -59,7 +59,7 @@ test('album detail paints a full-bleed cover-tone header with year track count a
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
     'destination-headline',
   );
-  expect(screen.getByText('Mira Sol')).toBeTruthy();
+  expect(container.querySelector('[data-album-artist]')?.textContent).toStrictEqual('Mira Sol');
   expect(screen.getByText('Year 2021')).toBeTruthy();
   expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
   expect(container.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();

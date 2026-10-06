@@ -21,7 +21,7 @@ function playingSnapshot(): PlaybackSnapshot {
   };
 }
 
-test('full player stays closed in the DOM until open and ignores empty playback', () => {
+test('full player stays unmounted until open and ignores empty playback', () => {
   const closed = render(
     <PlayerFull
       messages={shellMessages()}
@@ -30,10 +30,8 @@ test('full player stays closed in the DOM until open and ignores empty playback'
       onClose={vi.fn()}
     />,
   );
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
-  expect(document.querySelector('#player-full-scrim')?.getAttribute('data-open')).toStrictEqual(
-    '0',
-  );
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#player-full-scrim')).toBeNull();
   closed.unmount();
 
   const empty = render(
@@ -53,7 +51,7 @@ test('open full player shows cover title artist scrubber transport and close', (
   const onPlayPause = vi.fn();
   const onPrevious = vi.fn();
   const onNext = vi.fn();
-  const { container } = render(
+  const { container, rerender } = render(
     <PlayerFull
       messages={shellMessages()}
       playback={playingSnapshot()}
@@ -73,14 +71,46 @@ test('open full player shows cover title artist scrubber transport and close', (
   expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual(
     '25',
   );
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), positionMs: 10, durationMs: 0 }}
+      open
+      onClose={onClose}
+      onPlayPause={onPlayPause}
+      onPrevious={onPrevious}
+      onNext={onNext}
+    />,
+  );
+  expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual(
+    '0',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   expect(onClose).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Enter' });
+  expect(onClose).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: ' ' });
+  expect(onClose).toHaveBeenCalledTimes(3);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Tab' });
+  expect(onClose).toHaveBeenCalledTimes(3);
   fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Previous' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Next' }), { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Pause' }), { key: 'Tab' });
   expect(onPlayPause).toHaveBeenCalledTimes(1);
   expect(onPrevious).toHaveBeenCalledTimes(1);
   expect(onNext).toHaveBeenCalledTimes(1);
+});
+
+test('full player transport tolerates missing optional handlers', () => {
+  render(
+    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Pause' }), { key: 'Enter' });
+  expect(screen.getByRole('button', { name: 'Pause' }).id).toStrictEqual('player-full-play');
 });
 
 test('Escape and scrim dismiss the full player while other keys do not', () => {
