@@ -309,17 +309,22 @@ fn worker_loop(store: &Arc<Store>, clock: &Arc<dyn Clock + Send + Sync>, inner: 
         }
         match next_job(store, inner) {
             Some(job) => run_job(store, clock, inner, job),
-            None => wait_for_work(inner),
+            None => {
+                if wait_for_work(inner) {
+                    break;
+                }
+            }
         }
     }
 }
 
-fn wait_for_work(inner: &Inner) {
+fn wait_for_work(inner: &Inner) -> bool {
     let mut guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
     while !inner.has_work.load(Ordering::SeqCst) && !inner.stopping.load(Ordering::SeqCst) {
         guard = recover(inner.work.wait(guard));
     }
     inner.has_work.store(false, Ordering::SeqCst);
+    inner.stopping.load(Ordering::SeqCst)
 }
 
 struct Job {

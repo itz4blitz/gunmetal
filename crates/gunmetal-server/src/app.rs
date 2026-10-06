@@ -161,26 +161,12 @@ impl AppState {
             bus.security
                 .subscribe(move |event| sink.record(event.clone()));
         }
-        // Not `[0; N]`: CodeQL's rust/hard-coded-cryptographic-value treats
-        // a repeated literal as a key source and does not see `Random::fill`
-        // as a barrier.
-        let mut generation = core::array::from_fn(|index| {
-            let [b0, ..] = index.to_le_bytes();
-            b0 ^ 0xA5
-        });
-        OsRandom.fill(&mut generation).map_err(StartError::Random)?;
+        let generation = cache_generation(&OsRandom).map_err(StartError::Random)?;
         let opened = Store::open(&data, &[tasks::SCHEMA], Generation(generation))
             .map_err(StartError::Cache)?;
         let store = Arc::new(opened.store);
         let tasks = Runner::open(Arc::clone(&store), Arc::clone(&clock), Limits::production())
-            .map_err(|error| match error {
-                TaskError::Store(error) => StartError::Cache(error),
-                TaskError::Cancelled
-                | TaskError::Interrupted
-                | TaskError::Failed { .. }
-                | TaskError::Unknown
-                | TaskError::PathTooLong { .. } => StartError::Cache(StoreError::Closed),
-            })?;
+            .map_err(cache_open_error)?;
         Ok(Self {
             config,
             data,
@@ -205,6 +191,29 @@ fn open_audit_root(dir: &Path, facts: HostFacts, env: &Env) -> Result<DataRoot, 
     )
     .map(|opened| opened.root)
     .map_err(|refused| StartError::DataDir(refused.error))
+}
+
+/// A cache generation that is not a repeated literal: `CodeQL`'s
+/// rust/hard-coded-cryptographic-value treats `[0; N]` as a key source and
+/// does not see `Random::fill` as a barrier.
+fn cache_generation(random: &dyn Random) -> Result<[u8; 16], RandomnessUnavailable> {
+    let mut generation = core::array::from_fn(|index| {
+        let [b0, ..] = index.to_le_bytes();
+        b0
+    });
+    random.fill(&mut generation)?;
+    Ok(generation)
+}
+
+fn cache_open_error(error: TaskError) -> StartError {
+    match error {
+        TaskError::Store(error) => StartError::Cache(error),
+        TaskError::Cancelled
+        | TaskError::Interrupted
+        | TaskError::Failed { .. }
+        | TaskError::Unknown
+        | TaskError::PathTooLong { .. } => StartError::Cache(StoreError::Closed),
+    }
 }
 
 #[cfg(test)]
@@ -589,6 +598,60 @@ mod tests {
                 "The cache could not be opened.",
                 "The operating system could not supply random bytes the cache needs.",
             ]
+        );
+    }
+
+    #[test]
+    fn cache_generation_is_the_bytes_drawn_and_fails_without_randomness() {
+        struct Counting;
+        impl Random for Counting {
+            fn fill(&self, bytes: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                for (index, slot) in bytes.iter_mut().enumerate() {
+                    *slot = u8::try_from(index).unwrap_or(u8::MAX);
+                }
+                Ok(())
+            }
+        }
+        struct Failing;
+        impl Random for Failing {
+            fn fill(&self, _: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                Err(RandomnessUnavailable)
+            }
+        }
+        assert_eq!(
+            cache_generation(&Counting),
+            Ok([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        );
+        assert_eq!(cache_generation(&Failing), Err(RandomnessUnavailable));
+    }
+
+    #[test]
+    fn every_task_error_at_start_is_a_cache_refusal() {
+        assert_eq!(
+            cache_open_error(TaskError::Store(StoreError::Closed)),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Cancelled),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Interrupted),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Failed {
+                message: "no space".to_owned()
+            }),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Unknown),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::PathTooLong { length: 5 }),
+            StartError::Cache(StoreError::Closed)
         );
     }
 }

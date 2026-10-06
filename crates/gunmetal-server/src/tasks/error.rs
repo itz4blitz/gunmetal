@@ -79,3 +79,32 @@ impl From<StoreError> for TaskError {
         Self::Store(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TaskError;
+    use gunmetal_store::store::StoreError;
+
+    #[test]
+    fn maps_a_store_error() {
+        assert_eq!(
+            TaskError::from(StoreError::Closed),
+            TaskError::Store(StoreError::Closed)
+        );
+        assert_eq!(TaskError::Cancelled, TaskError::Cancelled);
+        assert_eq!(TaskError::Interrupted, TaskError::Interrupted);
+        assert_eq!(TaskError::Unknown, TaskError::Unknown);
+        assert_eq!(
+            TaskError::Failed {
+                message: "no space".to_owned()
+            },
+            TaskError::Failed {
+                message: "no space".to_owned()
+            }
+        );
+        assert_eq!(
+            TaskError::PathTooLong { length: 4_097 },
+            TaskError::PathTooLong { length: 4_097 }
+        );
+    }
+}

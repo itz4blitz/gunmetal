@@ -130,10 +130,7 @@ pub(crate) fn insert_or_join(
             .bind(int(now.millis())),
     ) {
         Ok(_) => last_id(tx),
-        Err(error) if constraint(&error) => {
-            find_open(tx, kind, principal, path)?.ok_or(StoreError::Catalogue)
-        }
-        Err(error) => Err(StoreError::Db(error)),
+        Err(error) => on_insert_error(tx, kind, principal, path, error),
     }
 }
 
@@ -147,10 +144,28 @@ fn last_id(tx: &Transaction<'_>) -> Result<TaskId, StoreError> {
 
 fn parse_id(row: &Row) -> Result<TaskId, StoreError> {
     match row.0.first() {
-        Some(Value::Integer(id)) if *id > 0 => u64::try_from(*id)
-            .map(TaskId)
-            .map_err(|_| StoreError::Catalogue),
+        Some(Value::Integer(id)) => {
+            let id = u64::try_from(*id).map_err(|_| StoreError::Catalogue)?;
+            if id == 0 {
+                return Err(StoreError::Catalogue);
+            }
+            Ok(TaskId(id))
+        }
         _ => Err(StoreError::Catalogue),
+    }
+}
+
+fn on_insert_error(
+    tx: &Transaction<'_>,
+    kind: TaskKind,
+    principal: &str,
+    path: &str,
+    error: DbError,
+) -> Result<TaskId, StoreError> {
+    if constraint(&error) {
+        find_open(tx, kind, principal, path)?.ok_or(StoreError::Catalogue)
+    } else {
+        Err(StoreError::Db(error))
     }
 }
 
@@ -266,8 +281,12 @@ fn parse_row(row: &Row) -> Result<TaskSnapshot, StoreError> {
         return Err(StoreError::Catalogue);
     }
     let id = match &cols[0] {
-        Value::Integer(id) if *id > 0 => {
-            TaskId(u64::try_from(*id).map_err(|_| StoreError::Catalogue)?)
+        Value::Integer(id) => {
+            let id = u64::try_from(*id).map_err(|_| StoreError::Catalogue)?;
+            if id == 0 {
+                return Err(StoreError::Catalogue);
+            }
+            TaskId(id)
         }
         _ => return Err(StoreError::Catalogue),
     };
@@ -291,8 +310,12 @@ fn parse_row(row: &Row) -> Result<TaskSnapshot, StoreError> {
         _ => return Err(StoreError::Catalogue),
     };
     let progress = match &cols[5] {
-        Value::Integer(value) if (0..=100).contains(value) => {
-            u8::try_from(*value).map_err(|_| StoreError::Catalogue)?
+        Value::Integer(value) => {
+            let progress = u8::try_from(*value).map_err(|_| StoreError::Catalogue)?;
+            if progress > 100 {
+                return Err(StoreError::Catalogue);
+            }
+            progress
         }
         _ => return Err(StoreError::Catalogue),
     };
@@ -347,4 +370,285 @@ fn opt_timestamp(value: &Value) -> Result<Option<Timestamp>, StoreError> {
 #[cfg(test)]
 pub(crate) fn sqlite_constraint() -> i32 {
     SQLITE_CONSTRAINT
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::{
+        TaskKind, TaskStatus, constraint, find_open, insert_or_join, on_insert_error, parse_id,
+        parse_row,
+    };
+    use crate::tasks::runner::TaskId;
+    use crate::tasks::schema::SCHEMA;
+    use crate::tasks::wait;
+    use gunmetal_core::id::{IdKind, PublicId};
+    use gunmetal_core::time::Timestamp;
+    use gunmetal_fs::dataroot::{DataRoot, Policy};
+    use gunmetal_fs::host::HostFacts;
+    use gunmetal_fs::sqlite::{DbError, Row, Value};
+    use gunmetal_store::store::{Generation, Store, StoreError};
+    use gunmetal_testkit::tempdir::TempDir;
+    use std::sync::Arc;
+
+    const NOON: i64 = 1_791_028_800_000;
+    const FIRST: Generation = Generation([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+    fn user() -> String {
+        PublicId::parse("usr_00000000000000000000000001", IdKind::User)
+            .expect("id")
+            .to_string()
+    }
+
+    fn now() -> Timestamp {
+        Timestamp::from_millis(NOON).expect("noon")
+    }
+
+    fn store() -> (TempDir, Arc<Store>) {
+        let dir = TempDir::new("persist-tasks").expect("scratch");
+        let host = HostFacts::probe(dir.path()).expect("probe");
+        let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+            .expect("root")
+            .root;
+        let opened = Store::open(&root, &[SCHEMA], FIRST).expect("store");
+        (dir, Arc::new(opened.store))
+    }
+
+    fn valid_cols() -> Vec<Value> {
+        vec![
+            Value::Integer(1),
+            Value::Text("backup".to_owned()),
+            Value::Text(user()),
+            Value::Text(String::new()),
+            Value::Text("waiting".to_owned()),
+            Value::Integer(0),
+            Value::Null,
+            Value::Null,
+            Value::Integer(NOON),
+            Value::Null,
+            Value::Null,
+            Value::Null,
+        ]
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "each column of parse_row has a typed case"
+    )]
+    fn parse_row_reads_a_waiting_job_and_rejects_bad_columns() {
+        let snap = parse_row(&Row(valid_cols())).expect("valid");
+        assert_eq!(snap.id, TaskId(1));
+        assert_eq!(snap.kind, TaskKind::Backup);
+        assert_eq!(snap.path, None);
+        assert_eq!(snap.status, TaskStatus::Waiting);
+        assert_eq!(snap.progress, 0);
+        assert_eq!(snap.checkpoint, None);
+        assert_eq!(snap.error, None);
+        assert_eq!(snap.requested_at, now());
+        assert_eq!(snap.started_at, None);
+        assert_eq!(snap.finished_at, None);
+        assert_eq!(snap.duration_ms, None);
+
+        let mut path = valid_cols();
+        path[3] = Value::Text("/music".to_owned());
+        assert_eq!(
+            parse_row(&Row(path)).expect("path").path.as_deref(),
+            Some("/music")
+        );
+
+        let mut progress = valid_cols();
+        progress[5] = Value::Integer(100);
+        assert_eq!(parse_row(&Row(progress)).expect("100").progress, 100);
+
+        let mut over = valid_cols();
+        over[5] = Value::Integer(101);
+        assert_eq!(parse_row(&Row(over)).err(), Some(StoreError::Catalogue));
+
+        let mut zero = valid_cols();
+        zero[0] = Value::Integer(0);
+        assert_eq!(parse_row(&Row(zero)).err(), Some(StoreError::Catalogue));
+
+        let mut negative = valid_cols();
+        negative[0] = Value::Integer(-1);
+        assert_eq!(parse_row(&Row(negative)).err(), Some(StoreError::Catalogue));
+
+        assert_eq!(
+            parse_row(&Row(valid_cols()[..11].to_vec())).err(),
+            Some(StoreError::Catalogue)
+        );
+        assert_eq!(
+            parse_id(&Row(vec![Value::Text("1".to_owned())])).err(),
+            Some(StoreError::Catalogue)
+        );
+        assert_eq!(
+            parse_id(&Row(vec![Value::Integer(0)])).err(),
+            Some(StoreError::Catalogue)
+        );
+        assert_eq!(
+            parse_id(&Row(vec![Value::Integer(2)])).expect("id"),
+            TaskId(2)
+        );
+
+        let mut kind = valid_cols();
+        kind[1] = Value::Text("analysis".to_owned());
+        assert_eq!(parse_row(&Row(kind)).err(), Some(StoreError::Catalogue));
+        let mut kind_ty = valid_cols();
+        kind_ty[1] = Value::Integer(1);
+        assert_eq!(parse_row(&Row(kind_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut principal = valid_cols();
+        principal[2] = Value::Text("nope".to_owned());
+        assert_eq!(
+            parse_row(&Row(principal)).err(),
+            Some(StoreError::Catalogue)
+        );
+        let mut principal_ty = valid_cols();
+        principal_ty[2] = Value::Integer(1);
+        assert_eq!(
+            parse_row(&Row(principal_ty)).err(),
+            Some(StoreError::Catalogue)
+        );
+
+        let mut path_ty = valid_cols();
+        path_ty[3] = Value::Integer(1);
+        assert_eq!(parse_row(&Row(path_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut status = valid_cols();
+        status[4] = Value::Text("checkpointed".to_owned());
+        assert_eq!(parse_row(&Row(status)).err(), Some(StoreError::Catalogue));
+        let mut status_ty = valid_cols();
+        status_ty[4] = Value::Integer(1);
+        assert_eq!(
+            parse_row(&Row(status_ty)).err(),
+            Some(StoreError::Catalogue)
+        );
+
+        let mut progress_ty = valid_cols();
+        progress_ty[5] = Value::Text("0".to_owned());
+        assert_eq!(
+            parse_row(&Row(progress_ty)).err(),
+            Some(StoreError::Catalogue)
+        );
+        let mut progress_neg = valid_cols();
+        progress_neg[5] = Value::Integer(-1);
+        assert_eq!(
+            parse_row(&Row(progress_neg)).err(),
+            Some(StoreError::Catalogue)
+        );
+
+        let mut check = valid_cols();
+        check[6] = Value::Blob(vec![1, 2]);
+        assert_eq!(
+            parse_row(&Row(check)).expect("blob").checkpoint.as_deref(),
+            Some([1, 2].as_slice())
+        );
+        let mut check_ty = valid_cols();
+        check_ty[6] = Value::Text("x".to_owned());
+        assert_eq!(parse_row(&Row(check_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut err = valid_cols();
+        err[7] = Value::Text("no space".to_owned());
+        assert_eq!(
+            parse_row(&Row(err)).expect("err").error.as_deref(),
+            Some("no space")
+        );
+        let mut err_ty = valid_cols();
+        err_ty[7] = Value::Integer(1);
+        assert_eq!(parse_row(&Row(err_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut req = valid_cols();
+        req[8] = Value::Text("now".to_owned());
+        assert_eq!(parse_row(&Row(req)).err(), Some(StoreError::Catalogue));
+
+        let mut started = valid_cols();
+        started[9] = Value::Integer(NOON);
+        assert_eq!(
+            parse_row(&Row(started)).expect("started").started_at,
+            Some(now())
+        );
+        let mut fin = valid_cols();
+        fin[10] = Value::Integer(NOON);
+        assert_eq!(
+            parse_row(&Row(fin)).expect("finished").finished_at,
+            Some(now())
+        );
+        let mut dur = valid_cols();
+        dur[11] = Value::Integer(12);
+        assert_eq!(parse_row(&Row(dur)).expect("dur").duration_ms, Some(12));
+        let mut dur_ty = valid_cols();
+        dur_ty[11] = Value::Text("12".to_owned());
+        assert_eq!(parse_row(&Row(dur_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut id_ty = valid_cols();
+        id_ty[0] = Value::Text("1".to_owned());
+        assert_eq!(parse_row(&Row(id_ty)).err(), Some(StoreError::Catalogue));
+    }
+
+    #[test]
+    fn a_constraint_on_insert_joins_the_open_job_and_another_error_does_not() {
+        let (_dir, store) = store();
+        let principal = user();
+        let id = wait::wait(store.write({
+            let principal = principal.clone();
+            move |tx| insert_or_join(tx, TaskKind::Backup, &principal, "", now())
+        }))
+        .expect("insert");
+        let joined = wait::wait(store.write({
+            let principal = principal.clone();
+            move |tx| {
+                on_insert_error(
+                    tx,
+                    TaskKind::Backup,
+                    &principal,
+                    "",
+                    DbError::Sqlite {
+                        code: super::SQLITE_CONSTRAINT,
+                    },
+                )
+            }
+        }))
+        .expect("join");
+        assert_eq!(joined, id);
+        let busy = wait::wait(store.write({
+            let principal = principal.clone();
+            move |tx| {
+                on_insert_error(
+                    tx,
+                    TaskKind::Backup,
+                    &principal,
+                    "",
+                    DbError::Sqlite { code: 5 },
+                )
+            }
+        }));
+        assert_eq!(busy, Err(StoreError::Db(DbError::Sqlite { code: 5 })));
+        let missing = wait::wait(store.write(|tx| {
+            on_insert_error(
+                tx,
+                TaskKind::Purge,
+                "usr_00000000000000000000000002",
+                "",
+                DbError::Sqlite {
+                    code: super::SQLITE_CONSTRAINT,
+                },
+            )
+        }));
+        assert_eq!(missing, Err(StoreError::Catalogue));
+        assert!(constraint(&DbError::Sqlite {
+            code: super::SQLITE_CONSTRAINT | (1 << 8)
+        }));
+        assert!(!constraint(&DbError::Sqlite { code: 5 }));
+        assert!(!constraint(&DbError::MultipleStatements));
+        let found = wait::wait(store.write({
+            let principal = principal.clone();
+            move |tx| find_open(tx, TaskKind::Backup, &principal, "")
+        }))
+        .expect("find");
+        assert_eq!(found, Some(id));
+        let none = wait::wait(
+            store.write(|tx| find_open(tx, TaskKind::Purge, "usr_00000000000000000000000002", "")),
+        )
+        .expect("none");
+        assert_eq!(none, None);
+    }
 }

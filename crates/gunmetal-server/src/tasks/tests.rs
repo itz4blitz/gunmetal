@@ -192,6 +192,29 @@ impl Handler for Failing {
     }
 }
 
+struct Watch {
+    kind: TaskKind,
+    at_checkpoint: Arc<AtomicBool>,
+    hold: Arc<AtomicBool>,
+    saw_stop: Arc<AtomicBool>,
+}
+
+impl Handler for Watch {
+    fn kind(&self) -> TaskKind {
+        self.kind
+    }
+
+    fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+        ctx.checkpoint(&[1], 10)?;
+        self.at_checkpoint.store(true, Ordering::SeqCst);
+        while self.hold.load(Ordering::SeqCst) && !ctx.stopping() {
+            thread::sleep(Duration::from_millis(2));
+        }
+        self.saw_stop.store(ctx.stopping(), Ordering::SeqCst);
+        Err(TaskError::Interrupted)
+    }
+}
+
 #[test]
 fn every_r1_kind_has_a_stable_name() {
     let names: Vec<(&str, Option<TaskKind>)> = [
@@ -263,10 +286,6 @@ fn two_requests_for_the_same_path_share_one_job() {
 #[test]
 fn concurrent_requests_return_the_same_identifier() {
     let world = world();
-    world.runner.register(Arc::new(Completing {
-        kind: TaskKind::LibraryScan,
-        runs: Arc::new(AtomicUsize::new(0)),
-    }));
     let ids: Vec<TaskHandle> = thread::scope(|scope| {
         let handles: Vec<_> = (0..16)
             .map(|_| {
@@ -285,6 +304,10 @@ fn concurrent_requests_return_the_same_identifier() {
     });
     let first = ids[0];
     assert!(ids.iter().all(|id| *id == first));
+    world.runner.register(Arc::new(Completing {
+        kind: TaskKind::LibraryScan,
+        runs: Arc::new(AtomicUsize::new(0)),
+    }));
     let done = settle(&world.runner, first.id);
     assert_eq!(done.status, TaskStatus::Succeeded);
     assert_eq!(done.path, None);
@@ -307,6 +330,8 @@ fn a_finished_job_does_not_join_a_later_request() {
         .request(TaskKind::Backup, user(1), None)
         .expect("second");
     assert_ne!(first, second);
+    assert_eq!(first.id.as_u64(), 1);
+    assert_eq!(second.id.as_u64(), 2);
     settle(&world.runner, second.id);
 }
 
@@ -481,6 +506,20 @@ fn a_path_longer_than_the_limit_is_refused() {
         })
     );
     assert_eq!(world.runner.list().expect("list"), []);
+    let exact = "a".repeat(MAX_PATH);
+    let handle = world
+        .runner
+        .request(TaskKind::PathRefresh, user(1), Some(&exact))
+        .expect("exact");
+    assert_eq!(
+        world
+            .runner
+            .snapshot(handle.id)
+            .expect("snap")
+            .path
+            .as_deref(),
+        Some(exact.as_str())
+    );
 }
 
 #[test]
@@ -558,4 +597,84 @@ fn requested_at_is_the_clock() {
     );
     assert_eq!(snap.started_at, None);
     assert_eq!(snap.finished_at, None);
+}
+
+#[test]
+fn progress_is_stored_before_the_job_finishes() {
+    struct Reporting {
+        at: Arc<AtomicBool>,
+        hold: Arc<AtomicBool>,
+    }
+    impl Handler for Reporting {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Backup
+        }
+        fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            ctx.progress(40)?;
+            self.at.store(true, Ordering::SeqCst);
+            while self.hold.load(Ordering::SeqCst) && !ctx.cancelled() && !ctx.stopping() {
+                thread::sleep(Duration::from_millis(2));
+            }
+            Ok(Outcome::Succeeded)
+        }
+    }
+    let world = world();
+    let at = Arc::new(AtomicBool::new(false));
+    let hold = Arc::new(AtomicBool::new(true));
+    world.runner.register(Arc::new(Reporting {
+        at: Arc::clone(&at),
+        hold: Arc::clone(&hold),
+    }));
+    let handle = world
+        .runner
+        .request(TaskKind::Backup, user(1), None)
+        .expect("run");
+    until(&world.runner, handle.id, |snap| snap.progress == 40);
+    let snap = world.runner.snapshot(handle.id).expect("mid");
+    assert_eq!(snap.status, TaskStatus::Running);
+    assert_eq!(snap.progress, 40);
+    hold.store(false, Ordering::SeqCst);
+    let done = settle(&world.runner, handle.id);
+    assert_eq!(done.status, TaskStatus::Succeeded);
+    assert_eq!(done.progress, 40);
+}
+
+#[test]
+fn dropping_the_runner_sets_stopping_on_a_running_job() {
+    let world = world();
+    let at_checkpoint = Arc::new(AtomicBool::new(false));
+    let hold = Arc::new(AtomicBool::new(true));
+    let saw_stop = Arc::new(AtomicBool::new(false));
+    world.runner.register(Arc::new(Watch {
+        kind: TaskKind::LibraryScan,
+        at_checkpoint: Arc::clone(&at_checkpoint),
+        hold: Arc::clone(&hold),
+        saw_stop: Arc::clone(&saw_stop),
+    }));
+    let handle = world
+        .runner
+        .request(TaskKind::LibraryScan, user(1), None)
+        .expect("run");
+    until(&world.runner, handle.id, |snap| {
+        snap.checkpoint.as_deref() == Some([1].as_slice())
+    });
+    drop(world.runner);
+    let deadline = Instant::now() + BOUND;
+    while !saw_stop.load(Ordering::SeqCst) {
+        assert!(
+            Instant::now() < deadline,
+            "dropping the runner did not stop the worker"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(saw_stop.load(Ordering::SeqCst));
+}
+
+#[test]
+fn production_limits_sweep_every_hour() {
+    assert_eq!(
+        Limits::production().sweep_every_ms,
+        super::runner::SWEEP_EVERY_MS
+    );
+    assert_eq!(Limits::test().sweep_every_ms, 1_000);
 }
