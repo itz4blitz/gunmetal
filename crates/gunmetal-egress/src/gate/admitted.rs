@@ -16,10 +16,15 @@
 //! What a request says about itself, its purpose and its destination, is
 //! readable without an identity, because a refusal is recorded under them.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use crate::denial::Denial;
 use crate::destination::Destination;
-use crate::grant::{Decision, Reach};
+use crate::grant::{Decision, Reach, Route};
 use crate::purpose::{Purpose, Redirects};
+
+/// How many gates this process has made, which numbers the next one.
+static GATES: AtomicU64 = AtomicU64::new(0);
 
 /// Which gate admitted a request: a number no two gates of one process
 /// share. Only [`Issuer::fresh`] makes one, and only a gate holds one.
@@ -29,8 +34,7 @@ pub(super) struct Issuer(u64);
 impl Issuer {
     /// The identity of a new gate.
     pub(super) fn fresh() -> Self {
-        // Not yet its own: every gate is given the same one.
-        Self(0)
+        Self(GATES.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -127,8 +131,10 @@ impl Admitted {
     /// request, then [`Denial::RoutedThroughProxy`] when the request leaves
     /// through the proxy.
     pub(super) fn direct(&self, gate: Issuer) -> Result<Direct, Denial> {
-        // Not yet refused: a request that leaves through the proxy.
         let decision = self.terms(gate)?;
+        if decision.route == Route::Proxy {
+            return Err(Denial::RoutedThroughProxy);
+        }
         Ok(Direct {
             reach: decision.reach,
             port: decision.destination.port,
@@ -199,7 +205,7 @@ mod tests {
     /// Supports: SEC-TM-048, SEC-API-079
     #[test]
     fn no_two_gates_share_an_identity() {
-        let identities: Vec<Issuer> = (0..64).map(|_| Issuer::fresh()).collect();
+        let identities: Vec<Issuer> = core::iter::repeat_with(Issuer::fresh).take(64).collect();
         for (at, one) in identities.iter().enumerate() {
             for (other_at, other) in identities.iter().enumerate() {
                 assert_eq!(one == other, at == other_at, "{at} and {other_at}");
