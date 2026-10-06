@@ -16,6 +16,14 @@ export type LibraryProps = {
   onPlayTrack: (albumId: string, trackId: string) => void;
 };
 
+function artistInitial(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return '?';
+  }
+  return trimmed.charAt(0).toUpperCase();
+}
+
 export function Library({
   messages,
   library,
@@ -57,17 +65,22 @@ export function Library({
         />
       </View>
       {tab === 'albums' ? (
-        <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
-          {library.albums.map((album) => (
-            <AlbumTile
-              key={album.id}
-              album={album}
-              messages={messages}
-              onOpen={onOpenAlbum}
-              onPlay={onPlayAlbum}
-            />
-          ))}
-        </View>
+        <>
+          <Text id="library-section-count">
+            {`${library.albums.length} ${messages.artistAlbumCount}`}
+          </Text>
+          <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
+            {library.albums.map((album) => (
+              <AlbumTile
+                key={album.id}
+                album={album}
+                messages={messages}
+                onOpen={onOpenAlbum}
+                onPlay={onPlayAlbum}
+              />
+            ))}
+          </View>
+        </>
       ) : null}
       {tab === 'artists' ? (
         <View id="library-artist-list">
@@ -95,6 +108,9 @@ export function Library({
                 }
               }}
             >
+              <View dataSet={{ artistAvatar: '1' }} aria-hidden="true">
+                <Text dataSet={{ artistInitial: '1' }}>{artistInitial(artist.name)}</Text>
+              </View>
               <Text dataSet={{ artistName: '1' }}>{artist.name}</Text>
               <Text dataSet={{ artistCount: '1' }}>
                 {`${artist.albumIds.length} ${messages.artistAlbumCount}`}

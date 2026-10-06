@@ -632,6 +632,20 @@ body,
   min-width: 0;
 }
 
+#destination[data-page-enter='1'] {
+  animation: gm-page-enter 160ms ease both;
+}
+
+@keyframes gm-page-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 #destination-home,
 #destination-library,
 #destination-search,
@@ -962,13 +976,13 @@ body,
 
 #library-album-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 24px;
 }
 
 @media (min-width: 900px) {
   #library-album-grid {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 24px;
   }
 }
@@ -1113,7 +1127,6 @@ body,
 /* Captions and true metadata stay muted. */
 [data-settings-placeholder],
 [data-settings-about],
-#search-no-hits,
 #search-demo-notice,
 #player-time,
 #player-empty,
@@ -1123,6 +1136,13 @@ body,
 [data-album-year] {
   font-size: 13px;
   line-height: 18px;
+  color: var(--gm-text-muted);
+}
+
+#library-section-count {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
   color: var(--gm-text-muted);
 }
 
@@ -1349,11 +1369,16 @@ body,
 /* —— Library —— */
 
 #library-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
   flex-direction: row;
   gap: 6px;
   border-bottom: 1px solid var(--gm-line-subtle);
-  padding-bottom: 10px;
+  padding: 4px 0 10px;
+  background: color-mix(in srgb, var(--gm-bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 #library-tabs [role='tab'] {
@@ -1372,7 +1397,8 @@ body,
 #library-tabs [aria-selected='true'] {
   background: color-mix(in srgb, var(--gm-accent-fill) 18%, transparent);
   color: var(--gm-text-primary);
-  box-shadow: none;
+  border-radius: var(--gm-radius-m);
+  box-shadow: inset 0 -2px 0 var(--gm-accent-indicator);
 }
 
 #library-artist-list,
@@ -1395,17 +1421,38 @@ body,
   padding: 10px 12px;
   border-radius: var(--gm-radius-s);
   background: transparent;
-  transition: background-color var(--gm-motion);
+  transition: background-color var(--gm-motion), box-shadow var(--gm-motion);
 }
 
 [data-artist-row] {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 40px 1fr auto;
+  min-height: 56px;
+}
+
+[data-artist-avatar] {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--gm-accent-fill) 22%, var(--gm-bg-overlay));
+  color: var(--gm-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+}
+
+[data-track-duration] {
+  font-variant-numeric: tabular-nums;
+  color: var(--gm-text-muted);
+  font-size: 12px;
 }
 
 [data-track-row]:hover,
 [data-artist-row]:hover,
 [data-queue-line]:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: var(--gm-raised-edge);
 }
 
 [data-track-meta] {
@@ -1624,12 +1671,25 @@ body,
 #settings-appearance,
 #settings-demo-data,
 #settings-playback,
-#settings-about {
+#settings-about,
+[data-settings-panel] {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 0;
+  padding: 16px 18px;
   border-top: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-l);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-raised-edge);
+}
+
+#settings-appearance #theme-switcher {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
 }
 
 [data-settings-demo-body],
@@ -2072,6 +2132,10 @@ body,
     --gm-motion-sheet: 0ms;
   }
 
+  #destination[data-page-enter='1'] {
+    animation: none;
+  }
+
   [data-album-tile]:hover [data-size],
   [data-album-tile]:active [data-size],
   [data-album-play]:hover,
@@ -2093,6 +2157,28 @@ body,
   #queue-sheet[data-queue-open='0'] {
     transform: none;
   }
+}
+
+/* Thin muted scrollbars on the canvas and queue. */
+#content,
+#right-pane,
+#queue-sheet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gm-line-subtle) transparent;
+}
+
+#content::-webkit-scrollbar,
+#right-pane::-webkit-scrollbar,
+#queue-sheet::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+#content::-webkit-scrollbar-thumb,
+#right-pane::-webkit-scrollbar-thumb,
+#queue-sheet::-webkit-scrollbar-thumb {
+  background: var(--gm-line-subtle);
+  border-radius: var(--gm-radius-s);
 }
 
 @media (max-width: 899px) {

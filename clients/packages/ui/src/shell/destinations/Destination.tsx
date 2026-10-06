@@ -24,6 +24,13 @@ export type DestinationProps = {
   onSeeAll: () => void;
 };
 
+function pageKey(match: MatchResult, itemId: string | undefined): string {
+  if (match.kind === 'not-found') {
+    return 'not-found';
+  }
+  return `${match.route.path}:${itemId ?? ''}`;
+}
+
 export function Destination({
   match,
   messages,
@@ -37,9 +44,11 @@ export function Destination({
   onPlayTrack,
   onSeeAll,
 }: DestinationProps) {
+  const enterKey = pageKey(match, itemId);
+
   if (match.kind === 'not-found') {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Text id="destination-headline" accessibilityRole="header">
           {messages.destinations.notFoundHeadline}
         </Text>
@@ -49,7 +58,7 @@ export function Destination({
 
   if (library !== undefined && itemId !== undefined) {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <AlbumDetail
           album={findAlbum(library, itemId)}
           messages={messages.destinations}
@@ -63,7 +72,7 @@ export function Destination({
 
   if (library === undefined) {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Text id="destination-headline" accessibilityRole="header">
           {headlineForEmpty(match, messages)}
         </Text>
@@ -73,7 +82,7 @@ export function Destination({
 
   if (match.route.path === '/') {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Home
           messages={messages.destinations}
           library={library}
@@ -86,7 +95,7 @@ export function Destination({
   }
   if (match.route.path === '/search') {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Search
           messages={messages.destinations}
           library={library}
@@ -99,7 +108,7 @@ export function Destination({
   }
   if (match.route.path === '/library') {
     return (
-      <View id="destination">
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Library
           messages={messages.destinations}
           library={library}
@@ -111,7 +120,7 @@ export function Destination({
     );
   }
   return (
-    <View id="destination">
+    <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
       <Settings
         messages={messages.destinations}
         shellMessages={messages.shell}

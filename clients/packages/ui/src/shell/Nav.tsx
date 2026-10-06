@@ -15,25 +15,32 @@ export function navItems(messages: ShellMessages): readonly NavItem[] {
   ];
 }
 
+function glyphKey(path: string): string {
+  return path === '/' ? 'home' : path.slice(1);
+}
+
 export type NavProps = {
   id: 'nav-tabs' | 'nav-rail' | 'nav-sidebar';
   label: string;
   items: readonly NavItem[];
   activePath: string;
   onNavigate: (path: string) => void;
+  brand?: ReactNode;
   footer?: ReactNode;
 };
 
-export function Nav({ id, label, items, activePath, onNavigate, footer }: NavProps) {
+export function Nav({ id, label, items, activePath, onNavigate, brand, footer }: NavProps) {
   return (
     <View id={id} accessibilityRole="navigation" accessibilityLabel={label}>
+      {brand}
       {items.map((item) => {
         const selected = item.path === activePath;
-        const itemId = item.path === '/' ? 'home' : item.path.slice(1);
+        const itemId = glyphKey(item.path);
         return (
           <View
             key={item.path}
             id={`nav-item-${itemId}`}
+            dataSet={{ navGlyph: itemId }}
             accessibilityRole="link"
             accessibilityLabel={item.label}
             accessibilityState={{ selected }}
@@ -48,7 +55,7 @@ export function Nav({ id, label, items, activePath, onNavigate, footer }: NavPro
               }
             }}
           >
-            <Text>{item.label}</Text>
+            <Text dataSet={{ navLabel: '1' }}>{item.label}</Text>
           </View>
         );
       })}

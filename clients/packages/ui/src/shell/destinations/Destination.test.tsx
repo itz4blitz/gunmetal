@@ -90,7 +90,7 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(document.querySelector('#search-affordance')).toBeTruthy();
   expect(document.querySelector('#search-field-wrap')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Search albums and tracks'), {
-    target: { value: 'Harbour' },
+    target: { value: 'Mira' },
   });
   expect(screen.getByText('Demo-local filter — not CorePort search')).toBeTruthy();
   expect(document.querySelector('#search-group-albums')?.textContent).toStrictEqual('Albums');
@@ -118,7 +118,7 @@ test('home library search and settings destinations render fixture chrome', () =
     target: { value: 'zzzz' },
   });
   expect(screen.getByText('No matches for this query in Music')).toBeTruthy();
-  expect(document.querySelector('#search-no-hits [data-empty-card="1"]')).toBeTruthy();
+  expect(document.querySelector('#search-no-hits[data-empty-card="1"]')).toBeTruthy();
   expect(document.querySelector('#search-no-hits [data-empty-mark="1"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
   fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));

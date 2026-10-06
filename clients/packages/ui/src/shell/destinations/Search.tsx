@@ -151,24 +151,46 @@ export function Search({
         <View id="search-results">
           <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
           {noVisibleHits ? (
-            <Text id="search-no-hits">{messages.searchNoHits}</Text>
+            <View id="search-no-hits" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
+              <View dataSet={{ emptyMark: '1' }} />
+              <Text accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
+                {messages.searchNoHits}
+              </Text>
+              <Text dataSet={{ emptyState: 'search-no-hits' }}>{messages.searchDemoLocalNotice}</Text>
+            </View>
           ) : (
             <>
               {visibleAlbums.length > 0 ? (
                 <View dataSet={{ searchAlbums: '1' }}>
-                  {visibleAlbums.map((album) => (
-                    <AlbumTile
-                      key={album.id}
-                      album={album}
-                      messages={messages}
-                      onOpen={onOpenAlbum}
-                      onPlay={onPlayAlbum}
-                    />
-                  ))}
+                  <Text
+                    id="search-group-albums"
+                    accessibilityRole="header"
+                    dataSet={{ searchGroup: 'albums', type: 'title2' }}
+                  >
+                    {messages.tabAlbums}
+                  </Text>
+                  <View dataSet={{ searchAlbumGrid: '1' }}>
+                    {visibleAlbums.map((album) => (
+                      <AlbumTile
+                        key={album.id}
+                        album={album}
+                        messages={messages}
+                        onOpen={onOpenAlbum}
+                        onPlay={onPlayAlbum}
+                      />
+                    ))}
+                  </View>
                 </View>
               ) : null}
               {visibleTracks.length > 0 ? (
                 <View dataSet={{ searchTracks: '1' }}>
+                  <Text
+                    id="search-group-tracks"
+                    accessibilityRole="header"
+                    dataSet={{ searchGroup: 'tracks', type: 'title2' }}
+                  >
+                    {messages.tabTracks}
+                  </Text>
                   {visibleTracks.map((track) => (
                     <TrackRow
                       key={track.id}

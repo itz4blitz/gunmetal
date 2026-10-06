@@ -17,19 +17,22 @@ export function Settings({ messages, shellMessages, theme, onThemeChange }: Sett
       <Text id="destination-headline" accessibilityRole="header">
         {messages.settingsHeadline}
       </Text>
-      <View id="settings-appearance" dataSet={{ settingsSection: 'appearance' }}>
+      <View
+        id="settings-appearance"
+        dataSet={{ settingsSection: 'appearance', settingsPanel: '1' }}
+      >
         <Text accessibilityRole="header" dataSet={{ type: 'title2' }}>
           {messages.settingsAppearance}
         </Text>
         <ThemeSwitcher messages={shellMessages} theme={theme} onThemeChange={onThemeChange} />
       </View>
-      <View id="settings-demo-data" dataSet={{ settingsSection: 'demo-data' }}>
+      <View id="settings-demo-data" dataSet={{ settingsSection: 'demo-data', settingsPanel: '1' }}>
         <Text accessibilityRole="header" dataSet={{ type: 'title2' }}>
           {messages.settingsDemoData}
         </Text>
         <Text dataSet={{ settingsDemoBody: '1' }}>{messages.settingsDemoDataBody}</Text>
       </View>
-      <View id="settings-playback" dataSet={{ settingsSection: 'playback' }}>
+      <View id="settings-playback" dataSet={{ settingsSection: 'playback', settingsPanel: '1' }}>
         <Text accessibilityRole="header" dataSet={{ type: 'title2' }}>
           {messages.settingsPlayback}
         </Text>
@@ -39,7 +42,7 @@ export function Settings({ messages, shellMessages, theme, onThemeChange }: Sett
           </Text>
         </View>
       </View>
-      <View id="settings-about" dataSet={{ settingsSection: 'about' }}>
+      <View id="settings-about" dataSet={{ settingsSection: 'about', settingsPanel: '1' }}>
         <Text accessibilityRole="header" dataSet={{ type: 'title2' }}>
           {messages.settingsAbout}
         </Text>
