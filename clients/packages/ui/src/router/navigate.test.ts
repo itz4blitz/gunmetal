@@ -18,8 +18,18 @@ test('push and replace call the history writer with the closed path', () => {
   };
   expect(pushPath(history, '/library', 8)).toStrictEqual({ scrollY: 8, itemId: undefined });
   expect(replacePath(history, '/search')).toStrictEqual({ scrollY: 0, itemId: undefined });
+  expect(pushPath(history, '/library', 0, 'demo-album-01')).toStrictEqual({
+    scrollY: 0,
+    itemId: 'demo-album-01',
+  });
+  expect(replacePath(history, '/library', 4, 'demo-album-02')).toStrictEqual({
+    scrollY: 4,
+    itemId: 'demo-album-02',
+  });
   expect(calls).toStrictEqual([
     { kind: 'push', state: { scrollY: 8, itemId: undefined }, url: '/library' },
     { kind: 'replace', state: { scrollY: 0, itemId: undefined }, url: '/search' },
+    { kind: 'push', state: { scrollY: 0, itemId: 'demo-album-01' }, url: '/library' },
+    { kind: 'replace', state: { scrollY: 4, itemId: 'demo-album-02' }, url: '/library' },
   ]);
 });

@@ -47,8 +47,35 @@ test('an unknown path, a fragment and a query string each refuse the address', (
 });
 
 // Verifies: SEC-CLI-025
-test('a history state holding a malformed item id shows not found', () => {
-  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'album-1' } })).toStrictEqual({
+test('opaque item ids stay in history state and malformed ids refuse the address', () => {
+  expect(
+    matchAddress({ pathname: '/library', search: '', hash: '', state: { itemId: 'demo-album-01' } }),
+  ).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/library', surface: 'SUR-022', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: 'demo-album-01' },
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: '' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a/b' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a?b' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a#b' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a\\b' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a b' } })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(
+    matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'x'.repeat(129) } }),
+  ).toStrictEqual({
     kind: 'not-found',
   });
   expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 1 } })).toStrictEqual({

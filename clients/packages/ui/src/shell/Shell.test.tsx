@@ -62,7 +62,7 @@ test('an unknown path, fragment and query each show Not found', () => {
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   query.unmount();
 
-  const badId = render(<Shell path="/" historyState={{ itemId: 'x' }} widthPx={1600} />);
+  const badId = render(<Shell path="/" historyState={{ itemId: 'a/b' }} widthPx={1600} />);
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   badId.unmount();
 });

@@ -4,8 +4,18 @@ import { catalogue } from '../messages/catalogue.ts';
 import { matchAddress, type MatchResult } from '../router/match.ts';
 import { pushPath } from '../router/navigate.ts';
 import { Destination } from './destinations/Destination.tsx';
+import type { ShellLibrary } from './library-types.ts';
 import { Nav, navItems } from './Nav.tsx';
+import { applyPlayback } from './demo-play.ts';
+import {
+  emptyPlayback,
+  setQueueOpen,
+  stepQueue,
+  togglePlaying,
+  type PlaybackSnapshot,
+} from './playback.ts';
 import { PlayerBar } from './PlayerBar.tsx';
+import { QueuePane } from './QueuePane.tsx';
 import { defaultTheme, type ThemeId } from './theme.ts';
 import { ThemeSwitcher } from './ThemeSwitcher.tsx';
 import { landmarksForClass, widthClass, type WidthClass } from './width.ts';
@@ -18,25 +28,10 @@ export type ShellProps = {
   widthPx?: number;
   theme?: ThemeId;
   showDemoLabel?: boolean;
+  library?: ShellLibrary;
   onNavigate?: (path: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
 };
-
-function headlineFor(match: MatchResult, messages: ReturnType<typeof catalogue>): string {
-  if (match.kind === 'not-found') {
-    return messages.destinations.notFoundHeadline;
-  }
-  if (match.route.path === '/') {
-    return messages.destinations.homeHeadline;
-  }
-  if (match.route.path === '/search') {
-    return messages.destinations.searchHeadline;
-  }
-  if (match.route.path === '/library') {
-    return messages.destinations.libraryHeadline;
-  }
-  return messages.destinations.settingsHeadline;
-}
 
 function readWindowWidth(): number {
   return globalThis.innerWidth;
@@ -51,6 +46,13 @@ function readLocation(): { pathname: string; search: string; hash: string; state
   };
 }
 
+function detailPath(match: MatchResult): string {
+  if (match.kind === 'ok' && (match.route.path === '/' || match.route.path === '/library')) {
+    return match.route.path;
+  }
+  return '/library';
+}
+
 export function Shell({
   path,
   search = '',
@@ -59,12 +61,14 @@ export function Shell({
   widthPx,
   theme: themeProp,
   showDemoLabel = false,
+  library,
   onNavigate,
   onThemeChange,
 }: ShellProps) {
   const messages = catalogue();
   const [theme, setTheme] = useState<ThemeId>(themeProp ?? defaultTheme());
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
+  const [playback, setPlayback] = useState<PlaybackSnapshot>(() => emptyPlayback());
   const [location, setLocation] = useState(() => {
     if (path !== undefined) {
       return { pathname: path, search, hash, state: historyState };
@@ -108,6 +112,7 @@ export function Shell({
 
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
+  const itemId = match.kind === 'ok' ? match.history.itemId : undefined;
   const items = navItems(messages.shell);
   const currentLandmarks = landmarksForClass(width);
 
@@ -120,9 +125,59 @@ export function Shell({
     setLocation({ pathname: next, search: '', hash: '', state: { scrollY: 0, itemId: undefined } });
   };
 
+  const openAlbum = (albumId: string) => {
+    const nextPath = detailPath(match);
+    if (onNavigate !== undefined) {
+      onNavigate(nextPath);
+      setLocation({
+        pathname: nextPath,
+        search: '',
+        hash: '',
+        state: { scrollY: 0, itemId: albumId },
+      });
+      return;
+    }
+    pushPath(globalThis.history, nextPath, 0, albumId);
+    setLocation({
+      pathname: nextPath,
+      search: '',
+      hash: '',
+      state: { scrollY: 0, itemId: albumId },
+    });
+  };
+
+  const backFromAlbum = () => {
+    const nextPath = detailPath(match);
+    if (onNavigate !== undefined) {
+      onNavigate(nextPath);
+      setLocation({
+        pathname: nextPath,
+        search: '',
+        hash: '',
+        state: { scrollY: 0, itemId: undefined },
+      });
+      return;
+    }
+    pushPath(globalThis.history, nextPath);
+    setLocation({
+      pathname: nextPath,
+      search: '',
+      hash: '',
+      state: { scrollY: 0, itemId: undefined },
+    });
+  };
+
   const changeTheme = (next: ThemeId) => {
     setTheme(next);
     onThemeChange?.(next);
+  };
+
+  const playAlbum = (albumId: string) => {
+    setPlayback(applyPlayback(library, albumId, undefined));
+  };
+
+  const playTrack = (albumId: string, trackId: string) => {
+    setPlayback(applyPlayback(library, albumId, trackId));
   };
 
   const themeFooter = (
@@ -156,6 +211,8 @@ export function Shell({
       {themeFooter}
     </View>
   );
+
+  const showWideQueue = width === 'wide';
 
   return (
     <View
@@ -192,13 +249,48 @@ export function Shell({
           />
         ) : null}
         <View id="content" accessibilityRole="main">
-          <Destination headline={headlineFor(match, messages)} />
+          <Destination
+            match={match}
+            messages={messages}
+            library={library}
+            itemId={itemId}
+            theme={theme}
+            onThemeChange={changeTheme}
+            onOpenAlbum={openAlbum}
+            onBackFromAlbum={backFromAlbum}
+            onPlayAlbum={playAlbum}
+            onPlayTrack={playTrack}
+          />
           {width === 'compact' ? navFooter : null}
         </View>
-        {width === 'wide' ? (
-          <View id="right-pane" accessibilityRole="complementary" accessibilityLabel={messages.shell.rightPane} />
-        ) : null}
-        <PlayerBar label={messages.shell.playerRegion} emptyLabel={messages.shell.playerEmpty} />
+        {showWideQueue ? (
+          <QueuePane messages={messages.shell} playback={playback} compactSheet={false} />
+        ) : (
+          <QueuePane
+            messages={messages.shell}
+            playback={playback}
+            compactSheet
+            onCloseSheet={() => {
+              setPlayback((current) => setQueueOpen(current, false));
+            }}
+          />
+        )}
+        <PlayerBar
+          messages={messages.shell}
+          playback={playback}
+          onPlayPause={() => {
+            setPlayback((current) => togglePlaying(current));
+          }}
+          onPrevious={() => {
+            setPlayback((current) => stepQueue(current, -1));
+          }}
+          onNext={() => {
+            setPlayback((current) => stepQueue(current, 1));
+          }}
+          onToggleQueue={() => {
+            setPlayback((current) => setQueueOpen(current, !current.queueOpen));
+          }}
+        />
         {width === 'compact' ? (
           <Nav
             id="nav-tabs"

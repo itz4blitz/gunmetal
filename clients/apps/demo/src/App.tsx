@@ -3,5 +3,5 @@ import { composeDemo } from './compose.ts';
 
 export function App() {
   const demo = composeDemo();
-  return <Shell showDemoLabel={demo.showDemoLabel} />;
+  return <Shell showDemoLabel={demo.showDemoLabel} library={demo.library} />;
 }

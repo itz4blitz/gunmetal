@@ -24,12 +24,25 @@ export type AddressParts = {
   state: unknown;
 };
 
-// Provisional until WP-235 generated ID types land: only undefined item IDs are accepted.
+// Provisional opaque IDs until WP-235 generated ID types land. Kept out of the URL (SEC-CLI-025).
 function parseItemId(value: unknown): { ok: true; itemId: string | undefined } | { ok: false } {
   if (value === undefined) {
     return { ok: true, itemId: undefined };
   }
-  return { ok: false };
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128) {
+    return { ok: false };
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x21 || code > 0x7e) {
+      return { ok: false };
+    }
+    const char = value[index];
+    if (char === '/' || char === '\\' || char === '?' || char === '#') {
+      return { ok: false };
+    }
+  }
+  return { ok: true, itemId: value };
 }
 
 export function parseHistoryState(state: unknown): { ok: true; value: HistoryState } | { ok: false } {

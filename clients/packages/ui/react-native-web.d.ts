@@ -3,6 +3,7 @@ declare module 'react-native-web' {
 
   export type AccessibilityState = {
     selected?: boolean;
+    disabled?: boolean;
   };
 
   export type ViewProps = {
@@ -15,6 +16,7 @@ declare module 'react-native-web' {
     onClick?: MouseEventHandler<HTMLElement>;
     onKeyDown?: KeyboardEventHandler<HTMLElement>;
     dataSet?: Record<string, string>;
+    style?: Record<string, string | number>;
   };
 
   export type TextProps = {
@@ -22,6 +24,7 @@ declare module 'react-native-web' {
     id?: string;
     accessibilityRole?: string;
     accessibilityLabel?: string;
+    dataSet?: Record<string, string>;
   };
 
   export function View(props: ViewProps): ReactNode;
