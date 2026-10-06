@@ -8,4 +8,6 @@
 //! The crate is for Linux, the only system R1's server runs on (owner
 //! decision D-09).
 
+pub mod host;
+pub mod ipc;
 pub mod sandbox;

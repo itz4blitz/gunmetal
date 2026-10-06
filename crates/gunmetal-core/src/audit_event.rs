@@ -148,6 +148,8 @@ security_events! {
         /// The administrator who switched it on, or none when it was switched on from the host.
         account: Option<PublicId>,
     }
+    /// The egress gate refused an outbound request; its purpose, host and reason are in the network activity record (SEC-PRV-008).
+    GmEgressDenied = "gm_egress_denied" {}
 }
 
 /// Where producers send security events.
@@ -343,16 +345,18 @@ mod tests {
     use super::*;
     use crate::client_context::PathClass;
     use crate::id::IdKind;
+    use crate::test_support::is_lower_snake;
     use core::net::{IpAddr, Ipv4Addr};
 
     /// Every event's vocabulary name, in order, written out independently of
     /// the declaration above.
-    const VOCABULARY: [&str; 5] = [
+    const VOCABULARY: [&str; 6] = [
         "authn_login_fail",
         "authn_login_success",
         "authz_fail",
         "excess_rate_limit_exceeded",
         "gm_debug_logging_enabled",
+        "gm_egress_denied",
     ];
 
     fn source() -> ClientContext {
@@ -388,10 +392,7 @@ mod tests {
         sorted.dedup();
         assert_eq!(names, sorted, "names must be unique and in sorted order");
         for name in names {
-            let shaped = name.starts_with(|c: char| c.is_ascii_lowercase())
-                && name.ends_with(|c: char| c.is_ascii_lowercase())
-                && name.chars().all(|c| c.is_ascii_lowercase() || c == '_');
-            assert!(shaped, "name {name:?}");
+            assert!(is_lower_snake(name), "name {name:?}");
         }
     }
 
@@ -439,6 +440,7 @@ mod tests {
                 SecurityEvent::GmDebugLoggingEnabled { account: None },
                 EventName::GmDebugLoggingEnabled,
             ),
+            (SecurityEvent::GmEgressDenied {}, EventName::GmEgressDenied),
         ];
         let reported: Vec<(SecurityEvent, EventName)> = cases
             .iter()

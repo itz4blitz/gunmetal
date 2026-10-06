@@ -9,6 +9,8 @@
 //!
 //! This file is a registry: it holds only `pub mod` lines.
 
+pub mod catalog;
+pub mod changelog;
 mod columns;
 pub mod readers;
 pub mod reply;

@@ -19,7 +19,9 @@
 //!   core's own allocation bans need a file of their own, and its
 //!   deny-level lints a table of their own. The core's tests
 //!   (`tests/workspace_rules.rs`) check that both repeat every workspace
-//!   rule, and the gate allows no third `clippy.toml`;
+//!   rule, and the gate allows no third `clippy.toml`. The facade's exact
+//!   manifest path is also permitted to repeat the workspace lint tables
+//!   for its generated glue; its own tests check their agreement (WP-235);
 //! - in the one crate that may hold `unsafe` ([`UNSAFE_DOOR`], ADR 13), a
 //!   line that names the [`UNSAFE`] lint outside the module listed for it,
 //!   or a second such line in that module, and a manifest whose lint
@@ -132,6 +134,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the test of the one method that exposes a secret (SEC-OPS-013, WP-047)",
     },
     Exception {
+        path: "crates/gunmetal-server/tests/storage_access.rs",
+        lint: LINTS[1],
+        reason: "the architecture test reads every source file of the server crate by path, so a module a later package adds is scanned without being listed (SEC-TM-024, WP-065)",
+    },
+    Exception {
         path: "crates/gunmetal-testkit/src/library.rs",
         lint: LINTS[1],
         reason: "the synthetic library is written into a test's scratch directory (owner decision 33, WP-119)",
@@ -140,6 +147,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         path: "crates/gunmetal-testkit/src/tempdir.rs",
         lint: LINTS[1],
         reason: "test scratch directories (owner decision 33, WP-007)",
+    },
+    Exception {
+        path: "crates/gunmetal-worker/src/ipc.rs",
+        lint: LINTS[1],
+        reason: "the worker receives a request's descriptors with recvmsg on the launcher's socket pair, which has no peer address to read; its tests open their in-memory files again through /proc/self/fd (SEC-MED-020, SEC-OPS-037, WP-061)",
     },
     Exception {
         path: "crates/gunmetal-worker/src/sandbox/descriptors.rs",
@@ -251,7 +263,7 @@ pub fn check(tree: &dyn Tree, exceptions: &[Exception]) -> Vec<Finding> {
             if !stricter {
                 findings.push(Finding::LocalConfig { path });
             }
-        } else if name == "Cargo.toml" && !stricter {
+        } else if name == "Cargo.toml" && !stricter && path != "crates/gunmetal-wasm/Cargo.toml" {
             let manifest = tree.read(&path).unwrap_or_default();
             let door = path.strip_prefix(UNSAFE_DOOR) == Some(name)
                 && denies_only_unsafe(&manifest, &workspace);
@@ -521,6 +533,34 @@ mod tests {
                 },
                 Finding::LocalConfig {
                     path: "crates/gunmetal-core/tests/clippy.toml".to_owned()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_facade_manifest_may_carry_the_generated_glue_lint_answer() {
+        let own = "[package]\nname = \"own\"\n\n[lints.rust]\nunsafe_code = \"deny\"\n";
+        let tree = Memory::default()
+            .with("crates/gunmetal-wasm/Cargo.toml", own)
+            .with("crates/gunmetal-wasm/clippy.toml", "")
+            .with("crates/gunmetal-wasm-extra/Cargo.toml", own)
+            .with("crates/gunmetal-wasm/tests/Cargo.toml", own)
+            .with("crates/third/Cargo.toml", own);
+        assert_eq!(
+            check(&tree, &[]),
+            [
+                Finding::OwnLints {
+                    path: "crates/gunmetal-wasm-extra/Cargo.toml".to_owned(),
+                },
+                Finding::LocalConfig {
+                    path: "crates/gunmetal-wasm/clippy.toml".to_owned(),
+                },
+                Finding::OwnLints {
+                    path: "crates/gunmetal-wasm/tests/Cargo.toml".to_owned(),
+                },
+                Finding::OwnLints {
+                    path: "crates/third/Cargo.toml".to_owned(),
                 },
             ]
         );

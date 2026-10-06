@@ -123,6 +123,8 @@ problems! {
     SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
     /// The action needs an administrator session or a fresh check with a passkey first (SEC-IAM-041, SEC-TM-017).
     StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
+    /// A limit refused a sign-in attempt before it was looked at: its source's ceiling or the server's was reached, or an earlier wrong guess has not been waited out. The response says how long to wait and nothing about whether an account, code or link exists (SEC-API-057, SEC-IAM-101).
+    TooManyAttempts = ("too_many_attempts", Some(429), "Too many attempts. Wait a little, then try again."),
     /// The request carried no valid credential for a route that needs one: none, a malformed, expired or revoked one, or one for an account that is disabled or gone. All of these get this one answer (SEC-API-003).
     Unauthenticated = ("unauthenticated", Some(401), "Sign in to continue."),
     /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
@@ -167,10 +169,11 @@ pub trait Describe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::is_lower_snake;
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 33] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 34] = [
         (
             "aiff_unreadable",
             None,
@@ -302,6 +305,11 @@ mod tests {
             Some(403),
             "Confirm it's you with your passkey, then try again.",
         ),
+        (
+            "too_many_attempts",
+            Some(429),
+            "Too many attempts. Wait a little, then try again.",
+        ),
         ("unauthenticated", Some(401), "Sign in to continue."),
         (
             "unknown_host",
@@ -354,10 +362,7 @@ mod tests {
         sorted.dedup();
         assert_eq!(codes, sorted, "codes must be unique and in sorted order");
         for code in codes {
-            let shaped = code.starts_with(|c: char| c.is_ascii_lowercase())
-                && code.ends_with(|c: char| c.is_ascii_lowercase())
-                && code.chars().all(|c| c.is_ascii_lowercase() || c == '_');
-            assert!(shaped, "code {code:?}");
+            assert!(is_lower_snake(code), "code {code:?}");
         }
     }
 

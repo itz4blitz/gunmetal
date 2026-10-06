@@ -1,4 +1,4 @@
-//! The harness for the EBML parser in [`gunmetal_core::ebml`].
+//! The harness for the EBML parser in [`ebml`].
 
 use gunmetal_core::ebml::{
     self, Element, ElementError, ElementHeader, HeaderError, Vint, VintError,
