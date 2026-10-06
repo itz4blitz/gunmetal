@@ -25,6 +25,17 @@ const TOOLCHAIN: &str = include_str!("../../../rust-toolchain.toml");
 const GATE: &str = include_str!("../../../scripts/gate.sh");
 const CI: &str = include_str!("../../../.github/workflows/ci.yml");
 const DAILY_DENY: &str = include_str!("../../../.github/workflows/supply-chain.yml");
+const CODEQL: &str = include_str!("../../../.github/workflows/codeql.yml");
+const DEPENDENCY_AGE: &str = include_str!("../../../.github/workflows/dependency-age.yml");
+const DOCS: &str = include_str!("../../../.github/workflows/docs.yml");
+const FUZZ: &str = include_str!("../../../.github/workflows/fuzz.yml");
+const QODANA: &str = include_str!("../../../.github/workflows/qodana.yml");
+const SCORECARD: &str = include_str!("../../../.github/workflows/scorecard.yml");
+const SETTINGS_DRIFT: &str = include_str!("../../../.github/workflows/settings-drift.yml");
+const STANDARDS_WATCH: &str = include_str!("../../../.github/workflows/standards-watch.yml");
+const WASM: &str = include_str!("../../../.github/workflows/wasm.yml");
+const WORKFLOW_LINT: &str = include_str!("../../../.github/workflows/workflow-lint.yml");
+const OWN_RUNNER: &str = "runs-on: [self-hosted, gunmetal-mutants]";
 const VET_CONFIG: &str = include_str!("../../../supply-chain/config.toml");
 const EXCEPTIONS: &str = include_str!("../../../supply-chain/exceptions.toml");
 const CORE_ALLOWLIST: &str = include_str!("../../../supply-chain/core-allowlist.toml");
@@ -2040,19 +2051,13 @@ fi
     // Shards 0 to 9 of 10 run for every event: each index once, and a failed
     // shard does not cancel the others, so one run reports every missed
     // mutant. A pull request into a wave branch scopes them to its diff,
-    // which needs the base branch's history. Where a shard runs and how long
-    // it may take are one condition, written twice (record 15): a pull
-    // request into a wave branch, from a fork, or whose author is anything
-    // but a person's account stays on GitHub's runners with 75 minutes, and
-    // every other event goes to the project's own runners with 15 hours.
-    // The author term is the only thing that keeps a bot account's pull
-    // request off the project's hardware, and it is written to fail closed:
-    // an author type that is missing or unknown stays on GitHub's runners.
-    // Both lines are pinned whole.
+    // which needs the base branch's history. Record 17 sends every shard
+    // to the project's own runners with 15 hours. There is no GitHub-hosted
+    // path. Both lines are pinned whole.
     let mutants = workflow_job(CI, "mutants");
     for line in [
-        r#"runs-on: ${{ fromJSON(github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type != 'User') && '["ubuntu-latest"]' || '["self-hosted", "gunmetal-mutants"]') }}"#,
-        "timeout-minutes: ${{ github.event_name == 'pull_request' && (startsWith(github.base_ref, 'wave-') || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type != 'User') && 75 || 900 }}",
+        OWN_RUNNER,
+        "timeout-minutes: 900",
         "fail-fast: false",
         "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
         "fetch-depth: 0",
@@ -2090,6 +2095,41 @@ fi
             .filter(|line| line.starts_with("timeout-minutes: "))
             .count();
         assert_eq!(limits, 1, "{job}");
+    }
+}
+
+/// Every Actions job runs on the project's Unraid runners. Record 15 left
+/// checks, bots, forks and the small jobs on GitHub-hosted `ubuntu-latest`.
+/// Record 17 removes that split.
+#[test]
+fn every_actions_job_runs_on_the_project_runners() {
+    for (path, workflow) in [
+        (".github/workflows/ci.yml", CI),
+        (".github/workflows/supply-chain.yml", DAILY_DENY),
+        (".github/workflows/codeql.yml", CODEQL),
+        (".github/workflows/dependency-age.yml", DEPENDENCY_AGE),
+        (".github/workflows/docs.yml", DOCS),
+        (".github/workflows/fuzz.yml", FUZZ),
+        (".github/workflows/qodana.yml", QODANA),
+        (".github/workflows/scorecard.yml", SCORECARD),
+        (".github/workflows/settings-drift.yml", SETTINGS_DRIFT),
+        (".github/workflows/standards-watch.yml", STANDARDS_WATCH),
+        (".github/workflows/wasm.yml", WASM),
+        (".github/workflows/workflow-lint.yml", WORKFLOW_LINT),
+    ] {
+        let jobs = workflow_jobs(workflow);
+        assert!(!jobs.is_empty(), "{path} has no jobs");
+        for job in jobs {
+            let runners: Vec<&str> = workflow_job(workflow, job)
+                .into_iter()
+                .filter(|line| line.starts_with("runs-on:"))
+                .collect();
+            assert_eq!(
+                runners,
+                [OWN_RUNNER],
+                "{path} job {job} must run only on [self-hosted, gunmetal-mutants]"
+            );
+        }
     }
 }
 

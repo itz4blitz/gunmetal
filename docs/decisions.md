@@ -138,7 +138,8 @@ The owner directed these in conversation on 2026-10-06.
 
 | Decision | Answer |
 |---|---|
-| D-89 Source of truth forge | Forgejo on the Premier tailnet is the source of truth: `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`, hosted on the Unraid box. GitHub remains a mirror for Cursor cloud agents, crate metadata and GitHub Actions until those paths can reach the tailnet or a public tunnel. Disclosure (D-63) stays GitHub-only. Recorded as [record 16](adr/0016-forgejo-source-of-truth.md). |
+| D-89 Source of truth forge | Forgejo on the Premier tailnet is the source of truth: `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`, hosted on the Unraid box. GitHub is not the working forge. Disclosure (D-63) stays on a public URL until a public reporting path exists. Recorded as [record 16](adr/0016-forgejo-source-of-truth.md). |
+| D-90 Actions runners | Every Actions job runs on the project's self-hosted runners (`[self-hosted, gunmetal-mutants]`). No GitHub-hosted `ubuntu-latest`. Recorded as [record 17](adr/0017-all-actions-on-own-runners.md). |
 
 ## Decide first
 
@@ -2627,10 +2628,20 @@ Answered 2026-10-03: recommendation accepted and applied.
   and merges from, or has that moved to the Premier Studio Forgejo on
   Unraid over Tailscale?
 - **Recommendation.** Treat Forgejo as the source of truth at
-  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`. Keep GitHub as a
-  reachable mirror. Do not move vulnerability reporting or crate
+  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`. GitHub is not the
+  working forge. Do not move vulnerability reporting or crate
   `repository` URLs onto a MagicDNS name that does not resolve off the
   tailnet.
 
-Answered 2026-10-06: Forgejo is the source of truth; GitHub is the mirror.
-See [record 16](adr/0016-forgejo-source-of-truth.md).
+Answered 2026-10-06: Forgejo is the source of truth; GitHub is not the
+working forge. See [record 16](adr/0016-forgejo-source-of-truth.md).
+
+### D-90 Actions runners
+
+- **Question.** Do any Actions jobs still run on GitHub-hosted
+  `ubuntu-latest`, as record 15 allowed for checks, bots, forks and
+  wave-branch diffs?
+- **Recommendation.** No. Every job uses `[self-hosted, gunmetal-mutants]`.
+
+Answered 2026-10-06: every Actions job runs on the project's own runners.
+See [record 17](adr/0017-all-actions-on-own-runners.md).

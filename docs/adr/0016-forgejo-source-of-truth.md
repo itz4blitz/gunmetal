@@ -22,36 +22,34 @@ Vulnerability reporting (D-63) and the signed `security.txt` the site
 emits must stay on a public URL. A tailnet Forgejo is not reachable to
 reporters who are not on the tailnet.
 
-[Record 15](0015-own-runners-for-the-full-mutation-gate.md) put the full
-mutation gate on the project's own GitHub Actions runners. That CI path
-is unchanged until a Forgejo Actions or TeamCity job is the required
-check.
+[Record 15](0015-own-runners-for-the-full-mutation-gate.md) put only the
+full mutation shards on the Unraid runners.
+[Record 17](0017-all-actions-on-own-runners.md) puts every Actions job
+there.
 
 ## Decisions
 
 1. **The canonical repository is the Premier Studio Forgejo copy:**
    `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`. Agents and
    people on the tailnet clone, push and open pull requests there.
-2. **GitHub `https://github.com/PremierStudio/gunmetal` is a mirror**,
-   not the source of truth. It stays so that Cursor cloud agents, public
-   clone instructions that cannot see the tailnet, crate metadata and
-   GitHub Actions can keep working. A later change can retire the mirror
-   once those paths have a reachable Forgejo replacement.
-3. **Disclosure stays on GitHub** (D-63). `SECURITY.md` and the site's
-   `security.txt` keep the GitHub advisory URL. They do not name the
-   tailnet forge as a reporting channel.
-4. **CI stays GitHub Actions** under record 15 until a named Forgejo or
-   TeamCity workflow is the required `gate` check. `.github/` is not
-   moved by this record.
-5. **Published crate `repository` URLs stay on GitHub** until a
-   publicly-resolvable git hostname (for example a Cloudflare tunnel in
-   front of the same Forgejo) exists. A MagicDNS name that returns
-   NXDOMAIN off the tailnet is not crate metadata.
+2. **GitHub is not the working forge.** Pull requests, reviews and merges
+   belong on Forgejo. A GitHub copy, if one still exists, is leftover
+   hosting, not CI and not the branch people merge.
+3. **Disclosure stays on a public URL** (D-63). `SECURITY.md` and the
+   site's `security.txt` keep the GitHub advisory URL until a public
+   reporting path exists. They do not name the tailnet forge as a
+   reporting channel.
+4. **CI is the project's own runners**, under
+   [record 17](0017-all-actions-on-own-runners.md). Workflow files stay
+   in `.github/workflows/` because Forgejo Actions reads that path.
+   Nothing is scheduled on GitHub-hosted machines.
+5. **Published crate `repository` URLs stay on a publicly-resolvable
+   host** until a public git hostname (for example a Cloudflare tunnel in
+   front of this Forgejo) exists. A MagicDNS name that returns NXDOMAIN
+   off the tailnet is not crate metadata.
 
 ## Consequences
 
-Clone instructions in the README show the Forgejo URL first and the
-GitHub mirror second. Agent notes say pull requests belong on Forgejo
-when the environment can reach it, and on the GitHub mirror otherwise.
-This record does not rewrite earlier ADRs that cite GitHub pull-request
-numbers; those citations stay as history.
+Clone instructions name the Forgejo URL. Agent notes say pull requests
+belong on Forgejo. This record does not rewrite earlier ADRs that cite
+GitHub pull-request numbers; those citations stay as history.
