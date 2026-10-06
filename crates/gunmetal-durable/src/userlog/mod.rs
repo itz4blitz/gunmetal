@@ -4,7 +4,9 @@
 //! This file is a registry: it holds only `mod` lines.
 
 pub mod error;
+mod ledger;
 pub mod log;
+mod place;
 pub mod record;
 pub mod scan;
 #[cfg(test)]

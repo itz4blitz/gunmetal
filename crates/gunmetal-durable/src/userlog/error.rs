@@ -64,3 +64,27 @@ pub enum LedgerFlaw {
     /// Reading the ledger spent its step budget.
     Fault(ParseFault),
 }
+
+impl From<io::Error> for LogError {
+    /// Keeps the kind of a failed read, write or sync.
+    fn from(error: io::Error) -> Self {
+        Self::Io(error.kind())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_kind_of_a_failed_read_write_or_sync() {
+        assert_eq!(
+            LogError::from(io::Error::from(io::ErrorKind::StorageFull)),
+            LogError::Io(io::ErrorKind::StorageFull)
+        );
+        assert_eq!(
+            LogError::from(io::Error::from(io::ErrorKind::UnexpectedEof)),
+            LogError::Io(io::ErrorKind::UnexpectedEof)
+        );
+    }
+}

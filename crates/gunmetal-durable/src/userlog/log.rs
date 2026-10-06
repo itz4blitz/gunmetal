@@ -29,7 +29,9 @@
 //! it, then rewrites each segment that holds a record the selector covers,
 //! or removes a whole profile's directory. Opening the log does the same
 //! for every selector in the ledger, so an erasure a crash interrupted is
-//! finished before anything is served.
+//! finished before anything is served. The household's stream is never
+//! erased whole: that selector is refused before anything is written, so
+//! the ledger never holds a promise the log could not keep.
 //!
 //! **After a failure.** An operation that fails part of the way through
 //! may have left the files and the log's memory of them apart. The log then
@@ -40,20 +42,29 @@
 //! can a power loss; the tests show what truncation and a failed step leave
 //! behind, and the order of the syncs is this module's code to review.
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry as Slot;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::ops::Range;
+use std::sync::{Mutex, PoisonError};
 
-use gunmetal_core::authz::Permit;
+use gunmetal_core::authz::{Action, Owner, Permit};
+use gunmetal_core::crypto::sha256;
 use gunmetal_core::id::PublicId;
-use gunmetal_core::logframe::EncodeError;
+use gunmetal_core::logframe::{self, EncodeError};
 use gunmetal_core::time::Timestamp;
-use gunmetal_core::userdata::erasure::Selector;
+use gunmetal_core::userdata::codec;
+use gunmetal_core::userdata::erasure::{Ledger, Scope, Selector};
 use gunmetal_core::userdata::event::{Event, EventId, ProfileId, Stream};
 use gunmetal_fs::dataroot::DataRoot;
-use gunmetal_fs::path::LogMonth;
+use gunmetal_fs::path::{DataPath, LogMonth, USER_LOG};
 
 use crate::userlog::error::LogError;
-use crate::userlog::record::Stamped;
-use crate::userlog::scan::Damage;
+use crate::userlog::ledger::{self, Entry};
+use crate::userlog::place;
+use crate::userlog::record::{self, Stamped};
+use crate::userlog::scan::{self, Damage, Held};
 
 /// What became of one event of a batch the log accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,9 +164,61 @@ pub trait ProjectionBuilder {
     fn apply(&mut self, record: &Stamped);
 }
 
+/// What the log knows about one stream.
+#[derive(Debug, Default)]
+struct Shelf {
+    /// The months it has a segment for, oldest first.
+    months: Vec<LogMonth>,
+    /// The sequence number its next record gets.
+    next: u64,
+    /// The events it holds: each ID with its sequence number and the
+    /// SHA-256 of the event's octets.
+    ids: BTreeMap<EventId, (u64, [u8; 32])>,
+}
+
+impl Shelf {
+    /// The IDs of the events the stream holds, in the order of their
+    /// sequence numbers.
+    fn in_order(self) -> Vec<EventId> {
+        let mut numbered: Vec<(u64, EventId)> = self
+            .ids
+            .into_iter()
+            .map(|(id, (seq, _))| (seq, id))
+            .collect();
+        numbered.sort_unstable();
+        numbered.into_iter().map(|(_, id)| id).collect()
+    }
+}
+
+/// What reading one segment at opening, or after an erasure, left.
+struct Settled {
+    /// The records the segment still holds.
+    kept: Vec<Held>,
+    /// The records the ledger covers, which were rewritten away.
+    erased: Vec<Held>,
+    /// The sequence number of the last record read, kept or not.
+    last: Option<u64>,
+}
+
+/// Everything the writer knows, behind the log's one lock.
+#[derive(Debug, Default)]
+struct State {
+    /// Whether an operation failed part of the way through.
+    halted: bool,
+    /// The selectors of every erasure, as the ledger file holds them.
+    ledger: Ledger,
+    /// For each stream an erasure names, the highest sequence number the
+    /// stream had reached when one was recorded.
+    floors: BTreeMap<Stream, u64>,
+    /// The streams that have a directory.
+    streams: BTreeMap<Stream, Shelf>,
+}
+
 /// The user log of one data directory.
 #[derive(Debug)]
-pub struct UserLog;
+pub struct UserLog {
+    state: Mutex<State>,
+}
 
 impl UserLog {
     /// Opens the log beneath `root`: reads the erasure ledger and every
@@ -169,10 +232,23 @@ impl UserLog {
     /// version wrote, and [`LogError::Root`], [`LogError::Dir`] or
     /// [`LogError::Io`] when a file or a directory cannot be used.
     pub fn open(root: &DataRoot) -> Result<Opened, LogError> {
-        let _ = root;
+        // A directory that is already there, or cannot be made, shows when
+        // it is listed or read below. The data root opens no layout
+        // directory itself, so one made here is not synced into `durable`.
+        drop(root.create_dir(&USER_LOG));
+        drop(root.create_dir(&ledger::DIR));
+        let mut report = Report::default();
+        let mut state = State::default();
+        state.read_ledger(root, &mut report)?;
+        let streams = root.log_streams().map_err(LogError::Dir)?.entries;
+        for dir in streams {
+            state.load(root, place::stream(dir), &mut report)?;
+        }
         Ok(Opened {
-            log: Self,
-            report: Report::default(),
+            log: Self {
+                state: Mutex::new(state),
+            },
+            report,
         })
     }
 
@@ -191,8 +267,7 @@ impl UserLog {
         now: Timestamp,
         events: &[Event],
     ) -> Result<Vec<Result<Appended, Refused>>, LogError> {
-        let _ = (root, now, events);
-        Ok(Vec::new())
+        self.with(|state| state.append(root, now, events))
     }
 
     /// The records of one profile's stream whose sequence numbers are in
@@ -212,9 +287,19 @@ impl UserLog {
         profiles: &dyn Profiles,
         range: Range<u64>,
     ) -> Result<Page, LogError> {
-        let _ = (root, permit, profiles, range);
+        let stream = match (permit.action(), permit.owner()) {
+            (Action::ReadOwnData, Some(Owner::Profile(public))) => {
+                profiles.profile(public).map(Stream::Profile)
+            }
+            _ => None,
+        };
+        let stream = stream.ok_or(LogError::Denied)?;
+        let records = self.with(|state| state.records(root, stream))?;
         Ok(Page {
-            records: Vec::new(),
+            records: records
+                .into_iter()
+                .filter(move |record| range.contains(&record.seq))
+                .collect(),
         })
     }
 
@@ -234,7 +319,10 @@ impl UserLog {
         after: u64,
         sink: &mut dyn ProjectionBuilder,
     ) -> Result<(), LogError> {
-        let _ = (root, stream, after, sink);
+        let records = self.with(|state| state.records(root, stream))?;
+        for record in records.iter().filter(|record| record.seq > after) {
+            sink.apply(record);
+        }
         Ok(())
     }
 
@@ -253,9 +341,386 @@ impl UserLog {
     /// read or written; the log then halts, and opening it again finishes
     /// the erasure if the ledger holds it.
     pub fn erase(&self, root: &DataRoot, selector: Selector) -> Result<ErasureReport, LogError> {
-        let _ = (root, selector);
-        Ok(ErasureReport { erased: Vec::new() })
+        if ledger::accepts(selector) {
+            self.with(|state| state.erase(root, selector))
+        } else {
+            Err(LogError::Household)
+        }
     }
+
+    /// Runs `work` on the writer's state, one caller at a time, unless the
+    /// log has halted; and halts it when `work` fails.
+    fn with<R>(&self, work: impl FnOnce(&mut State) -> Result<R, LogError>) -> Result<R, LogError> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.halted {
+            return Err(LogError::Halted);
+        }
+        let outcome = work(&mut state);
+        state.halted = outcome.is_err();
+        outcome
+    }
+}
+
+impl State {
+    /// Reads the ledger file, which it makes if it is not there: cuts an
+    /// entry a crash cut off, then takes every entry in.
+    fn read_ledger(&mut self, root: &DataRoot, report: &mut Report) -> Result<(), LogError> {
+        let bytes = new_ledger(root).and_then(|()| read(root, &ledger::FILE))?;
+        let parsed = ledger::parse(&bytes, &mut scan::budget(&bytes)).map_err(LogError::Ledger)?;
+        report.ledger.clone_from(&parsed.torn);
+        parsed
+            .torn
+            .map_or(Ok(()), |torn| {
+                root.replace(&ledger::FILE, bytes.get(..torn.start).unwrap_or_default())
+            })
+            .map_err(LogError::Root)
+            .and_then(|()| {
+                parsed
+                    .entries
+                    .into_iter()
+                    .try_for_each(|entry| self.adopt(root, entry))
+            })
+    }
+
+    /// Takes in an entry the ledger file holds. A whole profile's directory
+    /// is removed here if it is still there; the records other entries
+    /// cover go when their segments are read. No entry names the
+    /// household's whole stream: the ledger's reader takes none for one.
+    fn adopt(&mut self, root: &DataRoot, entry: Entry) -> Result<(), LogError> {
+        let removed = if entry.selector.scope == Scope::Stream {
+            root.remove_log_stream(place::dir(entry.selector.stream))
+        } else {
+            Ok(())
+        };
+        removed.map_err(LogError::Dir).map(|()| self.record(entry))
+    }
+
+    /// Holds `entry` in memory, as the ledger file already does.
+    fn record(&mut self, entry: Entry) {
+        let floor = self.floors.entry(entry.selector.stream).or_default();
+        *floor = entry.floor.max(*floor);
+        self.ledger.record(entry.selector);
+    }
+
+    /// The lowest sequence number `stream`'s next record may get: 1, or the
+    /// number the stream had reached when an erasure was recorded, so that
+    /// the number of an erased record is never given out again.
+    fn floor(&self, stream: Stream) -> u64 {
+        self.floors.get(&stream).copied().unwrap_or(0).max(1)
+    }
+
+    /// Reads every segment of `stream` from disk, as [`State::settle`]
+    /// leaves them, and holds what the stream now is. Returns the IDs of
+    /// the events the ledger covered, which are gone.
+    fn load(
+        &mut self,
+        root: &DataRoot,
+        stream: Stream,
+        report: &mut Report,
+    ) -> Result<Vec<EventId>, LogError> {
+        let months = root
+            .log_segments(place::dir(stream))
+            .map_err(LogError::Dir)?
+            .entries;
+        let mut shelf = Shelf {
+            months: months.clone(),
+            next: self.floor(stream),
+            ids: BTreeMap::new(),
+        };
+        let mut erased = Vec::new();
+        let mut last = None;
+        for month in &months {
+            let newest = months.last() == Some(month);
+            let settled = self.settle(root, (stream, *month, newest), last, report)?;
+            last = settled.last;
+            for held in settled.kept {
+                let Stamped { seq, event } = held.stamped;
+                shelf.next = seq.saturating_add(1).max(shelf.next);
+                shelf
+                    .ids
+                    .insert(event.id, (seq, sha256(&codec::encode(&event))));
+            }
+            erased.extend(settled.erased.iter().map(|held| held.stamped.event.id));
+        }
+        self.streams.insert(stream, shelf);
+        Ok(erased)
+    }
+
+    /// Reads the segment `at` names (a stream, a month, and whether it is
+    /// the stream's newest) and leaves it as it should be: without the
+    /// records the ledger covers and, if it is the newest, without a torn
+    /// tail and with its header. Damage stays where it is and is reported.
+    fn settle(
+        &self,
+        root: &DataRoot,
+        at: (Stream, LogMonth, bool),
+        last: Option<u64>,
+        report: &mut Report,
+    ) -> Result<Settled, LogError> {
+        let (stream, month, newest) = at;
+        let path = DataPath::log_segment(place::dir(stream), month);
+        read(root, &path).and_then(|bytes| {
+            scan::scan(stream, month, &bytes, last, &mut scan::budget(&bytes)).and_then(|found| {
+                let last = found
+                    .records
+                    .last()
+                    .map_or(last, |held| Some(held.stamped.seq));
+                let (kept, erased): (Vec<Held>, Vec<Held>) = found
+                    .records
+                    .into_iter()
+                    .partition(|held| self.ledger.admits(&held.stamped.event));
+                let cut = found.torn.filter(|_| newest);
+                let end = cut.as_ref().map_or(bytes.len(), |tail| tail.start);
+                let gone: Vec<Range<usize>> =
+                    erased.iter().map(|held| held.range.clone()).collect();
+                let mut left = without(&bytes, end, &gone);
+                if newest && left.is_empty() {
+                    left = place::header(stream, month);
+                }
+                // The torn tail is the scan's last piece of damage; it is
+                // reported as cut, not as damage.
+                let mut damage = found.damage;
+                damage.truncate(damage.len().saturating_sub(usize::from(cut.is_some())));
+                report.damage.extend(damage);
+                report.torn.extend(cut.map(|range| Torn {
+                    stream,
+                    month,
+                    range,
+                }));
+                let rewritten = if left == bytes {
+                    Ok(())
+                } else {
+                    root.replace(&path, &left)
+                };
+                rewritten
+                    .map_err(LogError::Root)
+                    .map(|()| Settled { kept, erased, last })
+            })
+        })
+    }
+
+    /// Appends one batch and syncs it.
+    fn append(
+        &mut self,
+        root: &DataRoot,
+        now: Timestamp,
+        events: &[Event],
+    ) -> Result<Vec<Result<Appended, Refused>>, LogError> {
+        let month = place::month(now);
+        let mut open = BTreeMap::new();
+        let outcomes: Result<Vec<_>, LogError> = events
+            .iter()
+            .map(|event| self.one(root, month, event, &mut open))
+            .collect();
+        // Group commit: each segment written is synced once, and only then
+        // is anything in the batch acknowledged (ADR 3, section 6).
+        outcomes.and_then(|outcomes| {
+            open.values()
+                .try_for_each(File::sync_data)
+                .map_err(LogError::from)
+                .map(|()| outcomes)
+        })
+    }
+
+    /// Decides what becomes of `event` and, if it is new, writes its record
+    /// to its stream's segment, which stays in `open` until the batch is
+    /// synced.
+    fn one(
+        &mut self,
+        root: &DataRoot,
+        now: LogMonth,
+        event: &Event,
+        open: &mut BTreeMap<Stream, File>,
+    ) -> Result<Result<Appended, Refused>, LogError> {
+        // The erasure ledger first: an erased event never comes back.
+        if !self.ledger.admits(event) {
+            return Ok(Ok(Appended::Erased));
+        }
+        let octets = codec::encode(event);
+        let digest = sha256(&octets);
+        let shelf = self.streams.get(&event.stream);
+        let held = shelf.and_then(|shelf| shelf.ids.get(&event.id)).copied();
+        if let Some((seq, stored)) = held {
+            return Ok(if stored == digest {
+                Ok(Appended::Duplicate { seq })
+            } else {
+                Err(Refused::Conflict { seq })
+            });
+        }
+        let seq = shelf.map_or(self.floor(event.stream), |shelf| shelf.next);
+        let frame = match logframe::encode(&record::payload(seq, &octets)) {
+            Ok(frame) => frame,
+            Err(error) => return Ok(Err(Refused::TooLarge(error))),
+        };
+        let file = match open.entry(event.stream) {
+            Slot::Occupied(held) => held.into_mut(),
+            Slot::Vacant(slot) => slot.insert(self.segment(root, event.stream, now)?),
+        };
+        file.write_all(&frame).map_err(LogError::from).map(|()| {
+            let shelf = self.streams.entry(event.stream).or_default();
+            shelf.next = seq.saturating_add(1);
+            shelf.ids.insert(event.id, (seq, digest));
+            Ok(Appended::Stored { seq })
+        })
+    }
+
+    /// Opens the segment `stream` appends to in month `now`, making the
+    /// stream's directory and the segment when they are not there yet.
+    fn segment(
+        &mut self,
+        root: &DataRoot,
+        stream: Stream,
+        now: LogMonth,
+    ) -> Result<File, LogError> {
+        let dir = place::dir(stream);
+        let folder = DataPath::log_stream(dir);
+        let made = if self.streams.contains_key(&stream) {
+            Ok(())
+        } else {
+            // A stream's first record: its directory, synced into the
+            // log's own before anything in it is acknowledged.
+            root.create_dir(&folder)
+                .and_then(|()| root.open_read(&USER_LOG))
+                .map_err(LogError::Root)
+                .and_then(|log| log.sync_all().map_err(LogError::from))
+        };
+        made?;
+        let floor = self.floor(stream);
+        let shelf = self.streams.entry(stream).or_insert_with(|| Shelf {
+            next: floor,
+            ..Shelf::default()
+        });
+        // The server's clock can step back; a stream's records stay in
+        // order all the same, in its newest segment.
+        let newest = shelf.months.last().copied();
+        let month = newest.map_or(now, |newest| newest.max(now));
+        let path = DataPath::log_segment(dir, month);
+        if newest == Some(month) {
+            return root.append(&path).map_err(LogError::Root);
+        }
+        // A new segment: created exclusively with its header, then synced
+        // with its directory (ADR 3, section 6).
+        root.create_new(&path)
+            .map_err(LogError::Root)
+            .and_then(|mut file| {
+                file.write_all(&place::header(stream, month))
+                    .and_then(|()| file.sync_all())
+                    .map_err(LogError::from)
+                    .and_then(|()| root.open_read(&folder).map_err(LogError::Root))
+                    .and_then(|synced| synced.sync_all().map_err(LogError::from))
+                    .map(|()| {
+                        shelf.months.push(month);
+                        file
+                    })
+            })
+    }
+
+    /// The records `stream` holds, read from its segments.
+    fn records(&self, root: &DataRoot, stream: Stream) -> Result<Vec<Stamped>, LogError> {
+        let months = self
+            .streams
+            .get(&stream)
+            .map(|shelf| shelf.months.clone())
+            .unwrap_or_default();
+        let mut records = Vec::new();
+        let mut last = None;
+        for month in months {
+            let path = DataPath::log_segment(place::dir(stream), month);
+            let found = read(root, &path).and_then(|bytes| {
+                scan::scan(stream, month, &bytes, last, &mut scan::budget(&bytes))
+            })?;
+            last = found
+                .records
+                .last()
+                .map_or(last, |held| Some(held.stamped.seq));
+            records.extend(found.records.into_iter().map(|held| held.stamped));
+        }
+        Ok(records)
+    }
+
+    /// Records `selector` in the ledger, synced, then removes what it
+    /// covers (ADR 3, section 8, steps 1 and 3).
+    fn erase(&mut self, root: &DataRoot, selector: Selector) -> Result<ErasureReport, LogError> {
+        let entry = Entry {
+            selector,
+            floor: self
+                .streams
+                .get(&selector.stream)
+                .map_or(0, |shelf| shelf.next),
+        };
+        root.append(&ledger::FILE)
+            .map_err(LogError::Root)
+            .and_then(|mut file| {
+                file.write_all(&ledger::frame(&entry))
+                    .and_then(|()| file.sync_data())
+                    .map_err(LogError::from)
+            })
+            .and_then(|()| {
+                self.record(entry);
+                self.sweep(root, selector)
+            })
+            .map(|erased| ErasureReport { erased })
+    }
+
+    /// Removes from disk what `selector`, now in the ledger, covers, and
+    /// returns the IDs of the events removed.
+    fn sweep(&mut self, root: &DataRoot, selector: Selector) -> Result<Vec<EventId>, LogError> {
+        let stream = selector.stream;
+        if selector.scope == Scope::Stream {
+            let erased = self
+                .streams
+                .remove(&stream)
+                .map(Shelf::in_order)
+                .unwrap_or_default();
+            return root
+                .remove_log_stream(place::dir(stream))
+                .map_err(LogError::Dir)
+                .map(|()| erased);
+        }
+        if self.streams.contains_key(&stream) {
+            self.load(root, stream, &mut Report::default())
+        } else {
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// Makes the ledger's file if it is not there, and syncs it and the
+/// directory that holds it, so that an erasure promised in it later is not
+/// lost with the file. A ledger that is already there, or cannot be made,
+/// shows when it is read.
+fn new_ledger(root: &DataRoot) -> Result<(), LogError> {
+    root.create_new(&ledger::FILE).map_or(Ok(()), |file| {
+        file.sync_all()
+            .map_err(LogError::from)
+            .and_then(|()| root.open_read(&ledger::DIR).map_err(LogError::Root))
+            .and_then(|dir| dir.sync_all().map_err(LogError::from))
+    })
+}
+
+/// Everything the file at `path` holds.
+fn read(root: &DataRoot, path: &DataPath) -> Result<Vec<u8>, LogError> {
+    root.open_read(path)
+        .map_err(LogError::Root)
+        .and_then(|mut file| {
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes)
+                .map(|_| bytes)
+                .map_err(LogError::from)
+        })
+}
+
+/// The first `end` octets of `bytes` without the ranges `gone`, which are
+/// in order, apart and before `end`.
+fn without(bytes: &[u8], end: usize, gone: &[Range<usize>]) -> Vec<u8> {
+    let mut left = Vec::new();
+    let mut from = 0;
+    for range in gone {
+        left.extend_from_slice(bytes.get(from..range.start).unwrap_or_default());
+        from = range.end;
+    }
+    left.extend_from_slice(bytes.get(from..end).unwrap_or_default());
+    left
 }
 
 /// What code outside this crate must not be able to do with the log.
