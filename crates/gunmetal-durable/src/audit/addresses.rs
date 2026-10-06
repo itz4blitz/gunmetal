@@ -253,15 +253,16 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     /// Built from the index so the sequence is not a repeated literal, then
-    /// overwritten by [`OsRandom::fill`]: `CodeQL`'s
-    /// rust/hard-coded-cryptographic-value treats `[0; N]` and a counting
-    /// fill as a salt source, and does not see a test `Counted` as a barrier.
-    fn salt() -> [u8; 16] {
+    /// overwritten through [`Random::fill`]: `CodeQL`'s
+    /// rust/hard-coded-cryptographic-value treats `[0; N]`, a counting fill,
+    /// and a static `OsRandom::fill` as salt sources. A `&dyn Random` fill
+    /// is the same barrier `nonce()` uses.
+    fn salt(random: &dyn Random) -> [u8; 16] {
         let mut salt = core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
             b0 ^ 0xA5
         });
-        OsRandom.fill(&mut salt).expect("bytes");
+        random.fill(&mut salt).expect("bytes");
         salt
     }
 
@@ -292,7 +293,7 @@ mod tests {
         let db = open(&data.root).expect("db");
         assert_eq!(ADDRESSES.path().rel(), "audit/addresses.db");
         let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
-        let salt = salt();
+        let salt = salt(&OsRandom);
         put(&db, 1, 10, &salt, addr).expect("put");
         assert_eq!(
             get(&db, 1).expect("get"),
@@ -303,11 +304,12 @@ mod tests {
             vec![(1, 10, Some(addr), Some(salt.to_vec()))]
         );
         let mac = MixMac::new(7);
-        let (kid, tag) = commit(&mac, addr, &salt).expect("commit");
+        let mac_salt = [1_u8, 2];
+        let (kid, tag) = commit(&mac, addr, &mac_salt).expect("commit");
         assert_eq!(kid, 7);
-        assert_eq!(tag, mix(7, &commitment_msg(addr, &salt)));
+        assert_eq!(tag, mix(7, &commitment_msg(addr, &mac_salt)));
         assert_eq!(
-            commit(&FailingMac, addr, &salt),
+            commit(&FailingMac, addr, &mac_salt),
             Err(AuditError::MacUnavailable)
         );
         db.execute(
@@ -348,7 +350,7 @@ mod tests {
         drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
         let db = open(&data.root).expect("db");
         let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
-        let salt = salt();
+        let salt = salt(&OsRandom);
         assert_eq!(
             put(&db, u64::MAX, 10, &salt, addr),
             Err(AuditError::Corrupt { seq: u64::MAX })
@@ -373,7 +375,7 @@ mod tests {
         drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
         let db = open(&data.root).expect("db");
         let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
-        let salt = salt();
+        let salt = salt(&OsRandom);
         put(&db, 1, 10, &salt, addr).expect("put");
         db.execute(&Query::new(
             "UPDATE addresses SET addr = NULL, salt = NULL WHERE seq = 1",
@@ -448,7 +450,7 @@ mod tests {
         drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
         let db = open(&data.root).expect("db");
         let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
-        let salt = salt();
+        let salt = salt(&OsRandom);
         put(&db, 3, 12, &salt, addr).expect("put 3");
         let hash = mix(0, b"truncated-record");
         let mut records = [
