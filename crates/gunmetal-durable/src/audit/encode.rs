@@ -114,6 +114,7 @@ mod tests {
         assert_eq!(unhex32("00"), None);
         assert_eq!(unhex32(&format!("{text}0")), None);
         assert_eq!(unhex32(&"g".repeat(64)), None);
+        assert_eq!(unhex32(&"0".repeat(63)), None);
         assert_eq!(unhex32(&format!("0g{}", "0".repeat(62))), None);
         assert_eq!(nibble(b'g'), None);
         assert_eq!(hex_digit(0), b'0');

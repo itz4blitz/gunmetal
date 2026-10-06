@@ -174,6 +174,7 @@ mod tests {
     use super::*;
     use crate::datadir::CONFIG_FILE;
     use crate::testing::{self, Capture};
+    use gunmetal_fs::dataroot::Item;
     use gunmetal_fs::host::{Filesystem, NetworkFs};
     use gunmetal_fs::path::{DataDir, DataPath};
     use gunmetal_testkit::tempdir::TempDir;
@@ -431,12 +432,17 @@ mod tests {
             .expect("wrote");
         let (started, out) = start(&dir, &local(), &Env::default());
         let error = started.err().expect("refused");
-        assert!(matches!(error, StartError::Audit(_)));
+        assert!(is_audit(&error));
+        assert!(!is_audit(&StartError::Os(Errno::PERM)));
         assert_eq!(
             error.message(dir.path()),
             "The security audit log could not be opened."
         );
         assert_eq!(out, STARTED);
+    }
+
+    fn is_audit(error: &StartError) -> bool {
+        matches!(error, StartError::Audit(_))
     }
 
     /// Verifies: SEC-OPS-012
@@ -459,6 +465,57 @@ mod tests {
                 required: 0o600,
             })
         );
+    }
+
+    #[test]
+    fn the_audit_handle_opens_when_a_network_filesystem_is_allowed() {
+        let dir = TempDir::new("app-audit-allow").expect("scratch");
+        arrange(&dir);
+        let env = Env {
+            allow_network_filesystem: true,
+            ..Env::default()
+        };
+        let opened = open_audit_root(dir.path(), local().facts, &env);
+        assert!(opened.is_ok());
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn a_leftover_after_repair_refuses_the_audit_handle() {
+        struct PlantLeftover {
+            root: Option<DataRoot>,
+            inner: Capture,
+        }
+        impl Write for PlantLeftover {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if let Some(root) = self.root.take() {
+                    root.leave_replacement(
+                        &DataPath::constant(DataDir::Secrets, "keys.json"),
+                        b"interrupted",
+                    )
+                    .expect("leftover");
+                }
+                self.inner.write(bytes)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.inner.flush()
+            }
+        }
+        let dir = TempDir::new("app-leftover").expect("scratch");
+        let planted = Capture::default();
+        let out = PlantLeftover {
+            root: Some(arrange(&dir)),
+            inner: planted.clone(),
+        };
+        let (clock, _) = testing::clock();
+        let started = AppState::start(dir.path(), &local(), &Env::default(), clock, Box::new(out));
+        assert_eq!(
+            started.err(),
+            Some(StartError::DataDir(DataRootError::Leftover {
+                item: Item::Replacement(DataPath::constant(DataDir::Secrets, "keys.json")),
+            }))
+        );
+        assert_eq!(planted.text(), STARTED);
     }
 
     #[test]

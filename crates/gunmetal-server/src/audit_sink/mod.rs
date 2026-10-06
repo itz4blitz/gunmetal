@@ -67,7 +67,7 @@ mod tests {
     use gunmetal_core::id::{IdKind, PublicId};
     use gunmetal_fs::dataroot::{DataRoot, Policy};
     use gunmetal_fs::host::HostFacts;
-    use gunmetal_fs::path::{AuditSeg, DataPath};
+    use gunmetal_fs::path::{AuditSeg, DataDir, DataPath};
     use gunmetal_testkit::tempdir::TempDir;
     use std::io::Read;
     use std::net::{IpAddr, Ipv4Addr};
@@ -112,13 +112,36 @@ mod tests {
         text.lines()
             .filter_map(|line| {
                 let rest = line.split("\"event\":\"").nth(1)?;
-                let name = rest.split('"').next()?;
+                let name = rest.split('"').next().filter(|n| !n.is_empty())?;
                 match name {
                     "gm_audit_checkpoint" | "gm_audit_pruned" => None,
                     other => Some(other.to_owned()),
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn event_names_skips_malformed_and_internal_lines() {
+        let (dir, sink) = sink();
+        sink.record(SecurityEvent::GmEgressDenied {})
+            .expect("recorded");
+        let host = HostFacts::probe(dir.path()).expect("host");
+        let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+            .expect("root")
+            .root;
+        let path = DataPath::audit_segment(AuditSeg::new(1).expect("1"));
+        let mut text = String::new();
+        root.open_read(&path)
+            .expect("segment")
+            .read_to_string(&mut text)
+            .expect("read");
+        text.push_str("not json\n");
+        text.push_str("{\"event\":\"gm_audit_checkpoint\"}\n");
+        text.push_str("{\"event\":\"gm_audit_pruned\"}\n");
+        text.push_str("{\"event\":\"\"}\n");
+        root.replace(&path, text.as_bytes()).expect("wrote");
+        assert_eq!(event_names(&dir), ["gm_egress_denied"]);
     }
 
     /// Verifies: SEC-OPS-020, SEC-OPS-029, SEC-PRV-008, SEC-IAM-069
@@ -209,5 +232,35 @@ mod tests {
                 .is_ok()
         );
         assert_eq!(event_names(&dir), ["gm_debug_logging_enabled"]);
+    }
+
+    #[test]
+    fn open_fails_on_a_malformed_root_secret() {
+        let dir = TempDir::new("audit-sink-bad-root").expect("scratch");
+        let host = HostFacts::probe(dir.path()).expect("host");
+        let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+            .expect("root")
+            .root;
+        root.replace(&DataPath::constant(DataDir::Secrets, "root.key"), b"x")
+            .expect("wrote");
+        let (clock, _) = testing::clock();
+        assert!(AuditSink::open(root, clock).is_err());
+    }
+
+    #[test]
+    fn open_fails_when_the_audit_log_cannot_open() {
+        let (dir, sink) = sink();
+        drop(sink);
+        let host = HostFacts::probe(dir.path()).expect("host");
+        let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+            .expect("root")
+            .root;
+        root.replace(
+            &DataPath::constant(DataDir::Durable, "audit/addresses.db"),
+            b"not sqlite",
+        )
+        .expect("junk");
+        let (clock, _) = testing::clock();
+        assert!(AuditSink::open(root, clock).is_err());
     }
 }

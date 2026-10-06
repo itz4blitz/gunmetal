@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use gunmetal_core::audit_event::SecurityEvent;
 use gunmetal_core::authz::{
@@ -16,10 +16,13 @@ use gunmetal_core::client_context::PathClass;
 use gunmetal_core::id::PublicId;
 use gunmetal_core::retention::DEFAULT;
 use gunmetal_core::time::Timestamp;
-use gunmetal_fs::path::{AUDIT_RESERVE, AuditSeg, DataPath};
+use gunmetal_fs::path::{AUDIT_DIR, AUDIT_HEAD, AUDIT_RESERVE, AuditSeg, DataPath};
 use proptest::prelude::*;
 
-use super::{AuditLog, Limits};
+use super::{
+    AuditLog, FIRST_SEG, Kind, Limits, checkpoint_mac_from_raw, ensure_reserve, load_head,
+    load_segments, parse_line, persist_head, shrink_reserve, write_line,
+};
 use crate::audit::chain;
 use crate::audit::encode::{hex, unhex32};
 use crate::audit::error::{AuditError, BrokenAt};
@@ -1231,4 +1234,495 @@ fn a_line_with_hash_first_fails_verify() {
         .expect("head");
     let opened = limited(&data, Limits::test());
     assert_eq!(opened.verify_audit_log(), Err(BrokenAt { seq: 1 }));
+}
+
+#[test]
+fn a_line_with_the_wrong_predecessor_fails_verify() {
+    let data = data();
+    let log = limited(
+        &data,
+        Limits {
+            segment: 65_536,
+            checkpoint_every: 1_000,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    );
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("2");
+    let path = DataPath::audit_segment(AuditSeg::new(1).expect("1"));
+    let mut text = String::new();
+    data.root
+        .open_read(&path)
+        .expect("open")
+        .read_to_string(&mut text)
+        .expect("read");
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.len() >= 2);
+    let zeros = "0".repeat(64);
+    let second = lines[1].replacen(
+        &format!(
+            "\"prev\":\"{}\"",
+            parse::object(lines[1])
+                .expect("obj")
+                .get("prev")
+                .and_then(Json::str)
+                .expect("prev")
+        ),
+        &format!("\"prev\":\"{zeros}\""),
+        1,
+    );
+    let rewritten = format!("{}\n{second}\n", lines[0]);
+    drop(lines);
+    data.root
+        .replace(&path, rewritten.as_bytes())
+        .expect("wrote");
+    let opened = limited(&data, Limits::test());
+    assert_eq!(opened.verify_audit_log(), Err(BrokenAt { seq: 2 }));
+}
+
+#[test]
+fn a_head_past_the_last_line_fails_verify() {
+    let data = data();
+    let log = limited(
+        &data,
+        Limits {
+            segment: 65_536,
+            checkpoint_every: 1_000,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    );
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    drop(log);
+    let mut head = String::new();
+    data.root
+        .open_read(&gunmetal_fs::path::AUDIT_HEAD)
+        .expect("head")
+        .read_to_string(&mut head)
+        .expect("read");
+    let bumped = head.replacen("\"next\":2", "\"next\":4", 1);
+    data.root
+        .replace(&gunmetal_fs::path::AUDIT_HEAD, bumped.as_bytes())
+        .expect("head");
+    let opened = limited(&data, Limits::test());
+    assert_eq!(opened.verify_audit_log(), Err(BrokenAt { seq: 2 }));
+}
+
+#[test]
+fn a_checkpoint_without_a_signing_key_fails_verify() {
+    let data = data();
+    let log = limited(
+        &data,
+        Limits {
+            segment: 65_536,
+            checkpoint_every: 1,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    );
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    drop(log);
+    let opened = AuditLog::open_with(
+        handle(&data),
+        Arc::new(MixMac::new(0)),
+        Arc::new(FailingMac),
+        Arc::new(Counted::new()),
+        Limits::test(),
+    )
+    .expect("reopen");
+    assert!(opened.verify_audit_log().is_err());
+}
+
+#[test]
+fn optional_line_fields_can_be_absent_or_invalid() {
+    let data = data();
+    let zeros = "0".repeat(64);
+    let line = format!(
+        r#"{{"seq":1,"ts":"2026-10-03T12:00:00.000Z","event":"gm_egress_denied","actor":{{}},"source":{{"class":"spaceship","commit":"zz","kid":300}},"kid":300,"outcome":"nope","prev":"{zeros}","hash":"{zeros}"}}"#
+    );
+    let _ = log(&data);
+    data.root
+        .replace(
+            &DataPath::audit_segment(AuditSeg::new(1).expect("1")),
+            format!("{line}\n").as_bytes(),
+        )
+        .expect("wrote");
+    data.root
+        .replace(
+            &gunmetal_fs::path::AUDIT_HEAD,
+            format!(
+                r#"{{"next":2,"seg":1,"bytes":{},"head":"{zeros}","first":1}}"#,
+                line.len().saturating_add(1)
+            )
+            .as_bytes(),
+        )
+        .expect("head");
+    let opened = limited(&data, Limits::test());
+    let page = opened.read_all(&audit_permit(), 1..10).expect("read");
+    assert_eq!(page.records[0].account, None);
+    assert_eq!(page.records[0].class, None);
+    assert_eq!(page.records[0].outcome, Outcome::Denied);
+}
+
+#[test]
+fn a_line_missing_a_required_field_refuses_open() {
+    let data = data();
+    let zeros = "0".repeat(64);
+    let line =
+        format!(r#"{{"seq":1,"event":"gm_egress_denied","prev":"{zeros}","hash":"{zeros}"}}"#);
+    let _ = log(&data);
+    data.root
+        .replace(
+            &DataPath::audit_segment(AuditSeg::new(1).expect("1")),
+            format!("{line}\n").as_bytes(),
+        )
+        .expect("wrote");
+    data.root
+        .replace(
+            &gunmetal_fs::path::AUDIT_HEAD,
+            format!(
+                r#"{{"next":2,"seg":1,"bytes":{},"head":"{zeros}","first":1}}"#,
+                line.len().saturating_add(1)
+            )
+            .as_bytes(),
+        )
+        .expect("head");
+    assert_eq!(
+        AuditLog::open_with(
+            handle(&data),
+            Arc::new(MixMac::new(0)),
+            Arc::new(MixMac::new(1)),
+            Arc::new(Counted::new()),
+            Limits::test(),
+        )
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+}
+
+#[test]
+fn parse_line_covers_required_and_optional_fields() {
+    let zeros = "0".repeat(64);
+    let ts = "2026-10-03T12:00:00.000Z";
+    let account_id = account().to_string();
+    assert_eq!(parse_line("{}").err(), Some(AuditError::Corrupt { seq: 0 }));
+    assert_eq!(
+        parse_line(&format!(
+            r#"{{"seq":1,"event":"gm_egress_denied","prev":"{zeros}","hash":"{zeros}"}}"#
+        ))
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+    assert_eq!(
+        parse_line(&format!(
+            r#"{{"seq":1,"ts":"not-a-time","event":"gm_egress_denied","prev":"{zeros}","hash":"{zeros}"}}"#
+        ))
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+    assert_eq!(
+        parse_line(&format!(
+            r#"{{"seq":1,"ts":"{ts}","prev":"{zeros}","hash":"{zeros}"}}"#
+        ))
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+    assert_eq!(
+        parse_line(&format!(
+            r#"{{"seq":1,"ts":"{ts}","event":"gm_egress_denied","prev":"{zeros}"}}"#
+        ))
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+    assert_eq!(
+        parse_line(&format!(
+            r#"{{"seq":1,"ts":"{ts}","event":"gm_egress_denied","hash":"{zeros}"}}"#
+        ))
+        .err(),
+        Some(AuditError::Corrupt { seq: 1 })
+    );
+    let with_account = parse_line(&format!(
+        r#"{{"seq":1,"ts":"{ts}","event":"gm_egress_denied","actor":{{"account":"{account_id}"}},"source":{{}},"prev":"{zeros}","hash":"{zeros}"}}"#
+    ))
+    .expect("account");
+    assert_eq!(with_account.account, Some(account()));
+    assert_eq!(with_account.class, None);
+    assert_eq!(with_account.commit, None);
+    assert_eq!(with_account.kid, None);
+    let bad_account = parse_line(&format!(
+        r#"{{"seq":1,"ts":"{ts}","event":"gm_egress_denied","actor":{{"account":"nope"}},"prev":"{zeros}","hash":"{zeros}"}}"#
+    ))
+    .expect("bad account");
+    assert_eq!(bad_account.account, None);
+    let checkpoint = parse_line(&format!(
+        r#"{{"seq":2,"ts":"{ts}","event":"gm_audit_checkpoint","prev":"{zeros}","hash":"{zeros}"}}"#
+    ))
+    .expect("checkpoint");
+    assert_eq!(checkpoint.kind, Kind::Checkpoint);
+    let pruned = parse_line(&format!(
+        r#"{{"seq":3,"ts":"{ts}","event":"gm_audit_pruned","prev":"{zeros}","hash":"{zeros}"}}"#
+    ))
+    .expect("pruned");
+    assert_eq!(pruned.kind, Kind::Pruned);
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "replace a segment with a directory so append fails as Io (SEC-OPS-020)"
+)]
+#[test]
+fn write_line_and_head_io_failures_are_typed() {
+    let data = data();
+    let log = log(&data);
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.seg = AuditSeg::new(AuditSeg::MAX).expect("max");
+        state.bytes = 400;
+        assert_eq!(
+            write_line(&log.root, &mut state, &Limits::test(), "{}"),
+            Err(AuditError::Corrupt { seq: state.next })
+        );
+        state.seg = FIRST_SEG;
+        state.bytes = 0;
+        assert!(write_line(&log.root, &mut state, &Limits::test(), "{}").is_err());
+    }
+    let path = data.dir.path().join("durable/audit/s-00000001.jsonl");
+    fs::remove_file(&path).expect("gone");
+    fs::create_dir(&path).expect("dir");
+    {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.seg = FIRST_SEG;
+        state.bytes = 10;
+        assert!(write_line(&log.root, &mut state, &Limits::test(), "{}").is_err());
+    }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "chmod of the audit directory proves a failed reserve write is typed (SEC-OPS-020)"
+)]
+#[test]
+fn reserve_and_head_paths_that_are_directories_refuse_writes() {
+    let data = data();
+    drop(data.root.create_dir(&AUDIT_DIR));
+    let audit = data.dir.path().join("durable/audit");
+    let mut perms = fs::metadata(&audit).expect("meta").permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&audit, perms).expect("ro");
+    assert!(ensure_reserve(&data.root, 256).is_err());
+    let mut perms = fs::metadata(&audit).expect("meta").permissions();
+    perms.set_mode(0o700);
+    fs::set_permissions(&audit, perms).expect("rw");
+    let log = log(&data);
+    let head = data.dir.path().join("durable/audit/head.json");
+    fs::remove_file(&head).expect("head");
+    fs::create_dir(&head).expect("head dir");
+    {
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(persist_head(&log.root, &state).is_err());
+    }
+    fs::remove_dir(&head).expect("head gone");
+    let reserve = data.dir.path().join("durable/audit/reserve.bin");
+    fs::remove_file(&reserve).expect("reserve");
+    fs::create_dir(&reserve).expect("reserve dir");
+    assert!(shrink_reserve(&log.root).is_err());
+}
+
+#[test]
+fn load_head_and_segments_refuse_corrupt_bytes() {
+    let data = data();
+    let log = log(&data);
+    let db = crate::audit::addresses::open(&handle(&data)).expect("db");
+    assert_eq!(
+        load_head("{}", db).err(),
+        Some(AuditError::Corrupt { seq: 0 })
+    );
+    let db = crate::audit::addresses::open(&handle(&data)).expect("db");
+    assert_eq!(
+        load_head(r#"{"next":1,"seg":1,"bytes":x}"#, db).err(),
+        Some(AuditError::Corrupt { seq: 0 })
+    );
+    let db = crate::audit::addresses::open(&handle(&data)).expect("db");
+    assert_eq!(
+        load_head(r#"{"next":1,"seg":0,"bytes":1,"head":"00","first":1}"#, db).err(),
+        Some(AuditError::Corrupt { seq: 0 })
+    );
+    data.root
+        .replace(&AUDIT_HEAD, &[0xff, 0xfe])
+        .expect("bytes");
+    assert!(
+        AuditLog::open_with(
+            handle(&data),
+            Arc::new(MixMac::new(0)),
+            Arc::new(MixMac::new(1)),
+            Arc::new(Counted::new()),
+            Limits::test(),
+        )
+        .is_err()
+    );
+    let path = DataPath::audit_segment(FIRST_SEG);
+    data.root.replace(&path, &[0xff, 0xfe]).expect("seg");
+    {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(load_segments(&log.root, &mut state).is_err());
+    }
+    assert_eq!(checkpoint_mac_from_raw("{}"), None);
+    assert_eq!(checkpoint_mac_from_raw(r#"{"sig":"zz"}"#), None);
+    assert_eq!(checkpoint_mac_from_raw("not-json"), None);
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "chmod and plant a junk addresses database so open_with fails after the side store (SEC-OPS-020)"
+)]
+#[test]
+fn open_with_fails_when_the_side_store_or_reserve_cannot_be_used() {
+    {
+        let data = data();
+        drop(data.root.create_dir(&AUDIT_DIR));
+        data.root
+            .replace(crate::audit::addresses::ADDRESSES.path(), b"not sqlite")
+            .expect("junk");
+        assert!(
+            AuditLog::open_with(
+                handle(&data),
+                Arc::new(MixMac::new(0)),
+                Arc::new(MixMac::new(1)),
+                Arc::new(Counted::new()),
+                Limits::test(),
+            )
+            .is_err()
+        );
+    }
+    let data = data();
+    let _ = log(&data);
+    let reserve = data.dir.path().join("durable/audit/reserve.bin");
+    fs::remove_file(&reserve).expect("reserve");
+    let audit = data.dir.path().join("durable/audit");
+    let mut perms = fs::metadata(&audit).expect("meta").permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&audit, perms).expect("ro");
+    assert!(
+        AuditLog::open_with(
+            handle(&data),
+            Arc::new(MixMac::new(0)),
+            Arc::new(MixMac::new(1)),
+            Arc::new(Counted::new()),
+            Limits::test(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn retention_reports_a_failed_coarsen_or_remove() {
+    let data = data();
+    let log = log(&data);
+    let t0 = at(1_791_028_800_000);
+    log.append_security_event(t0, &login_ok(), Some(&internet()), ORDINARY)
+        .expect("stored");
+    {
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .db
+            .execute(&gunmetal_fs::sqlite::Query::new(
+                "CREATE TRIGGER fail_up BEFORE UPDATE ON addresses \
+                 BEGIN SELECT RAISE(ABORT, 'x'); END;",
+            ))
+            .expect("trigger");
+    }
+    let day = 86_400_000_i64;
+    assert!(
+        log.apply_retention(&DEFAULT, at(t0.millis() + 31 * day))
+            .is_err()
+    );
+}
+
+#[test]
+fn a_dropped_address_table_fails_reads_and_retention() {
+    let data = data();
+    let log = log(&data);
+    log.append_security_event(
+        at(1_791_028_800_000),
+        &login_ok(),
+        Some(&internet()),
+        ORDINARY,
+    )
+    .expect("1");
+    {
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .db
+            .execute(&gunmetal_fs::sqlite::Query::new("DROP TABLE addresses"))
+            .expect("drop");
+    }
+    assert!(log.read_own(&own_permit(account()), 1..10).is_err());
+    assert!(log.read_all(&audit_permit(), 1..10).is_err());
+    assert!(
+        log.apply_retention(&DEFAULT, at(1_791_028_800_000))
+            .is_err()
+    );
+    assert!(
+        log.append_security_event(
+            at(1_791_028_800_000),
+            &login_ok(),
+            Some(&internet()),
+            ORDINARY
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn a_missing_signing_key_refuses_a_prune_checkpoint() {
+    let data = data();
+    let log = AuditLog::open_with(
+        handle(&data),
+        Arc::new(MixMac::new(0)),
+        Arc::new(FailingMac),
+        Arc::new(Counted::new()),
+        Limits {
+            segment: 65_536,
+            checkpoint_every: 0,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    )
+    .expect("open");
+    let t0 = at(1_791_028_800_000);
+    log.append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("1");
+    let day = 86_400_000_i64;
+    assert_eq!(
+        log.apply_retention(&DEFAULT, at(t0.millis() + 366 * day)),
+        Err(AuditError::MacUnavailable)
+    );
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "plant a directory at head.json so a fresh open cannot persist it (SEC-OPS-020)"
+)]
+#[test]
+fn a_directory_where_the_head_should_be_refuses_a_fresh_open() {
+    let data = data();
+    drop(data.root.create_dir(&AUDIT_DIR));
+    fs::create_dir(data.dir.path().join("durable/audit/head.json")).expect("head dir");
+    assert!(
+        AuditLog::open_with(
+            handle(&data),
+            Arc::new(MixMac::new(0)),
+            Arc::new(MixMac::new(1)),
+            Arc::new(Counted::new()),
+            Limits::test(),
+        )
+        .is_err()
+    );
 }

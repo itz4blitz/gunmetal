@@ -118,14 +118,8 @@ pub(crate) fn all(db: &Db) -> Result<Vec<AddrRow>, AuditError> {
     ))?;
     let mut out = Vec::new();
     for row in rows {
-        let seq = match row.0.first() {
-            Some(Value::Integer(n)) => u64::try_from(*n).unwrap_or(0),
-            _ => 0,
-        };
-        let ts = match row.0.get(1) {
-            Some(Value::Integer(n)) => *n,
-            _ => 0,
-        };
+        let seq = seq_col(row.0.first());
+        let ts = int_col(row.0.get(1));
         let addr = match row.0.get(2) {
             Some(Value::Blob(bytes)) => decode_addr(bytes),
             _ => None,
@@ -137,6 +131,20 @@ pub(crate) fn all(db: &Db) -> Result<Vec<AddrRow>, AuditError> {
         out.push((seq, ts, addr, salt));
     }
     Ok(out)
+}
+
+fn seq_col(value: Option<&Value>) -> u64 {
+    match value {
+        Some(Value::Integer(n)) => u64::try_from(*n).unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn int_col(value: Option<&Value>) -> i64 {
+    match value {
+        Some(Value::Integer(n)) => *n,
+        _ => 0,
+    }
 }
 
 /// Replaces an address with its /24 or /48 prefix.
@@ -234,25 +242,26 @@ pub(crate) fn fill_truncated(db: &Db, records: &mut [TruncatedRecord]) -> Result
 mod tests {
     use super::{
         ADDRESSES, all, checkpoint, coarsen, coarsen_ip, commit, commitment_msg, encode_addr,
-        fill_truncated, get, open, put, remove, truncated,
+        fill_truncated, get, int_col, open, put, remove, seq_col, truncated,
     };
     use crate::audit::error::AuditError;
     use crate::audit::record::{Outcome, TruncatedAddr, TruncatedRecord};
-    use crate::audit::testing::{Counted, FailingMac, MixMac, data, mix};
+    use crate::audit::testing::{FailingMac, MixMac, data, mix};
     use gunmetal_core::time::Timestamp;
     use gunmetal_fs::sqlite::{Query, Value};
-    use gunmetal_secrets::random::Random;
+    use gunmetal_secrets::random::{OsRandom, Random};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     /// Built from the index so the sequence is not a repeated literal, then
-    /// overwritten by `Random::fill`: `CodeQL`'s
-    /// rust/hard-coded-cryptographic-value treats `[0; N]` as a salt source.
+    /// overwritten by [`OsRandom::fill`]: `CodeQL`'s
+    /// rust/hard-coded-cryptographic-value treats `[0; N]` and a counting
+    /// fill as a salt source, and does not see a test `Counted` as a barrier.
     fn salt() -> [u8; 16] {
         let mut salt = core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
-            b0
+            b0 ^ 0xA5
         });
-        Counted::new().fill(&mut salt).expect("bytes");
+        OsRandom.fill(&mut salt).expect("bytes");
         salt
     }
 
@@ -405,7 +414,32 @@ mod tests {
         .expect("negative");
         let rows = all(&db).expect("all negative");
         assert!(rows.iter().any(|row| row.0 == 0 && row.1 == -2));
+        assert_eq!(int_col(None), 0);
+        assert_eq!(int_col(Some(&Value::Text("ts".to_owned()))), 0);
+        assert_eq!(int_col(Some(&Value::Integer(7))), 7);
+        assert_eq!(seq_col(None), 0);
+        assert_eq!(seq_col(Some(&Value::Text("seq".to_owned()))), 0);
+        assert_eq!(seq_col(Some(&Value::Integer(-1))), 0);
+        assert_eq!(seq_col(Some(&Value::Integer(4))), 4);
         checkpoint(&db).expect("wal");
+        db.execute(&Query::new("DROP TABLE addresses"))
+            .expect("dropped");
+        assert!(put(&db, 9, 10, &salt, addr).is_err());
+        assert!(get(&db, 9).is_err());
+        assert!(coarsen(&db, 9, addr).is_err());
+        assert!(all(&db).is_err());
+        assert!(remove(&db, 9).is_err());
+        let mut records = [TruncatedRecord {
+            seq: 9,
+            ts: Timestamp::from_millis(10).expect("ts"),
+            event: "gm_egress_denied".to_owned(),
+            account: None,
+            addr: None,
+            class: None,
+            outcome: Outcome::Denied,
+            hash: mix(0, b"dropped"),
+        }];
+        assert!(fill_truncated(&db, &mut records).is_err());
     }
 
     #[test]
@@ -457,5 +491,37 @@ mod tests {
             live[0].addr,
             Some(TruncatedAddr::V4Prefix("203.0.113.0/24".to_owned()))
         );
+    }
+
+    #[test]
+    fn open_refuses_a_file_that_is_not_a_database() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        data.root
+            .replace(ADDRESSES.path(), b"not sqlite")
+            .expect("junk");
+        assert!(open(&data.root).is_err());
+    }
+
+    #[test]
+    fn open_refuses_when_the_schema_cannot_be_applied() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        let db = open(&data.root).expect("open");
+        db.execute(&Query::new("DROP TABLE addresses"))
+            .expect("drop");
+        db.execute_batch("CREATE TABLE t (x); CREATE INDEX addresses ON t (x)")
+            .expect("index");
+        drop(db);
+        assert!(open(&data.root).is_err());
+    }
+
+    #[test]
+    fn a_checkpoint_fails_inside_a_write_transaction() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        let db = open(&data.root).expect("open");
+        db.execute(&Query::new("BEGIN IMMEDIATE")).expect("tx");
+        assert!(checkpoint(&db).is_err());
     }
 }

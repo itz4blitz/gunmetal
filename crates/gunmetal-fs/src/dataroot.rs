@@ -753,6 +753,33 @@ impl DataRoot {
     pub fn replace(&self, path: &DataPath, bytes: &[u8]) -> Result<(), DataRootError> {
         let item = Item::Path(path.clone());
         let temp = path.temp_sibling();
+        self.write_replacement(path, bytes)
+            .and_then(|()| {
+                self.dir
+                    .rename(&temp, &self.dir, path.beneath())
+                    .map_err(io_error(item.clone(), Op::Rename))
+            })
+            .and_then(|()| {
+                self.dir
+                    .open_with(path.parent(), OpenOptions::new().read(true))
+                    .and_then(|parent| parent.sync_all())
+                    .map_err(io_error(item, Op::Sync))
+            })
+    }
+
+    /// Writes `bytes` to the temporary sibling of `path` and leaves it,
+    /// as a crash during [`DataRoot::replace`] would.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataRootError::Io`] naming the step that failed.
+    pub fn leave_replacement(&self, path: &DataPath, bytes: &[u8]) -> Result<(), DataRootError> {
+        self.write_replacement(path, bytes)
+    }
+
+    fn write_replacement(&self, path: &DataPath, bytes: &[u8]) -> Result<(), DataRootError> {
+        let item = Item::Path(path.clone());
+        let temp = path.temp_sibling();
         // Clear away a temporary file a crash left behind. If it cannot be
         // removed, the exclusive create below fails and reports why.
         let _ = self.dir.remove_file(&temp);
@@ -768,18 +795,7 @@ impl DataRoot {
         .and_then(|mut file| {
             file.write_all(bytes)
                 .and_then(|()| file.sync_all())
-                .map_err(io_error(item.clone(), Op::Write))
-        })
-        .and_then(|()| {
-            self.dir
-                .rename(&temp, &self.dir, path.beneath())
-                .map_err(io_error(item.clone(), Op::Rename))
-        })
-        .and_then(|()| {
-            self.dir
-                .open_with(path.parent(), OpenOptions::new().read(true))
-                .and_then(|parent| parent.sync_all())
-                .map_err(io_error(item, Op::Sync))
+                .map_err(io_error(item, Op::Write))
         })
     }
 
@@ -1307,6 +1323,46 @@ mod tests {
                 })
             );
         }
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn leave_replacement_writes_the_temporary_sibling_and_keeps_the_file() {
+        let scratch = Scratch::new("leave-replacement");
+        let root = scratch.root();
+        let key = DataPath::constant(DataDir::Secrets, "keys.json");
+        root.replace(&key, b"old keys").expect("keys");
+        std::fs::create_dir(scratch.0.join("root/secrets/.keys.json.tmp")).expect("dir");
+        assert!(matches!(
+            root.leave_replacement(&key, b"half"),
+            Err(DataRootError::Io { op: Op::Create, .. })
+        ));
+        std::fs::remove_dir(scratch.0.join("root/secrets/.keys.json.tmp")).expect("gone");
+        root.leave_replacement(&key, b"half written")
+            .expect("leftover");
+        let mut got = Vec::new();
+        root.open_read(&key)
+            .expect("open")
+            .read_to_end(&mut got)
+            .expect("read");
+        assert_eq!(got, b"old keys");
+        let host = HostFacts {
+            uid: rustix::process::geteuid().as_raw(),
+            filesystem: Filesystem::Local,
+        };
+        let refused = Policy {
+            modes: Modes::Refuse,
+            network: NetworkFilesystems::Refuse,
+        };
+        assert_eq!(
+            DataRoot::open(&scratch.0.join("root"), &host, refused).map(|_| ()),
+            Err(Refused {
+                error: DataRootError::Leftover {
+                    item: Item::Replacement(key),
+                },
+                repairs: Vec::new(),
+            })
+        );
     }
 
     #[test]

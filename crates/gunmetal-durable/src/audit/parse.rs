@@ -156,7 +156,7 @@ fn parse_object(cur: &mut Cur<'_>) -> Option<Json> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Json, object};
+    use super::{Cur, Json, object, parse_object, parse_value};
 
     #[test]
     fn parses_a_canonical_object_and_refuses_junk() {
@@ -202,14 +202,34 @@ mod tests {
         );
         assert!(object("[]").is_err());
         assert!(object("{").is_err());
+        assert!(object("").is_err());
+        assert!(object(r#"{"a":"#).is_err());
+        assert!(object(r#"{"a":n}"#).is_err());
+        assert!(object(r#"{"a":n"#).is_err());
+        assert!(object(r#"{"a":nu}"#).is_err());
+        assert!(object(r#"{"a":nu"#).is_err());
+        assert!(object(r#"{"a":nul}"#).is_err());
+        assert!(object(r#"{"a":nul"#).is_err());
+        assert!(object(r#"{"a":}"#).is_err());
+        assert!(object("{\"a\":\"\\").is_err());
+        assert!(object(r#"{"a":"\u00"}"#).is_err());
+        assert!(object(r#"{"a":1"#).is_err());
         assert!(object(r#"{"a":1}trailing"#).is_err());
         assert!(object(r#"{"a":true}"#).is_err());
         assert!(object("null").is_err());
+        assert!(object("{\"a\":\"}").is_err());
+        assert!(object(r#"{"x":"\u0"}"#).is_err());
+        let mut not_null = Cur { bytes: b"x", i: 0 };
+        assert_eq!(super::parse_null(&mut not_null), None);
         assert!(object(r#"{"x":"\u0022"}"#).is_ok());
         assert!(object(r#"{"x":"\q"}"#).is_err());
         assert!(object(r#"{"x":"\u00zz"}"#).is_err());
         assert!(object(r#"{"x":"\ud800"}"#).is_err());
         assert!(object(r#"{"a":1;}"#).is_err());
         assert!(object("{}").is_ok());
+        let mut empty = Cur { bytes: b"", i: 0 };
+        assert_eq!(parse_value(&mut empty), None);
+        let mut not_object = Cur { bytes: b"x", i: 0 };
+        assert_eq!(parse_object(&mut not_object), None);
     }
 }

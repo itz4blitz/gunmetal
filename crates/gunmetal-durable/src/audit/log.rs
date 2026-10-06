@@ -109,6 +109,11 @@ struct State {
     db: Db,
 }
 
+const FIRST_SEG: AuditSeg = match AuditSeg::new(1) {
+    Some(seg) => seg,
+    None => panic!("segment 1 is inside the path's range"),
+};
+
 /// The security audit log of one data directory.
 pub struct AuditLog {
     root: DataRoot,
@@ -156,13 +161,12 @@ impl AuditLog {
             file.read_to_string(&mut text)?;
             (load_head(&text, db)?, true)
         } else {
-            let seg = AuditSeg::new(1).ok_or(AuditError::Corrupt { seq: 0 })?;
             (
                 State {
                     halted: false,
                     full: false,
                     next: 1,
-                    seg,
+                    seg: FIRST_SEG,
                     bytes: 0,
                     head: [0; 32],
                     first: 1,
@@ -660,32 +664,33 @@ fn load_head(text: &str, db: Db) -> Result<State, AuditError> {
 
 fn load_segments(root: &DataRoot, state: &mut State) -> Result<(), AuditError> {
     let last = state.seg.get();
-    let mut n = 1_u32;
+    let mut n = 0_u32;
     while n <= last {
-        let seg = AuditSeg::new(n).ok_or(AuditError::Corrupt { seq: 0 })?;
-        let path = DataPath::audit_segment(seg);
-        if let Ok(mut file) = root.open_read(&path) {
-            let mut text = String::new();
-            file.read_to_string(&mut text)?;
-            for raw in text.lines() {
-                if raw.is_empty() {
-                    continue;
+        if let Some(seg) = AuditSeg::new(n) {
+            let path = DataPath::audit_segment(seg);
+            if let Ok(mut file) = root.open_read(&path) {
+                let mut text = String::new();
+                file.read_to_string(&mut text)?;
+                for raw in text.lines() {
+                    if raw.is_empty() {
+                        continue;
+                    }
+                    let line = parse_line(raw)?;
+                    if line.seq < state.first {
+                        continue;
+                    }
+                    if matches!(line.kind, Kind::Checkpoint | Kind::Pruned) {
+                        state.checkpoint = Some(SignedHead {
+                            seq: line.seq,
+                            head: line.prev,
+                            kid: line.kid.unwrap_or(0),
+                            mac: checkpoint_mac_from_raw(raw).unwrap_or([0; 32]),
+                            at: line.ts,
+                        });
+                        state.last_checkpoint_at = Some(line.ts);
+                    }
+                    state.lines.push(line);
                 }
-                let line = parse_line(raw)?;
-                if line.seq < state.first {
-                    continue;
-                }
-                if matches!(line.kind, Kind::Checkpoint | Kind::Pruned) {
-                    state.checkpoint = Some(SignedHead {
-                        seq: line.seq,
-                        head: line.prev,
-                        kid: line.kid.unwrap_or(0),
-                        mac: checkpoint_mac_from_raw(raw).unwrap_or([0; 32]),
-                        at: line.ts,
-                    });
-                    state.last_checkpoint_at = Some(line.ts);
-                }
-                state.lines.push(line);
             }
         }
         n = n.saturating_add(1);
@@ -704,13 +709,12 @@ fn parse_line(raw: &str) -> Result<Line, AuditError> {
         .get("seq")
         .and_then(Json::num)
         .ok_or(AuditError::Corrupt { seq: 0 })?;
-    let ts = map
+    let text = map
         .get("ts")
         .and_then(Json::str)
-        .and_then(|t| {
-            gunmetal_core::time::parse_rfc3339(gunmetal_core::untrusted::Untrusted::new(t)).ok()
-        })
         .ok_or(AuditError::Corrupt { seq })?;
+    let ts = gunmetal_core::time::parse_rfc3339(gunmetal_core::untrusted::Untrusted::new(text))
+        .map_err(|_| AuditError::Corrupt { seq })?;
     let event = map
         .get("event")
         .and_then(Json::str)
@@ -731,34 +735,43 @@ fn parse_line(raw: &str) -> Result<Line, AuditError> {
         "gm_audit_pruned" => Kind::Pruned,
         _ => Kind::Event,
     };
-    let account = map
-        .get("actor")
-        .and_then(Json::obj)
-        .and_then(|a| a.get("account"))
-        .and_then(Json::str)
-        .and_then(|id| PublicId::parse(id, gunmetal_core::id::IdKind::User).ok());
+    let account = match map.get("actor").and_then(Json::obj) {
+        Some(actor) => match actor.get("account").and_then(Json::str) {
+            Some(id) => PublicId::parse(id, gunmetal_core::id::IdKind::User).ok(),
+            None => None,
+        },
+        None => None,
+    };
     let source = map.get("source").and_then(Json::obj);
-    let class = source
-        .and_then(|s| s.get("class"))
-        .and_then(Json::str)
-        .and_then(parse_class);
-    let commit = source
-        .and_then(|s| s.get("commit"))
-        .and_then(Json::str)
-        .and_then(unhex32);
-    let key_id = source
-        .and_then(|s| s.get("kid"))
-        .and_then(Json::num)
-        .and_then(|n| u8::try_from(n).ok())
-        .or_else(|| {
-            map.get("kid")
-                .and_then(Json::num)
-                .and_then(|n| u8::try_from(n).ok())
-        });
-    let outcome = map
-        .get("outcome")
-        .and_then(Json::str)
-        .and_then(Outcome::parse);
+    let class = match source {
+        Some(source) => match source.get("class").and_then(Json::str) {
+            Some(text) => parse_class(text),
+            None => None,
+        },
+        None => None,
+    };
+    let commit = match source {
+        Some(source) => match source.get("commit").and_then(Json::str) {
+            Some(text) => unhex32(text),
+            None => None,
+        },
+        None => None,
+    };
+    let key_id = match source {
+        Some(source) => match source.get("kid").and_then(Json::num) {
+            Some(n) => u8::try_from(n).ok(),
+            None => None,
+        },
+        None => None,
+    }
+    .or_else(|| match map.get("kid").and_then(Json::num) {
+        Some(n) => u8::try_from(n).ok(),
+        None => None,
+    });
+    let outcome = match map.get("outcome").and_then(Json::str) {
+        Some(text) => Outcome::parse(text),
+        None => None,
+    };
     Ok(Line {
         seq,
         ts,
