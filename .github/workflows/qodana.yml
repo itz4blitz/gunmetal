@@ -2,8 +2,10 @@ name: Qodana
 
 # Official pull-request scan. failThreshold in qodana.yaml is the quality
 # gate: a run with no problems succeeds, and the first problem fails it.
-# scripts/gate.sh does not run this linter. Coverage and license gates do
-# not apply to qodana-rust.
+# A scan that opens the repository without its Cargo packages also reports
+# no problems, so the last step fails the job unless the linter's log shows
+# a loaded workspace. scripts/gate.sh does not run this linter. Coverage and
+# license gates do not apply to qodana-rust.
 #
 # Fork pull requests do not receive repository secrets. This job runs only
 # for pushes and for pull requests opened from this repository, so
@@ -38,13 +40,62 @@ jobs:
           # Pull-request mode needs the head commit and its history.
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      # The last step runs scripts/check-scan-log.sh on the runner, in a job
+      # whose token can write checks and pull-request comments. The linter's
+      # container runs as root with the checkout mounted read-write, so it
+      # could rewrite any file there before that step. This copy is taken
+      # before the linter starts, into a directory the Qodana CLI does not
+      # mount. At the pinned version the CLI mounts the checkout, the cache
+      # directory (${RUNNER_TEMP}/qodana/caches) and the results directory
+      # (${RUNNER_TEMP}/qodana/results, with its report directory), and
+      # nothing else under ${RUNNER_TEMP}. Keep this step before the scan and
+      # keep the copy out of ${RUNNER_TEMP}/qodana.
+      - name: Copy the scan check out of the linter's reach
+        run: |
+          mkdir "${RUNNER_TEMP}/gunmetal-scan-check"
+          cp scripts/check-scan-log.sh "${RUNNER_TEMP}/gunmetal-scan-check/check-scan-log.sh"
+          sha256sum scripts/check-scan-log.sh "${RUNNER_TEMP}/gunmetal-scan-check/check-scan-log.sh"
       - name: Qodana Scan
         uses: JetBrains/qodana-action@3e8d76ff0e0241618abd808682f426afe84bab3f # v2026.2.2
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
         with:
           # The linter, bootstrap, and failThreshold live in qodana.yaml.
-          # A pull request scans the files it changes (the action default).
-          # The host toolchain cache and the rust-wait plugin stay in
-          # scripts/qodana.sh; a hosted runner does not have them.
-          args: --print-problems
+          # A pull request scans only the files it changes (the action
+          # default, pr-mode): the base commit first, then the head, and
+          # the problems the head adds are the result. A push to main or a
+          # wave branch scans the whole project.
+          # --user 0:0 runs the linter as root, as scripts/qodana.sh does.
+          # The image's rustup home and dpkg database belong to root, and
+          # the CLI's default is the runner's own uid, under which the
+          # bootstrap cannot install packages or the pinned toolchain and
+          # Cargo does not load. Root leaves files it owns in the workspace,
+          # which a hosted runner throws away; a self-hosted runner would
+          # have to remove them.
+          # The bootstrap installs the toolchain a hosted runner has no
+          # cache of. The rust-wait plugin stays in scripts/qodana.sh.
+          args: --print-problems --user 0:0
+          # Root also leaves files in the cache directory that the runner's
+          # user cannot read, so the action's cache save fails with a
+          # warning on every run. That cache holds the linter's indexes, not
+          # the toolchain or the crates, so the scan runs without it.
+          use-caches: false
+          # The action's default, written out because the next step reads
+          # the linter's log from this directory.
+          results-dir: ${{ runner.temp }}/qodana/results
+      # The rule scripts/qodana.sh applies to a local run, from the one
+      # script both share: the copy taken above, not the file in the
+      # checkout. It also runs after a failed scan, so the job log always
+      # says whether Cargo loaded.
+      # Of its rules, only "Analysis scope: 0 packages" has been seen to fail
+      # a run (37353079041). The two sanity rules cannot fail a pull request
+      # run, which prints no sanity output even when Cargo does not load at
+      # all, and have not been seen to fail a push run. The rust-wait plugin
+      # is not loaded here either, so nothing in this job catches a project
+      # model that is still building when the analysis starts.
+      # scripts/check-scan-log.sh has the detail.
+      - name: The scan loaded the Cargo workspace
+        if: ${{ !cancelled() }}
+        run: |
+          sha256sum "${RUNNER_TEMP}/gunmetal-scan-check/check-scan-log.sh"
+          "${RUNNER_TEMP}/gunmetal-scan-check/check-scan-log.sh" "${RUNNER_TEMP}/qodana/results/log/idea.log"

@@ -143,16 +143,9 @@ docker run --rm --user 0:0 \
   jetbrains/qodana-rust:2026.2-eap \
   -R "$(id -u):$(id -g)" /results /cache >/dev/null
 
-if grep -q 'Analysis scope: 0 packages' "${log}"; then
-  echo "Qodana opened the repo and loaded no Cargo packages. The report is not a real analysis." >&2
-  exit 1
-fi
-if grep -q 'Cargo project loading' "${log}"; then
-  echo "Cargo did not finish loading, so the analysis is incomplete." >&2
-  exit 1
-fi
-if grep -E -q '^[1-9][0-9]* suspicious problems|[^0-9][1-9][0-9]* suspicious problems' "${log}"; then
-  echo "Qodana's sanity check still reports names the compiler accepts. The project model is incomplete." >&2
-  exit 1
-fi
+# The rule the GitHub workflow applies to its own run: the log has to show
+# loaded Cargo packages and a quiet sanity check. A scan that opened no
+# packages exits 0 and is not a pass. scripts/check-scan-log.sh says which
+# of its rules have been seen to fail a run.
+scripts/check-scan-log.sh "${log}"
 exit "${code}"
