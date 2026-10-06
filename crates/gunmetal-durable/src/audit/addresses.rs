@@ -238,19 +238,22 @@ mod tests {
     };
     use crate::audit::error::AuditError;
     use crate::audit::record::{Outcome, TruncatedAddr, TruncatedRecord};
-    use crate::audit::testing::{MixMac, data, mix};
+    use crate::audit::testing::{Counted, FailingMac, MixMac, data, mix};
     use gunmetal_core::time::Timestamp;
     use gunmetal_fs::sqlite::{Query, Value};
+    use gunmetal_secrets::random::Random;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-    /// Built from the index so the sequence is not a repeated literal:
-    /// `CodeQL`'s rust/hard-coded-cryptographic-value treats `[9_u8; 16]`
-    /// as a salt source.
+    /// Built from the index so the sequence is not a repeated literal, then
+    /// overwritten by `Random::fill`: `CodeQL`'s
+    /// rust/hard-coded-cryptographic-value treats `[0; N]` as a salt source.
     fn salt() -> [u8; 16] {
-        core::array::from_fn(|index| {
+        let mut salt = core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
             b0
-        })
+        });
+        Counted::new().fill(&mut salt).expect("bytes");
+        salt
     }
 
     #[test]
@@ -267,6 +270,8 @@ mod tests {
             TruncatedAddr::V6Prefix("2001:db8:1111::/48".to_owned())
         );
         assert_eq!(encode_addr(v4)[0], 4);
+        assert_eq!(encode_addr(v6)[0], 6);
+        assert_eq!(encode_addr(v6).len(), 17);
         assert_eq!(commitment_msg(v4, &[1, 2]).len(), 1 + 4 + 2);
         assert_eq!(commitment_msg(v6, &[]).len(), 1 + 16);
     }
@@ -292,6 +297,10 @@ mod tests {
         let (kid, tag) = commit(&mac, addr, &salt).expect("commit");
         assert_eq!(kid, 7);
         assert_eq!(tag, mix(7, &commitment_msg(addr, &salt)));
+        assert_eq!(
+            commit(&FailingMac, addr, &salt),
+            Err(AuditError::MacUnavailable)
+        );
         db.execute(
             &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")
                 .bind(Value::Blob(vec![4, 1, 2]))
@@ -390,6 +399,12 @@ mod tests {
             get(&db, 2).expect("unknown"),
             Some((None, Some(salt.to_vec())))
         );
+        db.execute(&Query::new(
+            "INSERT INTO addresses (seq, ts, salt, addr) VALUES (-1, -2, NULL, NULL)",
+        ))
+        .expect("negative");
+        let rows = all(&db).expect("all negative");
+        assert!(rows.iter().any(|row| row.0 == 0 && row.1 == -2));
         checkpoint(&db).expect("wal");
     }
 
@@ -401,10 +416,7 @@ mod tests {
         let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
         let salt = salt();
         put(&db, 3, 12, &salt, addr).expect("put 3");
-        let hash = core::array::from_fn(|index| {
-            let [b0, ..] = index.to_le_bytes();
-            b0
-        });
+        let hash = mix(0, b"truncated-record");
         let mut records = [
             TruncatedRecord {
                 seq: 1,

@@ -162,6 +162,9 @@ mod tests {
     fn parses_a_canonical_object_and_refuses_junk() {
         let map = object(r#"{"seq":1,"event":"fail","nested":{"a":null}}"#).expect("object");
         assert_eq!(map.get("seq").and_then(Json::num), Some(1));
+        assert_eq!(map.get("seq").and_then(Json::str), None);
+        assert_eq!(map.get("event").and_then(Json::num), None);
+        assert_eq!(map.get("seq").and_then(Json::obj), None);
         assert_eq!(map.get("event").and_then(Json::str), Some("fail"));
         assert_eq!(
             map.get("nested")
@@ -204,6 +207,9 @@ mod tests {
         assert!(object("null").is_err());
         assert!(object(r#"{"x":"\u0022"}"#).is_ok());
         assert!(object(r#"{"x":"\q"}"#).is_err());
+        assert!(object(r#"{"x":"\u00zz"}"#).is_err());
+        assert!(object(r#"{"x":"\ud800"}"#).is_err());
+        assert!(object(r#"{"a":1;}"#).is_err());
         assert!(object("{}").is_ok());
     }
 }

@@ -52,13 +52,10 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// 32 bytes from 64 lower-case hex digits.
+/// 32 bytes from hex digits; shorter or longer text is refused.
 pub(crate) fn unhex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0_u8; 32];
     let bytes = text.as_bytes();
+    let mut out = [0_u8; 32];
     let mut i: usize = 0;
     while i < 32 {
         let hi = nibble(*bytes.get(i.wrapping_mul(2))?)?;
@@ -66,7 +63,7 @@ pub(crate) fn unhex32(text: &str) -> Option<[u8; 32]> {
         out[i] = hi.wrapping_shl(4).wrapping_add(lo);
         i = i.wrapping_add(1);
     }
-    Some(out)
+    (bytes.len() == 64).then_some(out)
 }
 
 fn nibble(byte: u8) -> Option<u8> {
@@ -115,6 +112,7 @@ mod tests {
         );
         assert_eq!(unhex32(&text), Some(bytes));
         assert_eq!(unhex32("00"), None);
+        assert_eq!(unhex32(&format!("{text}0")), None);
         assert_eq!(unhex32(&"g".repeat(64)), None);
         assert_eq!(unhex32(&format!("0g{}", "0".repeat(62))), None);
         assert_eq!(nibble(b'g'), None);

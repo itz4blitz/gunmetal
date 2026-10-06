@@ -136,16 +136,7 @@ impl AppState {
         let config = load_config(&text, env).map_err(StartError::Config)?;
         log.set_base(config.log_level);
         log.log(&LogEvent::SysStartup { version: VERSION });
-        let audit_root = DataRoot::open(
-            dir,
-            &host.facts,
-            Policy {
-                modes: Modes::Refuse,
-                network: network(env),
-            },
-        )
-        .map_err(|refused| StartError::DataDir(refused.error))?
-        .root;
+        let audit_root = open_audit_root(dir, host.facts, env)?;
         let audit = AuditSink::open(audit_root, Arc::clone(&clock)).map_err(StartError::Audit)?;
         let audit = Arc::new(audit);
         let bus = Arc::new(Bus::default());
@@ -163,6 +154,19 @@ impl AppState {
             audit,
         })
     }
+}
+
+fn open_audit_root(dir: &Path, facts: HostFacts, env: &Env) -> Result<DataRoot, StartError> {
+    DataRoot::open(
+        dir,
+        &facts,
+        Policy {
+            modes: Modes::Refuse,
+            network: network(env),
+        },
+    )
+    .map(|opened| opened.root)
+    .map_err(|refused| StartError::DataDir(refused.error))
 }
 
 #[cfg(test)]
@@ -433,6 +437,28 @@ mod tests {
             "The security audit log could not be opened."
         );
         assert_eq!(out, STARTED);
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn a_loose_secret_mode_refuses_the_audit_handle() {
+        let dir = TempDir::new("app-refuse").expect("scratch");
+        let key = DataPath::constant(DataDir::Secrets, "root.key");
+        arrange(&dir)
+            .create_new(&key)
+            .expect("created")
+            .set_permissions(std::fs::Permissions::from_mode(0o640))
+            .expect("loosened");
+        let error =
+            open_audit_root(dir.path(), local().facts, &Env::default()).expect_err("refused");
+        assert_eq!(
+            error,
+            StartError::DataDir(DataRootError::WrongMode {
+                item: gunmetal_fs::dataroot::Item::Path(key),
+                mode: 0o640,
+                required: 0o600,
+            })
+        );
     }
 
     #[test]

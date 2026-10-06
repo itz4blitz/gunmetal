@@ -5,9 +5,13 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use gunmetal_core::http::forwarded::{ForwardingHeaders, HostNetwork, path_class};
+use gunmetal_core::http::forwarded::{
+    ForwardingHeaders, HostNetwork, ProxyKind, TrustedProxy, path_class,
+};
 use gunmetal_core::id::{IdKind, PublicId};
+use gunmetal_core::net::IpNet;
 use gunmetal_core::token::mac::MacProvider;
+use gunmetal_core::untrusted::Untrusted;
 use gunmetal_fs::dataroot::{DataRoot, Policy};
 use gunmetal_fs::host::HostFacts;
 use gunmetal_secrets::random::{Random, RandomnessUnavailable};
@@ -156,6 +160,21 @@ fn arriving(peer: Ipv4Addr) -> gunmetal_core::client_context::ClientContext {
         &HostNetwork::default(),
     )
     .expect("a direct peer has a path class")
+}
+
+/// A request that arrived through a trusted proxy.
+pub(crate) fn proxied() -> gunmetal_core::client_context::ClientContext {
+    let network = IpNet::parse(Untrusted::new("127.0.0.1/32")).expect("loopback net");
+    path_class(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        &ForwardingHeaders::default(),
+        &[TrustedProxy {
+            network,
+            kind: ProxyKind::Public,
+        }],
+        &HostNetwork::default(),
+    )
+    .expect("a trusted proxy peer is via a proxy")
 }
 
 /// An IPv6 documentation address.
