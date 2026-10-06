@@ -80,15 +80,22 @@ fn settled(failures: Failures, now: Timestamp) -> Failures {
 /// key at `now`. A full store gives up the count whose wait ended first,
 /// once it has ended, and otherwise says how long until it ends; it never
 /// gives up a count whose wait is still running.
+///
+/// Every count a full store reads is first moved to no later than `now`,
+/// and stays there. Otherwise counts a clock set back had left in the
+/// future would hold their places until the clock caught up, and a new key
+/// would be told a shorter wait than it got.
 fn room(counts: &mut HashMap<GuessKey, Failures>, capacity: usize, now: Timestamp) -> Decision {
     if counts.len() < capacity {
         return Decision::Allow;
     }
+    for failures in counts.values_mut() {
+        *failures = settled(*failures, now);
+    }
     let first = counts
         .iter()
-        .map(|(key, failures)| (settled(*failures, now), key))
-        .min_by_key(|(failures, _)| next_guess_at(failures.count, failures.last_at))
-        .map(|(failures, key)| (failures, key.clone()));
+        .min_by_key(|(_, failures)| next_guess_at(failures.count, failures.last_at))
+        .map(|(key, failures)| (*failures, key.clone()));
     let decision = guess_allowed(first.as_ref().map(|(failures, _)| *failures), now);
     if let (Decision::Allow, Some((_, key))) = (decision, first) {
         counts.remove(&key);
