@@ -339,9 +339,6 @@ fn worker_loop(store: &Arc<Store>, clock: &Arc<dyn Clock + Send + Sync>, inner: 
             // a `!` there was a missed mutant (busy-loop or inverted wait)
             // that still let every test pass.
             let guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
-            if inner.stopping.load(Ordering::SeqCst) {
-                break;
-            }
             if inner.has_work.swap(false, Ordering::SeqCst) {
                 continue;
             }
