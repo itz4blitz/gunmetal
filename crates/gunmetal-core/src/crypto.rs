@@ -36,16 +36,7 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::sha256;
-    use std::fmt::Write as _;
-
-    /// Writes a digest as lowercase hexadecimal, the way the specification
-    /// prints its examples.
-    fn hex(digest: [u8; 32]) -> String {
-        digest.iter().fold(String::new(), |mut out, byte| {
-            write!(out, "{byte:02x}").unwrap();
-            out
-        })
-    }
+    use crate::test_support::hex_lower;
 
     /// The core's crypto module computes SHA-256 exactly as FIPS 180-4
     /// specifies. The expected digests are the specification's published
@@ -58,17 +49,17 @@ mod tests {
     #[test]
     fn hashes_the_fips_180_4_examples() {
         assert_eq!(
-            hex(sha256(b"abc")),
+            hex_lower(sha256(b"abc")),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(
-            hex(sha256(
+            hex_lower(sha256(
                 b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
             )),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
         assert_eq!(
-            hex(sha256(&(0..1_000_000).map(|_| b'a').collect::<Vec<u8>>())),
+            hex_lower(sha256(&(0..1_000_000).map(|_| b'a').collect::<Vec<u8>>())),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
     }
@@ -76,7 +67,7 @@ mod tests {
     #[test]
     fn hashes_the_empty_message() {
         assert_eq!(
-            hex(sha256(b"")),
+            hex_lower(sha256(b"")),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
@@ -86,7 +77,7 @@ mod tests {
         // 112 octets: one full 64-octet block, then 48 octets that share
         // the second block with the padding and the length.
         assert_eq!(
-            hex(sha256(
+            hex_lower(sha256(
                 b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn\
                   hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
             )),

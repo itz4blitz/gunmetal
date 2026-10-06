@@ -82,6 +82,9 @@ on D-07, D-10 and remote access in R1, as those rows record.
 | DCO sign-off (answered 2026-10-03) | Agent commits carry no `Signed-off-by`. The owner's merge commit for each wave into `main` carries the owner's sign-off, covering the wave. |
 | Erasure ledger (answered 2026-10-03) | Kept for the life of the data directory, holding only IDs and clock values, so erased history cannot return from any older backup. |
 | Building order (answered 2026-10-03) | Each wave starts on top of the previous wave branch while the owner reviews it; review changes are folded in by the next wave's integrator. |
+| Web player (answered 2026-10-03) | Start the web player now. It is planned and built in parallel with the server waves, against a small fake server, so there is a real screen within days, and it moves to the real server as the server waves land. The owner chose this over a throwaway thin slice and over finishing the server first. |
+| Facade crates (answered 2026-10-03) | Approved: `tsify` and `serde-wasm-bindgen`, the two Rust crates requested through WP-235 for the WASM facade, which generate the web client's TypeScript types from Rust. Neither is a dependency of the core. |
+| ESLint 10 and the React lint rules (answered 2026-10-03) | Approved. The web client lints with ESLint 10, because ESLint 9 is past its end of life and `eslint-plugin-react` supports nothing newer. The two rules of that plugin the baseline names, `react/no-danger` and `react/jsx-no-script-url`, are replaced by the project's own rules of the same effect. This changes how SEC-CLI-001, SEC-API-045, SEC-MED-057 and SEC-HIS-027 are verified, and the owner accepts that change. |
 
 ### Technical answers to wave 0's package questions, 2026-10-03
 
@@ -113,6 +116,21 @@ D-01 asked how the gate keeps up as the workspace grows, and the owner delegated
 - **No mutant is skipped.** The diff scope, when set, filters the workspace's list first; mutant i of what is left belongs to shard i mod 10, so the ten shards test every mutant exactly once. A missed or timed-out mutant fails its shard, and a failed shard does not cancel the others. The script refuses an unreadable switch, and skipping mutation testing together with a switch that chooses which mutants to test.
 - **The required check keeps its name.** The job named `gate` now waits for every other job in `ci.yml` and fails unless each succeeded. `main`'s ruleset needs no change. The 32-bit test job and the two self-test jobs are now behind that check too.
 - **When to revisit.** Raise the shard count in `ci.yml` when a shard passes 45 minutes of its 75-minute limit.
+
+### Technical answers to the client plan's questions, 2026-10-03
+
+The owner delegated purely technical choices to the recommended defaults (D-02). These settle the questions the web player's plan raised, and [record 12](adr/0012-web-client-toolchain-and-contracts.md) holds the reasoning. The plan itself ([client-packages.md](plan/client-packages.md)) and record 12 as a whole are proposed, for the owner's review.
+
+- **`unsafe` in the WASM facade (WP 34).** The core keeps `unsafe_code = "forbid"` with no exception. A workspace `forbid` cannot be lowered in source, so the facade crate's manifest repeats every workspace lint with only `unsafe_code` lowered as far as `wasm-bindgen`'s generated code needs, with a test that it repeats them all. `xtask lint-exceptions` permits that one manifest beside the core's, and an xtask check on the keyword keeps hand-written `unsafe` out of the facade. WP-235 must prove the `wasm32` build under that lint, exporting WP-005's link filter, before any other facade slice is written.
+- **The facade is built in slices by the backend plan.** WP-235 (wave 2) creates `crates/gunmetal-wasm`; WP-236 (wave 2) exports the playback rules and merges into `wave-2` after WP-235; WP-237 (wave 3) converts for the core packages below; WP-088 (wave 3) keeps the rest. Client packages own no Rust.
+- **Rules the web client needs get core packages.** The tint rule (WP-238), the inbound-link parser split from WP-089 (WP-239), the event builder and the event sink with its private-mode drop (WP-240) and the QR matrix (WP-242) in wave 2, and the audit-head extension check (WP-241) in wave 3. The requests the client plan made of existing backend packages (WP-056, WP-072, WP-088, WP-095, WP-124, WP-127, WP-132, WP-136) are accepted and written into their entries.
+- **Types cross from Rust to TypeScript by generation.** Mirror types in the facade with exhaustive conversions, declarations generated with `tsify` and `serde-wasm-bindgen`, committed and drift-checked in the gate. Neither crate is a dependency of the core.
+- **JavaScript supply-chain choices (D-65).** pnpm, as recommended, on Node 24. Every tool is pinned to its newest release at least seven days old. ESLint 10 is used, because ESLint 9 is past its end of life.
+- **Branches.** There are no client wave branches. Client packages merge into the open server wave branch through that wave's integrator, and the owner still merges one pull request per wave into `main` (D-01). Wave 1 was closing, so the client's first packages go into `wave-2`.
+- **Inbound links.** Only the core parses them (SEC-CLI-025). The client's router matches fixed, secret-free paths.
+- **The style-policy spike (D-74).** D-74 names "the spike in WP-072". The spike is the client plan's CP-003; the decision it may lead to is still the owner's.
+
+D-73 (player shortcuts), D-74's fallback and the default answer to "Is this your own device?" stay the owner's. The client plan proceeds on its recommended defaults for the first and the last, which the owner may change.
 
 ## Decide first
 

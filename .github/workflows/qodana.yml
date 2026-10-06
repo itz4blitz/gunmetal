@@ -1,0 +1,50 @@
+name: Qodana
+
+# Official pull-request scan. failThreshold in qodana.yaml is the quality
+# gate: a run with no problems succeeds, and the first problem fails it.
+# scripts/gate.sh does not run this linter. Coverage and license gates do
+# not apply to qodana-rust.
+#
+# Fork pull requests do not receive repository secrets. This job runs only
+# for pushes and for pull requests opened from this repository, so
+# QODANA_TOKEN stays a GitHub secret. Never use pull_request_target or
+# workflow_run (SEC-SUP-013).
+on:
+  push:
+    branches: [main, "wave-*"]
+  pull_request:
+
+# Nothing by default; the job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: qodana-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      # Every action is pinned to a full commit SHA (SEC-SUP-010).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Pull-request mode needs the head commit and its history.
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Qodana Scan
+        uses: JetBrains/qodana-action@3e8d76ff0e0241618abd808682f426afe84bab3f # v2026.2.2
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+        with:
+          # The linter, bootstrap, and failThreshold live in qodana.yaml.
+          # A pull request scans the files it changes (the action default).
+          # The host toolchain cache and the rust-wait plugin stay in
+          # scripts/qodana.sh; a hosted runner does not have them.
+          args: --print-problems

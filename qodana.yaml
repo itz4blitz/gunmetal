@@ -1,0 +1,62 @@
+#################################################################################
+#              WARNING: Do not store sensitive information in this file,        #
+#               as its contents will be included in the Qodana report.          #
+#################################################################################
+# The project token is not here. scripts/qodana.sh reads QODANA_TOKEN or
+# ~/.config/qodana/token. The toolchain channel lives in rust-toolchain.toml;
+# that script installs it into the linter before the project opens.
+version: "1.0"
+linter: qodana-rust
+# The image has Rust and no C toolchain. Crates such as rustix and libc run
+# build scripts that link with cc. Rustup also needs a writable temp dir when
+# it refreshes the channel pinned in rust-toolchain.toml.
+#
+# Fifteen minutes is the documented budget for loading a Cargo workspace
+# this size. The loader still starts inspections while DefMaps are building;
+# qodana/rust-wait holds the opening stage until that model is quiet.
+# `proptest!` never expands here, so the tests it flagged call `TestRunner`
+# with the same strategies. Modules that still use the macro import
+# `prop_oneof` by name; this linter does not resolve it through `prelude::*`.
+# Do not install rust-src into the mounted toolchain. The linter then
+# abandons its bundled stdlib, and `bool: Copy` and `AtomicUsize` stop
+# resolving. scripts/qodana.sh removes that component if it is present.
+bootstrap: |
+  apt-get update
+  apt-get install -y --no-install-recommends build-essential pkg-config ca-certificates
+  mkdir -p /usr/local/rustup/tmp /root/.config/idea/options
+  chmod 1777 /usr/local/rustup /usr/local/rustup/tmp
+  cat > /root/.config/idea/options/advancedSettings.xml << 'EOF'
+  <application>
+    <component name="AdvancedSettings">
+      <option name="settings">
+        <map>
+          <entry key="org.rust.macros.maximum.recursion.limit" value="10000" />
+        </map>
+      </option>
+    </component>
+  </application>
+  EOF
+properties:
+  qd.rust.configuration.timeout.minutes: "15"
+profile:
+  name: qodana.recommended
+# Zero is the maximum number of problems. A clean run succeeds, and the first
+# problem fails the run. The CLI flag overrides this file. scripts/qodana.sh
+# passes the same number.
+failThreshold: 0
+exclude:
+  - name: All
+    paths:
+      - fuzz
+      - target
+      - .claude
+      - .idea
+  # crates/gunmetal-core/tests/untrusted.rs defines fn Untrusted() so a public
+  # tuple constructor collides with the imported type (E0255). That collision
+  # is the test. rustc accepts the name under expect(non_snake_case).
+  - name: RsDuplicateDefinitionError
+    paths:
+      - crates/gunmetal-core/tests/untrusted.rs
+  - name: RsFunctionNaming
+    paths:
+      - crates/gunmetal-core/tests/untrusted.rs

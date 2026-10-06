@@ -288,6 +288,9 @@ pub(crate) fn replaced_by(temp: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// An independent statement of the rules, written with iterators so it
     /// shares nothing with the byte loop in `check`.
@@ -553,25 +556,41 @@ mod tests {
         ]
     }
 
-    proptest! {
-        /// Verifies: SEC-TM-043
-        #[test]
-        fn accepts_exactly_what_the_rules_allow(
-            pieces in proptest::collection::vec(piece(), 1..8),
-            separator in prop_oneof![Just("/"), Just("\\"), Just("//")],
-        ) {
-            let rel = pieces.join(separator);
-            let built = path(&rel);
-            prop_assert_eq!(built.is_ok(), oracle(&rel));
-            if let Ok(built) = built {
-                prop_assert!(built.rel().split('/').all(|name| name != ".." && name != "."));
-                prop_assert!(built.beneath().starts_with("secrets"));
-            }
-        }
+    /// Verifies: SEC-TM-043
+    #[test]
+    fn accepts_exactly_what_the_rules_allow() {
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    proptest::collection::vec(piece(), 1..8),
+                    prop_oneof![Just("/"), Just("\\"), Just("//")],
+                ),
+                |(pieces, separator)| {
+                    let rel = pieces.join(separator);
+                    let built = path(&rel);
+                    prop_assert_eq!(built.is_ok(), oracle(&rel));
+                    if let Ok(built) = built {
+                        prop_assert!(
+                            built
+                                .rel()
+                                .split('/')
+                                .all(|name| name != ".." && name != ".")
+                        );
+                        prop_assert!(built.beneath().starts_with("secrets"));
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn accepts_exactly_what_the_rules_allow_for_any_text(rel in "\\PC{0,80}") {
-            prop_assert_eq!(path(&rel).is_ok(), oracle(&rel));
-        }
+    #[test]
+    fn accepts_exactly_what_the_rules_allow_for_any_text() {
+        TestRunner::new(Config::default())
+            .run(&"\\PC{0,80}", |rel| {
+                prop_assert_eq!(path(&rel).is_ok(), oracle(&rel));
+                Ok(())
+            })
+            .unwrap();
     }
 }
