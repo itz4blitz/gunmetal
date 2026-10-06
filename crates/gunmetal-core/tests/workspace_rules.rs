@@ -2188,10 +2188,13 @@ fn only_reviewed_crates_run_build_scripts() {
             "proc-macro2",
             "quote",
             "rustix",
+            "rustversion",
             "serde",
             "serde_core",
             "serde_json",
             "thiserror",
+            "wasm-bindgen",
+            "wasm-bindgen-shared",
             "zerocopy",
             "zmij",
         ]
