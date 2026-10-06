@@ -4,7 +4,7 @@
 //! Each wrong guess makes the next one wait: 30 seconds, 1 minute,
 //! 5 minutes, then 15 minutes for every guess after that, never longer and
 //! never for good. The schedule is the core's ([`next_guess_at`]); this
-//! module reads it for what the guess log holds.
+//! module reads it for the counts the verifier keeps.
 //!
 //! The count is kept for one source's guesses at one target of one pathway,
 //! so a stranger's wrong guesses never make anyone else wait, and a source
@@ -15,10 +15,10 @@ use gunmetal_core::client_context::ClientContext;
 use gunmetal_core::ratelimit::{Decision, LimitKey, keys_for, next_guess_at};
 use gunmetal_core::time::Timestamp;
 
-/// How many rows the guess log keeps, as `limits.toml` registers it. The
-/// rows are state kept for callers who have not signed in, so their number
-/// is fixed and the oldest make room for the newest (SEC-NET-051).
-pub const GUESS_DELAY_ROWS: u32 = 4_096;
+/// How many keys the verifier's guess counts have room for, as
+/// `limits.toml` registers it. The counts are state kept for callers who
+/// have not signed in, so their number is fixed (SEC-NET-051).
+pub const GUESS_DELAY_KEYS: usize = 4_096;
 
 /// The wrong guesses one source has made at one target of one pathway
 /// since its last right one.
@@ -51,8 +51,8 @@ pub fn guess_allowed(failures: Option<Failures>, now: Timestamp) -> Decision {
     }
 }
 
-/// The name the guess log keeps `source` under: that of the narrowest key
-/// the core derives for it.
+/// The name the guess counts keep `source` under: that of the narrowest
+/// key the core derives for it.
 #[must_use]
 pub fn source_label(source: &ClientContext) -> String {
     keys_for(None, source)

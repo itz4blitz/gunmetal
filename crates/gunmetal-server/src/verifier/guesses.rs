@@ -1,111 +1,49 @@
-//! The guess log: the wrong guesses the delay schedule counts, kept in the
-//! identity store so that a restart forgives none of them.
+//! The guess counts: the wrong guesses the delay schedule counts, kept in
+//! memory and nowhere else.
 //!
-//! A row counts one source's wrong guesses at one target of one pathway
-//! since its last right one, and when the latest was made
-//! ([`Failures`]). Only the pathways whose secrets can be guessed have rows
+//! An entry counts one source's wrong guesses at one target of one pathway
+//! since its last right one, and when the latest was made ([`Failures`]).
+//! Only the pathways whose secrets can be guessed have entries
 //! (SEC-API-056).
 //!
-//! The rows are state kept for callers who have not signed in, so the log
-//! holds a fixed number of them and drops the oldest to make room
-//! (SEC-NET-051). Dropping a row forgives its source early; a source that
-//! could fill the log with others' rows could as well guess from them.
+//! A guess is counted before it is looked at. [`GuessCounts::charge`]
+//! decides whether the schedule lets the guess through and, when it does,
+//! counts it as wrong, in one step under one lock, so that of guesses made
+//! at the same moment only the first is looked at. The verifier clears the
+//! count when the guess turns out right. Counting needs nothing that can
+//! fail, so no wrong guess goes uncounted. The lock is held for that step
+//! only: never while a guess is looked at, a line is logged or an event is
+//! emitted.
 //!
-//! The table lets nothing in that could not be read back: its types are
-//! strict, a count is at least one and a time is one a timestamp can hold.
-//! So a row cannot hold a source off for good, and reading one that still
-//! cannot be read is a fault, which the verifier answers with a refusal.
+//! Nothing here is written anywhere, so no client address, and nothing
+//! made from one, is kept at rest (SEC-PRV-003; architecture record 3
+//! counts the limiter's counters as no one's user state). A restart
+//! forgets every count, as it forgets the ceilings.
 //!
-//! The log is read through the verifier's pre-authentication handle and
-//! written through the identity store's one writer. The verifier registers
-//! [`GUESS_DELAYS`] with the store when it is opened.
+//! The counts are state kept for callers who have not signed in, so they
+//! have room for a fixed number of keys (SEC-NET-051). A full store never
+//! drops a count whose wait is still running, since that would let its
+//! source guess again at once. A new key takes the place of the count
+//! whose wait ended longest ago, and while every wait is still running the
+//! new key's guess is refused until the first of them ends. With the
+//! registered limits the store is never full of running waits: in the
+//! longest wait, fifteen minutes, the server-wide ceiling lets fewer
+//! attempts through than there is room for.
+
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use gunmetal_core::client_context::ClientContext;
-use gunmetal_core::schema::{Column, DataClass, SchemaPart};
+use gunmetal_core::ratelimit::{Decision, next_guess_at};
 use gunmetal_core::time::Timestamp;
-use gunmetal_durable::identity::store::IdentityStore;
-use gunmetal_fs::sqlite::{Query, Row, Value};
 
-use crate::limiter::delay::{Failures, source_label};
-use crate::verifier::pathway::{Fault, Pathway, Target};
-use crate::verifier::preauth::PreAuth;
+use crate::limiter::delay::{Failures, guess_allowed, source_label};
+use crate::verifier::pathway::{Pathway, Target};
 
-/// The guess log's table. Its rows say who has been guessing at what, so
-/// every column is identity data.
-pub const GUESS_DELAYS: SchemaPart = SchemaPart {
-    name: "verifier.guess_delays",
-    sql: "CREATE TABLE guess_delays (\
-              pathway TEXT NOT NULL, \
-              target BLOB NOT NULL, \
-              source TEXT NOT NULL, \
-              failures INTEGER NOT NULL CHECK (failures >= 1), \
-              failed_at INTEGER NOT NULL \
-                  CHECK (failed_at >= -62167219200000 AND failed_at <= 253402300799999), \
-              PRIMARY KEY (pathway, target, source)) STRICT;",
-    columns: &[
-        Column {
-            table: "guess_delays",
-            name: "pathway",
-            class: DataClass::Identity,
-        },
-        Column {
-            table: "guess_delays",
-            name: "target",
-            class: DataClass::Identity,
-        },
-        Column {
-            table: "guess_delays",
-            name: "source",
-            class: DataClass::Identity,
-        },
-        Column {
-            table: "guess_delays",
-            name: "failures",
-            class: DataClass::Identity,
-        },
-        Column {
-            table: "guess_delays",
-            name: "failed_at",
-            class: DataClass::Identity,
-        },
-    ],
-};
-
-/// Reads one row's count and time.
-const READ: Query = Query::new(
-    "SELECT failures, failed_at FROM guess_delays \
-     WHERE pathway = ?1 AND target = ?2 AND source = ?3",
-);
-
-/// Counts one more wrong guess, made at the time given.
-const RECORD: Query = Query::new(
-    "INSERT INTO guess_delays (pathway, target, source, failures, failed_at) \
-     VALUES (?1, ?2, ?3, 1, ?4) \
-     ON CONFLICT (pathway, target, source) \
-     DO UPDATE SET failures = failures + 1, failed_at = excluded.failed_at",
-);
-
-/// Drops every row past the newest ones the log has room for.
-const PRUNE: Query = Query::new(
-    "DELETE FROM guess_delays WHERE rowid IN (\
-         SELECT rowid FROM guess_delays \
-         ORDER BY failed_at DESC, rowid DESC LIMIT -1 OFFSET ?1)",
-);
-
-/// Moves a row's time.
-const REBASE: Query = Query::new(
-    "UPDATE guess_delays SET failed_at = ?4 \
-     WHERE pathway = ?1 AND target = ?2 AND source = ?3",
-);
-
-/// Forgets a row.
-const CLEAR: Query =
-    Query::new("DELETE FROM guess_delays WHERE pathway = ?1 AND target = ?2 AND source = ?3");
-
-/// Whose wrong guesses a row counts: one source's, at one target of one
-/// pathway.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GuessKey {
+/// Whose wrong guesses an entry counts: one source's, at one target of one
+/// pathway. Only the verifier makes one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(in crate::verifier) struct GuessKey {
     pathway: Pathway,
     target: Option<Target>,
     source: String,
@@ -115,146 +53,106 @@ impl GuessKey {
     /// The key for guesses from `source` on `pathway`, aimed at `target`
     /// when the pathway has more than one thing to guess.
     #[must_use]
-    pub fn new(pathway: Pathway, target: Option<Target>, source: &ClientContext) -> Self {
+    pub(in crate::verifier) fn new(
+        pathway: Pathway,
+        target: Option<Target>,
+        source: &ClientContext,
+    ) -> Self {
         Self {
             pathway,
             target,
             source: source_label(source),
         }
     }
+}
 
-    /// Binds the key to the first three parameters of `query`.
-    fn bind(&self, query: Query) -> Query {
-        let target = self
-            .target
-            .map_or_else(Vec::new, |target| target.bytes().to_vec());
-        query
-            .bind(Value::Text(self.pathway.name().to_owned()))
-            .bind(Value::Blob(target))
-            .bind(Value::Text(self.source.clone()))
+/// `failures`, counted from no later than `now`. A clock set back would
+/// otherwise leave a wrong guess in the future, and its source waiting for
+/// the clock to catch up before it waited out the schedule.
+fn settled(failures: Failures, now: Timestamp) -> Failures {
+    Failures {
+        count: failures.count,
+        last_at: failures.last_at.min(now),
     }
 }
 
-/// What reading a key returned, as the wrong guesses on record: no row, or
-/// one row of a count and a time. A count too large for the schedule's own
-/// type is read as the largest it can hold.
-///
-/// # Errors
-///
-/// [`Fault::Missing`] when the rows are anything else.
-pub fn decode(rows: &[Row]) -> Result<Option<Failures>, Fault> {
-    let [Row(values)] = rows else {
-        return if rows.is_empty() {
-            Ok(None)
-        } else {
-            Err(Fault::Missing)
-        };
-    };
-    let [Value::Integer(count), Value::Integer(at)] = values.as_slice() else {
-        return Err(Fault::Missing);
-    };
-    Timestamp::from_millis(*at)
-        .map(|last_at| {
-            Some(Failures {
-                count: u32::try_from(*count).unwrap_or(u32::MAX),
-                last_at,
-            })
-        })
-        .map_err(|_| Fault::Missing)
+/// Makes room in `counts`, which has room for `capacity` keys, for one more
+/// key at `now`. A full store gives up the count whose wait ended first,
+/// once it has ended, and otherwise says how long until it ends; it never
+/// gives up a count whose wait is still running.
+fn room(counts: &mut HashMap<GuessKey, Failures>, capacity: usize, now: Timestamp) -> Decision {
+    if counts.len() < capacity {
+        return Decision::Allow;
+    }
+    let first = counts
+        .iter()
+        .map(|(key, failures)| (settled(*failures, now), key))
+        .min_by_key(|(failures, _)| next_guess_at(failures.count, failures.last_at))
+        .map(|(failures, key)| (failures, key.clone()));
+    let decision = guess_allowed(first.as_ref().map(|(failures, _)| *failures), now);
+    if let (Decision::Allow, Some((_, key))) = (decision, first) {
+        counts.remove(&key);
+    }
+    decision
 }
 
-/// The guess log.
-#[derive(Debug, Clone, Copy)]
-pub struct GuessLog {
-    capacity: u32,
+/// The wrong guesses the delay schedule counts, for a fixed number of keys.
+pub struct GuessCounts {
+    capacity: usize,
+    counts: Mutex<HashMap<GuessKey, Failures>>,
 }
 
-impl GuessLog {
-    /// A log that keeps the `capacity` rows written last. It always keeps
-    /// one, so no setting switches the delay off.
+impl GuessCounts {
+    /// Counts with room for `capacity` keys. There is always room for one,
+    /// so no setting switches the delay off.
     #[must_use]
-    pub const fn new(capacity: u32) -> Self {
-        Self { capacity }
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            counts: Mutex::new(HashMap::new()),
+        }
     }
 
-    /// The wrong guesses on record for `key`.
-    ///
-    /// # Errors
-    ///
-    /// A [`Fault`] when the store cannot be read, or holds a row that
-    /// cannot be.
-    pub fn read(self, lookup: &PreAuth<'_>, key: &GuessKey) -> Result<Option<Failures>, Fault> {
-        lookup
-            .lookup(&key.bind(READ))
-            .and_then(|rows| decode(&rows))
+    /// The counts. They are whole whenever the lock is free: each step
+    /// changes them only once it has decided, so a holder that panicked
+    /// left them sound.
+    fn lock(&self) -> MutexGuard<'_, HashMap<GuessKey, Failures>> {
+        self.counts.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Counts one more wrong guess for `key`, made at `now`, and drops the
-    /// rows the log has no room for.
-    ///
-    /// # Errors
-    ///
-    /// [`Fault::Storage`] when the store cannot be written.
-    pub fn record(
-        self,
-        store: &IdentityStore,
-        key: &GuessKey,
-        now: Timestamp,
-    ) -> Result<(), Fault> {
-        let record = key.bind(RECORD).bind(Value::Integer(now.millis()));
-        let prune = PRUNE.bind(Value::Integer(i64::from(self.capacity.max(1))));
-        store.write(&[record, prune]).map(drop).map_err(Fault::from)
+    /// Lets a guess for `key` at `now` through when the delay schedule
+    /// allows it, and then counts it as wrong before anyone has looked at
+    /// it; otherwise says how long to wait.
+    #[must_use]
+    pub(in crate::verifier) fn charge(&self, key: &GuessKey, now: Timestamp) -> Decision {
+        // Red: decides on what is held, and counts nothing.
+        let mut counts = self.lock();
+        let before = counts.get(key).map(|found| settled(*found, now));
+        before.map_or_else(
+            || room(&mut counts, self.capacity, now),
+            |failures| guess_allowed(Some(failures), now),
+        )
     }
 
-    /// Makes the wrong guesses on record for `key` count from `now`.
-    ///
-    /// # Errors
-    ///
-    /// [`Fault::Storage`] when the store cannot be written.
-    pub fn rebase(
-        self,
-        store: &IdentityStore,
-        key: &GuessKey,
-        now: Timestamp,
-    ) -> Result<(), Fault> {
-        let rebase = key.bind(REBASE).bind(Value::Integer(now.millis()));
-        store.write(&[rebase]).map(drop).map_err(Fault::from)
-    }
-
-    /// Forgets the wrong guesses on record for `key`.
-    ///
-    /// # Errors
-    ///
-    /// [`Fault::Storage`] when the store cannot be written.
-    pub fn clear(self, store: &IdentityStore, key: &GuessKey) -> Result<(), Fault> {
-        store
-            .write(&[key.bind(CLEAR)])
-            .map(drop)
-            .map_err(Fault::from)
+    /// Forgets the wrong guesses counted for `key`.
+    pub(in crate::verifier) fn clear(&self, key: &GuessKey) {
+        self.lock().remove(key);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use gunmetal_core::ratelimit::Decision;
     use gunmetal_core::time::Timestamp;
-    use gunmetal_durable::identity::error::{IdentityError, Step};
-    use gunmetal_durable::identity::pre_principal::PrePrincipal;
-    use gunmetal_durable::identity::store::IDENTITY;
-    use gunmetal_fs::sqlite::{DbError, Pragmas, Query, Row, Synchronous, Value, open_db};
 
     use super::*;
-    use crate::limiter::delay::Failures;
+    use crate::limiter::delay::{Failures, GUESS_DELAY_KEYS};
+    use crate::limiter::rates::Ceilings;
     use crate::limiter::testing::source;
     use crate::testing::NOON;
-    use crate::verifier::pathway::{Fault, Pathway, Target};
-    use crate::verifier::preauth::PreAuth;
-    use crate::verifier::testing::{STAND_IN, data, open, text};
-
-    /// Every row of the log as it is stored, oldest guess first.
-    const ROWS: Query = Query::new(
-        "SELECT pathway, target, source, failures, failed_at FROM guess_delays \
-         ORDER BY failed_at, source",
-    );
+    use crate::verifier::pathway::{Pathway, Target};
 
     fn at(ms: i64) -> Timestamp {
         Timestamp::from_millis(ms).expect("in range")
@@ -267,275 +165,236 @@ mod tests {
         }
     }
 
+    fn wait(retry_after_ms: u64) -> Decision {
+        Decision::Deny { retry_after_ms }
+    }
+
     /// The key for guesses at the claim code from `addr`.
     fn claim_from(addr: &str) -> GuessKey {
         GuessKey::new(Pathway::ClaimCode, None, &source(addr))
     }
 
-    /// A row as the store holds it: the pathway's name, the target's bytes
-    /// or none, the source's narrowest key, the count and the time.
-    fn stored(pathway: &str, target: &[u8], source: &str, count: i64, ms: i64) -> Row {
-        Row(vec![
-            text(pathway),
-            Value::Blob(target.to_vec()),
-            text(source),
-            Value::Integer(count),
-            Value::Integer(ms),
-        ])
-    }
-
-    /// The stored row of a claim-code guesser at `addr`.
-    fn claim_row(addr: &str, count: i64, ms: i64) -> Row {
-        stored("claim_code", &[], addr, count, ms)
-    }
-
-    /// What a write refused for want of the write lock looks like.
-    fn busy() -> Result<(), Fault> {
-        Err(Fault::Storage(Box::new(IdentityError::Db {
-            step: Step::Write,
-            // SQLITE_BUSY
-            error: DbError::Sqlite { code: 5 },
-        })))
+    /// Every count the store holds, by key.
+    fn held(counts: &GuessCounts) -> HashMap<GuessKey, Failures> {
+        counts.lock().clone()
     }
 
     #[test]
-    fn counts_each_wrong_guess_until_it_is_told_to_forget_them() {
-        let data = data("guesses");
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        let lookup = PreAuth::new(&store);
-        let log = GuessLog::new(8);
+    fn counts_each_guess_it_lets_through_until_it_is_told_to_forget_them() {
+        let counts = GuessCounts::new(8);
         let key = claim_from("192.168.1.66");
-        assert_eq!(log.read(&lookup, &key), Ok(None));
-        assert_eq!(log.record(&store, &key, at(NOON)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(1, NOON))));
-        assert_eq!(log.record(&store, &key, at(NOON + 30_000)), Ok(()));
-        assert_eq!(log.record(&store, &key, at(NOON + 90_000)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(3, NOON + 90_000))));
-        // Moving the time keeps the count.
-        assert_eq!(log.rebase(&store, &key, at(NOON - 5)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), Ok(Some(counted(3, NOON - 5))));
-        assert_eq!(log.clear(&store, &key), Ok(()));
-        assert_eq!(log.read(&lookup, &key), Ok(None));
-        // Forgetting, or moving, what is not there is not a fault.
-        assert_eq!(log.clear(&store, &key), Ok(()));
-        assert_eq!(log.rebase(&store, &key, at(NOON)), Ok(()));
-        assert_eq!(log.read(&lookup, &key), Ok(None));
+        // The first guess is let through, and counted as it goes.
+        assert_eq!(counts.charge(&key, at(NOON)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(key.clone(), counted(1, NOON))])
+        );
+        // The next waits out the schedule, and waiting is not counted.
+        assert_eq!(counts.charge(&key, at(NOON + 29_999)), wait(1));
+        assert_eq!(counts.charge(&key, at(NOON + 30_000)), Decision::Allow);
+        assert_eq!(counts.charge(&key, at(NOON + 30_000)), wait(60_000));
+        assert_eq!(counts.charge(&key, at(NOON + 90_000)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(key.clone(), counted(3, NOON + 90_000))])
+        );
+        counts.clear(&key);
+        assert_eq!(held(&counts), HashMap::new());
+        // Forgetting what is not there changes nothing, and the next guess
+        // is a first one.
+        counts.clear(&key);
+        assert_eq!(counts.charge(&key, at(NOON + 90_001)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(key, counted(1, NOON + 90_001))])
+        );
+    }
+
+    #[test]
+    fn a_count_a_clock_set_back_left_in_the_future_counts_from_now() {
+        let counts = GuessCounts::new(8);
+        let key = claim_from("192.168.1.66");
+        assert_eq!(counts.charge(&key, at(NOON)), Decision::Allow);
+        // An hour back: the wait is the schedule's from here, and the count
+        // keeps the time it was moved to.
+        assert_eq!(counts.charge(&key, at(NOON - 3_600_000)), wait(30_000));
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(key.clone(), counted(1, NOON - 3_600_000))])
+        );
+        assert_eq!(counts.charge(&key, at(NOON - 3_570_001)), wait(1));
+        assert_eq!(counts.charge(&key, at(NOON - 3_570_000)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(key, counted(2, NOON - 3_570_000))])
+        );
     }
 
     #[test]
     fn keeps_each_pathway_target_and_source_apart() {
-        let data = data("guesses-keys");
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        let lookup = PreAuth::new(&store);
-        let log = GuessLog::new(8);
+        let counts = GuessCounts::new(8);
         let approver = Target::from_bytes([0xab; 16]);
-        let lan = source("192.168.1.66");
-        let v6 = source("2001:db8:0:1234:aaaa:bbbb:cccc:dddd");
+        let from = source("203.0.113.7");
         let keys = [
-            GuessKey::new(Pathway::ClaimCode, None, &lan),
-            GuessKey::new(Pathway::PairingCode, None, &lan),
-            GuessKey::new(Pathway::PairingCode, Some(approver), &lan),
-            GuessKey::new(Pathway::PairingCode, Some(approver), &v6),
+            GuessKey::new(Pathway::ClaimCode, None, &from),
+            GuessKey::new(Pathway::PairingCode, None, &from),
+            GuessKey::new(Pathway::PairingCode, Some(approver), &from),
+            GuessKey::new(
+                Pathway::PairingCode,
+                Some(approver),
+                &source("2001:db8:0:1234:aaaa:bbbb:cccc:dddd"),
+            ),
         ];
-        // The first key guesses wrong once, the second twice, and so on.
-        for (index, key) in keys.iter().enumerate() {
-            for guess in 0..=index {
-                let offset = i64::try_from(index * 10 + guess).expect("small");
-                assert_eq!(log.record(&store, key, at(NOON + offset)), Ok(()));
-            }
-        }
-        let read: Vec<_> = keys.iter().map(|key| log.read(&lookup, key)).collect();
+        // Each key's first guess is let through, whatever the others did.
+        let first: Vec<_> = keys
+            .iter()
+            .map(|key| counts.charge(key, at(NOON)))
+            .collect();
+        assert_eq!(first, [Decision::Allow; 4]);
+        // Another address of the same /64 is the same source, and an IPv4
+        // address written as IPv6 is that address.
+        let same = [
+            GuessKey::new(
+                Pathway::PairingCode,
+                Some(approver),
+                &source("2001:db8:0:1234::1"),
+            ),
+            GuessKey::new(Pathway::ClaimCode, None, &source("::ffff:203.0.113.7")),
+        ];
+        let again: Vec<_> = same
+            .iter()
+            .map(|key| counts.charge(key, at(NOON + 1)))
+            .collect();
+        assert_eq!(again, [wait(29_999); 2]);
+        // Forgetting one leaves the others.
+        counts.clear(&keys[2]);
         assert_eq!(
-            read,
-            [
-                Ok(Some(counted(1, NOON))),
-                Ok(Some(counted(2, NOON + 11))),
-                Ok(Some(counted(3, NOON + 22))),
-                Ok(Some(counted(4, NOON + 33))),
-            ]
-        );
-        let home = "192.168.1.66";
-        let network = "2001:db8:0:1234::/64";
-        assert_eq!(
-            lookup.lookup(&ROWS),
-            Ok(vec![
-                stored("claim_code", &[], home, 1, NOON),
-                stored("pairing_code", &[], home, 2, NOON + 11),
-                stored("pairing_code", &[0xab; 16], home, 3, NOON + 22),
-                stored("pairing_code", &[0xab; 16], network, 4, NOON + 33),
+            held(&counts),
+            HashMap::from([
+                (keys[0].clone(), counted(1, NOON)),
+                (keys[1].clone(), counted(1, NOON)),
+                (keys[3].clone(), counted(1, NOON)),
             ])
         );
-        // Forgetting one leaves the others.
-        assert_eq!(log.clear(&store, &keys[2]), Ok(()));
-        let read: Vec<_> = keys.iter().map(|key| log.read(&lookup, key)).collect();
-        assert_eq!(
-            read,
-            [
-                Ok(Some(counted(1, NOON))),
-                Ok(Some(counted(2, NOON + 11))),
-                Ok(None),
-                Ok(Some(counted(4, NOON + 33))),
-            ]
-        );
     }
 
+    /// Verifies: SEC-API-056
     #[test]
-    fn a_restart_keeps_what_was_counted() {
-        let data = data("guesses-restart");
-        let key = claim_from("192.168.1.66");
-        let log = GuessLog::new(8);
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        assert_eq!(log.record(&store, &key, at(NOON)), Ok(()));
-        assert_eq!(log.record(&store, &key, at(NOON + 30_000)), Ok(()));
-        drop(store);
-        let reopened = open(&data.root, &[GUESS_DELAYS]);
-        assert_eq!(
-            log.read(&PreAuth::new(&reopened), &key),
-            Ok(Some(counted(2, NOON + 30_000)))
-        );
-    }
-
-    #[test]
-    fn keeps_only_the_newest_rows_it_has_room_for() {
-        let data = data("guesses-room");
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        let lookup = PreAuth::new(&store);
-        let log = GuessLog::new(2);
+    fn a_full_store_never_drops_a_wait_that_is_still_running() {
+        let counts = GuessCounts::new(3);
         let [first, second, third, fourth] =
             ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"].map(claim_from);
-        assert_eq!(log.record(&store, &first, at(NOON)), Ok(()));
-        assert_eq!(log.record(&store, &second, at(NOON + 1)), Ok(()));
-        assert_eq!(log.record(&store, &third, at(NOON + 2)), Ok(()));
-        assert_eq!(
-            lookup.lookup(&ROWS),
-            Ok(vec![
-                claim_row("192.0.2.2", 1, NOON + 1),
-                claim_row("192.0.2.3", 1, NOON + 2),
-            ])
-        );
-        // A source that guesses again is the newest again, and keeps its
-        // count; the one it overtook is the next to go.
-        assert_eq!(log.record(&store, &second, at(NOON + 3)), Ok(()));
-        assert_eq!(log.record(&store, &fourth, at(NOON + 4)), Ok(()));
-        assert_eq!(
-            lookup.lookup(&ROWS),
-            Ok(vec![
-                claim_row("192.0.2.2", 2, NOON + 3),
-                claim_row("192.0.2.4", 1, NOON + 4),
-            ])
-        );
-        // A log told to keep nothing still keeps the newest row.
-        let none = GuessLog::new(0);
-        assert_eq!(none.record(&store, &first, at(NOON + 5)), Ok(()));
-        assert_eq!(
-            lookup.lookup(&ROWS),
-            Ok(vec![claim_row("192.0.2.1", 1, NOON + 5)])
-        );
-        assert_eq!(none.read(&lookup, &first), Ok(Some(counted(1, NOON + 5))));
-    }
-
-    #[test]
-    fn reads_only_one_row_of_a_count_and_a_time() {
-        let row = |count: i64, ms: i64| Row(vec![Value::Integer(count), Value::Integer(ms)]);
-        assert_eq!(decode(&[]), Ok(None));
-        assert_eq!(decode(&[row(3, NOON)]), Ok(Some(counted(3, NOON))));
-        // A count past what the schedule's type holds is its largest.
-        assert_eq!(
-            decode(&[row(i64::MAX, NOON)]),
-            Ok(Some(counted(u32::MAX, NOON)))
-        );
-        assert_eq!(
-            decode(&[row(4_294_967_296, NOON)]),
-            Ok(Some(counted(u32::MAX, NOON)))
-        );
-        assert_eq!(
-            decode(&[row(4_294_967_295, NOON)]),
-            Ok(Some(counted(u32::MAX, NOON)))
-        );
-        assert_eq!(decode(&[row(-1, NOON)]), Ok(Some(counted(u32::MAX, NOON))));
-        for unreadable in [
-            vec![row(1, NOON), row(1, NOON)],
-            vec![Row(vec![Value::Integer(1)])],
-            vec![Row(vec![text("1"), Value::Integer(NOON)])],
-            vec![Row(vec![Value::Integer(1), Value::Null])],
-            vec![Row(vec![
-                Value::Integer(1),
-                Value::Integer(NOON),
-                Value::Integer(0),
-            ])],
-            // A time no timestamp holds.
-            vec![row(1, i64::MAX)],
-        ] {
-            assert_eq!(decode(&unreadable), Err(Fault::Missing), "{unreadable:?}");
-        }
-    }
-
-    #[test]
-    fn the_table_refuses_a_row_that_could_not_be_read_back() {
-        let data = data("guesses-strict");
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        let insert = |failures: Value, failed_at: Value| {
-            Query::new(
-                "INSERT INTO guess_delays (pathway, target, source, failures, failed_at) \
-                 VALUES ('claim_code', x'', '192.0.2.1', ?1, ?2)",
-            )
-            .bind(failures)
-            .bind(failed_at)
-        };
-        let refused = |code: i32| {
-            Err(IdentityError::Db {
-                step: Step::Write,
-                error: DbError::Sqlite { code },
+        // Three sources guess once each, a millisecond apart, so their waits
+        // end 30 seconds on in the same order. The third takes the last
+        // place there is.
+        assert_eq!(counts.charge(&first, at(NOON)), Decision::Allow);
+        assert_eq!(counts.charge(&second, at(NOON + 1)), Decision::Allow);
+        assert_eq!(counts.charge(&third, at(NOON + 2)), Decision::Allow);
+        // Full, with every wait still running: however many new keys come,
+        // each is refused until the first wait ends, and nothing is dropped.
+        let flood: Vec<_> = (0..1_000_u128)
+            .map(|n| {
+                let target = Target::from_bytes(n.to_be_bytes());
+                let key = GuessKey::new(Pathway::PairingCode, Some(target), &source("192.0.2.9"));
+                counts.charge(&key, at(NOON + 3))
             })
-        };
-        // SQLITE_CONSTRAINT_DATATYPE (3091) for a value that is not a whole
-        // number, and SQLITE_CONSTRAINT_CHECK (275) for one out of range.
-        let cases = [
-            (text("many"), Value::Integer(NOON), 3091),
-            (Value::Real(1.5), Value::Integer(NOON), 3091),
-            (Value::Integer(1), Value::Real(1.5), 3091),
-            (Value::Integer(0), Value::Integer(NOON), 275),
-            (Value::Integer(1), Value::Integer(i64::MAX), 275),
-            (Value::Integer(1), Value::Integer(i64::MIN), 275),
-        ];
-        for (failures, failed_at, code) in cases {
-            assert_eq!(store.write(&[insert(failures, failed_at)]), refused(code));
-        }
-        assert_eq!(PreAuth::new(&store).lookup(&ROWS), Ok(vec![]));
+            .collect();
+        assert_eq!(flood, vec![wait(29_997); 1_000]);
+        let waiting = HashMap::from([
+            (first.clone(), counted(1, NOON)),
+            (second.clone(), counted(1, NOON + 1)),
+            (third.clone(), counted(1, NOON + 2)),
+        ]);
+        assert_eq!(held(&counts), waiting);
+        // The first source still waits out its own 30 seconds, to the
+        // millisecond.
+        assert_eq!(counts.charge(&first, at(NOON + 29_999)), wait(1));
+        // Once that wait is over, a new key takes its place, and it is the
+        // only count given up.
+        assert_eq!(counts.charge(&fourth, at(NOON + 30_000)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([
+                (second, counted(1, NOON + 1)),
+                (third, counted(1, NOON + 2)),
+                (fourth, counted(1, NOON + 30_000)),
+            ])
+        );
+        // And it came back too early to have a place of its own.
+        assert_eq!(counts.charge(&first, at(NOON + 30_000)), wait(1));
     }
 
     #[test]
-    fn a_store_that_cannot_be_read_or_written_is_a_fault() {
-        // A store opened without the log's table: SQLite knows no such table.
-        let bare = data("guesses-bare");
-        let store = open(&bare.root, &[STAND_IN]);
-        let log = GuessLog::new(8);
-        let key = claim_from("192.168.1.66");
+    fn a_new_key_takes_the_place_of_the_wait_that_ended_longest_ago() {
+        let counts = GuessCounts::new(3);
+        let [persistent, early, late, newcomer, follower, straggler] = [
+            "192.0.2.1",
+            "192.0.2.2",
+            "192.0.2.3",
+            "192.0.2.4",
+            "192.0.2.5",
+            "192.0.2.6",
+        ]
+        .map(claim_from);
+        // A source made four wrong guesses as soon as it could, the last at
+        // 390 seconds: it waits fifteen minutes, until 1,290 seconds. Its
+        // count is the oldest there is, and the one heard from longest ago.
+        for ms in [0, 30_000, 90_000, 390_000] {
+            assert_eq!(counts.charge(&persistent, at(NOON + ms)), Decision::Allow);
+        }
+        // Two more guess once each, later: their waits end at 1,030 and at
+        // 1,040 seconds.
+        assert_eq!(counts.charge(&early, at(NOON + 1_000_000)), Decision::Allow);
+        assert_eq!(counts.charge(&late, at(NOON + 1_010_000)), Decision::Allow);
+        // At 1,050 seconds both of theirs are over, and a new key takes the
+        // place of the one that ended first; the next new key, the other.
         assert_eq!(
-            log.read(&PreAuth::new(&store), &key),
-            Err(Fault::Storage(Box::new(IdentityError::Db {
-                step: Step::PrePrincipal(PrePrincipal::Credential),
-                // SQLITE_ERROR
-                error: DbError::Sqlite { code: 1 },
-            })))
+            counts.charge(&newcomer, at(NOON + 1_050_000)),
+            Decision::Allow
         );
-        // A store whose write lock another connection holds.
-        let data = data("guesses-busy");
-        let store = open(&data.root, &[GUESS_DELAYS]);
-        assert_eq!(log.record(&store, &key, at(NOON)), Ok(()));
-        let other = open_db(&data.root, &IDENTITY, Pragmas::new(Synchronous::Full))
-            .expect("a second connection");
-        other
-            .execute(&Query::new("BEGIN IMMEDIATE"))
-            .expect("the write lock");
-        assert_eq!(log.record(&store, &key, at(NOON + 1)), busy());
-        assert_eq!(log.rebase(&store, &key, at(NOON + 1)), busy());
-        assert_eq!(log.clear(&store, &key), busy());
-        other.execute(&Query::new("ROLLBACK")).expect("released");
-        // None of the refused writes took.
         assert_eq!(
-            log.read(&PreAuth::new(&store), &key),
-            Ok(Some(counted(1, NOON)))
+            counts.charge(&follower, at(NOON + 1_050_000)),
+            Decision::Allow
         );
+        // Now every wait is running, the shortest until 1,080 seconds.
+        assert_eq!(
+            counts.charge(&straggler, at(NOON + 1_050_000)),
+            wait(30_000)
+        );
+        assert_eq!(
+            held(&counts),
+            HashMap::from([
+                (persistent.clone(), counted(4, NOON + 390_000)),
+                (newcomer, counted(1, NOON + 1_050_000)),
+                (follower, counted(1, NOON + 1_050_000)),
+            ])
+        );
+        // The persistent source kept its count and its wait.
+        assert_eq!(counts.charge(&persistent, at(NOON + 1_289_999)), wait(1));
+    }
+
+    #[test]
+    fn counts_told_to_keep_nothing_keep_one() {
+        let counts = GuessCounts::new(0);
+        let [first, second] = ["192.0.2.1", "192.0.2.2"].map(claim_from);
+        assert_eq!(counts.charge(&first, at(NOON)), Decision::Allow);
+        assert_eq!(counts.charge(&first, at(NOON)), wait(30_000));
+        assert_eq!(counts.charge(&second, at(NOON)), wait(30_000));
+        assert_eq!(held(&counts), HashMap::from([(first, counted(1, NOON))]));
+    }
+
+    #[test]
+    fn the_server_wide_ceiling_lets_too_few_guesses_through_to_fill_the_counts() {
+        // A count's wait runs fifteen minutes at the longest, and only an
+        // attempt the server-wide ceiling let through makes or renews a
+        // count. In fifteen minutes that ceiling lets through its burst and
+        // then one attempt per interval: 100 and 1,500.
+        let server = Ceilings::DEFAULT.server;
+        let through = u64::from(server.burst) + 900_000 / server.interval_ms;
+        assert_eq!(through, 1_600);
+        // So the store is never full of running waits, and no source is
+        // refused for want of room.
+        let places = u64::try_from(GUESS_DELAY_KEYS).expect("a small number");
+        assert!(through < places, "{through} attempts, room for {places}");
     }
 }

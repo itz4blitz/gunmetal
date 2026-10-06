@@ -6,17 +6,21 @@
 //! [`SignInError`]. The module documentation of `crate::verifier` says
 //! what it does and why; this is where each step lives:
 //!
-//! - `admit` applies the limits, before anything is looked at;
+//! - `admit` applies the limits, before anything is looked at, and counts
+//!   a guess at a short secret that the delay lets through as a wrong one
+//!   there and then, before it is looked at;
 //! - `examine` refuses an empty credential, then has the pathway find the
 //!   stored one and compare, against a decoy when there is none;
-//! - `settle` counts a wrong guess at a short secret, or forgets the count
-//!   when the guess was right;
+//! - `settle` clears the count when the guess was right;
 //! - `report` writes the failure line and emits the security event.
+//!
+//! No lock is held from one step to the next. The ceilings and the guess
+//! counts each take their own, only while they decide and count.
 //!
 //! [`Verifier::begin`] applies the same ceilings to an endpoint that only
 //! starts a sign-in ceremony and checks nothing yet.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use gunmetal_core::audit_event::{SecurityEvent, SecuritySink};
 use gunmetal_core::client_context::{ClientContext, PathClass};
@@ -25,11 +29,10 @@ use gunmetal_core::ratelimit::Decision;
 use gunmetal_core::time::{Clock, Timestamp};
 use gunmetal_durable::identity::store::IdentityStore;
 
-use crate::limiter::delay::{Failures, guess_allowed};
 use crate::limiter::rates::SourceLimiter;
 use crate::log::{LogEvent, Logger};
 use crate::verifier::error::SignInError;
-use crate::verifier::guesses::{GuessKey, GuessLog};
+use crate::verifier::guesses::{GuessCounts, GuessKey};
 use crate::verifier::pathway::{Fault, Pathway, PathwayCheck, Presented, Strength, Verified};
 use crate::verifier::preauth::PreAuth;
 
@@ -52,14 +55,6 @@ enum Stop {
         /// The cause the failure line gives.
         cause: &'static str,
     },
-}
-
-/// A guess at a short secret that the delay schedule let through.
-struct Guess {
-    /// Whose guess it is.
-    key: GuessKey,
-    /// Whether wrong guesses are on record for the key.
-    failed_before: bool,
 }
 
 /// The refusal for a fault.
@@ -123,25 +118,29 @@ fn examine(
 pub struct Verifier {
     store: Arc<IdentityStore>,
     limiter: SourceLimiter,
-    guesses: GuessLog,
+    guesses: GuessCounts,
     clock: Arc<dyn Clock + Send + Sync>,
     log: Arc<Logger>,
     sink: Arc<dyn SecuritySink + Send + Sync>,
-    /// Held while a guess at a short secret is looked at and counted.
-    guessing: Mutex<()>,
 }
 
 impl Verifier {
-    /// A verifier that reads stored credentials and keeps its guess log in
-    /// `store`, which must have been opened with the guess log's schema
-    /// part; limits attempts with `limiter`; reads the time from `clock`;
-    /// writes failure lines to `log`; and emits security events into
-    /// `sink`.
+    /// A verifier that reads stored credentials from `store`, and writes
+    /// nothing there; limits attempts with `limiter`; counts wrong guesses
+    /// at short secrets in `guesses`; reads the time from `clock`; writes
+    /// failure lines to `log`; and emits security events into `sink`.
+    ///
+    /// The limits in force are the ones `limiter` and `guesses` were made
+    /// with. Keeping the registered ones in force is the caller's: the
+    /// server makes them with `Ceilings::DEFAULT`, `TRACKED_KEYS` and
+    /// `GUESS_DELAY_KEYS`. So is running one verifier: each counts on its
+    /// own, so a second would give every source a second set of ceilings
+    /// and of counts.
     #[must_use]
     pub fn new(
         store: Arc<IdentityStore>,
         limiter: SourceLimiter,
-        guesses: GuessLog,
+        guesses: GuessCounts,
         clock: Arc<dyn Clock + Send + Sync>,
         log: Arc<Logger>,
         sink: Arc<dyn SecuritySink + Send + Sync>,
@@ -153,7 +152,6 @@ impl Verifier {
             clock,
             log,
             sink,
-            guessing: Mutex::new(()),
         }
     }
 
@@ -185,21 +183,10 @@ impl Verifier {
         source: &ClientContext,
     ) -> Result<Verified, SignInError> {
         let pathway = check.pathway();
-        // Guesses at a short secret are looked at one at a time. Of several
-        // made at the same moment, the first is counted before the next is
-        // let through, so they cannot all slip past the schedule together.
-        // The lock guards no data, so one a panic left poisoned is taken
-        // all the same.
-        let _one_at_a_time = match pathway.strength() {
-            Strength::Guessable => {
-                Some(self.guessing.lock().unwrap_or_else(PoisonError::into_inner))
-            }
-            Strength::Strong => None,
-        };
         let now = self.clock.now();
         let lookup = PreAuth::new(&self.store);
-        self.admit(pathway, presented, source, now, &lookup)
-            .and_then(|guess| self.settle(guess.as_ref(), examine(check, presented, &lookup), now))
+        self.admit(pathway, presented, source, now)
+            .and_then(|charged| self.settle(charged.as_ref(), examine(check, presented, &lookup)))
             .map_err(|stop| self.report(pathway, source, stop))
     }
 
@@ -217,79 +204,38 @@ impl Verifier {
         allowed(self.limiter.admit(source, now)).map(|()| true)
     }
 
-    /// Applies every limit before anything is looked at: the ceilings, and
-    /// for a guessable secret the delay its source has earned at this
-    /// target. Returns the guess the delay schedule is counting, if it is
-    /// counting this attempt.
+    /// Applies every limit before anything is looked at: the ceilings,
+    /// and for a guessable secret the delay its source has earned at this
+    /// target. A guess the delay lets through is counted as a wrong one
+    /// there and then, before it is looked at, so that guesses made at the
+    /// same moment cannot all be looked at before one is counted. Returns
+    /// the key it was counted under, for a right guess to clear.
     fn admit(
         &self,
         pathway: Pathway,
         presented: &Presented<'_>,
         source: &ClientContext,
         now: Timestamp,
-        lookup: &PreAuth<'_>,
-    ) -> Result<Option<Guess>, Stop> {
+    ) -> Result<Option<GuessKey>, Stop> {
         let limited = self.ceilings(pathway, source, now)?;
         if !limited || pathway.strength() == Strength::Strong {
             return Ok(None);
         }
         let key = GuessKey::new(pathway, presented.target(), source);
-        let before = self
-            .guessed(&key, now, lookup)
-            .map_err(|fault| refused(None, &fault))?;
-        allowed(guess_allowed(before, now))?;
-        Ok(Some(Guess {
-            key,
-            failed_before: before.is_some(),
-        }))
+        allowed(self.guesses.charge(&key, now)).map(|()| Some(key))
     }
 
-    /// The wrong guesses on record for `key`, counted from no later than
-    /// `now`. A clock that was set back would otherwise leave a failure in
-    /// the future and its source waiting for the clock to catch up, so such
-    /// a failure is moved to `now`, in the log too: the wait is then the
-    /// schedule's, never longer.
-    fn guessed(
-        &self,
-        key: &GuessKey,
-        now: Timestamp,
-        lookup: &PreAuth<'_>,
-    ) -> Result<Option<Failures>, Fault> {
-        let Some(found) = self.guesses.read(lookup, key)? else {
-            return Ok(None);
-        };
-        let settled = Failures {
-            count: found.count,
-            last_at: found.last_at.min(now),
-        };
-        if settled != found {
-            self.guesses.rebase(&self.store, key, now)?;
-        }
-        Ok(Some(settled))
-    }
-
-    /// Brings the guess log up to date with what the check found. A right
-    /// guess after wrong ones clears their count first, and is refused if
-    /// that cannot be written. A wrong guess is counted; it is refused
-    /// whether or not the count could be written.
+    /// Clears the count of a guess that turned out right. A wrong one, and
+    /// one whose check could not be finished, stays counted.
     fn settle(
         &self,
-        guess: Option<&Guess>,
+        charged: Option<&GuessKey>,
         checked: Result<Verified, Stop>,
-        now: Timestamp,
     ) -> Result<Verified, Stop> {
-        match (checked, guess) {
-            (Ok(verified), Some(guess)) if guess.failed_before => self
-                .guesses
-                .clear(&self.store, &guess.key)
-                .map(|()| verified)
-                .map_err(|fault| refused(verified.account, &fault)),
-            (Err(stop), Some(guess)) => {
-                let _ = self.guesses.record(&self.store, &guess.key, now);
-                Err(stop)
-            }
-            (checked, _) => checked,
+        if let (Ok(_), Some(key)) = (&checked, charged) {
+            self.guesses.clear(key);
         }
+        checked
     }
 
     /// Leaves behind what a refused attempt must: for a limited one the
@@ -323,7 +269,8 @@ impl Verifier {
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
-    use std::sync::Arc;
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::Duration;
 
     use gunmetal_core::audit_event::{SecurityEvent, SecuritySink};
     use gunmetal_core::client_context::ClientContext;
@@ -339,13 +286,13 @@ mod tests {
     use proptest::test_runner::{Config, TestRunner};
 
     use super::*;
-    use crate::limiter::delay::GUESS_DELAY_ROWS;
+    use crate::limiter::delay::GUESS_DELAY_KEYS;
     use crate::limiter::rates::{Ceilings, SourceLimiter, TRACKED_KEYS};
     use crate::limiter::testing::source;
     use crate::log::{Level, Logger};
     use crate::testing::{self, Capture, Recording};
     use crate::verifier::error::SignInError;
-    use crate::verifier::guesses::{GUESS_DELAYS, GuessLog};
+    use crate::verifier::guesses::GuessCounts;
     use crate::verifier::pathway::{
         Credential, Fault, Material, Pathway, PathwayCheck, Presented, Stored, Target, Verified,
     };
@@ -356,7 +303,12 @@ mod tests {
     const NOON: &str = "2026-10-03T12:00:00.000Z";
 
     /// The schema parts a store in these tests is opened with.
-    const PARTS: [SchemaPart; 2] = [GUESS_DELAYS, STAND_IN];
+    const PARTS: [SchemaPart; 1] = [STAND_IN];
+
+    /// How long a guess held in the stand-in's check waits for the others
+    /// before it gives up, so that a test that should fail does so, and
+    /// does not hang.
+    const BOUND: Duration = Duration::from_secs(10);
 
     /// Each pathway's name in the failure line, in the inventory's order,
     /// written out here on its own.
@@ -388,6 +340,56 @@ mod tests {
         checked: RefCell<Vec<Vec<u8>>>,
     }
 
+    /// Where guesses on several threads meet: a guess that reaches the
+    /// stand-in's lookup is held there until `together` guesses have each
+    /// either reached it too or been answered.
+    struct Hold {
+        together: usize,
+        met: Mutex<Met>,
+        changed: Condvar,
+    }
+
+    /// What a [`Hold`] has seen.
+    #[derive(Default)]
+    struct Met {
+        /// How many guesses have reached the lookup or been answered.
+        arrived: usize,
+        /// How many waits gave up after [`BOUND`].
+        gave_up: usize,
+    }
+
+    impl Hold {
+        fn new(together: usize) -> Self {
+            Self {
+                together,
+                met: Mutex::new(Met::default()),
+                changed: Condvar::new(),
+            }
+        }
+
+        /// One more guess has reached the lookup or been answered.
+        fn arrive(&self) {
+            self.met.lock().expect("the hold").arrived += 1;
+            self.changed.notify_all();
+        }
+
+        /// Waits until `count` guesses have arrived, or [`BOUND`] has
+        /// passed, which it notes.
+        fn wait_for(&self, count: usize) {
+            let guard = self.met.lock().expect("the hold");
+            let (mut met, waited) = self
+                .changed
+                .wait_timeout_while(guard, BOUND, |so_far| so_far.arrived < count)
+                .expect("the hold");
+            met.gave_up += usize::from(waited.timed_out());
+        }
+
+        /// How many waits gave up.
+        fn gave_up(&self) -> usize {
+            self.met.lock().expect("the hold").gave_up
+        }
+    }
+
     /// What the stand-in says is stored under a name, when the name is in
     /// its table.
     #[derive(Clone, Copy)]
@@ -409,6 +411,8 @@ mod tests {
         agrees: bool,
         fault: Option<(Stage, Fault)>,
         seen: &'a Seen,
+        /// Where its lookup waits for other guesses, if it does.
+        hold: Option<&'a Hold>,
     }
 
     impl PathwayCheck for StandIn<'_> {
@@ -421,6 +425,10 @@ mod tests {
             _credential: Credential<'_>,
             lookup: &PreAuth<'_>,
         ) -> Result<Option<Stored>, Fault> {
+            if let Some(hold) = self.hold {
+                hold.arrive();
+                hold.wait_for(hold.together);
+            }
             self.seen.finds.set(self.seen.finds.get() + 1);
             if let Some((Stage::Find, fault)) = &self.fault {
                 return Err(fault.clone());
@@ -474,6 +482,7 @@ mod tests {
             agrees: false,
             fault: None,
             seen,
+            hold: None,
         }
     }
 
@@ -557,7 +566,7 @@ mod tests {
         let sink = Arc::new(Recording::new(accept));
         let recorder: Arc<dyn SecuritySink + Send + Sync> = sink.clone();
         let limiter = SourceLimiter::new(&Ceilings::DEFAULT, TRACKED_KEYS).expect("usable");
-        let guesses = GuessLog::new(GUESS_DELAY_ROWS);
+        let guesses = GuessCounts::new(GUESS_DELAY_KEYS);
         let verifier = Verifier::new(store, limiter, guesses, clock, log, recorder);
         Bench {
             data,
@@ -896,14 +905,23 @@ mod tests {
         let bench = bench();
         let verifier = &bench.verifier;
         let from = source("192.168.1.66");
+        // A guess that reaches the lookup is held there until all four have
+        // reached it or been answered, so that whatever the threads' timing
+        // the four are in flight at once.
+        let hold = Hold::new(4);
         // Four wrong guesses at one code, from one source, on four threads.
-        let answers: Vec<_> = std::thread::scope(|scope| {
+        let results: Vec<_> = std::thread::scope(|scope| {
             let guessers: Vec<_> = (0..4)
                 .map(|_| {
                     scope.spawn(|| {
                         let seen = Seen::default();
-                        let check = standin(Pathway::PairingCode, &seen);
-                        verifier.verify(&check, &Presented::new(b"wrong"), &from)
+                        let check = StandIn {
+                            hold: Some(&hold),
+                            ..standin(Pathway::PairingCode, &seen)
+                        };
+                        let answer = verifier.verify(&check, &Presented::new(b"wrong"), &from);
+                        hold.arrive();
+                        (answer, seen.finds.get())
                     })
                 })
                 .collect();
@@ -912,14 +930,51 @@ mod tests {
                 .map(|guesser| guesser.join().expect("the guess returned"))
                 .collect()
         });
-        // Whichever came first was looked at and counted before any other
-        // was let through, so the other three wait.
+        let answers: Vec<_> = results.iter().map(|(answer, _)| *answer).collect();
+        // Whichever came first was counted before it was looked at, so the
+        // other three wait, and only the first was looked at.
         let looked_at = answers.iter().filter(|answer| **answer == REFUSED).count();
         let waiting = answers
             .iter()
             .filter(|answer| **answer == wait(30_000))
             .count();
         assert_eq!((looked_at, waiting), (1, 3));
+        let lookups: u32 = results.iter().map(|(_, finds)| finds).sum();
+        assert_eq!(lookups, 1);
+        // The three were answered while the first was still being looked
+        // at: none of them waited for it.
+        assert_eq!(hold.gave_up(), 0);
+    }
+
+    /// Verifies: SEC-IAM-008
+    #[test]
+    fn a_guess_being_looked_at_holds_up_no_claim() {
+        let bench = bench();
+        let verifier = &bench.verifier;
+        // The pairing guess is held in its lookup until the claims are made.
+        let hold = Hold::new(2);
+        let (pairing, claims) = std::thread::scope(|scope| {
+            let guesser = scope.spawn(|| {
+                let seen = Seen::default();
+                let check = StandIn {
+                    hold: Some(&hold),
+                    ..standin(Pathway::PairingCode, &seen)
+                };
+                verifier.verify(&check, &Presented::new(b"wrong"), &source("192.168.1.66"))
+            });
+            // Once that guess is being looked at, the code is claimed at the
+            // host and from another device. Neither waits for it.
+            hold.wait_for(1);
+            let seen = Seen::default();
+            let check = standin(Pathway::ClaimCode, &seen);
+            let claims = ["127.0.0.1", "192.168.1.20"]
+                .map(|addr| verifier.verify(&check, &Presented::new(b"right"), &source(addr)));
+            hold.arrive();
+            (guesser.join().expect("the guess returned"), claims)
+        });
+        assert_eq!(pairing, REFUSED);
+        assert_eq!(claims, [Ok(verified(Pathway::ClaimCode)); 2]);
+        assert_eq!(hold.gave_up(), 0);
     }
 
     #[test]
@@ -1083,13 +1138,7 @@ mod tests {
     fn a_store_the_check_cannot_read_is_a_denial() {
         // A store with no table for the stand-in's lookup: SQLite refuses
         // the query the pathway runs through the handle.
-        let bench = bench_on(
-            data("verifier-bare"),
-            &[GUESS_DELAYS],
-            &[],
-            true,
-            Level::Info,
-        );
+        let bench = bench_on(data("verifier-bare"), &[], &[], true, Level::Info);
         let seen = Seen::default();
         let check = standin(Pathway::Passkey, &seen);
         let from = source("203.0.113.7");
@@ -1107,53 +1156,39 @@ mod tests {
         assert_eq!(*seen.checked.borrow(), Vec::<Vec<u8>>::new());
     }
 
-    /// Verifies: SEC-IAM-069
+    /// Verifies: SEC-IAM-069, SEC-API-056
     #[test]
-    fn a_guess_log_that_cannot_be_read_is_a_denial_before_the_check() {
-        // A store opened without the guess log's table.
-        let bench = bench_on(
-            data("verifier-no-log"),
-            &[STAND_IN],
-            &["ada"],
-            true,
-            Level::Info,
-        );
+    fn a_guess_at_a_short_secret_whose_check_fails_is_refused_and_counted() {
+        // A store with no table for the stand-in's lookup.
+        let bench = bench_on(data("verifier-short-fault"), &[], &[], true, Level::Info);
         let seen = Seen::default();
         let claim = standin(Pathway::ClaimCode, &seen);
-        let from = source("192.168.1.20");
-        assert_eq!(
+        let guess = |from: &ClientContext| {
             bench
                 .verifier
-                .verify(&claim, &Presented::new(b"right"), &from),
-            REFUSED
-        );
-        assert_eq!(seen.finds.get(), 0);
+                .verify(&claim, &Presented::new(b"right"), from)
+        };
+        let from = source("192.168.1.20");
+        assert_eq!(guess(&from), REFUSED);
         assert_eq!(bench.new_events(), [fail(&from, None)]);
         assert_eq!(
             bench.new_lines(),
             [line(NOON, "192.168.1.20", "claim_code", "storage")]
         );
-        // What needs no guess log is not affected: a strong secret, and
-        // the claim at the host.
-        let passkey = standin(Pathway::Passkey, &seen);
-        assert_eq!(
-            bench
-                .verifier
-                .verify(&passkey, &Presented::new(b"right"), &from),
-            Ok(verified(Pathway::Passkey))
-        );
+        // A guess whose check could not be finished counts as a wrong one:
+        // the next waits out the schedule, and is not looked at.
+        assert_eq!(guess(&from), wait(30_000));
+        assert_eq!(seen.finds.get(), 1);
+        // At the host, where nothing is counted, each attempt is checked,
+        // and refused, again.
         let host = source("127.0.0.1");
-        assert_eq!(
-            bench
-                .verifier
-                .verify(&claim, &Presented::new(b"right"), &host),
-            Ok(verified(Pathway::ClaimCode))
-        );
+        assert_eq!([guess(&host), guess(&host)], [REFUSED; 2]);
+        assert_eq!(seen.finds.get(), 3);
     }
 
-    /// Verifies: SEC-IAM-069
+    /// Verifies: SEC-API-056, SEC-IAM-069
     #[test]
-    fn a_guess_log_that_cannot_be_written_never_lets_a_guess_through() {
+    fn the_second_wrong_guess_waits_while_the_identity_store_refuses_writes() {
         let bench = bench();
         let seen = Seen::default();
         let check = standin(Pathway::PairingCode, &seen);
@@ -1163,33 +1198,35 @@ mod tests {
                 .verifier
                 .verify(&check, &Presented::new(secret), &from)
         };
+        // Another connection holds the identity store's write lock the whole
+        // time. Counting writes nothing there, so nothing changes.
         let lock = lock_writes(&bench.data.root);
-        // A first right guess has nothing to clear, so it needs no write.
         assert_eq!(guess(b"right"), Ok(verified(Pathway::PairingCode)));
-        // A wrong guess is refused although it could not be counted.
         assert_eq!(guess(b"wrong"), REFUSED);
+        // The second wrong guess waits, to the millisecond, unseen.
+        assert_eq!(guess(b"wrong"), wait(30_000));
+        bench.clock.advance(29_999);
+        assert_eq!(guess(b"wrong"), wait(1));
+        bench.clock.advance(1);
+        assert_eq!(guess(b"wrong"), REFUSED);
+        assert_eq!(guess(b"right"), wait(60_000));
+        bench.clock.advance(60_000);
+        // A right guess ends the count, again with nothing written.
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::PairingCode)));
+        assert_eq!(guess(b"wrong"), REFUSED);
+        assert_eq!(guess(b"wrong"), wait(30_000));
         unlock_writes(&lock);
-        // This one is counted.
-        assert_eq!(guess(b"wrong"), REFUSED);
-        bench.clock.advance(30_000);
-        bench.new_events();
-        bench.new_lines();
-        // With a wrong guess on record the right one must clear it first,
-        // and is refused while that cannot be written.
-        let lock = lock_writes(&bench.data.root);
-        assert_eq!(guess(b"right"), REFUSED);
-        assert_eq!(bench.new_events(), [fail(&from, Some(account()))]);
+        assert_eq!(seen.finds.get(), 5);
+        // Each refusal was for the credential: nothing failed to be kept.
+        let failure = |ts: &str| line(ts, "192.168.1.66", "pairing_code", "credential");
         assert_eq!(
             bench.new_lines(),
-            [line(
-                "2026-10-03T12:00:30.000Z",
-                "192.168.1.66",
-                "pairing_code",
-                "storage"
-            )]
+            [
+                failure(NOON),
+                failure("2026-10-03T12:00:30.000Z"),
+                failure("2026-10-03T12:01:30.000Z"),
+            ]
         );
-        unlock_writes(&lock);
-        assert_eq!(guess(b"right"), Ok(verified(Pathway::PairingCode)));
     }
 
     /// Verifies: SEC-API-056
@@ -1216,9 +1253,9 @@ mod tests {
         assert_eq!(guess(b"right"), Ok(verified(Pathway::ClaimCode)));
     }
 
-    /// Verifies: SEC-IAM-069
+    /// Verifies: SEC-API-056
     #[test]
-    fn a_guess_whose_time_cannot_be_moved_is_refused() {
+    fn a_clock_set_back_while_the_store_refuses_writes_waits_only_the_schedule() {
         let bench = bench();
         let seen = Seen::default();
         let check = standin(Pathway::ClaimCode, &seen);
@@ -1232,12 +1269,14 @@ mod tests {
         bench.clock.advance(-3_600_000);
         bench.new_events();
         let lock = lock_writes(&bench.data.root);
-        assert_eq!(guess(b"right"), REFUSED);
-        assert_eq!(bench.new_events(), [fail(&from, None)]);
-        unlock_writes(&lock);
-        // Nothing was looked at, and the wait still starts from here.
-        assert_eq!(seen.finds.get(), 1);
+        // Moving the wrong guess to now writes nothing: the guess waits the
+        // schedule's 30 seconds from here, and is not looked at.
         assert_eq!(guess(b"right"), wait(30_000));
+        assert_eq!(bench.new_events(), [limited(&from)]);
+        bench.clock.advance(30_000);
+        assert_eq!(guess(b"right"), Ok(verified(Pathway::ClaimCode)));
+        unlock_writes(&lock);
+        assert_eq!(seen.finds.get(), 2);
     }
 
     #[test]
@@ -1303,34 +1342,26 @@ mod tests {
     }
 
     #[test]
-    fn a_restart_forgives_no_wrong_guess() {
+    fn a_restart_forgets_the_wrong_guesses_it_counted() {
         let first = bench();
         let seen = Seen::default();
         let check = standin(Pathway::ClaimCode, &seen);
         let from = source("192.168.1.66");
-        assert_eq!(
-            first
-                .verifier
-                .verify(&check, &Presented::new(b"wrong"), &from),
-            REFUSED
-        );
+        let guess = |verifier: &Verifier, secret: &'static [u8]| {
+            verifier.verify(&check, &Presented::new(secret), &from)
+        };
+        assert_eq!(guess(&first.verifier, b"wrong"), REFUSED);
+        assert_eq!(guess(&first.verifier, b"right"), wait(30_000));
         // Stop the server and start it again on the same data directory:
-        // its limiter is new, its guess log is not.
+        // its ceilings and its counts are new, and nothing of either was
+        // kept.
         let Bench { data, verifier, .. } = first;
         drop(verifier);
         let again = bench_on(data, &PARTS, &["ada"], true, Level::Info);
         assert_eq!(
-            again
-                .verifier
-                .verify(&check, &Presented::new(b"right"), &from),
-            wait(30_000)
-        );
-        again.clock.advance(30_000);
-        assert_eq!(
-            again
-                .verifier
-                .verify(&check, &Presented::new(b"right"), &from),
+            guess(&again.verifier, b"right"),
             Ok(verified(Pathway::ClaimCode))
         );
+        assert_eq!(seen.finds.get(), 2);
     }
 }

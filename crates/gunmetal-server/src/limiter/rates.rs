@@ -193,7 +193,7 @@ mod tests {
     use gunmetal_core::time::Timestamp;
 
     use super::*;
-    use crate::limiter::delay::GUESS_DELAY_ROWS;
+    use crate::limiter::delay::GUESS_DELAY_KEYS;
     use crate::limiter::testing::{gateway, source};
     use crate::testing::NOON;
 
@@ -244,20 +244,20 @@ mod tests {
     const UNKNOWN: &str =
         "peers_behind_the_gateway_share_one_bucket_that_cannot_delay_a_direct_peer";
     const KEYS: &str = "forgets_the_source_it_heard_from_longest_ago_when_it_is_full";
-    const ROWS: &str = "keeps_only_the_newest_rows_it_has_room_for";
+    const FULL: &str = "a_full_store_never_drops_a_wait_that_is_still_running";
 
     /// The sign-in entries the register must hold, written out here on
     /// their own: name, scope, default, unit, requirement, and the file and
     /// the name of the test that enforces the limit.
     const REGISTER: [[&str; 7]; 12] = [
         [
-            "sign_in.guess_delays.rows",
+            "sign_in.guess_delays.keys",
             "server",
             "4096",
-            "rows",
+            "keys",
             "SEC-NET-051",
             GUESSES,
-            ROWS,
+            FULL,
         ],
         [
             "sign_in.ipv6_48.burst",
@@ -389,7 +389,7 @@ mod tests {
             }
         );
         assert_eq!(TRACKED_KEYS, 16_384);
-        assert_eq!(GUESS_DELAY_ROWS, 4_096);
+        assert_eq!(GUESS_DELAY_KEYS, 4_096);
         let documented = REGISTER.map(|[name, scope, default, unit, id, file, test]| {
             [
                 name.to_owned(),

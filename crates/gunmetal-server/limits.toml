@@ -17,12 +17,12 @@
 # the ceilings in force differ.
 
 [[limit]]
-name = "sign_in.guess_delays.rows"
+name = "sign_in.guess_delays.keys"
 scope = "server"
 default = 4096
-unit = "rows"
+unit = "keys"
 requirement = "SEC-NET-051"
-test = "crates/gunmetal-server/src/verifier/guesses.rs: keeps_only_the_newest_rows_it_has_room_for"
+test = "crates/gunmetal-server/src/verifier/guesses.rs: a_full_store_never_drops_a_wait_that_is_still_running"
 
 [[limit]]
 name = "sign_in.ipv6_48.burst"
