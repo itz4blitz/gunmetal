@@ -1,0 +1,77 @@
+name: WASM
+
+# The web client's facade, crates/gunmetal-wasm, built for
+# wasm32-unknown-unknown (WP-235). wasm-bindgen and tsify generate their glue
+# for that target, so this build is where the facade's `unsafe_code` lint
+# meets the generated code (record 12, decision 14). The facade's manifest
+# keeps that lint at `forbid`, the workspace's own level: the generated code
+# builds under it, and the last step proves the same build still refuses
+# `unsafe` written by hand.
+#
+# Runs on pull requests from branches and forks with a read-only token and no
+# secrets. Never use pull_request_target or workflow_run here (SEC-SUP-013).
+on:
+  pull_request:
+  push:
+    branches: [main, "wave-*"]
+
+# Nothing by default; each job asks for what it needs (SEC-SUP-012).
+permissions: {}
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    # Warnings are errors in every build here, as in the gate's lint step, so
+    # a warning in the wrappers, or anywhere the facade and the core compile
+    # for wasm32, fails the build.
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      # Every action is pinned to a full commit SHA (SEC-SUP-010).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The exact toolchain from rust-toolchain.toml (SEC-SUP-038), with the
+      # browser's target.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - name: The facade builds for wasm32 under its lint tables
+        run: cargo build --locked -p gunmetal-wasm --target wasm32-unknown-unknown
+      # tsify puts each mirror type's declaration into the module, where the
+      # binding generator reads it. The committed copies under
+      # crates/gunmetal-wasm/types/ are checked by `xtask wasm-types`.
+      - name: The module carries the mirror types' declarations
+        run: grep --text --count --fixed-strings 'export interface Link {' target/wasm32-unknown-unknown/debug/gunmetal_wasm.wasm
+      # Each export is a plain function, tested on the host, and a wrapper
+      # compiled only for wasm32, which only converts types (record 12, the
+      # addition of 2026-10-05). One macro writes the wrappers, and `xtask
+      # facade-wrappers` holds that macro to its reviewed text. This build is
+      # the only place the wrappers are compiled, so it is also where the
+      # exports are shown to be in the module: wasm-bindgen names each
+      # exported symbol after its JavaScript name.
+      - name: The module exports the core's link filter and text normalisation
+        run: |
+          grep --text --count --fixed-strings 'parseLink' target/wasm32-unknown-unknown/debug/gunmetal_wasm.wasm
+          grep --text --count --fixed-strings 'normaliseText' target/wasm32-unknown-unknown/debug/gunmetal_wasm.wasm
+      # A canary, like the gate's self-tests in ci.yml: with one `unsafe`
+      # block written by hand in the facade, the same build must fail, and
+      # fail on that lint.
+      - name: The same build refuses unsafe written by hand
+        run: |
+          printf '\n/// A canary.\npub fn canary() {\n    unsafe {}\n}\n' >> crates/gunmetal-wasm/src/links.rs
+          if cargo build --locked -p gunmetal-wasm --target wasm32-unknown-unknown > build.log 2>&1; then
+            cat build.log
+            echo "::error::the wasm32 build passed although the facade holds unsafe written by hand"
+            exit 1
+          fi
+          cat build.log
+          grep --extended-regexp 'usage of an .unsafe. block' build.log

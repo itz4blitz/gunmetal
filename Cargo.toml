@@ -57,7 +57,11 @@ serde_json = { version = "1.0.151", default-features = false }
 # (decision 18).
 notify = { version = "8.2.0", default-features = false }
 toml = { version = "1.1.6", default-features = false }
-# The web client's facade over the core (WP-088).
+# The web client's facade over the core (WP-088). tsify writes the
+# TypeScript declarations of the facade's mirror types, and their values
+# cross through serde-wasm-bindgen (record 12, decision 13; WP-235).
+serde-wasm-bindgen = { version = "0.6.5", default-features = false }
+tsify = { version = "0.5.8", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2.129", default-features = false }
 # Tests. The testkit is a dev-dependency only (WP-007).
 gunmetal-testkit = { path = "crates/gunmetal-testkit", version = "0.0.0" }

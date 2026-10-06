@@ -1,0 +1,45 @@
+[package]
+name = "gunmetal-wasm"
+description = "The web client's WebAssembly facade over Gunmetal's core: mirror types, conversions and exports of the core's own rules and limits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# The WebAssembly module the web client loads, and a Rust library so that
+# the host tests and `xtask wasm-types` can call the same code (record 6).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+serde = { workspace = true, features = ["derive", "std"] }
+# Named here, although only tsify calls it, so that the workspace's pin and
+# not tsify's wider requirement fixes the version that is built.
+serde-wasm-bindgen.workspace = true
+tsify.workspace = true
+wasm-bindgen.workspace = true
+
+# The workspace's lints, repeated. The plan gave this manifest tables of its
+# own because a `forbid` the workspace sets cannot be lowered by an attribute
+# in source, and the code `wasm-bindgen` and `tsify` generate was expected to
+# need `unsafe_code` lowered (record 12, decision 14; owner decision 34). It
+# does not: that code builds under `forbid`, for `wasm32` and for the host,
+# so nothing is lowered and these tables say what the workspace's say.
+# tests/workspace_rules.rs fails when a workspace lint is missing here or
+# any lint differs, `unsafe_code` included. .github/workflows/wasm.yml builds
+# the crate for `wasm32-unknown-unknown` under these tables, and fails if
+# that build stops refusing `unsafe` written by hand. `xtask facade-unsafe`
+# refuses the `unsafe` keyword in this crate's own source.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+await_holding_lock = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"

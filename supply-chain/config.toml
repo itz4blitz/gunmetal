@@ -48,6 +48,11 @@ version = "0.12.1"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with sha2 for gunmetal-core's crypto module (WP-122, owner decision D-02); a runtime dependency of the core through digest. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.bumpalo]]
+version = "3.20.3"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); the arena allocator inside wasm-bindgen-macro-support, which runs only while the compiler expands wasm-bindgen's macro. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.bytes]]
 version = "1.12.1"
 criteria = "safe-to-deploy"
@@ -233,6 +238,11 @@ version = "1.0.18"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-044 for gunmetal-http, pulled in by axum, http and serde_json (owner decision 7 / D-68, D-02); integer formatting. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.js-sys]]
+version = "0.3.106"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); bindings to JavaScript's built-in objects, which serde-wasm-bindgen builds and reads values with. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.landlock]]
 version = "0.4.7"
 criteria = "safe-to-deploy"
@@ -368,6 +378,11 @@ version = "1.1.5"
 criteria = "safe-to-deploy"
 notes = "Seeded by cargo vet init on 2026-10-02. Widened to safe-to-deploy on 2026-10-03, when WP-126 made it a dependency of gunmetal-fs (cap-std, rustix, rusqlite). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.rustversion]]
+version = "1.0.23"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); a procedural macro that wasm-bindgen and its build script test the compiler's version with. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.rusty-fork]]
 version = "0.3.1"
 criteria = "safe-to-run"
@@ -383,6 +398,11 @@ version = "1.0.229"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 for gunmetal-core's wire codec (WP-039, owner decision D-02). Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.serde-wasm-bindgen]]
+version = "0.6.5"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); converts the facade's mirror values to and from JavaScript values, called by tsify's js feature. It has one publisher and no release since February 2024, which the decision accepts knowingly. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.serde_core]]
 version = "1.0.229"
 criteria = "safe-to-deploy"
@@ -392,6 +412,11 @@ notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire co
 version = "1.0.229"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 with postcard and serde for gunmetal-core's wire codec (WP-039, owner decision D-02); serde_core names it under cfg(any()) to pin its version, and the core's tests derive with it. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.serde_derive_internals]]
+version = "0.29.1"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); serde's own reader of serde attributes, which tsify-macros uses so that a declaration matches what serde writes. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.serde_json]]
 version = "1.0.151"
@@ -478,6 +503,16 @@ version = "0.3.3"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-044 for gunmetal-http, pulled in by axum with default features off (owner decision 7 / D-68); the Service trait. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
+[[exemptions.tsify]]
+version = "0.5.8"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); derives the TypeScript declaration of each mirror type and its conversions at the WebAssembly boundary. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.tsify-macros]]
+version = "0.5.8"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); tsify's derive macro. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
 [[exemptions.typenum]]
 version = "1.20.1"
 criteria = "safe-to-deploy"
@@ -497,6 +532,26 @@ notes = "Added on 2026-10-03 for gunmetal-core search folding and natural sort, 
 version = "0.6.1"
 criteria = "safe-to-deploy"
 notes = "Added on 2026-10-03 by WP-047 for gunmetal-secrets (XChaCha20-Poly1305; record 9). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.wasm-bindgen]]
+version = "0.2.129"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); the binding layer between the facade and JavaScript (record 6). Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.wasm-bindgen-macro]]
+version = "0.2.129"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); wasm-bindgen's attribute macro. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.wasm-bindgen-macro-support]]
+version = "0.2.129"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); the code generator behind wasm-bindgen's attribute macro. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
+
+[[exemptions.wasm-bindgen-shared]]
+version = "0.2.129"
+criteria = "safe-to-deploy"
+notes = "Added on 2026-10-05 by WP-235 for gunmetal-wasm (the owner's delegated dependency decision of 2026-10-05 on pull request 78; record 12, decision 13); the schema that wasm-bindgen, its macro and its command-line tool share. Not yet audited. Replace with an audit, or renew with a reason, by 2026-12-31 (SEC-SUP-024)."
 
 [[exemptions.windows-link]]
 version = "0.2.1"

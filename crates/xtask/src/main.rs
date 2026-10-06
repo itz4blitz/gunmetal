@@ -16,6 +16,14 @@
 //! - `docs-lint`: requirement tables, citations, ownership and the docs
 //!   checks in the security baseline (SEC-TM-001, SEC-TM-072 to SEC-TM-075,
 //!   SEC-STD-001, SEC-STD-006).
+//! - `facade-unsafe`: no hand-written Rust source in the WebAssembly facade
+//!   uses the `unsafe` keyword (in support of SEC-MED-077).
+//! - `facade-wrappers`: in the WebAssembly facade's own files, the only code
+//!   compiled for the browser alone is the wrappers one reviewed macro
+//!   writes: no other condition, no other file brought in as code, no
+//!   export written by hand and no target table in its manifest (record 12,
+//!   the addition of 2026-10-05). It does not see what a macro of another
+//!   crate writes; its module lists what else it does not see.
 //! - `fuzz-targets`: the registered harnesses as a JSON array, for the fuzz
 //!   workflow's job matrix.
 //! - `last-reviewed <tag>`: the threat model's "Last reviewed" line names
@@ -58,17 +66,25 @@
 //!   A release that is not in the requirement tables' list is a usage error.
 //! - `trace-report <release>`: the requirements due in that release and the
 //!   evidence for each, `test`, `review` or `missing`, for publishing.
+//! - `wasm-types`: the TypeScript declarations committed under
+//!   `crates/gunmetal-wasm/types/` are the ones the WebAssembly facade's
+//!   mirror types generate (record 12, decision 13).
+//! - `wasm-types print <file>`: the generated text of one of those files,
+//!   to be written to its place after a mirror type changed.
 //!
 //! Paths are relative to the repository root. A check that finds problems
-//! exits with status 1 and lists them. `check-harnesses` and
-//! `lint-exceptions` also run against the real repository in this crate's
-//! tests, so the gate enforces them on every change.
+//! exits with status 1 and lists them. `check-harnesses`, `facade-unsafe`,
+//! `facade-wrappers`, `lint-exceptions` and `wasm-types` also run against
+//! the real repository in this crate's tests, so the gate enforces them on
+//! every change.
 
 mod age_override;
 mod codeowners;
 mod core_deps;
 mod crypto_inventory;
 mod docs_lint;
+mod facade_unsafe;
+mod facade_wrappers;
 mod harnesses;
 mod js_deps;
 mod json;
@@ -83,6 +99,7 @@ mod standards;
 mod toml;
 mod trace;
 mod tree;
+mod wasm_types;
 
 use std::env;
 use std::fmt::Debug;
@@ -139,6 +156,8 @@ fn dispatch(
         )),
         ["crypto-inventory"] => report(crypto_inventory::check(&tree)),
         ["docs-lint"] => report(docs_lint::check(&tree)),
+        ["facade-unsafe"] => report(facade_unsafe::check(&tree)),
+        ["facade-wrappers"] => report(facade_wrappers::check(&tree)),
         ["fuzz-targets"] => write(out, &harnesses::targets_json(registered).map_err(rendered)?),
         ["js-deps"] => report(js_deps::check(&tree)),
         ["last-reviewed", tag] => report(docs_lint::reviewed(&tree, tag)),
@@ -178,6 +197,8 @@ fn dispatch(
         ["trace-report", release] => {
             write(out, &trace::report(&tree, release).ok_or(Failure::Usage)?)
         }
+        ["wasm-types"] => report(wasm_types::check(&tree, &wasm_types::generated())),
+        ["wasm-types", "print", file] => write(out, &wasm_types::text(file).ok_or(Failure::Usage)?),
         _ => Err(Failure::Usage),
     }
 }
@@ -279,6 +300,7 @@ mod tests {
             &[][..],
             &["unknown"],
             &["check-harnesses", "extra"],
+            &["facade-wrappers", "extra"],
             &["core-deps"],
             &["lockfile-age"],
             &["lockfile-age", "check", "base", "head"],
@@ -301,6 +323,10 @@ mod tests {
             &["repo", "advisories"],
             &["repo", "codeql"],
             &["repo", "unknown"],
+            &["wasm-types", "extra"],
+            &["wasm-types", "print"],
+            &["wasm-types", "print", "unknown.d.ts"],
+            &["wasm-types", "print", "links.d.ts", "extra"],
         ] {
             assert_eq!(
                 run_in(FIXTURES, args, 0, &[]),
@@ -341,6 +367,50 @@ mod tests {
         assert_eq!(
             run_in(ROOT, &["lint-exceptions"], 0, &[]),
             (Ok(()), String::new())
+        );
+    }
+
+    /// Supports: SEC-MED-077
+    #[test]
+    fn the_facade_unsafe_check_is_an_available_repository_check() {
+        assert_eq!(
+            run_in(ROOT, &["facade-unsafe"], 0, &[]),
+            (Ok(()), String::new())
+        );
+    }
+
+    /// The facade's exports are tested as plain functions on the host. The
+    /// repository's facade passes the check that holds its own files to the
+    /// one reviewed macro for the wrappers the browser calls.
+    #[test]
+    fn the_repository_s_facade_passes_the_wrapper_check() {
+        assert_eq!(
+            run_in(ROOT, &["facade-wrappers"], 0, &[]),
+            (Ok(()), String::new())
+        );
+    }
+
+    #[test]
+    fn the_committed_facade_declarations_are_the_ones_the_mirror_types_generate() {
+        assert_eq!(
+            run_in(ROOT, &["wasm-types"], 0, &[]),
+            (Ok(()), String::new())
+        );
+    }
+
+    #[test]
+    fn wasm_types_print_writes_the_generated_text_of_one_file() {
+        let committed = read(
+            &super::tree::Disk::new(ROOT),
+            "crates/gunmetal-wasm/types/links.d.ts",
+        );
+        assert_eq!(
+            committed.as_ref().map(|text| text.lines().nth(4)),
+            Ok(Some("/**"))
+        );
+        assert_eq!(
+            run_in(ROOT, &["wasm-types", "print", "links.d.ts"], 0, &[]),
+            (Ok(()), committed.unwrap_or_default())
         );
     }
 
