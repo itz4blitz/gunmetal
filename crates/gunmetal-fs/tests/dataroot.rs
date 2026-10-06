@@ -254,7 +254,7 @@ fn refuses_a_data_directory_another_user_owns() {
         })
     );
     assert_eq!(mode(&data), 0o755);
-    assert_eq!(names(&data), [] as [&str; 0]);
+    assert_eq!(names(&data), Vec::<String>::new());
 }
 
 /// Verifies: SEC-HIS-016, SEC-TM-043, SEC-OPS-012
@@ -274,7 +274,7 @@ fn refuses_a_symlink_planted_for_the_secrets_directory() {
             found: Kind::Symlink
         })
     );
-    assert_eq!(names(&dir.join("elsewhere")), [] as [&str; 0]);
+    assert_eq!(names(&dir.join("elsewhere")), Vec::<String>::new());
 }
 
 /// Verifies: SEC-HIS-016, SEC-OPS-012
@@ -431,7 +431,7 @@ fn refuses_a_data_directory_on_a_network_filesystem_unless_allowed() {
         DataRoot::open(&data, &on_nfs, Policy::DEFAULT).map(|opened| opened.repairs),
         refused(DataRootError::NetworkFilesystem(NetworkFs::Nfs))
     );
-    assert_eq!(names(&data), [] as [&str; 0]);
+    assert_eq!(names(&data), Vec::<String>::new());
     let allowed = Policy {
         modes: Modes::Repair,
         network: NetworkFilesystems::Allow,
@@ -574,7 +574,7 @@ fn opens_after_a_crash_during_a_replace_and_removes_what_it_left() {
         ]
     );
     assert_eq!(names(&dir.join("data/secrets")), ["keys.json", "tls"]);
-    assert_eq!(names(&dir.join("data/secrets/tls")), [] as [&str; 0]);
+    assert_eq!(names(&dir.join("data/secrets/tls")), Vec::<String>::new());
     assert_eq!(read(&opened.root, &KEYS), b"old keys");
 }
 
@@ -736,5 +736,5 @@ fn keeps_working_in_the_directory_it_opened_after_the_path_is_swapped() {
     fs::create_dir(dir.join("data")).expect("plant a new directory at the old path");
     root.create_new(&ROOT_KEY).expect("create the key");
     assert_eq!(names(&dir.join("moved/secrets")), ["root.key"]);
-    assert_eq!(names(&dir.join("data")), [] as [&str; 0]);
+    assert_eq!(names(&dir.join("data")), Vec::<String>::new());
 }

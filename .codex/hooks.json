@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/qodana-hook.sh",
+            "timeout": 900
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/qodana-hook.sh",
+            "timeout": 900
+          }
+        ]
+      }
+    ]
+  }
+}

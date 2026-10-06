@@ -46,3 +46,6 @@ pub mod userdata;
 pub mod values;
 pub mod webauthn;
 pub mod wire;
+
+#[cfg(test)]
+mod test_support;
