@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
+import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
 
@@ -140,6 +141,35 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
     return value !== null && Number(value) >= 0;
   });
 }
+
+test('nav items expose CSS glyph keys and the sidebar hosts the brand rule', () => {
+  const { container } = render(<Shell path="/" widthPx={1600} showDemoLabel />);
+  expect(container.querySelector('#nav-item-home')?.getAttribute('data-nav-glyph')).toStrictEqual(
+    'home',
+  );
+  expect(container.querySelector('#nav-item-search')?.getAttribute('data-nav-glyph')).toStrictEqual(
+    'search',
+  );
+  expect(container.querySelector('#nav-item-library')?.getAttribute('data-nav-glyph')).toStrictEqual(
+    'library',
+  );
+  expect(container.querySelector('#nav-sidebar #shell-brand')).toBeTruthy();
+  expect(container.querySelector('#shell-brand-rule')).toBeTruthy();
+  expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
+  expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
+});
+
+test('shell sets data-art-tone from cover while playing and clears it when paused', () => {
+  const library = demoLibrary();
+  const { container } = render(<Shell path="/" widthPx={1600} library={library} />);
+  const root = container.querySelector('#token-shell') as HTMLElement;
+  expect(root.getAttribute('data-art-tone')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(root.getAttribute('data-art-tone')).toStrictEqual('01');
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  expect(root.getAttribute('data-art-tone')).toBeNull();
+});
 
 test('skip links are the first focusable items and move focus to content and player', () => {
   const { container } = render(<Shell path="/" widthPx={1600} />);
