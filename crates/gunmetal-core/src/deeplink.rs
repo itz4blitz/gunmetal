@@ -266,6 +266,7 @@ fn octets<const N: usize>(text: &str) -> Option<[u8; N]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::marker::PhantomData;
     use proptest::collection::vec;
     use proptest::prelude::*;
 
@@ -285,8 +286,8 @@ mod tests {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31,
     ];
-    /// The random octets behind the pairing code `WDJB-MJHT`.
-    const USER: [u8; 8] = [17, 2, 6, 0, 9, 6, 5, 15];
+    /// A pairing code as its server writes it.
+    const PAIRING: &str = "WDJB-MJHT";
     /// The paths of the four routes.
     const PATHS: [&str; 4] = ["claim", "invite", "pair", "recover"];
 
@@ -305,44 +306,99 @@ mod tests {
             .expect("the code under test returned instead of panicking")
     }
 
-    fn parse(raw: &str) -> Route {
+    /// A route with every part copied out in plain values. A route has no
+    /// `==`, because the secret it may hold has none (SEC-OPS-013), so
+    /// these tests compare all it holds, each part through its own
+    /// accessor: the server's origin, a claim code's octets, a pairing
+    /// code's text, a secret's octets and a key's octets.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Seen {
+        Claim {
+            server: String,
+            code: [u8; 16],
+        },
+        Invitation {
+            server: String,
+            secret: [u8; 16],
+        },
+        Pairing {
+            server: String,
+            code: String,
+            key: [u8; 32],
+        },
+        Recovery {
+            server: String,
+            secret: [u8; 16],
+        },
+        NotRecognised,
+    }
+
+    /// The route `raw` is read as.
+    fn read(raw: &str) -> Route {
         parse_link(Untrusted::new(raw))
     }
 
-    fn server(origin: &str) -> Server {
-        Server(origin.to_owned())
-    }
-
-    /// The route of a claim link on `origin` that carries [`CODE`].
-    fn claim_on(origin: &str) -> Route {
-        Route::Claim {
-            server: server(origin),
-            code: crate::otp::claim_code(CLAIM),
+    /// Every part of `route`, copied out.
+    fn seen_in(route: &Route) -> Seen {
+        match route {
+            Route::Claim { server, code } => Seen::Claim {
+                server: server.origin().to_owned(),
+                code: code.bytes(),
+            },
+            Route::Invitation { server, secret } => Seen::Invitation {
+                server: server.origin().to_owned(),
+                secret: secret.bytes(),
+            },
+            Route::Pairing { server, code, key } => Seen::Pairing {
+                server: server.origin().to_owned(),
+                code: code.text(),
+                key: key.bytes(),
+            },
+            Route::Recovery { server, secret } => Seen::Recovery {
+                server: server.origin().to_owned(),
+                secret: secret.bytes(),
+            },
+            Route::NotRecognised => Seen::NotRecognised,
         }
     }
 
-    /// The route of an invitation on `origin` whose secret is [`SECRET`].
-    fn invitation_on(origin: &str) -> Route {
-        Route::Invitation {
-            server: server(origin),
-            secret: LinkSecret(SECRET),
+    /// Every part of the route `raw` is read as.
+    fn parse(raw: &str) -> Seen {
+        seen_in(&read(raw))
+    }
+
+    /// A claim link on `origin` that carries [`CODE`], as it is read.
+    fn claim_on(origin: &str) -> Seen {
+        Seen::Claim {
+            server: origin.to_owned(),
+            code: CLAIM,
         }
     }
 
-    /// The route of a pairing link on `origin` for [`USER`] and [`KEY`].
-    fn pairing_on(origin: &str) -> Route {
-        Route::Pairing {
-            server: server(origin),
-            code: crate::otp::pairing_code(USER),
-            key: ServerKey(KEY),
+    /// An invitation on `origin` whose secret is [`SECRET`], as it is read.
+    fn invitation_on(origin: &str) -> Seen {
+        Seen::Invitation {
+            server: origin.to_owned(),
+            secret: SECRET,
         }
     }
 
-    /// The route of a recovery link on `origin` whose secret is [`SECRET`].
-    fn recovery_on(origin: &str) -> Route {
-        Route::Recovery {
-            server: server(origin),
-            secret: LinkSecret(SECRET),
+    /// A pairing link on `origin` for [`PAIRING`] and [`KEY`], as it is
+    /// read.
+    fn pairing_on(origin: &str) -> Seen {
+        Seen::Pairing {
+            server: origin.to_owned(),
+            code: PAIRING.to_owned(),
+            key: KEY,
+        }
+    }
+
+    /// A recovery link on `origin` whose secret is [`SECRET`], as it is
+    /// read.
+    fn recovery_on(origin: &str) -> Seen {
+        Seen::Recovery {
+            server: origin.to_owned(),
+            secret: SECRET,
         }
     }
 
@@ -352,46 +408,46 @@ mod tests {
         base64::encode(octets, Alphabet::UrlSafe)
     }
 
-    /// The link a server writes for `route`: its origin, its path and, in
-    /// the fragment, its code or secret as text. It is written here on its
-    /// own, so the reader is checked against it and not against itself.
-    fn written(route: &Route) -> String {
-        match route {
-            Route::Claim { server, code } => format!("{}/claim#{}", server.origin(), code.text()),
-            Route::Invitation { server, secret } => {
-                format!("{}/invite#{}", server.origin(), unpadded(&secret.bytes()))
+    /// The link a server writes for what was `seen`: its origin, its path
+    /// and, in the fragment, its code or secret as text. It is written here
+    /// on its own, so the reader is checked against it and not against
+    /// itself.
+    fn written(seen: &Seen) -> String {
+        match seen {
+            Seen::Claim { server, code } => {
+                format!("{server}/claim#{}", crate::otp::claim_code(*code).text())
             }
-            Route::Pairing { server, code, key } => format!(
-                "{}/pair#{}.{}",
-                server.origin(),
-                code.text(),
-                unpadded(&key.bytes())
-            ),
-            Route::Recovery { server, secret } => {
-                format!("{}/recover#{}", server.origin(), unpadded(&secret.bytes()))
+            Seen::Invitation { server, secret } => {
+                format!("{server}/invite#{}", unpadded(secret))
             }
-            Route::NotRecognised => String::new(),
+            Seen::Pairing { server, code, key } => {
+                format!("{server}/pair#{code}.{}", unpadded(key))
+            }
+            Seen::Recovery { server, secret } => {
+                format!("{server}/recover#{}", unpadded(secret))
+            }
+            Seen::NotRecognised => String::new(),
         }
     }
 
-    /// Whether acting on `route` would change anything, from what each
-    /// route is for: claiming a server, joining one, approving a browser
-    /// and enrolling a passkey all do, and text that was not recognised
-    /// does not.
-    fn changes_state(route: &Route) -> bool {
-        match route {
-            Route::Claim { .. }
-            | Route::Invitation { .. }
-            | Route::Pairing { .. }
-            | Route::Recovery { .. } => true,
-            Route::NotRecognised => false,
+    /// Whether acting on what was `seen` would change anything, from what
+    /// each route is for: claiming a server, joining one, approving a
+    /// browser and enrolling a passkey all do, and text that was not
+    /// recognised does not.
+    fn changes_state(seen: &Seen) -> bool {
+        match seen {
+            Seen::Claim { .. }
+            | Seen::Invitation { .. }
+            | Seen::Pairing { .. }
+            | Seen::Recovery { .. } => true,
+            Seen::NotRecognised => false,
         }
     }
 
     /// Asserts that none of `texts` is recognised.
     fn assert_not_recognised(texts: &[&str]) {
         for raw in texts {
-            assert_eq!(parse(raw), Route::NotRecognised, "{raw:?}");
+            assert_eq!(parse(raw), Seen::NotRecognised, "{raw:?}");
         }
     }
 
@@ -400,14 +456,39 @@ mod tests {
         (0..count).map(|_| symbol).collect()
     }
 
+    /// `text` with its white space taken out, so that a list is found in it
+    /// whether it was written on one line or with an element on each.
+    fn squeezed(text: &str) -> String {
+        text.chars()
+            .filter(|symbol| !symbol.is_whitespace())
+            .collect()
+    }
+
+    /// The ways `octets` could be written into a `Debug` form, without
+    /// white space: the list a derive writes, in decimal and with either
+    /// hexadecimal flag; the octets as one hexadecimal word, in either
+    /// case; and base64 in both alphabets.
+    fn renderings(octets: &[u8]) -> [String; 7] {
+        let each = |write: fn(&u8) -> String| -> Vec<String> { octets.iter().map(write).collect() };
+        [
+            each(|octet| format!("{octet}")).join(","),
+            each(|octet| format!("{octet:x}")).join(","),
+            each(|octet| format!("{octet:X}")).join(","),
+            each(|octet| format!("{octet:02x}")).concat(),
+            each(|octet| format!("{octet:02X}")).concat(),
+            base64::encode(octets, Alphabet::UrlSafe),
+            base64::encode(octets, Alphabet::Standard),
+        ]
+    }
+
     /// Verifies: SEC-CLI-025
     #[test]
     fn reads_a_claim_link() {
         assert_eq!(
             parse("https://music.example/claim#01234-56789-ABCDE-FGHJK-MNPQR-S9"),
-            Route::Claim {
-                server: server("https://music.example"),
-                code: crate::otp::claim_code(CLAIM),
+            Seen::Claim {
+                server: "https://music.example".to_owned(),
+                code: CLAIM,
             }
         );
     }
@@ -417,9 +498,9 @@ mod tests {
     fn reads_an_invitation_link() {
         assert_eq!(
             parse("https://music.example/invite#AAECAwQFBgcICQoLDA0ODw"),
-            Route::Invitation {
-                server: server("https://music.example"),
-                secret: LinkSecret(SECRET),
+            Seen::Invitation {
+                server: "https://music.example".to_owned(),
+                secret: SECRET,
             }
         );
     }
@@ -431,10 +512,10 @@ mod tests {
             parse(
                 "https://music.example:8443/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
             ),
-            Route::Pairing {
-                server: server("https://music.example:8443"),
-                code: crate::otp::pairing_code(USER),
-                key: ServerKey(KEY),
+            Seen::Pairing {
+                server: "https://music.example:8443".to_owned(),
+                code: "WDJB-MJHT".to_owned(),
+                key: KEY,
             }
         );
     }
@@ -444,9 +525,9 @@ mod tests {
     fn reads_a_recovery_link() {
         assert_eq!(
             parse("http://localhost:8096/recover#AAECAwQFBgcICQoLDA0ODw"),
-            Route::Recovery {
-                server: server("http://localhost:8096"),
-                secret: LinkSecret(SECRET),
+            Seen::Recovery {
+                server: "http://localhost:8096".to_owned(),
+                secret: SECRET,
             }
         );
     }
@@ -481,9 +562,9 @@ mod tests {
         for (octets, text) in cases {
             assert_eq!(
                 parse(&format!("https://music.example/claim#{text}")),
-                Route::Claim {
-                    server: server("https://music.example"),
-                    code: crate::otp::claim_code(octets),
+                Seen::Claim {
+                    server: "https://music.example".to_owned(),
+                    code: octets,
                 },
                 "{text}"
             );
@@ -497,19 +578,19 @@ mod tests {
     fn reads_a_secret_written_with_hyphens_or_underscores() {
         assert_eq!(
             parse("https://music.example/invite#---------------------w"),
-            Route::Invitation {
-                server: server("https://music.example"),
-                secret: LinkSecret([
+            Seen::Invitation {
+                server: "https://music.example".to_owned(),
+                secret: [
                     0xFB, 0xEF, 0xBE, 0xFB, 0xEF, 0xBE, 0xFB, 0xEF, 0xBE, 0xFB, 0xEF, 0xBE, 0xFB,
                     0xEF, 0xBE, 0xFB,
-                ]),
+                ],
             }
         );
         assert_eq!(
             parse("https://music.example/recover#_____________________w"),
-            Route::Recovery {
-                server: server("https://music.example"),
-                secret: LinkSecret([0xFF; 16]),
+            Seen::Recovery {
+                server: "https://music.example".to_owned(),
+                secret: [0xFF; 16],
             }
         );
     }
@@ -544,6 +625,93 @@ mod tests {
                 parse(&format!("{origin}/claim#{CODE}")),
                 claim_on(origin),
                 "{origin}"
+            );
+        }
+    }
+
+    /// The one host that is not read as an address bar holds it. An IPv6
+    /// address that holds an IPv4 one is written by the one URL reader with
+    /// its last four octets dotted, and that spelling is read. A browser
+    /// writes the same address in hexadecimal groups, and that spelling is
+    /// not, so a link to such a host that was copied from an address bar
+    /// fails closed. This pins what is read today.
+    ///
+    /// Verifies: SEC-CLI-025
+    #[test]
+    fn reads_an_ipv4_mapped_address_only_with_its_last_four_octets_dotted() {
+        for origin in [
+            "https://[::ffff:192.0.2.1]",
+            "https://[::ffff:192.0.2.1]:8443",
+        ] {
+            assert_eq!(
+                parse(&format!("{origin}/claim#{CODE}")),
+                claim_on(origin),
+                "{origin}"
+            );
+        }
+        for start in [
+            "https://[::ffff:c000:201]",
+            "https://[::ffff:c000:201]:8443",
+        ] {
+            assert_eq!(
+                parse(&format!("{start}/claim#{CODE}")),
+                Seen::NotRecognised,
+                "{start}"
+            );
+        }
+    }
+
+    /// A host is at most 253 octets as it is written, the longest name the
+    /// DNS holds, in labels of at most 63. The one URL reader has no such
+    /// bound, and a confirmation screen shows the server's name whole: a
+    /// name too long to show could be cut down to the part that looks like
+    /// another server's. The last host refused here is the one a link of
+    /// exactly 512 octets used to be read with.
+    ///
+    /// Verifies: SEC-CLI-025, SEC-TM-032
+    #[test]
+    fn reads_no_host_longer_than_a_name_can_be() {
+        let label = run_of('a', 63);
+        let full = format!("{label}.{label}.{label}.{}", run_of('a', 61));
+        assert_eq!(full.len(), 253);
+        let full_with_its_root = format!("{label}.{label}.{label}.{}.", run_of('a', 60));
+        assert_eq!(full_with_its_root.len(), 253);
+        for host in [
+            full,
+            full_with_its_root,
+            format!("{label}.example"),
+            format!("music.{label}"),
+            format!("music.{label}.example"),
+            label.clone(),
+        ] {
+            assert_eq!(
+                parse(&format!("https://{host}/claim#{CODE}")),
+                claim_on(&format!("https://{host}")),
+                "{host}"
+            );
+        }
+        // Every label of these two is within 63 octets: only the whole is
+        // too long.
+        let over = format!("{label}.{label}.{label}.{}", run_of('a', 62));
+        assert_eq!(over.len(), 254);
+        let over_with_its_root = format!("{label}.{label}.{label}.{}.", run_of('a', 61));
+        assert_eq!(over_with_its_root.len(), 254);
+        // The next four are far within 253 octets: only one label is too
+        // long. The last is too long both ways.
+        let wide = run_of('a', 64);
+        for host in [
+            over,
+            over_with_its_root,
+            format!("{wide}.example"),
+            format!("music.{wide}"),
+            format!("music.{wide}.example"),
+            wide.clone(),
+            run_of('a', 465),
+        ] {
+            assert_eq!(
+                parse(&format!("https://{host}/claim#{CODE}")),
+                Seen::NotRecognised,
+                "{host}"
             );
         }
     }
@@ -597,7 +765,7 @@ mod tests {
         ] {
             assert_eq!(
                 parse(&format!("{start}/claim#{CODE}")),
-                Route::NotRecognised,
+                Seen::NotRecognised,
                 "{start:?}"
             );
         }
@@ -648,7 +816,7 @@ mod tests {
         ] {
             assert_eq!(
                 parse(&format!("{start}/claim#{CODE}")),
-                Route::NotRecognised,
+                Seen::NotRecognised,
                 "{start:?}"
             );
         }
@@ -785,7 +953,7 @@ mod tests {
                 for origin in ["https://music.example", "http://localhost:8096"] {
                     assert_eq!(
                         parse(&format!("{origin}/{path}#{fragment}")),
-                        Route::NotRecognised,
+                        Seen::NotRecognised,
                         "{origin}/{path}#{fragment}"
                     );
                 }
@@ -828,7 +996,7 @@ mod tests {
             for origin in ["https://music.example", "http://localhost:8096"] {
                 assert_eq!(
                     parse(&format!("{origin}/pair#{fragment}")),
-                    Route::NotRecognised,
+                    Seen::NotRecognised,
                     "{origin}/pair#{fragment}"
                 );
             }
@@ -854,58 +1022,248 @@ mod tests {
         ]);
     }
 
-    /// Nothing longer than 512 octets is read, however it is spelled, and a
-    /// link of exactly 512 octets is.
+    /// Nothing longer than the longest link a server can write is read, and
+    /// that link is: 326 octets, a pairing link whose host is as long as a
+    /// name can be and whose port has five digits. One octet more makes it
+    /// no link, and the limit is looked at before anything is copied or
+    /// decoded, which bounds the work on any text.
     ///
     /// Verifies: SEC-TM-032
     #[test]
-    fn reads_nothing_longer_than_512_octets() {
-        let name = run_of('a', 465);
-        let longest = format!("https://{name}/claim#{CODE}");
-        assert_eq!(longest.len(), 512);
-        assert_eq!(parse(&longest), claim_on(&format!("https://{name}")));
-        let longer = format!("https://a{name}/claim#{CODE}");
-        assert_eq!(longer.len(), 513);
-        assert_eq!(parse(&longer), Route::NotRecognised);
+    fn reads_nothing_longer_than_the_longest_link_a_server_writes() {
+        let label = run_of('a', 63);
+        let origin = format!("https://{label}.{label}.{label}.{}:65535", run_of('a', 61));
+        let longest =
+            format!("{origin}/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8");
+        assert_eq!(longest.len(), 326);
+        assert_eq!(parse(&longest), pairing_on(&origin));
+        let longer = format!("{longest}A");
+        assert_eq!(longer.len(), 327);
+        assert_eq!(parse(&longer), Seen::NotRecognised);
         let far_longer = format!("https://music.example/claim#{}", run_of('0', 65_536));
-        assert_eq!(parse(&far_longer), Route::NotRecognised);
+        assert_eq!(parse(&far_longer), Seen::NotRecognised);
     }
 
     /// Verifies: SEC-CLI-025
     #[test]
     fn asks_for_a_confirmation_screen_on_every_route_that_changes_something() {
         let cases = [
-            (claim_on("https://music.example"), true),
-            (invitation_on("https://music.example"), true),
-            (pairing_on("https://music.example"), true),
-            (recovery_on("https://music.example"), true),
-            (Route::NotRecognised, false),
+            (
+                "https://music.example/claim#01234-56789-ABCDE-FGHJK-MNPQR-S9",
+                claim_on("https://music.example"),
+                true,
+            ),
+            (
+                "https://music.example/invite#AAECAwQFBgcICQoLDA0ODw",
+                invitation_on("https://music.example"),
+                true,
+            ),
+            (
+                "https://music.example/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+                pairing_on("https://music.example"),
+                true,
+            ),
+            (
+                "https://music.example/recover#AAECAwQFBgcICQoLDA0ODw",
+                recovery_on("https://music.example"),
+                true,
+            ),
+            ("https://music.example/library", Seen::NotRecognised, false),
         ];
-        for (route, asks) in cases {
-            assert_eq!(route.needs_confirmation(), asks, "{route:?}");
-            assert_eq!(changes_state(&route), asks, "{route:?}");
+        for (raw, expected, asks) in cases {
+            let route = read(raw);
+            assert_eq!(seen_in(&route), expected, "{raw}");
+            assert_eq!(route.needs_confirmation(), asks, "{raw}");
+            assert_eq!(changes_state(&expected), asks, "{raw}");
         }
-        for raw in [
-            "https://music.example/claim#01234-56789-ABCDE-FGHJK-MNPQR-S9",
-            "https://music.example/invite#AAECAwQFBgcICQoLDA0ODw",
-            "https://music.example/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-            "https://music.example/recover#AAECAwQFBgcICQoLDA0ODw",
-        ] {
-            assert!(parse(raw).needs_confirmation(), "{raw}");
-        }
-        assert!(!parse("https://music.example/library").needs_confirmation());
     }
 
     #[test]
     fn hands_back_the_parts_of_a_route_as_they_were_written() {
         assert_eq!(
-            server("https://music.example:8443").origin(),
+            Server("https://music.example:8443".to_owned()).origin(),
             "https://music.example:8443"
         );
         assert_eq!(LinkSecret(SECRET).bytes(), SECRET);
-        assert_eq!(LinkSecret(SECRET).text(), "AAECAwQFBgcICQoLDA0ODw");
-        assert_eq!(LinkSecret([0xFF; 16]).text(), "_____________________w");
         assert_eq!(ServerKey(KEY).bytes(), KEY);
+    }
+
+    /// The search the next test relies on, against literal texts, and
+    /// against what a derive writes for a value that holds octets: on one
+    /// line, with an element on each line, and with either hexadecimal
+    /// flag.
+    #[test]
+    fn the_search_for_octets_finds_what_a_derive_writes() {
+        assert_eq!(
+            renderings(&[0, 10, 255]),
+            [
+                "0,10,255", "0,a,ff", "0,A,FF", "000aff", "000AFF", "AAr_", "AAr/"
+            ]
+        );
+        assert_eq!(squeezed(" a\tb\n  c "), "abc");
+        let held = Some(SECRET);
+        let [decimal, lower, upper, ..] = renderings(&SECRET);
+        assert!(squeezed(&format!("{held:?}")).contains(&decimal));
+        assert!(squeezed(&format!("{held:#?}")).contains(&decimal));
+        assert!(squeezed(&format!("{held:x?}")).contains(&lower));
+        assert!(squeezed(&format!("{held:X?}")).contains(&upper));
+    }
+
+    /// A route's `Debug` form is what a log line, a panic message or a
+    /// failed assertion would hold, so nothing a link carried is in it
+    /// besides the server's name: no part of the fragment, and no octets of
+    /// a code, a secret or a key, however they are written. That holds
+    /// whatever the types of the codes print for themselves.
+    ///
+    /// Verifies: SEC-IAM-095, SEC-OPS-013
+    #[test]
+    fn the_debug_form_of_a_route_holds_nothing_its_link_carried() {
+        let cases: [(&str, &[&[u8]]); 4] = [
+            (
+                "https://music.example/claim#01234-56789-ABCDE-FGHJK-MNPQR-S9",
+                &[&CLAIM],
+            ),
+            (
+                "https://music.example/invite#AAECAwQFBgcICQoLDA0ODw",
+                &[&SECRET],
+            ),
+            (
+                "https://music.example:8443/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+                &[b"WDJBMJHT", &KEY],
+            ),
+            (
+                "http://localhost:8096/recover#AAECAwQFBgcICQoLDA0ODw",
+                &[&SECRET],
+            ),
+        ];
+        for (raw, held) in cases {
+            let route = read(raw);
+            let (_, fragment) = raw.split_once('#').expect("each link has a fragment");
+            let mut hidden: Vec<String> = fragment.split('.').map(str::to_owned).collect();
+            for octets in held {
+                hidden.extend(renderings(octets));
+            }
+            for shown in [
+                format!("{route:?}"),
+                format!("{route:#?}"),
+                format!("{route:x?}"),
+                format!("{route:X?}"),
+            ] {
+                let text = squeezed(&shown);
+                for part in &hidden {
+                    assert!(!text.contains(part.as_str()), "{shown:?} holds {part:?}");
+                }
+            }
+        }
+    }
+
+    /// What a route's `Debug` form does hold: which kind of link it was and
+    /// the server it names, which a confirmation screen shows as well. A
+    /// secret on its own shows a fixed word.
+    ///
+    /// Verifies: SEC-IAM-095, SEC-OPS-013
+    #[test]
+    fn the_debug_form_of_a_route_is_its_kind_and_its_server() {
+        let cases = [
+            (
+                "https://music.example/claim#01234-56789-ABCDE-FGHJK-MNPQR-S9",
+                "Claim { server: Server(\"https://music.example\"), .. }",
+                "Claim {\n    server: Server(\n        \"https://music.example\",\n    ),\n    ..\n}",
+            ),
+            (
+                "https://music.example/invite#AAECAwQFBgcICQoLDA0ODw",
+                "Invitation { server: Server(\"https://music.example\"), .. }",
+                "Invitation {\n    server: Server(\n        \"https://music.example\",\n    ),\n    ..\n}",
+            ),
+            (
+                "https://music.example:8443/pair#WDJB-MJHT.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+                "Pairing { server: Server(\"https://music.example:8443\"), .. }",
+                "Pairing {\n    server: Server(\n        \"https://music.example:8443\",\n    ),\n    ..\n}",
+            ),
+            (
+                "http://localhost:8096/recover#AAECAwQFBgcICQoLDA0ODw",
+                "Recovery { server: Server(\"http://localhost:8096\"), .. }",
+                "Recovery {\n    server: Server(\n        \"http://localhost:8096\",\n    ),\n    ..\n}",
+            ),
+            (
+                "https://music.example/library",
+                "NotRecognised",
+                "NotRecognised",
+            ),
+        ];
+        for (raw, plain, pretty) in cases {
+            let route = read(raw);
+            assert_eq!(format!("{route:?}"), plain, "{raw}");
+            assert_eq!(format!("{route:#?}"), pretty, "{raw}");
+        }
+        assert_eq!(format!("{:?}", LinkSecret(SECRET)), "LinkSecret(..)");
+        assert_eq!(format!("{:#?}", LinkSecret(SECRET)), "LinkSecret(..)");
+    }
+
+    /// A question about a type `T`. Each answer is `false`, from [`Lacks`],
+    /// unless `T` has the trait asked about: then the inherent constant of
+    /// the same name applies, is found first, and answers `true`.
+    struct Probe<T>(PhantomData<T>);
+
+    /// The answers for a type that has none of the three traits.
+    trait Lacks {
+        const COMPARES: bool = false;
+        const DISPLAYS: bool = false;
+        const SERIALISES: bool = false;
+    }
+
+    impl<T> Lacks for Probe<T> {}
+
+    impl<T: PartialEq> Probe<T> {
+        const COMPARES: bool = true;
+    }
+
+    impl<T: core::fmt::Display> Probe<T> {
+        const DISPLAYS: bool = true;
+    }
+
+    impl<T: serde::Serialize> Probe<T> {
+        const SERIALISES: bool = true;
+    }
+
+    /// A link's secret, and the route that holds one, has no `==`, no
+    /// `Display` and no serialised form. The first two rows show that the
+    /// probe tells each of the three apart on types that have them.
+    ///
+    /// Verifies: SEC-OPS-013
+    #[test]
+    fn a_link_secret_cannot_be_compared_displayed_or_serialised() {
+        let answers = [
+            (
+                Probe::<Vec<u8>>::COMPARES,
+                Probe::<Vec<u8>>::DISPLAYS,
+                Probe::<Vec<u8>>::SERIALISES,
+            ),
+            (
+                Probe::<std::io::Error>::COMPARES,
+                Probe::<std::io::Error>::DISPLAYS,
+                Probe::<std::io::Error>::SERIALISES,
+            ),
+            (
+                Probe::<LinkSecret>::COMPARES,
+                Probe::<LinkSecret>::DISPLAYS,
+                Probe::<LinkSecret>::SERIALISES,
+            ),
+            (
+                Probe::<Route>::COMPARES,
+                Probe::<Route>::DISPLAYS,
+                Probe::<Route>::SERIALISES,
+            ),
+        ];
+        assert_eq!(
+            answers,
+            [
+                (true, false, true),
+                (false, true, false),
+                (false, false, false),
+                (false, false, false),
+            ]
+        );
     }
 
     /// The reference writer the property tests rely on, against literal
@@ -928,7 +1286,7 @@ mod tests {
             written(&recovery_on("http://localhost:8096")),
             "http://localhost:8096/recover#AAECAwQFBgcICQoLDA0ODw"
         );
-        assert_eq!(written(&Route::NotRecognised), "");
+        assert_eq!(written(&Seen::NotRecognised), "");
     }
 
     /// Origins as a browser writes them: a name, an address or this
@@ -973,23 +1331,23 @@ mod tests {
             user in any::<[u8; 8]>(),
             key in any::<[u8; 32]>(),
         ) {
-            let claim_code = crate::otp::claim_code(claim_octets);
+            let claim_code = crate::otp::claim_code(claim_octets).text();
             prop_assert_eq!(
-                parse(&format!("{origin}/claim#{}", claim_code.text())),
-                Route::Claim { server: server(&origin), code: claim_code }
+                parse(&format!("{origin}/claim#{claim_code}")),
+                Seen::Claim { server: origin.clone(), code: claim_octets }
             );
             prop_assert_eq!(
                 parse(&format!("{origin}/invite#{}", unpadded(&secret))),
-                Route::Invitation { server: server(&origin), secret: LinkSecret(secret) }
+                Seen::Invitation { server: origin.clone(), secret }
             );
-            let pairing_code = crate::otp::pairing_code(user);
+            let pairing_code = crate::otp::pairing_code(user).text();
             prop_assert_eq!(
-                parse(&format!("{origin}/pair#{}.{}", pairing_code.text(), unpadded(&key))),
-                Route::Pairing { server: server(&origin), code: pairing_code, key: ServerKey(key) }
+                parse(&format!("{origin}/pair#{pairing_code}.{}", unpadded(&key))),
+                Seen::Pairing { server: origin.clone(), code: pairing_code, key }
             );
             prop_assert_eq!(
                 parse(&format!("{origin}/recover#{}", unpadded(&secret))),
-                Route::Recovery { server: server(&origin), secret: LinkSecret(secret) }
+                Seen::Recovery { server: origin, secret }
             );
         }
 
@@ -1018,7 +1376,7 @@ mod tests {
                 format!("{}/{path}#{fragment}", origin.to_uppercase()),
             ];
             for raw in changed {
-                prop_assert_eq!(parse(&raw), Route::NotRecognised, "{:?}", raw);
+                prop_assert_eq!(parse(&raw), Seen::NotRecognised, "{:?}", raw);
             }
         }
 
@@ -1039,12 +1397,15 @@ mod tests {
             ],
         ) {
             let text = raw.clone();
-            let route = on_small_stack(move || parse(&text));
+            let (seen, asks) = on_small_stack(move || {
+                let route = read(&text);
+                (seen_in(&route), route.needs_confirmation())
+            });
             prop_assert!(
-                written(&route) == raw || route == Route::NotRecognised,
-                "{raw:?} gave {route:?}"
+                written(&seen) == raw || seen == Seen::NotRecognised,
+                "{raw:?} gave {seen:?}"
             );
-            prop_assert_eq!(route.needs_confirmation(), changes_state(&route), "{:?}", raw);
+            prop_assert_eq!(asks, changes_state(&seen), "{:?}", raw);
         }
     }
 }
