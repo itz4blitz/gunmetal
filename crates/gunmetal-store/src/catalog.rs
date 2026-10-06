@@ -61,6 +61,7 @@
 //! }
 //! ```
 
+use std::collections::HashSet;
 use std::iter;
 use std::num::NonZeroU32;
 
@@ -204,6 +205,15 @@ pub enum ExtraKind {
 }
 
 impl ExtraKind {
+    /// Every kind, in the order of their codes.
+    const ALL: [Self; 5] = [
+        Self::File,
+        Self::Artwork,
+        Self::Lyrics,
+        Self::SeekIndex,
+        Self::FrameIndex,
+    ];
+
     /// The code the kind is stored under, which never changes and is never
     /// reused.
     const fn code(self) -> i64 {
@@ -328,8 +338,67 @@ impl CatalogBatch {
     /// [`MAX_BATCH`] entries, and otherwise [`BatchError::NamedTwice`] for
     /// one that names one thing twice.
     pub fn checked(self) -> Result<CheckedBatch, BatchError> {
-        Ok(CheckedBatch(self))
+        let names = named(&self);
+        let entries = names.len();
+        if entries > MAX_BATCH {
+            Err(BatchError::TooLarge {
+                entries,
+                max: MAX_BATCH,
+            })
+        } else {
+            let mut seen = HashSet::new();
+            names
+                .into_iter()
+                .flatten()
+                .find(|entry| !seen.insert(*entry))
+                .map_or(Ok(CheckedBatch(self)), |entry| {
+                    Err(BatchError::NamedTwice { entry })
+                })
+        }
     }
+}
+
+/// What each entry of `batch` names, entry by entry in the order of the
+/// lists.
+fn named(batch: &CatalogBatch) -> Vec<Vec<BatchEntry>> {
+    let as_record = |id| vec![BatchEntry::Record(id)];
+    let artists = batch
+        .artists
+        .iter()
+        .map(|artist| as_record(RecordId::Artist(artist.id)));
+    let albums = batch
+        .albums
+        .iter()
+        .map(|album| as_record(RecordId::Album(album.id)));
+    let tracks = batch
+        .tracks
+        .iter()
+        .map(|track| as_record(RecordId::Track(track.id)));
+    let credits = batch
+        .credits
+        .iter()
+        .map(|entry| vec![BatchEntry::Credits(entry.track)]);
+    let extras = batch
+        .extras
+        .iter()
+        .map(|entry| vec![BatchEntry::Extra(entry.track, entry.kind)]);
+    // Removing a track removes its credits and its extras, so it names them
+    // too.
+    let removed = batch.removed.iter().map(|gone| match *gone {
+        RecordId::Track(track) => {
+            let mut all = vec![BatchEntry::Record(*gone), BatchEntry::Credits(track)];
+            all.extend(ExtraKind::ALL.map(|kind| BatchEntry::Extra(track, kind)));
+            all
+        }
+        RecordId::Album(_) | RecordId::Artist(_) => as_record(*gone),
+    });
+    artists
+        .chain(albums)
+        .chain(tracks)
+        .chain(credits)
+        .chain(extras)
+        .chain(removed)
+        .collect()
 }
 
 /// A track a reader returned.
@@ -495,6 +564,10 @@ const EXTRA_ONE: &str = "SELECT extras.track, tracks.library, extras.body \
      WHERE (?1 IS NULL OR tracks.library IN (SELECT value FROM json_each(?1))) \
      AND extras.track = ?2 AND extras.kind = ?3";
 
+/// The identifier of a track whose record is stored: one row when it is,
+/// none when it is not.
+const TRACK_STORED: &str = "SELECT id FROM tracks WHERE id = ?1";
+
 /// Applies `batch` inside the caller's transaction and returns what really
 /// changed.
 ///
@@ -502,8 +575,10 @@ const EXTRA_ONE: &str = "SELECT extras.track, tracks.library, extras.body \
 /// what is stored. The changes come back in the order they were made:
 /// artists, albums, then tracks, each as an upsert, then removals. A track
 /// whose record, credits or extras changed is one upsert of that track,
-/// however many of them changed. A record named in `removed` that was not
-/// stored is no change.
+/// however many of them changed. A change to the credits or extras of a
+/// track whose record is not stored is no change, because no reader returns
+/// them: the track is reported when its record arrives. A record named in
+/// `removed` that was not stored is no change.
 ///
 /// # Errors
 ///
@@ -515,15 +590,61 @@ pub fn apply_batch(
 ) -> Result<Vec<CatalogChange>, StoreError> {
     steps(&batch.0)
         .into_iter()
-        .try_fold(Vec::new(), |mut changes, step| {
-            replace(tx, step.table, &step.key, step.rows).map(|wrote| {
-                let news = step
-                    .change
-                    .filter(|change| wrote && !changes.contains(change));
-                changes.extend(news);
-                changes
-            })
+        .try_fold(Changes::default(), |changes, step| {
+            replace(tx, step.table, &step.key, step.rows)
+                .and_then(|wrote| {
+                    if wrote {
+                        step.report.change(tx)
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .map(|change| changes.and(change))
         })
+        .map(|changes| changes.made)
+}
+
+/// The changes a batch made, each once, in the order they were first made.
+#[derive(Default)]
+struct Changes {
+    made: Vec<CatalogChange>,
+    seen: HashSet<CatalogChange>,
+}
+
+impl Changes {
+    /// These changes and `change`, unless it is one of them already.
+    fn and(mut self, change: Option<CatalogChange>) -> Self {
+        self.made
+            .extend(change.filter(|new| self.seen.insert(*new)));
+        self
+    }
+}
+
+/// What a step reports when it writes.
+#[derive(Clone, Copy)]
+enum Report {
+    /// This change of the record whose row the step writes or removes.
+    Change(CatalogChange),
+    /// An upsert of the track whose credits or extra the step writes, if
+    /// the track's record is stored.
+    Track(TrackId),
+    /// Nothing: the step removes the credits or extras of a track it
+    /// removes, and the removal of the track's record is what is reported.
+    Nothing,
+}
+
+impl Report {
+    /// What to report for a step that wrote.
+    fn change(self, tx: &Transaction<'_>) -> Result<Option<CatalogChange>, StoreError> {
+        match self {
+            Self::Change(change) => Ok(Some(change)),
+            Self::Track(track) => tx
+                .query(&bound(TRACK_STORED, [id_cell(track.get())]))
+                .map(|found| (!found.is_empty()).then_some(upsert(RecordId::Track(track))))
+                .map_err(StoreError::from),
+            Self::Nothing => Ok(None),
+        }
+    }
 }
 
 /// One thing a batch does: make the rows a table holds under a key exactly
@@ -533,7 +654,7 @@ struct Step {
     key: Vec<Value>,
     rows: Vec<Row>,
     /// What to report when that wrote anything.
-    change: Option<CatalogChange>,
+    report: Report,
 }
 
 /// Everything `batch` does, in the order [`apply_batch`] documents.
@@ -554,7 +675,7 @@ fn steps(batch: &CatalogBatch) -> Vec<Step> {
         table: &CREDITS,
         key: vec![id_cell(entry.track.get())],
         rows: credit_rows(entry),
-        change: Some(upsert(RecordId::Track(entry.track))),
+        report: Report::Track(entry.track),
     });
     let extras = batch.extras.iter().map(|entry| Step {
         table: &EXTRAS,
@@ -563,7 +684,7 @@ fn steps(batch: &CatalogBatch) -> Vec<Step> {
             Value::Integer(entry.kind.code()),
         ],
         rows: extra_rows(entry),
-        change: Some(upsert(RecordId::Track(entry.track))),
+        report: Report::Track(entry.track),
     });
     let removed = batch.removed.iter().copied().flat_map(removal);
     artists
@@ -581,7 +702,7 @@ fn record(table: &'static Table, id: RecordId, cells: Vec<Value>) -> Step {
         table,
         key: vec![id_cell(id.public_id())],
         rows: vec![Row(cells)],
-        change: Some(upsert(id)),
+        report: Report::Change(upsert(id)),
     }
 }
 
@@ -599,12 +720,12 @@ fn removal(record: RecordId) -> Vec<Step> {
     };
     tables
         .into_iter()
-        .zip(iter::once(Some(removed)).chain(iter::repeat(None)))
-        .map(|(table, change)| Step {
+        .zip(iter::once(Report::Change(removed)).chain(iter::repeat(Report::Nothing)))
+        .map(|(table, report)| Step {
             table,
             key: vec![id_cell(record.public_id())],
             rows: Vec::new(),
-            change,
+            report,
         })
         .collect()
 }
@@ -864,16 +985,28 @@ fn visible(permit: &Permit) -> Value {
 
 /// The statement `text` for up to `limit` rows `permit` may see whose
 /// identifiers come after `after`. Every identifier comes after the empty
-/// text.
-fn page(text: &'static str, permit: &Permit, after: Option<PublicId>, limit: NonZeroU32) -> Query {
-    bound(
-        text,
-        [
-            visible(permit),
-            after.map_or_else(|| Value::Text(String::new()), id_cell),
-            Value::Integer(i64::from(limit.get())),
-        ],
-    )
+/// text. A `limit` above [`MAX_PAGE`] is refused.
+fn page(
+    text: &'static str,
+    permit: &Permit,
+    after: Option<PublicId>,
+    limit: NonZeroU32,
+) -> Result<Query, ReadError> {
+    if limit > MAX_PAGE {
+        Err(ReadError::PageTooLarge {
+            limit,
+            max: MAX_PAGE,
+        })
+    } else {
+        Ok(bound(
+            text,
+            [
+                visible(permit),
+                after.map_or_else(|| Value::Text(String::new()), id_cell),
+                Value::Integer(i64::from(limit.get())),
+            ],
+        ))
+    }
 }
 
 /// The statement `text` for the row with identifier `id`, if `permit` may
@@ -921,8 +1054,8 @@ pub fn tracks(
     after: Option<TrackId>,
     limit: NonZeroU32,
 ) -> Result<Vec<TrackRow>, ReadError> {
-    let query = page(TRACK_PAGE, permit, after.map(TrackId::get), limit);
-    rows(reader, &query, track_row)
+    page(TRACK_PAGE, permit, after.map(TrackId::get), limit)
+        .and_then(|query| rows(reader, &query, track_row))
 }
 
 /// The track `id`, if it is stored and in a library `permit` holds. A
@@ -955,8 +1088,8 @@ pub fn albums(
     after: Option<AlbumId>,
     limit: NonZeroU32,
 ) -> Result<Vec<AlbumRow>, ReadError> {
-    let query = page(ALBUM_PAGE, permit, after.map(AlbumId::get), limit);
-    rows(reader, &query, album_row)
+    page(ALBUM_PAGE, permit, after.map(AlbumId::get), limit)
+        .and_then(|query| rows(reader, &query, album_row))
 }
 
 /// The album `id`, if it is stored and in a library `permit` holds. An
@@ -989,8 +1122,8 @@ pub fn artists(
     after: Option<ArtistId>,
     limit: NonZeroU32,
 ) -> Result<Vec<ArtistRow>, ReadError> {
-    let query = page(ARTIST_PAGE, permit, after.map(ArtistId::get), limit);
-    rows(reader, &query, artist_row)
+    page(ARTIST_PAGE, permit, after.map(ArtistId::get), limit)
+        .and_then(|query| rows(reader, &query, artist_row))
 }
 
 /// The artist `id`, if it is stored and in a library `permit` holds. An
@@ -1187,9 +1320,22 @@ fn tech(codec: &Value, container: &Value, format: [&Value; 5]) -> Option<TechInf
     .ok()
 }
 
-/// A gain, which is there when its scale is.
+/// A group of cells that is stored whole or not at all: `None` when every
+/// cell is `NULL`, and otherwise what `read` makes of them. A row that holds
+/// only part of a group fails, because `read` refuses a `NULL` wherever the
+/// group needs a value.
+fn group<T>(cells: &[&Value], read: impl FnOnce() -> Option<T>) -> Result<Option<T>, ReadError> {
+    if cells.iter().all(|cell| matches!(cell, Value::Null)) {
+        Ok(None)
+    } else {
+        read().map(Some).ok_or(ReadError::Damaged)
+    }
+}
+
+/// A gain: its scale, its gain and its peak, of which only the peak may be
+/// missing from a gain that is there.
 fn gain(scale: &Value, db: &Value, peak: &Value) -> Result<Option<Gain>, ReadError> {
-    nullable(scale, |scale| {
+    group(&[scale, db, peak], || {
         Some(Gain {
             scale: coded(scale, GainScale::from_code)?,
             gain: float(db).and_then(|db| GainDb::new(db).ok())?,
@@ -1201,9 +1347,9 @@ fn gain(scale: &Value, db: &Value, peak: &Value) -> Result<Option<Gain>, ReadErr
     })
 }
 
-/// The encoder's trim, which is there when its delay is.
+/// The encoder's trim: its delay and its padding.
 fn trim(delay: &Value, padding: &Value) -> Result<Option<Trim>, ReadError> {
-    nullable(delay, |delay| {
+    group(&[delay, padding], || {
         Some(Trim {
             delay: num(delay)?,
             padding: num(padding)?,
@@ -1211,9 +1357,9 @@ fn trim(delay: &Value, padding: &Value) -> Result<Option<Trim>, ReadError> {
     })
 }
 
-/// Where the lyrics came from, which is there when their origin is.
+/// Where the lyrics came from and how they are timed.
 fn lyrics(origin: &Value, timing: &Value) -> Result<Option<LyricsSource>, ReadError> {
-    nullable(origin, |origin| {
+    group(&[origin, timing], || {
         LyricsSource::new(
             coded(origin, LyricsOrigin::from_code)?,
             coded(timing, LyricsTiming::from_code)?,
