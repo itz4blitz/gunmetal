@@ -525,7 +525,10 @@ mod compile_fail {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
     use proptest::sample::select;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// Every kind with its prefix, written out independently of the code
     /// under test.
@@ -775,53 +778,86 @@ mod tests {
         }
     }
 
-    proptest! {
-        /// Verifies: SEC-API-023, SEC-PRV-021
-        #[test]
-        fn writes_what_the_reference_encoder_writes(
-            (kind, prefix) in any_kind(),
-            bytes in any::<[u8; 16]>(),
-        ) {
-            prop_assert_eq!(id(kind, bytes).to_string(), reference_text(prefix, bytes));
-        }
+    /// Verifies: SEC-API-023, SEC-PRV-021
+    #[test]
+    fn writes_what_the_reference_encoder_writes() {
+        TestRunner::new(Config::default())
+            .run(
+                &(any_kind(), any::<[u8; 16]>()),
+                |((kind, prefix), bytes)| {
+                    prop_assert_eq!(id(kind, bytes).to_string(), reference_text(prefix, bytes));
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Verifies: SEC-API-023, SEC-PRV-021
-        #[test]
-        fn reads_back_every_identifier_it_writes(
-            (kind, _) in any_kind(),
-            bytes in any::<[u8; 16]>(),
-        ) {
-            let written = id(kind, bytes);
-            prop_assert_eq!(PublicId::parse(&written.to_string(), kind), Ok(written));
-        }
+    /// Verifies: SEC-API-023, SEC-PRV-021
+    #[test]
+    fn reads_back_every_identifier_it_writes() {
+        TestRunner::new(Config::default())
+            .run(&(any_kind(), any::<[u8; 16]>()), |((kind, _), bytes)| {
+                let written = id(kind, bytes);
+                prop_assert_eq!(PublicId::parse(&written.to_string(), kind), Ok(written));
+                Ok(())
+            })
+            .unwrap();
+    }
 
-        /// Verifies: SEC-API-023
-        #[test]
-        fn accepts_any_text_only_in_its_canonical_spelling(
-            (kind, _) in any_kind(),
-            text in "(?s).{0,40}",
-        ) {
-            if let Ok(parsed) = PublicId::parse(&text, kind) {
-                prop_assert_eq!(parsed.to_string(), text);
-            }
-        }
+    /// Verifies: SEC-API-023
+    #[test]
+    fn accepts_any_text_only_in_its_canonical_spelling() {
+        // Random text never spells an identifier, so half of the cases are
+        // the kind's prefix followed by canonical symbols, which parse.
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    any_kind(),
+                    any::<bool>(),
+                    "(?s).{0,40}",
+                    "[0-7][0-9a-hjkmnp-tv-z]{25}",
+                ),
+                |((kind, prefix), spelled, noise, symbols)| {
+                    let text = if spelled {
+                        format!("{prefix}{symbols}")
+                    } else {
+                        noise
+                    };
+                    if let Ok(parsed) = PublicId::parse(&text, kind) {
+                        prop_assert_eq!(parsed.to_string(), text);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Verifies: SEC-API-023, SEC-API-024
-        #[test]
-        fn accepts_a_near_miss_only_when_it_is_canonical(
-            (kind, prefix) in any_kind(),
-            // Random letters and digits rarely spell a canonical identifier,
-            // so force the canonical alphabet half of the time.
-            symbols in prop_oneof!["[0-9a-zA-Z]{26}", "[0-7][0-9a-hjkmnp-tv-z]{25}"],
-        ) {
-            let canonical = symbols.starts_with(|c: char| ('0'..='7').contains(&c))
-                && symbols.chars().all(|c| REFERENCE_SYMBOLS.contains(c));
-            let expected = if canonical {
-                Ok(id(kind, reference_bytes(&symbols)))
-            } else {
-                Err(IdError { expected: kind })
-            };
-            prop_assert_eq!(PublicId::parse(&format!("{prefix}{symbols}"), kind), expected);
-        }
+    /// Verifies: SEC-API-023, SEC-API-024
+    #[test]
+    fn accepts_a_near_miss_only_when_it_is_canonical() {
+        // Random letters and digits rarely spell a canonical identifier,
+        // so force the canonical alphabet half of the time.
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    any_kind(),
+                    prop_oneof!["[0-9a-zA-Z]{26}", "[0-7][0-9a-hjkmnp-tv-z]{25}"],
+                ),
+                |((kind, prefix), symbols)| {
+                    let canonical = symbols.starts_with(|c: char| ('0'..='7').contains(&c))
+                        && symbols.chars().all(|c| REFERENCE_SYMBOLS.contains(c));
+                    let expected = if canonical {
+                        Ok(id(kind, reference_bytes(&symbols)))
+                    } else {
+                        Err(IdError { expected: kind })
+                    };
+                    prop_assert_eq!(
+                        PublicId::parse(&format!("{prefix}{symbols}"), kind),
+                        expected
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

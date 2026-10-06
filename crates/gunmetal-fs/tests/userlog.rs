@@ -24,6 +24,8 @@ use gunmetal_fs::dataroot::{
 };
 use gunmetal_fs::path::{DataDir, DataPath, LogMonth, LogStream, USER_LOG};
 use proptest::prelude::*;
+// Direct imports: Qodana does not resolve these macros through `prelude::*`.
+use proptest::{prop_oneof, proptest};
 use support::{TempDir, mode, names, open};
 
 const ALICE: LogStream = LogStream::Profile([0xA1; 16]);
@@ -413,6 +415,33 @@ fn refuses_a_symbolic_link_where_the_user_log_belongs() {
     assert_eq!(names(&elsewhere.join(ALICE_DIR)), ["2026-10.seg"]);
 }
 
+/// Verifies: SEC-HIS-016, SEC-TM-043
+#[test]
+fn refuses_a_symbolic_link_where_the_durable_directory_belongs() {
+    // A link that stays inside the data directory, which the handle's own
+    // confinement lets through, and a link that leaves it.
+    for target in ["cache", "../elsewhere"] {
+        let dir = TempDir::new();
+        let root = open(&dir).root;
+        let data = dir.join("data");
+        // Wherever the link leads, there is a user log with Alice's stream.
+        let logs = [data.join("cache/log"), dir.join("elsewhere/log")];
+        for log in &logs {
+            fs::create_dir_all(log.join(ALICE_DIR)).expect("create a stream's directory there");
+            fs::write(log.join(ALICE_DIR).join("2026-10.seg"), b"kept").expect("write a file");
+        }
+        fs::remove_dir(data.join("durable")).expect("remove the directory");
+        symlink(target, data.join("durable")).expect("plant the link");
+        let refused = wrong_kind(Item::Dir(DataDir::Durable), Kind::Symlink);
+        assert_eq!(root.log_streams(), Err(refused.clone()), "{target}");
+        assert_eq!(root.log_segments(ALICE), Err(refused.clone()), "{target}");
+        assert_eq!(root.remove_log_stream(ALICE), Err(refused), "{target}");
+        for log in &logs {
+            assert_eq!(names(&log.join(ALICE_DIR)), ["2026-10.seg"], "{target}");
+        }
+    }
+}
+
 #[test]
 fn refuses_a_file_where_a_stream_s_directory_belongs() {
     let dir = TempDir::new();
@@ -487,7 +516,7 @@ fn lists_a_stream_of_the_most_segments_and_refuses_one_more() {
     assert_eq!(names(&alice).len(), 4_097);
     fs::remove_file(alice.join("one-more")).expect("remove the file");
     assert_eq!(root.remove_log_stream(ALICE), Ok(()));
-    assert_eq!(names(&log_path(&dir)), [] as [&str; 0]);
+    assert_eq!(names(&log_path(&dir)), Vec::<String>::new());
 }
 
 #[test]
@@ -633,24 +662,78 @@ fn leaves_a_link_and_a_directory_whose_names_no_segment_has() {
 }
 
 #[test]
-fn stops_at_a_directory_named_like_a_segment() {
+fn removes_every_segment_it_can_past_a_directory_named_like_one() {
     let dir = TempDir::new();
     let root = log_root(&dir);
     let alice = plant(
         &dir,
         ALICE_DIR,
-        &[("2026-09.seg", b"september"), ("2026-11.seg", b"november")],
+        &[
+            ("2026-09.seg", b"september"),
+            ("2026-11.seg", b"november"),
+            ("2026-12.seg", b"december"),
+        ],
     );
     fs::create_dir(alice.join("2026-10.seg")).expect("create the directory");
-    assert_eq!(
-        root.remove_log_stream(ALICE),
-        Err(io(
-            Item::Path(DataPath::log_stream(ALICE)),
-            Op::Remove,
-            ErrorKind::IsADirectory
-        ))
+    let stuck = io(
+        Item::Path(DataPath::log_stream(ALICE)),
+        Op::Remove,
+        ErrorKind::IsADirectory,
     );
-    assert_eq!(names(&alice), ["2026-10.seg", "2026-11.seg"]);
+    assert_eq!(root.remove_log_stream(ALICE), Err(stuck.clone()));
+    // The segments after the directory in name order are gone, as the one
+    // before it is. Only the directory is left.
+    assert_eq!(names(&alice), ["2026-10.seg"]);
+    // A retry reports the same entry and changes nothing.
+    assert_eq!(root.remove_log_stream(ALICE), Err(stuck));
+    assert_eq!(names(&alice), ["2026-10.seg"]);
+    // With the directory out of the way, the removal finishes.
+    fs::remove_dir(alice.join("2026-10.seg")).expect("remove the directory");
+    assert_eq!(root.remove_log_stream(ALICE), Ok(()));
+    assert_eq!(names(&log_path(&dir)), Vec::<String>::new());
+}
+
+#[test]
+fn never_removes_the_household_s_stream() {
+    let dir = TempDir::new();
+    let root = log_root(&dir);
+    let household = plant(&dir, "household", &[("2026-10.seg", b"curation")]);
+    plant(&dir, ALICE_DIR, &[("2026-10.seg", b"alice")]);
+    assert_eq!(
+        root.remove_log_stream(LogStream::Household),
+        Err(LogDirError::Household)
+    );
+    assert_eq!(names(&log_path(&dir)), ["household", ALICE_DIR]);
+    assert_eq!(names(&household), ["2026-10.seg"]);
+    assert_eq!(
+        fs::read(household.join("2026-10.seg")).expect("read the segment"),
+        b"curation"
+    );
+    // A profile's stream beside it is removed as ever, and the household's
+    // stays.
+    assert_eq!(root.remove_log_stream(ALICE), Ok(()));
+    assert_eq!(names(&log_path(&dir)), ["household"]);
+    assert_eq!(names(&household), ["2026-10.seg"]);
+}
+
+#[test]
+fn streams_order_as_the_names_of_their_directories_do() {
+    let in_name_order = [LogStream::Household, ALICE, BOB, CAROL];
+    let mut streams = vec![BOB, LogStream::Household, CAROL, ALICE];
+    streams.sort();
+    assert_eq!(streams, in_name_order);
+    // A listing is in the order of the names, so it is sorted, and can be
+    // searched as a sorted list.
+    let dir = TempDir::new();
+    let root = log_root(&dir);
+    for name in [CAROL_DIR, "household", BOB_DIR, ALICE_DIR] {
+        plant(&dir, name, &[]);
+    }
+    let listed = root.log_streams().expect("the user log lists").entries;
+    assert_eq!(listed, in_name_order);
+    for (index, stream) in in_name_order.iter().enumerate() {
+        assert_eq!(listed.binary_search(stream), Ok(index));
+    }
 }
 
 /// A name a directory in the user log might have: a stream's, a near miss,
@@ -693,6 +776,26 @@ proptest! {
         let built = DataPath::log_segment(stream, month(year, number));
         prop_assert_eq!(built.dir(), DataDir::Durable);
         prop_assert_eq!(built.rel(), segment.as_str());
+    }
+
+    #[test]
+    fn orders_any_two_streams_as_the_names_of_their_directories(
+        first in any::<[u8; 16]>(),
+        second in any::<[u8; 16]>(),
+    ) {
+        let name = |id| format!("p-{}", hex(id));
+        prop_assert_eq!(
+            LogStream::Profile(first).cmp(&LogStream::Profile(second)),
+            name(first).cmp(&name(second))
+        );
+        prop_assert_eq!(
+            LogStream::Household.cmp(&LogStream::Profile(first)),
+            "household".cmp(name(first).as_str())
+        );
+        prop_assert_eq!(
+            LogStream::Profile(first).cmp(&LogStream::Household),
+            name(first).as_str().cmp("household")
+        );
     }
 }
 

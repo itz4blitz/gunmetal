@@ -228,8 +228,8 @@ impl Bits {
     /// [`Bits::pad_to_byte`] first where the format pads with zero bits.
     #[must_use]
     pub fn into_vec(self) -> Vec<u8> {
-        assert!(
-            self.used == 0,
+        assert_eq!(
+            self.used, 0,
             "the fields end {} bits into an octet; pad them first",
             self.used
         );
@@ -252,6 +252,8 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Direct import: Qodana does not resolve this macro through `prelude::*`.
+    use proptest::proptest;
 
     #[test]
     fn starts_empty() {

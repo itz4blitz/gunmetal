@@ -124,14 +124,13 @@ impl Depth {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "test oracles and generators work with small, bounded values"
-)]
 mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// Verifies: SEC-MED-007
     #[test]
@@ -312,70 +311,98 @@ mod tests {
         );
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-007
-        #[test]
-        fn starts_with_exactly_per_byte_times_len_plus_fixed(
-            len in 0_u64..1 << 40,
-            per_byte in 0_u64..1 << 16,
-            fixed in 0_u64..1 << 40,
-        ) {
-            let expected = u128::from(per_byte) * u128::from(len) + u128::from(fixed);
-            prop_assert_eq!(
-                u128::from(Budget::for_input(len, per_byte, fixed).remaining()),
-                expected
-            );
-        }
-
-        /// Verifies: SEC-MED-007
-        #[test]
-        fn never_spends_more_than_it_started_with(
-            fixed in 0_u64..1_000,
-            charges in vec((0_u64..300, any::<u64>()), 0..40),
-        ) {
-            let mut budget = Budget::for_input(0, 0, fixed);
-            // Independent model: what is left, and the outcome of each charge.
-            let mut left = u128::from(fixed);
-            for (steps, offset) in charges {
-                let wanted = if u128::from(steps) <= left {
-                    left -= u128::from(steps);
-                    Ok(())
-                } else {
-                    left = 0;
-                    Err(ParseFault::BudgetExceeded { offset })
-                };
-                prop_assert_eq!(budget.charge(steps, offset), wanted);
-                prop_assert_eq!(u128::from(budget.remaining()), left);
-            }
-        }
-
-        /// Verifies: SEC-MED-005
-        #[test]
-        fn allows_exactly_as_many_levels_as_the_limit_holds(
-            // Each depth limit, at any value up to its ceiling.
-            (root, limit, max) in prop_oneof![
-                (0_u64..=32).prop_map(|max| (Depth::CONTAINER_ROOT, LimitKind::ContainerDepth, max)),
-                (0_u64..=4).prop_map(|max| (Depth::EMBEDDED_FRAME_ROOT, LimitKind::EmbeddedFrameDepth, max)),
-            ],
-            extra in 1_u64..8,
-        ) {
-            let limits = Limits::DEFAULT.with_override(limit, max);
-            prop_assert_eq!(limits.map(|limits| limits.get(limit)), Ok(max));
-            let limits = limits.unwrap_or(Limits::DEFAULT);
-            let mut depth = root;
-            for level in 1..=max + extra {
-                let next = depth.descend(&limits, level);
-                if level <= max {
-                    prop_assert_eq!(next, Ok(at(level, limit)));
-                } else {
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn starts_with_exactly_per_byte_times_len_plus_fixed() {
+        TestRunner::new(Config::default())
+            .run(
+                &(0_u64..1 << 40, 0_u64..1 << 16, 0_u64..1 << 40),
+                |(len, per_byte, fixed)| {
+                    let expected = u128::from(per_byte) * u128::from(len) + u128::from(fixed);
                     prop_assert_eq!(
-                        next,
-                        Err(ParseFault::TooDeep { limit, depth: max + 1, max, offset: level })
+                        u128::from(Budget::for_input(len, per_byte, fixed).remaining()),
+                        expected
                     );
-                }
-                depth = next.unwrap_or(depth);
-            }
-            prop_assert_eq!(depth, at(max, limit));
-        }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
+
+    /// Verifies: SEC-MED-007
+    #[test]
+    fn never_spends_more_than_it_started_with() {
+        TestRunner::new(Config::default())
+            .run(
+                &(0_u64..1_000, vec((0_u64..300, any::<u64>()), 0..40)),
+                |(fixed, charges)| {
+                    let mut budget = Budget::for_input(0, 0, fixed);
+                    // Independent model: what is left, and the outcome of each charge.
+                    let mut left = u128::from(fixed);
+                    for (steps, offset) in charges {
+                        let wanted = if u128::from(steps) <= left {
+                            left -= u128::from(steps);
+                            Ok(())
+                        } else {
+                            left = 0;
+                            Err(ParseFault::BudgetExceeded { offset })
+                        };
+                        prop_assert_eq!(budget.charge(steps, offset), wanted);
+                        prop_assert_eq!(u128::from(budget.remaining()), left);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
+
+    /// Verifies: SEC-MED-005
+    #[test]
+    fn allows_exactly_as_many_levels_as_the_limit_holds() {
+        // Each depth limit, at any value up to its ceiling.
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    prop_oneof![
+                        (0_u64..=32).prop_map(|max| (
+                            Depth::CONTAINER_ROOT,
+                            LimitKind::ContainerDepth,
+                            max
+                        )),
+                        (0_u64..=4).prop_map(|max| (
+                            Depth::EMBEDDED_FRAME_ROOT,
+                            LimitKind::EmbeddedFrameDepth,
+                            max
+                        )),
+                    ],
+                    1_u64..8,
+                ),
+                |((root, limit, max), extra)| {
+                    let limits = Limits::DEFAULT.with_override(limit, max);
+                    prop_assert_eq!(limits.map(|limits| limits.get(limit)), Ok(max));
+                    let limits = limits.unwrap_or(Limits::DEFAULT);
+                    let mut depth = root;
+                    for level in 1..=max + extra {
+                        let next = depth.descend(&limits, level);
+                        if level <= max {
+                            prop_assert_eq!(next, Ok(at(level, limit)));
+                        } else {
+                            prop_assert_eq!(
+                                next,
+                                Err(ParseFault::TooDeep {
+                                    limit,
+                                    depth: max + 1,
+                                    max,
+                                    offset: level
+                                })
+                            );
+                        }
+                        depth = next.unwrap_or(depth);
+                    }
+                    prop_assert_eq!(depth, at(max, limit));
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

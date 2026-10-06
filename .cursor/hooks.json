@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "scripts/qodana-hook.sh",
+        "timeout": 900,
+        "loop_limit": 5,
+        "failClosed": true
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "scripts/qodana-hook.sh",
+        "timeout": 900,
+        "loop_limit": 5,
+        "failClosed": true
+      }
+    ]
+  }
+}
