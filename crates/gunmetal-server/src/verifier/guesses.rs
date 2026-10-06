@@ -385,6 +385,41 @@ mod tests {
         assert_eq!(counts.charge(&persistent, at(NOON + 1_289_999)), wait(1));
     }
 
+    /// Verifies: SEC-API-056
+    #[test]
+    fn a_full_store_tells_a_new_key_the_true_wait_after_a_clock_set_back() {
+        let counts = GuessCounts::new(2);
+        let [twice, once, newcomer] = ["192.0.2.1", "192.0.2.2", "192.0.2.3"].map(claim_from);
+        // One source has guessed wrong twice and another once, and the store
+        // is full.
+        assert_eq!(counts.charge(&twice, at(NOON)), Decision::Allow);
+        assert_eq!(counts.charge(&twice, at(NOON + 30_000)), Decision::Allow);
+        assert_eq!(counts.charge(&once, at(NOON + 30_001)), Decision::Allow);
+        // The clock is set back an hour, which leaves both counts in the
+        // future. A new key is told to wait the shorter step, 30 seconds
+        // from here, and 30 seconds is what it waits: not an hour more, for
+        // the clock to catch up.
+        let back = NOON - 3_600_000;
+        assert_eq!(counts.charge(&newcomer, at(back)), wait(30_000));
+        assert_eq!(counts.charge(&newcomer, at(back + 29_999)), wait(1));
+        // Every count the full store read counts from where the clock was
+        // set back to, and stays there.
+        assert_eq!(
+            held(&counts),
+            HashMap::from([(twice.clone(), counted(2, back)), (once, counted(1, back))])
+        );
+        assert_eq!(counts.charge(&newcomer, at(back + 30_000)), Decision::Allow);
+        assert_eq!(
+            held(&counts),
+            HashMap::from([
+                (twice.clone(), counted(2, back)),
+                (newcomer, counted(1, back + 30_000)),
+            ])
+        );
+        // The count that stayed waits out its own step from the same moment.
+        assert_eq!(counts.charge(&twice, at(back + 59_999)), wait(1));
+    }
+
     #[test]
     fn counts_told_to_keep_nothing_keep_one() {
         let counts = GuessCounts::new(0);
