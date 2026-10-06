@@ -6,8 +6,8 @@
 //! text as it arrived and returns a [`Route`] from a closed set, so no
 //! client takes an address apart itself. Anything else is
 //! [`Route::NotRecognised`], with no reason given: no caller can treat a
-//! near miss differently, and nothing from the text, which may hold a
-//! secret, is echoed back.
+//! near miss differently, and nothing of a text that was not recognised is
+//! kept or handed back.
 //!
 //! In R1 the set holds the four links R1 issues. Each is the server's
 //! origin, a fixed path, and in the fragment a secret, which therefore
@@ -24,19 +24,37 @@
 //! read by [`crate::link::Link::parse`], the one URL reader, so a link names
 //! the server a browser would open, and a host with a letter from another
 //! script, a user name before the host and everything else that reader
-//! refuses is not a link here either. The one origin without TLS is this
-//! machine itself, `http://localhost` with a port unless it is 80, where a
-//! server is claimed before it has a name (SEC-NET-001). The claim code and
-//! the pairing code are the grouped text of [`crate::otp`]. A secret is 16
+//! refuses is not a link here either. A host is also no longer than a name
+//! can be, 253 octets in labels of at most 63, so that a confirmation
+//! screen can show all of it. The one origin without TLS is this machine
+//! itself, `http://localhost` with a port unless it is 80, where a server
+//! is claimed before it has a name (SEC-NET-001). The claim code and the
+//! pairing code are the grouped text of [`crate::otp`]. A secret is 16
 //! octets and the server key 32, in URL-safe base64 without padding.
 //!
-//! Exactly one spelling of each link is read: the one its server writes,
-//! which is also what a browser's address bar holds after opening it. Upper
-//! case in the scheme or the host, a default port written out, a backslash,
-//! a space, a tab, an escape, a lower-case code and a padded secret are all
-//! not recognised, so two readers cannot disagree about a link that was
-//! read. A code typed by hand is not a link: it is read where it is typed,
-//! by [`crate::otp::parse_code`].
+//! Exactly one spelling of each link is read: the one its server writes.
+//! With one exception, that is also what a browser's address bar holds
+//! after opening the link. The exception is a host that is an IPv6 address
+//! holding an IPv4 one. The URL reader writes the last four octets of such
+//! an address dotted, as in `[::ffff:192.0.2.1]`, and only that spelling is
+//! read; an address bar holds `[::ffff:c000:201]`, so a link to such a host
+//! that was copied from one is not recognised. Upper case in the scheme or
+//! the host, a default port written out, a backslash, a space, a tab, an
+//! escape, a lower-case code and a padded secret are all not recognised
+//! either, so two readers cannot disagree about a link that was read. A
+//! code typed by hand is not a link: it is read where it is typed, by
+//! [`crate::otp::parse_code`].
+//!
+//! What a recognised link carried stays out of logs (SEC-IAM-095,
+//! SEC-OPS-013). The secret of an invitation or of a recovery link is a
+//! [`LinkSecret`], which has no `==`, no `Display` and no serialised form,
+//! and whose `Debug` form is a fixed word. A [`Route`] has no `==` either,
+//! and its `Debug` form holds the kind of link and the server's name and
+//! nothing else, so neither a secret nor a claim code or a pairing code
+//! reaches a log line through a route, whatever the code's own type
+//! prints. A [`LinkSecret`] is not the secrets crate's wrapper, which also
+//! wipes its value when dropped: that crate depends on this one, so a link
+//! secret's octets are not wiped here.
 //!
 //! Reading a link does nothing and grants nothing. Every route that would
 //! change something says so through [`Route::needs_confirmation`], and a
@@ -49,20 +67,47 @@ use crate::link::Link;
 use crate::otp::{self, ClaimCode, Code, CodeKind, PairingCode};
 use crate::untrusted::Untrusted;
 
-/// The longest text read, in octets. No link a server writes is longer than
-/// 326: `https://`, a name of at most 253 octets, a port, and the longest
-/// path and fragment, the pairing link's 59. Anything over this limit is
-/// not recognised before any of it is copied or decoded, which bounds the
-/// work on every input (SEC-TM-032) and the length of the server's address
-/// a confirmation screen has to show.
-const MAX_LINK_LEN: usize = 512;
+/// The longest text read, in octets, which is the longest link a server
+/// can write. That is a pairing link on the longest origin, and it adds up
+/// to 326:
+///
+/// ```text
+///   8  https://
+/// 253  the host, at most MAX_HOST_LEN
+///   6  :65535, a colon and a port of five digits
+///   6  /pair#
+///   9  the pairing code, XXXX-XXXX
+///   1  the dot between the code and the key
+///  43  the server key's 32 octets in URL-safe base64 without padding
+/// ---
+/// 326
+/// ```
+///
+/// The other routes' paths and fragments are shorter: `/claim#` and a
+/// claim code are 39, `/invite#` and a secret 30, `/recover#` and a secret
+/// 31. Anything longer than this limit is not recognised before any of it
+/// is copied or decoded, which bounds the work on every input
+/// (SEC-TM-032).
+const MAX_LINK_LEN: usize = 326;
+
+/// The longest host read, in octets as it is written, a dot at its end
+/// included: the longest name the DNS holds.
+const MAX_HOST_LEN: usize = 253;
+
+/// The longest label of a host, in octets, which is the DNS's bound too.
+const MAX_LABEL_LEN: usize = 63;
 
 /// What an inbound link asks a client to do.
 ///
 /// The set is closed. A route other than [`Route::NotRecognised`] comes
 /// only from [`parse_link`], because the server, the secret and the server
 /// key inside it have no other constructor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A route may hold a [`LinkSecret`], so like one it has no `==`: match on
+/// it. Its `Debug` form is written by hand and holds the kind of link and
+/// the server's name, never a secret, a code or a key (SEC-IAM-095,
+/// SEC-OPS-013).
+#[derive(Clone)]
 pub enum Route {
     /// Claim a new server with its one-time setup code (ACC-001).
     Claim {
@@ -120,7 +165,27 @@ impl Route {
     }
 }
 
-/// The server a link belongs to.
+impl core::fmt::Debug for Route {
+    /// Writes the kind of link and the server it names, and for everything
+    /// else the link carried only `..`. No field's own `Debug` form is
+    /// asked for besides the server's, so what a code's type would print
+    /// cannot get in.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (kind, server) = match self {
+            Self::Claim { server, .. } => ("Claim", server),
+            Self::Invitation { server, .. } => ("Invitation", server),
+            Self::Pairing { server, .. } => ("Pairing", server),
+            Self::Recovery { server, .. } => ("Recovery", server),
+            Self::NotRecognised => return f.write_str("NotRecognised"),
+        };
+        f.debug_struct(kind)
+            .field("server", server)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The server a link belongs to. Its name is no secret: it is what a
+/// confirmation screen shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server(String);
 
@@ -136,28 +201,34 @@ impl Server {
 }
 
 /// The 128-bit secret of an invitation or of a recovery link, which its
-/// holder presents once to redeem it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// holder presents once to redeem it (SEC-OPS-013). Its `Debug` form never
+/// shows it, so it cannot reach a log through formatting, and it has no
+/// `==`, which would compare in variable time and tempt code into checking
+/// a guess against it.
+#[derive(Clone)]
 pub struct LinkSecret([u8; 16]);
 
 impl LinkSecret {
-    /// The 16 octets.
+    /// The 16 octets, for the code that presents them to the server that
+    /// issued the link. Nothing else should call this: it is the one way
+    /// to the octets.
     #[must_use]
-    pub const fn bytes(self) -> [u8; 16] {
+    pub const fn bytes(&self) -> [u8; 16] {
         self.0
     }
+}
 
-    /// The secret as its link carries it: 22 characters of URL-safe base64,
-    /// without padding.
-    #[must_use]
-    pub fn text(self) -> String {
-        base64::encode(&self.0, Alphabet::UrlSafe)
+impl core::fmt::Debug for LinkSecret {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("LinkSecret(..)")
     }
 }
 
 /// A server's identity key as a pairing link carries it: 32 octets, which
 /// this module does not check to be a key. A client that pinned the
-/// server's key compares the two.
+/// server's key compares the two. The key is public, which is why, unlike a
+/// [`LinkSecret`], it can be compared and printed: a server gives it to
+/// every client that asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerKey([u8; 32]);
 
@@ -202,16 +273,28 @@ fn recognise(raw: &str) -> Option<Route> {
 /// An `https` origin is one only when `raw` is, to the octet, the URL the
 /// one URL reader writes for it, which leaves a single spelling of the
 /// scheme, the host and the port, and nothing between them and the path
-/// that another reader could take for part of either.
+/// that another reader could take for part of either. Its host must also
+/// be no longer than a name can be.
 fn server_and_tail(raw: &str) -> Option<(Server, &str)> {
     let (scheme, rest) = raw.split_once("://")?;
     let (authority, tail) = rest.split_once('/')?;
     let named = match scheme {
-        "https" => Link::parse(Untrusted::new(raw)).is_ok_and(|link| link.href() == raw),
+        "https" => Link::parse(Untrusted::new(raw))
+            .is_ok_and(|link| link.href() == raw && fits_a_name(link.host())),
         "http" => this_machine(authority),
         _ => false,
     };
     named.then(|| (Server(format!("{scheme}://{authority}")), tail))
+}
+
+/// Whether `host` is no longer than a name can be: at most
+/// [`MAX_HOST_LEN`] octets as it is written, in labels of at most
+/// [`MAX_LABEL_LEN`]. The one URL reader puts no bound on a host, and a
+/// confirmation screen has to show the server's name whole: a name it had
+/// to cut short could be made to show only a part that reads as another
+/// server's. An address is far shorter than either bound.
+fn fits_a_name(host: &str) -> bool {
+    host.len() <= MAX_HOST_LEN && host.split('.').all(|label| label.len() <= MAX_LABEL_LEN)
 }
 
 /// Whether `authority` is this machine as a browser writes it: `localhost`,

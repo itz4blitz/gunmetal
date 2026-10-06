@@ -15,7 +15,10 @@ pub struct Outcome {
     pub needs_confirmation: bool,
 }
 
-/// A [`Route`] in plain values.
+/// A [`Route`] in plain values. A route has no `==`, because the secret it
+/// may hold has none (SEC-OPS-013), so a replay test compares this copy of
+/// all a route holds. The octets here are the fuzzer's input or a committed
+/// seed's, never a secret a server issued.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Seen {
     /// [`Route::Claim`].
@@ -63,8 +66,11 @@ pub enum Seen {
 /// for the route it got: the server's origin, the route's path and, in the
 /// fragment, the canonical text of its code, secret and key, so that
 /// nothing but the one spelling a server writes is ever read. And that
-/// origin must be `https://` with a host, or this machine's
-/// `http://localhost` alone or with a port in decimal digits.
+/// origin must be at most 267 octets, which is `https://`, a host as long
+/// as a name can be and a port of five digits, so that a confirmation
+/// screen can show all of it; and it must be `https://` with a host, or
+/// this machine's `http://localhost` alone or with a port in decimal
+/// digits.
 #[must_use]
 pub fn run(data: &[u8]) -> Outcome {
     let raw = String::from_utf8_lossy(data);
@@ -86,7 +92,11 @@ pub fn run(data: &[u8]) -> Outcome {
             },
             server.origin(),
             true,
-            format!("{}/invite#{}", server.origin(), secret.text()),
+            format!(
+                "{}/invite#{}",
+                server.origin(),
+                base64::encode(&secret.bytes(), Alphabet::UrlSafe)
+            ),
         ),
         Route::Pairing { server, code, key } => (
             Seen::Pairing {
@@ -110,7 +120,11 @@ pub fn run(data: &[u8]) -> Outcome {
             },
             server.origin(),
             true,
-            format!("{}/recover#{}", server.origin(), secret.text()),
+            format!(
+                "{}/recover#{}",
+                server.origin(),
+                base64::encode(&secret.bytes(), Alphabet::UrlSafe)
+            ),
         ),
         Route::NotRecognised => (Seen::NotRecognised, "", false, String::new()),
     };
@@ -118,6 +132,7 @@ pub fn run(data: &[u8]) -> Outcome {
         changes_something == route.needs_confirmation()
             && (!changes_something
                 || (written == raw
+                    && origin.len() <= 267
                     && (origin
                         .strip_prefix("https://")
                         .is_some_and(|host| !host.is_empty())
