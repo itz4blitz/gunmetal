@@ -170,6 +170,91 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
   rerender(
     <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={onClose} />,
   );
-  expect(screen.queryByRole('button', { name: 'Lyrics' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-available')).toStrictEqual(
+    '0',
+  );
+  expect(document.querySelector('#player-full-lyrics')).toBeNull();
+  expect(document.querySelector('#player-full-lyrics-unavailable')?.textContent).toStrictEqual(
+    'This file has no lyrics.',
+  );
+});
+
+test('open full player paints playing-from, remaining time, up next and pane placement', () => {
+  const onToggleQueue = vi.fn();
+  const { rerender } = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{
+        ...playingSnapshot(),
+        queue: [
+          {
+            trackId: 'demo-track-01-01',
+            albumId: 'demo-album-01',
+            title: 'Pier at Dusk',
+            artistName: 'Mira Sol',
+            coverTone: '01',
+            durationMs: 180_000,
+            lyricsKind: 'none',
+          },
+          {
+            trackId: 'demo-track-01-02',
+            albumId: 'demo-album-01',
+            title: 'Salt Window',
+            artistName: 'Mira Sol',
+            coverTone: '01',
+            durationMs: 200_000,
+            lyricsKind: 'none',
+          },
+        ],
+      }}
+      open
+      albumTitle="Harbour Lights"
+      onClose={vi.fn()}
+      onToggleQueue={onToggleQueue}
+    />,
+  );
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual(
+    'overlay',
+  );
+  expect(document.querySelector('#player-full-scrim')).toBeTruthy();
+  expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual(
+    'Playing from Harbour Lights',
+  );
+  expect(document.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:45');
+  expect(document.querySelector('#player-full-remaining')?.textContent).toStrictEqual('2:15');
+  expect(document.querySelector('#player-full-up-next-title')?.textContent).toStrictEqual('Salt Window');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  expect(onToggleQueue).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Queue' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Queue' }), { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Queue' }), { key: 'Tab' });
+  expect(onToggleQueue).toHaveBeenCalledTimes(3);
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      placement="pane"
+      onClose={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('pane');
+  expect(document.querySelector('#player-full-scrim')).toBeNull();
+  expect(document.querySelector('#player-full-from')).toBeNull();
+  expect(document.querySelector('#player-full-up-next')).toBeNull();
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      placement="pane"
+      albumTitle=""
+      onClose={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('#player-full-from')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
 });

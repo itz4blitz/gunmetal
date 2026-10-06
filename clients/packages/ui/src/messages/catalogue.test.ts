@@ -34,6 +34,8 @@ test('the catalogue returns trusted shell and destination strings', () => {
       playerFullRegion: 'Full player',
       playerClose: 'Close',
       lyrics: 'Lyrics',
+      playingFrom: 'Playing from',
+      lyricsUnavailable: 'This file has no lyrics.',
     },
     destinations: {
       homeHeadline: 'Home',

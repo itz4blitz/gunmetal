@@ -29,6 +29,8 @@ export type ShellMessages = {
   playerFullRegion: string;
   playerClose: string;
   lyrics: string;
+  playingFrom: string;
+  lyricsUnavailable: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -63,5 +65,7 @@ export function shellMessages(): ShellMessages {
     playerFullRegion: 'Full player',
     playerClose: 'Close',
     lyrics: 'Lyrics',
+    playingFrom: 'Playing from',
+    lyricsUnavailable: 'This file has no lyrics.',
   };
 }

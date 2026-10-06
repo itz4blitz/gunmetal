@@ -7,6 +7,8 @@ import type { PlaybackSnapshot } from './playback.ts';
 export type PlayerBarProps = {
   messages: ShellMessages;
   playback: PlaybackSnapshot;
+  albumTitle?: string;
+  compact?: boolean;
   onPlayPause?: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -17,6 +19,8 @@ export type PlayerBarProps = {
 export function PlayerBar({
   messages,
   playback,
+  albumTitle,
+  compact = false,
   onPlayPause,
   onPrevious,
   onNext,
@@ -75,6 +79,9 @@ export function PlayerBar({
           >
             <Text id="player-title">{playback.title}</Text>
             <Text id="player-artist">{playback.artistName}</Text>
+            {albumTitle !== undefined && albumTitle !== '' ? (
+              <Text id="player-album">{albumTitle}</Text>
+            ) : null}
           </View>
         </>
       )}
@@ -133,6 +140,25 @@ export function PlayerBar({
             <Text dataSet={{ controlLabel: '1' }}>{messages.openFullPlayer}</Text>
           </View>
         )}
+        {empty || compact ? null : (
+          <View
+            id="player-lyrics"
+            dataSet={{ playerControl: 'plain', lyrics: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.lyrics}
+            tabIndex={0}
+            onClick={openFull}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openFull();
+              }
+            }}
+          >
+            <Text dataSet={{ controlLabel: '1' }}>{messages.lyrics}</Text>
+          </View>
+        )}
+        {compact ? null : <View id="player-device" dataSet={{ deviceSlot: 'empty' }} />}
         <ControlButton
           id="player-queue"
           label={messages.queue}

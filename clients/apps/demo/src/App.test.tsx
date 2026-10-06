@@ -40,6 +40,8 @@ test('playing a fixture album fills the player bar from demo-local state', () =>
   expect(document.querySelector('#shell-play')?.getAttribute('aria-label')).toStrictEqual('Pause');
   expect(document.querySelector('#shell-play')?.getAttribute('data-playing')).toStrictEqual('1');
   expect(document.querySelector('#queue-line-demo-track-01-01')).toBeTruthy();
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
-  expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#player-album')?.textContent).toStrictEqual('Harbour Lights');
+  expect(document.querySelector('#nav-sidebar')).toBeTruthy();
+  expect(document.querySelector('#player-bar')).toBeTruthy();
 });

@@ -9,6 +9,7 @@ import { Nav, navItems } from './Nav.tsx';
 import { applyAlbumQueue, applyPlayback, applyTrackQueue } from './demo-play.ts';
 import {
   emptyPlayback,
+  findAlbum,
   setQueueOpen,
   stepQueue,
   togglePlaying,
@@ -182,7 +183,7 @@ export function Shell({
   const playAlbum = (albumId: string) => {
     const next = applyPlayback(library, albumId, undefined);
     setPlayback(next);
-    if (next.trackId !== undefined) {
+    if (width === 'compact' && next.trackId !== undefined) {
       setFullPlayerOpen(true);
     }
   };
@@ -190,7 +191,7 @@ export function Shell({
   const playTrack = (albumId: string, trackId: string) => {
     const next = applyPlayback(library, albumId, trackId);
     setPlayback(next);
-    if (next.trackId !== undefined) {
+    if (width === 'compact' && next.trackId !== undefined) {
       setFullPlayerOpen(true);
     }
   };
@@ -246,6 +247,10 @@ export function Shell({
   const showWideQueue = width === 'wide';
   const sidebarBrand = width === 'expanded' || width === 'wide';
   const artTone = playback.playing && playback.trackId !== undefined ? playback.coverTone : undefined;
+  const playingAlbumTitle =
+    library !== undefined && playback.albumId !== undefined
+      ? findAlbum(library, playback.albumId)?.title
+      : undefined;
 
   const brandBlock = (
     <View id="shell-brand">
@@ -374,6 +379,8 @@ export function Shell({
         <PlayerBar
           messages={messages.shell}
           playback={playback}
+          albumTitle={playingAlbumTitle}
+          compact={width === 'compact'}
           onPlayPause={() => {
             setPlayback((current) => togglePlaying(current));
           }}
@@ -394,6 +401,8 @@ export function Shell({
           messages={messages.shell}
           playback={playback}
           open={fullPlayerOpen && playback.trackId !== undefined}
+          placement={width === 'compact' ? 'overlay' : 'pane'}
+          albumTitle={playingAlbumTitle}
           onClose={() => {
             setFullPlayerOpen(false);
           }}
@@ -405,6 +414,9 @@ export function Shell({
           }}
           onNext={() => {
             setPlayback((current) => stepQueue(current, 1));
+          }}
+          onToggleQueue={() => {
+            setPlayback((current) => setQueueOpen(current, !current.queueOpen));
           }}
         />
         {width === 'compact' ? (

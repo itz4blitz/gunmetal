@@ -322,3 +322,51 @@ test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plat
   expect(css.includes('color-mix(in srgb, var(--gm-cover-01) 48%, #0f1317)')).toStrictEqual(false);
   expect(css.includes('::selection')).toStrictEqual(true);
 });
+
+test('full player stays inside the shell on medium and wider and overlays only on compact', async () => {
+  const css = await demoShellCss();
+  const compactMarker = "#token-shell[data-width='compact'] #player-full";
+  const wideMarker = "#token-shell[data-width='wide'] #player-full";
+  const mediumMarker = "#token-shell[data-width='medium'] #player-full";
+  const expandedMarker = "#token-shell[data-width='expanded'] #player-full";
+  expect(css.includes(compactMarker)).toStrictEqual(true);
+  expect(css.includes(wideMarker)).toStrictEqual(true);
+  expect(css.includes(mediumMarker)).toStrictEqual(true);
+  expect(css.includes(expandedMarker)).toStrictEqual(true);
+  const compactBlock = css.slice(css.indexOf(compactMarker), css.indexOf(compactMarker) + 280);
+  expect(compactBlock.includes('position: fixed')).toStrictEqual(true);
+  expect(compactBlock.includes('grid-area: content')).toStrictEqual(false);
+  const wideBlock = css.slice(css.indexOf(wideMarker), css.indexOf(wideMarker) + 280);
+  expect(wideBlock.includes('grid-area: content')).toStrictEqual(true);
+  expect(wideBlock.includes('position: fixed')).toStrictEqual(false);
+  expect(css.includes("#token-shell[data-width='wide'] #player-full-scrim")).toStrictEqual(true);
+  const wideScrim = css.slice(
+    css.indexOf("#token-shell[data-width='wide'] #player-full-scrim"),
+    css.indexOf("#token-shell[data-width='wide'] #player-full-scrim") + 160,
+  );
+  expect(wideScrim.includes('display: none')).toStrictEqual(true);
+});
+
+test('home medium stack, track rows, search chips and album chrome keep their size', async () => {
+  const css = await demoShellCss();
+  expect(css.includes("#token-shell[data-width='medium'] #destination-home")).toStrictEqual(true);
+  const mediumHome = css.slice(css.indexOf("#token-shell[data-width='medium'] #destination-home"));
+  expect(mediumHome.includes('flex-direction: column')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-width='medium'] #home-spotlight")).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-width='compact'] #home-spotlight")).toStrictEqual(true);
+  const compactSpot = css.slice(css.indexOf("#token-shell[data-width='compact'] #home-spotlight"));
+  expect(compactSpot.includes('min-height: 0')).toStrictEqual(true);
+  expect(css.includes('height: auto')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-width='compact'] [data-track-row]")).toStrictEqual(true);
+  expect(css.includes('#album-lyrics-toggle')).toStrictEqual(true);
+  expect(css.includes('overflow-wrap: anywhere') || css.includes('overflow-wrap:anywhere')).toStrictEqual(
+    true,
+  );
+  const chip = css.slice(css.indexOf('[data-search-chip][data-pressed'));
+  expect(chip.includes('background: transparent')).toStrictEqual(true);
+  expect(chip.includes('border-radius: 999px') || chip.includes('pill')).toStrictEqual(false);
+  expect(css.includes('#library-tabs')).toStrictEqual(true);
+  const tabs = css.slice(css.indexOf('#library-tabs {'), css.indexOf('#library-tabs {') + 320);
+  expect(tabs.includes('var(--gm-bg-canvas)')).toStrictEqual(true);
+  expect(tabs.includes('backdrop-filter: blur')).toStrictEqual(false);
+});

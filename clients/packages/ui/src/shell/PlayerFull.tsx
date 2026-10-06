@@ -5,26 +5,42 @@ import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
 import { LyricsPane } from './LyricsPane.tsx';
-import type { PlaybackSnapshot } from './playback.ts';
+import type { PlaybackSnapshot, QueueLine } from './playback.ts';
+
+export type PlayerPlacement = 'overlay' | 'pane';
 
 export type PlayerFullProps = {
   messages: ShellMessages;
   playback: PlaybackSnapshot;
   open: boolean;
+  placement?: PlayerPlacement;
+  albumTitle?: string;
   onClose: () => void;
   onPlayPause?: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
+  onToggleQueue?: () => void;
 };
+
+function nextQueueLine(playback: PlaybackSnapshot): QueueLine | undefined {
+  const index = playback.queue.findIndex((line) => line.trackId === playback.trackId);
+  if (index < 0) {
+    return undefined;
+  }
+  return playback.queue[index + 1];
+}
 
 export function PlayerFull({
   messages,
   playback,
   open,
+  placement = 'overlay',
+  albumTitle,
   onClose,
   onPlayPause,
   onPrevious,
   onNext,
+  onToggleQueue,
 }: PlayerFullProps) {
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const canLyrics = playback.lyricsKind === 'plain' || playback.lyricsKind === 'synced';
@@ -54,15 +70,22 @@ export function PlayerFull({
 
   const progress =
     playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
+  const remainingMs =
+    playback.durationMs > 0 ? Math.max(0, playback.durationMs - playback.positionMs) : 0;
+  const upNext = nextQueueLine(playback);
+  const fromLabel =
+    albumTitle !== undefined && albumTitle !== '' ? `${messages.playingFrom} ${albumTitle}` : undefined;
 
   return (
     <>
-      <View id="player-full-scrim" dataSet={{ open: '1' }} onClick={onClose} />
+      {placement === 'overlay' ? (
+        <View id="player-full-scrim" dataSet={{ open: '1' }} onClick={onClose} />
+      ) : null}
       <View
         id="player-full"
         accessibilityRole="dialog"
         accessibilityLabel={messages.playerFullRegion}
-        dataSet={{ open: '1' }}
+        dataSet={{ open: '1', placement }}
       >
         <View
           id="player-full-close"
@@ -79,6 +102,7 @@ export function PlayerFull({
         >
           <Text>{messages.playerClose}</Text>
         </View>
+        {fromLabel === undefined ? null : <Text id="player-full-from">{fromLabel}</Text>}
         <View id="player-full-art">
           <CoverTile
             tone={playback.coverTone}
@@ -102,9 +126,10 @@ export function PlayerFull({
               style={{ width: `${Math.round(progress * 100)}%` }}
             />
           </View>
-          <Text id="player-full-time">
-            {`${formatDuration(playback.positionMs)} / ${formatDuration(playback.durationMs)}`}
-          </Text>
+          <View id="player-full-time">
+            <Text id="player-full-elapsed">{formatDuration(playback.positionMs)}</Text>
+            <Text id="player-full-remaining">{formatDuration(remainingMs)}</Text>
+          </View>
         </View>
         <View id="player-full-transport">
           <FullControl
@@ -121,17 +146,26 @@ export function PlayerFull({
           />
           <FullControl id="player-full-next" label={messages.next} onPress={onNext} />
         </View>
-        {canLyrics ? (
+        <View id="player-full-footer">
+          <View id="player-full-device" dataSet={{ deviceSlot: 'empty' }} />
           <View
             id="player-full-lyrics-toggle"
             accessibilityRole="button"
             accessibilityLabel={messages.lyrics}
             tabIndex={0}
-            dataSet={{ lyricsToggle: lyricsOpen ? '1' : '0' }}
+            dataSet={{
+              lyricsToggle: lyricsOpen ? '1' : '0',
+              lyricsAvailable: canLyrics ? '1' : '0',
+            }}
             onClick={() => {
-              setLyricsOpen((open) => !open);
+              if (canLyrics) {
+                setLyricsOpen((open) => !open);
+              }
             }}
             onKeyDown={(event) => {
+              if (!canLyrics) {
+                return;
+              }
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 setLyricsOpen((open) => !open);
@@ -140,14 +174,42 @@ export function PlayerFull({
           >
             <Text>{messages.lyrics}</Text>
           </View>
-        ) : null}
-        <LyricsPane
-          id="player-full-lyrics"
-          label={messages.lyrics}
-          lines={demoLyricsLines(demoLyricsVerse(playback.trackId, playback.lyricsKind))}
-          synced={playback.lyricsKind === 'synced'}
-          open={lyricsOpen && canLyrics}
-        />
+          <View
+            id="player-full-queue"
+            accessibilityRole="button"
+            accessibilityLabel={messages.queue}
+            tabIndex={0}
+            onClick={() => {
+              onToggleQueue?.();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onToggleQueue?.();
+              }
+            }}
+          >
+            <Text>{messages.queue}</Text>
+          </View>
+        </View>
+        {upNext === undefined ? null : (
+          <View id="player-full-up-next">
+            <Text id="player-full-up-next-label">{messages.queueHeading}</Text>
+            <Text id="player-full-up-next-title">{upNext.title}</Text>
+            <Text id="player-full-up-next-artist">{upNext.artistName}</Text>
+          </View>
+        )}
+        {canLyrics ? (
+          <LyricsPane
+            id="player-full-lyrics"
+            label={messages.lyrics}
+            lines={demoLyricsLines(demoLyricsVerse(playback.trackId, playback.lyricsKind))}
+            synced={playback.lyricsKind === 'synced'}
+            open={lyricsOpen}
+          />
+        ) : (
+          <Text id="player-full-lyrics-unavailable">{messages.lyricsUnavailable}</Text>
+        )}
       </View>
     </>
   );

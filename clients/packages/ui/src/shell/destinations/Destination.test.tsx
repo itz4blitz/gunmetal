@@ -202,9 +202,9 @@ test('opening an album uses history itemId and play fills the bar', () => {
   expect(screen.getByRole('heading', { name: 'Act One' })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: ' ' });
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Curtain');
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#nav-sidebar')).toBeTruthy();
+  expect(document.querySelector('#player-bar')).toBeTruthy();
   fireEvent.click(document.querySelector('#shell-play')!);
   expect(document.querySelector('#shell-play')?.getAttribute('aria-label')).toStrictEqual('Play');
   fireEvent.keyDown(document.querySelector('#shell-play')!, { key: 'Enter' });
@@ -226,8 +226,16 @@ test('player art and meta open the full player sheet; Escape and Close dismiss i
     '1',
   );
   expect(document.querySelector('#track-row-demo-track-01-01 [data-now-playing="1"]')).toBeTruthy();
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(document.querySelector('#player-album')?.textContent).toStrictEqual('Harbour Lights');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
   expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('pane');
   expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual('Playing from Harbour Lights');
+  expect(document.querySelector('#nav-sidebar')).toBeTruthy();
+  expect(document.querySelector('#player-bar')).toBeTruthy();
   fireEvent.keyDown(window, { key: 'Escape' });
   expect(document.querySelector('#player-full')).toBeNull();
   fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
@@ -307,11 +315,11 @@ test('compact queue sheet opens and closes from the player queue control', () =>
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: 'Enter' });
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  fireEvent.click(document.querySelector('#player-queue')!);
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: ' ' });
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
-  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  fireEvent.click(document.querySelector('#player-queue')!);
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: 'Tab' });
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
@@ -438,8 +446,8 @@ test('home spotlight play fills the bar from the featured fixture album', () => 
   expect(document.querySelector('#destination-headline')).toBeNull();
   fireEvent.click(document.querySelector('#home-spotlight-play')!);
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#nav-sidebar')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Open' }));
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
     'destination-headline',
@@ -527,7 +535,7 @@ test('context menus play next and add to queue without shuffling, and lyrics chr
   render(<Shell path="/library" widthPx={1600} library={library} />);
   fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(document.querySelector('#player-full')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-02')!);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
@@ -564,7 +572,7 @@ test('context menus play next and add to queue without shuffling, and lyrics chr
   );
   fireEvent.click(screen.getByRole('tab', { name: 'Albums' }));
   fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  fireEvent.click(document.querySelector('#album-lyrics-toggle')!);
   expect(
     [...document.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
   ).toStrictEqual([
@@ -575,9 +583,49 @@ test('context menus play next and add to queue without shuffling, and lyrics chr
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   fireEvent.click(screen.getByRole('button', { name: 'Night Shift' }));
   fireEvent.click(screen.getByRole('button', { name: 'Freight Elevator' }));
+  expect(document.querySelector('#player-full')).toBeNull();
+  fireEvent.click(document.querySelector('#player-expand')!);
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('pane');
   fireEvent.click(document.querySelector('#player-full-lyrics-toggle')!);
   expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
   expect(document.querySelector('#player-full-lyrics [data-current="1"]')?.textContent).toStrictEqual(
     'Floors count themselves in the dark',
   );
+});
+
+test('compact play opens the overlay full player while wide play stays in the bar', () => {
+  const library = demoLibrary();
+  const compact = render(<Shell path="/library" widthPx={360} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual(
+    'overlay',
+  );
+  expect(document.querySelector('#player-full-scrim')).toBeTruthy();
+  expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual(
+    'Playing from Harbour Lights',
+  );
+  fireEvent.click(document.querySelector('#player-full-queue')!);
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
+  fireEvent.click(screen.getByRole('button', { name: 'Salt Window' }));
+  expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Salt Window');
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual(
+    'overlay',
+  );
+  compact.unmount();
+
+  const medium = render(<Shell path="/library" widthPx={800} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#nav-rail')).toBeTruthy();
+  expect(document.querySelector('#player-bar')).toBeTruthy();
+  fireEvent.click(document.querySelector('#player-expand')!);
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('pane');
+  expect(document.querySelector('#player-full-scrim')).toBeNull();
+  expect(document.querySelector('#nav-rail')).toBeTruthy();
+  medium.unmount();
 });
