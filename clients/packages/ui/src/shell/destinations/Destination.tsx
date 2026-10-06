@@ -3,6 +3,7 @@ import type { MessageCatalogue } from '../../messages/catalogue.ts';
 import type { MatchResult } from '../../router/match.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import type { ThemeId } from '../theme.ts';
+import type { WidthClass } from '../width.ts';
 import { findAlbum } from '../playback.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
 import { Home } from './Home.tsx';
@@ -23,6 +24,7 @@ export type DestinationProps = {
   onPlayTrack: (albumId: string, trackId: string) => void;
   onSeeAll: () => void;
   currentTrackId?: string;
+  width: WidthClass;
 };
 
 function pageKey(match: MatchResult, itemId: string | undefined): string {
@@ -45,6 +47,7 @@ export function Destination({
   onPlayTrack,
   onSeeAll,
   currentTrackId,
+  width,
 }: DestinationProps) {
   const enterKey = pageKey(match, itemId);
 
@@ -129,6 +132,7 @@ export function Destination({
         shellMessages={messages.shell}
         theme={theme}
         onThemeChange={onThemeChange}
+        width={width}
       />
     </View>
   );

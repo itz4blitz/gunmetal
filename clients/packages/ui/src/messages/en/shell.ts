@@ -28,6 +28,7 @@ export type ShellMessages = {
   openFullPlayer: string;
   playerFullRegion: string;
   playerClose: string;
+  lyrics: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -61,5 +62,6 @@ export function shellMessages(): ShellMessages {
     openFullPlayer: 'Open full player',
     playerFullRegion: 'Full player',
     playerClose: 'Close',
+    lyrics: 'Lyrics',
   };
 }

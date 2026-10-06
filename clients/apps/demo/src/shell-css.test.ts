@@ -131,12 +131,70 @@ test('settings panels sit on raised machined surfaces and theme is segmented', a
   expect(segmented.includes('var(--gm-bg-inset)')).toStrictEqual(true);
 });
 
+test('settings app uses a steel side list on wide and brass R2 badges', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#settings-nav')).toStrictEqual(true);
+  expect(
+    css.includes("[data-settings-layout='side']") || css.includes('[data-settings-layout="side"]'),
+  ).toStrictEqual(true);
+  const sideMarker = css.includes("[data-settings-layout='side']")
+    ? "[data-settings-layout='side']"
+    : '[data-settings-layout="side"]';
+  const side = css.slice(css.indexOf(sideMarker));
+  expect(side.includes('flex-direction: row')).toStrictEqual(true);
+  expect(
+    css.includes("[data-settings-badge='R2']") || css.includes('[data-settings-badge="R2"]'),
+  ).toStrictEqual(true);
+  const badgeMarker = css.includes("[data-settings-badge='R2']")
+    ? "[data-settings-badge='R2']"
+    : '[data-settings-badge="R2"]';
+  const badge = css.slice(css.indexOf(badgeMarker));
+  expect(badge.includes('var(--gm-accent-text)')).toStrictEqual(true);
+  expect(css.includes('[data-settings-fact]')).toStrictEqual(true);
+  expect(css.includes('#settings-nav [data-selected=') || css.includes('#settings-nav [aria-selected=')).toStrictEqual(
+    true,
+  );
+});
+
 test('page enter fades over 160ms and scrollbars are thin muted chrome', async () => {
   const css = await demoShellCss();
   expect(css.includes('gm-page-enter') || css.includes('@keyframes')).toStrictEqual(true);
   expect(css.includes('160ms')).toStrictEqual(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
   expect(css.includes('scrollbar-width: thin') || css.includes('::-webkit-scrollbar')).toStrictEqual(
+    true,
+  );
+});
+
+test('2026 motion staggers tiles, fades heroes without parallax and presses at 0.98', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('gm-tile-enter')).toStrictEqual(true);
+  expect(css.includes('animation-delay: 20ms')).toStrictEqual(true);
+  expect(css.includes('animation-delay: 120ms')).toStrictEqual(true);
+  expect(css.includes('gm-hero-enter')).toStrictEqual(true);
+  expect(css.includes('parallax')).toStrictEqual(false);
+  expect(css.includes('gm-page-enter')).toStrictEqual(true);
+  expect(css.includes('160ms')).toStrictEqual(true);
+  expect(css.includes('scale(0.98)')).toStrictEqual(true);
+  expect(css.includes('#destination-artist[data-art-tone]')).toStrictEqual(true);
+  expect(css.includes('[data-artist-hero]')).toStrictEqual(true);
+  const reduced = css.slice(css.indexOf('prefers-reduced-motion: reduce'));
+  expect(reduced.includes('[data-album-tile]')).toStrictEqual(true);
+  expect(reduced.includes('animation: none')).toStrictEqual(true);
+});
+
+test('context menus sit on overlay at radius.l with brass focus and 160ms motion', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('[data-context-menu]') || css.includes('[data-item-menu]')).toStrictEqual(true);
+  const menuMarker = css.includes('[data-context-menu]') ? '[data-context-menu]' : '[data-item-menu]';
+  const menu = css.slice(css.indexOf(menuMarker));
+  expect(menu.includes('var(--gm-radius-l)')).toStrictEqual(true);
+  expect(menu.includes('var(--gm-bg-overlay)')).toStrictEqual(true);
+  expect(css.includes('var(--gm-focus-ring)')).toStrictEqual(true);
+  expect(css.includes('160ms')).toStrictEqual(true);
+  expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
+  expect(css.includes('[data-lyrics-line]')).toStrictEqual(true);
+  expect(css.includes('[data-lyrics-line][data-current') || css.includes("[data-lyrics-line][data-current")).toStrictEqual(
     true,
   );
 });
@@ -163,4 +221,14 @@ test('album detail wash denser track rows and full player sheet are crafted', as
   expect(css.includes("[data-size='full']") || css.includes('[data-size="full"]')).toStrictEqual(
     true,
   );
+});
+
+test('settings side list, artist wash, menus and lyrics pane are crafted', async () => {
+  const css = await demoShellCss();
+  expect(css.includes("#destination-settings[data-settings-layout='side']")).toStrictEqual(true);
+  expect(css.includes('#settings-nav')).toStrictEqual(true);
+  expect(css.includes('#destination-artist[data-art-tone]')).toStrictEqual(true);
+  expect(css.includes('[data-item-menu]') || css.includes('[data-context-menu]')).toStrictEqual(true);
+  expect(css.includes('#player-full-lyrics')).toStrictEqual(true);
+  expect(css.includes('[data-lyrics-line]')).toStrictEqual(true);
 });

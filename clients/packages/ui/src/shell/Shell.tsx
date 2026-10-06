@@ -334,6 +334,7 @@ export function Shell({
               navigate('/library');
             }}
             currentTrackId={playback.trackId}
+            width={width}
           />
           {width === 'compact' ? navFooter : null}
         </View>

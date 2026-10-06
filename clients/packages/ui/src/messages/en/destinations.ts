@@ -17,6 +17,9 @@ export type DestinationMessages = {
   tabArtists: string;
   tabTracks: string;
   play: string;
+  playNext: string;
+  addToQueue: string;
+  goToAlbum: string;
   open: string;
   seeAll: string;
   playAlbum: string;
@@ -30,13 +33,28 @@ export type DestinationMessages = {
   searchDemoLocalNotice: string;
   searchNoHits: string;
   settingsAppearance: string;
-  settingsDemoData: string;
-  settingsDemoDataBody: string;
   settingsPlayback: string;
-  settingsAbout: string;
   settingsPlaybackPlaceholder: string;
-  settingsAboutBody: string;
+  settingsConnected: string;
+  settingsConnectedEmpty: string;
+  settingsExtensions: string;
+  settingsExtensionsBody: string;
+  settingsBadgeR1: string;
+  settingsBadgeR2: string;
+  settingsAbout: string;
+  settingsAboutData: string;
+  settingsAboutAddress: string;
+  settingsAboutVersion: string;
+  settingsPrivacy: string;
+  settingsPrivacyBody: string;
+  settingsNav: string;
   albumMissing: string;
+  artistMissing: string;
+  goToArtist: string;
+  moreActions: string;
+  contextMenu: string;
+  lyrics: string;
+  lyricsRegion: string;
   artistAlbumCount: string;
   trackFlagUnplayable: string;
   trackFlagDamaged: string;
@@ -66,6 +84,9 @@ export function destinationMessages(): DestinationMessages {
     tabArtists: 'Artists',
     tabTracks: 'Tracks',
     play: 'Play',
+    playNext: 'Play next',
+    addToQueue: 'Add to queue',
+    goToAlbum: 'Go to album',
     open: 'Open',
     seeAll: 'See all',
     playAlbum: 'Play album',
@@ -79,14 +100,29 @@ export function destinationMessages(): DestinationMessages {
     searchDemoLocalNotice: 'Demo-local filter — not CorePort search',
     searchNoHits: "No matches for this query in Music",
     settingsAppearance: 'Appearance',
-    settingsDemoData: 'Demo data',
-    settingsDemoDataBody:
-      'Albums and tracks here come from the Stage-A fixture catalogue. They are not loaded from a server.',
     settingsPlayback: 'Playback',
-    settingsAbout: 'About',
     settingsPlaybackPlaceholder: 'Gain, crossfade and output arrive with CorePort (CP-020).',
-    settingsAboutBody: 'This build shows fixture demo data only. It is not a live library.',
+    settingsConnected: 'Connected services',
+    settingsConnectedEmpty: 'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
+    settingsExtensions: 'Extensions / Plugins',
+    settingsExtensionsBody:
+      'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    settingsBadgeR1: 'R1',
+    settingsBadgeR2: 'R2',
+    settingsAbout: 'About this connection',
+    settingsAboutData: 'Demo data',
+    settingsAboutAddress: 'loopback',
+    settingsAboutVersion: 'demo',
+    settingsPrivacy: 'Privacy',
+    settingsPrivacyBody: 'History and loves stay on this profile; this demo has no server yet.',
+    settingsNav: 'Settings sections',
     albumMissing: 'That album is not in the demo library',
+    artistMissing: 'That artist is not in the demo library',
+    goToArtist: 'Go to artist',
+    moreActions: 'More',
+    contextMenu: 'Actions',
+    lyrics: 'Lyrics',
+    lyricsRegion: 'Lyrics',
     artistAlbumCount: 'albums',
     trackFlagUnplayable: 'Cannot play',
     trackFlagDamaged: 'Damaged',
