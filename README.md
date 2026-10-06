@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PremierStudio/gunmetal/actions/workflows/ci.yml"><img src="https://github.com/PremierStudio/gunmetal/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://git.taild1bbf.ts.net/PremierStudio/gunmetal/actions"><img src="https://img.shields.io/badge/CI-Forgejo%20self--hosted-3fb950" alt="CI: Forgejo self-hosted"></a>
   <img src="https://img.shields.io/badge/status-pre--alpha-d98f2b" alt="Status: pre-alpha">
   <img src="https://img.shields.io/badge/coverage-100%25-3fb950" alt="Coverage: 100%">
   <img src="https://img.shields.io/badge/surviving%20mutants-0-3fb950" alt="Surviving mutants: 0">
@@ -129,17 +129,12 @@ You need Rust 1.85 or newer, plus
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and
 [cargo-mutants](https://mutants.rs).
 
-On the Premier tailnet:
-
 ```bash
 git clone https://git.taild1bbf.ts.net/PremierStudio/gunmetal.git
 ```
 
-GitHub is the public mirror, used when the tailnet is not reachable:
-
-```bash
-git clone https://github.com/PremierStudio/gunmetal.git
-```
+That host is on the Premier tailnet. The source of truth is Forgejo, not
+GitHub, and CI runs on the project's own runners.
 
 ```bash
 scripts/gate.sh

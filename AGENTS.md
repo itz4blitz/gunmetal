@@ -21,11 +21,11 @@
 - The source of truth is Forgejo on the Premier tailnet:
   `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`
   ([D-89](docs/decisions.md#d-89-source-of-truth-forge),
-  [record 16](docs/adr/0016-forgejo-source-of-truth.md)). Clone and open
-  pull requests there when the environment can resolve that host. GitHub
-  `https://github.com/PremierStudio/gunmetal` is a mirror for Cursor cloud
-  VMs and other machines that are not on the tailnet. Do not treat a
-  GitHub-only push as finishing a cutover.
+  [record 16](docs/adr/0016-forgejo-source-of-truth.md)). Clone, push and
+  open pull requests there. GitHub is not the working forge. Actions run
+  only on the project's self-hosted runners
+  ([D-90](docs/decisions.md#d-90-actions-runners),
+  [record 17](docs/adr/0017-all-actions-on-own-runners.md)).
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is
