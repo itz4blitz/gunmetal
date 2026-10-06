@@ -271,10 +271,6 @@ fn every_r1_kind_has_a_stable_name() {
 fn two_requests_for_the_same_path_share_one_job() {
     let world = world();
     let runs = Arc::new(AtomicUsize::new(0));
-    world.runner.register(Arc::new(Completing {
-        kind: TaskKind::PathRefresh,
-        runs: Arc::clone(&runs),
-    }));
     let first = world
         .runner
         .request(TaskKind::PathRefresh, user(1), Some("/music/a"))
@@ -284,6 +280,10 @@ fn two_requests_for_the_same_path_share_one_job() {
         .request(TaskKind::PathRefresh, user(1), Some("/music/a"))
         .expect("second");
     assert_eq!(first, second);
+    world.runner.register(Arc::new(Completing {
+        kind: TaskKind::PathRefresh,
+        runs: Arc::clone(&runs),
+    }));
     let done = settle(&world.runner, first.id);
     assert_eq!(done.status, TaskStatus::Succeeded);
     assert_eq!(done.path.as_deref(), Some("/music/a"));
@@ -998,6 +998,11 @@ fn dropping_a_runner_without_a_worker_handle_is_quiet() {
     } = world;
     let worker = runner.take_worker().expect("worker");
     drop(runner);
+    let deadline = Instant::now() + BOUND;
+    while !worker.is_finished() {
+        assert!(Instant::now() < deadline, "worker did not stop after drop");
+        thread::sleep(Duration::from_millis(5));
+    }
     worker.join().expect("joined");
     drop(store);
 }
