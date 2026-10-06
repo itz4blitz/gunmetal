@@ -1,0 +1,309 @@
+/*
+ * Theme colour tokens as CSS custom properties.
+ * Hex literals match docs/ui/design-language.md §4 (Colour).
+ * CP-004 will own the JSON token files and generated stylesheets; this file is
+ * the C0 stand-in so the shell can theme without the tokens package.
+ */
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+#token-shell,
+#token-shell div,
+#token-shell span {
+  box-sizing: border-box;
+}
+
+#token-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  font-family: system-ui, sans-serif;
+  background: var(--gm-bg-canvas);
+  color: var(--gm-text-primary);
+}
+
+#token-shell[data-theme='dark'] {
+  --gm-bg-canvas: #0f1317;
+  --gm-bg-raised: #161c21;
+  --gm-bg-overlay: #1f262d;
+  --gm-bg-inset: #0a0d10;
+  --gm-line-subtle: #262e36;
+  --gm-line-control: #6b7783;
+  --gm-text-primary: #e9eef2;
+  --gm-text-secondary: #b0bbc5;
+  --gm-text-muted: #8f9ba7;
+  --gm-accent-fill: #d4952f;
+  --gm-accent-on: #121518;
+  --gm-accent-text: #e0ad55;
+  --gm-accent-indicator: #d4952f;
+  --gm-focus-ring: #f3cd77;
+}
+
+#token-shell[data-theme='light'] {
+  --gm-bg-canvas: #f3f5f7;
+  --gm-bg-raised: #ffffff;
+  --gm-bg-overlay: #ffffff;
+  --gm-bg-inset: #e6eaee;
+  --gm-line-subtle: #dde3e8;
+  --gm-line-control: #7a8693;
+  --gm-text-primary: #11161b;
+  --gm-text-secondary: #3a4550;
+  --gm-text-muted: #56626e;
+  --gm-accent-fill: #b8781a;
+  --gm-accent-on: #121518;
+  --gm-accent-text: #85550f;
+  --gm-accent-indicator: #85550f;
+  --gm-focus-ring: #7a4c0c;
+}
+
+#token-shell[data-theme='oled'] {
+  --gm-bg-canvas: #000000;
+  --gm-bg-raised: #0c1013;
+  --gm-bg-overlay: #161c21;
+  --gm-bg-inset: #000000;
+  --gm-line-subtle: #1f262d;
+  --gm-line-control: #6b7783;
+  --gm-text-primary: #e9eef2;
+  --gm-text-secondary: #b0bbc5;
+  --gm-text-muted: #8f9ba7;
+  --gm-accent-fill: #d4952f;
+  --gm-accent-on: #121518;
+  --gm-accent-text: #e0ad55;
+  --gm-accent-indicator: #d4952f;
+  --gm-focus-ring: #f3cd77;
+}
+
+#token-shell[data-theme='high-contrast'] {
+  --gm-bg-canvas: #000000;
+  --gm-bg-raised: #000000;
+  --gm-bg-overlay: #0f0f0f;
+  --gm-bg-inset: #000000;
+  --gm-line-subtle: #8a8a8a;
+  --gm-line-control: #ffffff;
+  --gm-text-primary: #ffffff;
+  --gm-text-secondary: #f0f0f0;
+  --gm-text-muted: #d6d6d6;
+  --gm-accent-fill: #ffc857;
+  --gm-accent-on: #000000;
+  --gm-accent-text: #ffd37a;
+  --gm-accent-indicator: #ffc857;
+  --gm-focus-ring: #ffe9a8;
+}
+
+#shell-frame {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+#token-shell[data-width='compact'] #shell-frame {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-areas:
+    'brand'
+    'content'
+    'player'
+    'tabs';
+}
+
+#token-shell[data-width='medium'] #shell-frame {
+  grid-template-columns: 72px 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'brand brand'
+    'rail content'
+    'rail player';
+}
+
+#token-shell[data-width='expanded'] #shell-frame {
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'brand brand'
+    'sidebar content'
+    'sidebar player';
+}
+
+#token-shell[data-width='wide'] #shell-frame {
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'brand brand brand'
+    'sidebar content queue'
+    'sidebar player player';
+}
+
+#shell-brand {
+  grid-area: brand;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--gm-bg-raised);
+  border-bottom: 1px solid var(--gm-line-subtle);
+}
+
+#shell-wordmark {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gm-text-primary);
+}
+
+#demo-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gm-accent-text);
+}
+
+#nav-sidebar,
+#nav-rail,
+#nav-tabs {
+  display: flex;
+  background: var(--gm-bg-raised);
+  border-color: var(--gm-line-subtle);
+  border-style: solid;
+}
+
+#nav-sidebar {
+  grid-area: sidebar;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  border-right-width: 1px;
+}
+
+#nav-rail {
+  grid-area: rail;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 12px 8px;
+  border-right-width: 1px;
+}
+
+#nav-tabs {
+  grid-area: tabs;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  padding: 8px 12px 12px;
+  border-top-width: 1px;
+}
+
+#content {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 24px;
+  overflow: auto;
+  background: var(--gm-bg-canvas);
+}
+
+#destination-headline {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--gm-text-primary);
+}
+
+#right-pane {
+  grid-area: queue;
+  background: var(--gm-bg-raised);
+  border-left: 1px solid var(--gm-line-subtle);
+}
+
+#player-bar {
+  grid-area: player;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--gm-bg-raised);
+  border-top: 1px solid var(--gm-line-subtle);
+}
+
+#shell-play {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--gm-accent-fill);
+}
+
+#player-empty {
+  color: var(--gm-text-muted);
+  font-size: 14px;
+}
+
+#nav-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+#theme-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#theme-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gm-text-muted);
+}
+
+#nav-sidebar [id^='nav-item-'],
+#nav-rail [id^='nav-item-'],
+#nav-tabs [id^='nav-item-'],
+#theme-switcher [id^='theme-'],
+#nav-item-settings {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--gm-text-secondary);
+  cursor: default;
+}
+
+#nav-sidebar [id^='nav-item-']:focus,
+#nav-rail [id^='nav-item-']:focus,
+#nav-tabs [id^='nav-item-']:focus,
+#theme-switcher [id^='theme-']:focus,
+#nav-item-settings:focus {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell [aria-selected='true'] {
+  color: var(--gm-text-primary);
+  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+}
+
+#token-shell[data-width='compact'] #nav-footer {
+  margin-top: 0;
+}
+
+#token-shell[data-width='compact'] #theme-switcher {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

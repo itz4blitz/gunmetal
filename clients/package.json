@@ -9,7 +9,9 @@
   "packageManager": "pnpm@12.7.0",
   "scripts": {
     "dev": "vite --config apps/web/vite.config.ts",
+    "demo": "vite --config apps/demo/vite.config.ts",
     "build": "vite build --config apps/web/vite.config.ts",
+    "build:demo": "vite build --config apps/demo/vite.config.ts",
     "preview": "vite preview --config apps/web/vite.config.ts",
     "test": "vitest run"
   },
