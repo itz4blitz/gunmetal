@@ -21,7 +21,10 @@
 //! internet that is named by host goes through it; an address written out
 //! and a LAN destination are refused (SEC-PRV-012).
 //!
-//! [`Configuration::decide`] is the whole decision, as one pure function.
+//! `Configuration::decide` is the whole decision, as one pure function.
+//! Only the gate asks it: what it answers, a `Decision`, lets nothing
+//! out until the gate that asked has sealed it into an
+//! [`Admitted`](crate::gate::Admitted) request of its own.
 
 use gunmetal_core::net::AddrClass;
 
@@ -186,7 +189,9 @@ impl Configuration {
         }
     }
 
-    /// Decides whether `purpose` may send a request to `destination`.
+    /// Decides whether `purpose` may send a request to `destination`. Only
+    /// the gate asks: no code outside this crate can have a configuration
+    /// of its own decide and hand the answer to a gate.
     ///
     /// # Errors
     ///
@@ -197,7 +202,11 @@ impl Configuration {
     /// scheme, host and port; and [`Denial::NotThroughProxy`] when requests
     /// leave through a proxy and the destination is an address or a LAN
     /// destination.
-    pub fn decide(&self, purpose: Purpose, destination: &Destination) -> Result<Admitted, Denial> {
+    pub(crate) fn decide(
+        &self,
+        purpose: Purpose,
+        destination: &Destination,
+    ) -> Result<Decision, Denial> {
         let rules = purpose.rules();
         if self.offline {
             return Err(Denial::Offline);
@@ -217,111 +226,41 @@ impl Configuration {
         if self.route == Route::Proxy && direct_only {
             return Err(Denial::NotThroughProxy);
         }
-        Ok(Admitted {
+        Ok(Decision {
             purpose,
             destination: destination.clone(),
             reach: allowed.reach,
             route: self.route,
             redirects: rules.redirects,
-            followed: 0,
         })
     }
 }
 
-/// A request the configuration lets out: which purpose, to which
-/// destination, at which addresses and by which route, and how many
-/// redirects led to it.
+/// What a configuration answers for a request it would let out: which
+/// purpose, to which destination, at which addresses, by which route, and
+/// what happens to a redirect.
 ///
-/// Only [`Configuration::decide`] makes one, and only the gate moves one
-/// on along a redirect, so no other code can write one or say how many
-/// redirects it followed. It cannot be copied: following a redirect uses
-/// the request up, so its count cannot be started again from an earlier
-/// copy.
+/// A decision is an answer, not a pass. Nothing is pinned, followed or
+/// connected on the strength of one: the gate that asked seals it into an
+/// [`Admitted`](crate::gate::Admitted) request, and only a sealed request
+/// goes further.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Admitted {
+pub(crate) struct Decision {
     /// The purpose the request names.
-    purpose: Purpose,
+    pub(crate) purpose: Purpose,
     /// Where the request goes.
-    destination: Destination,
+    pub(crate) destination: Destination,
     /// Which addresses the destination may resolve to.
-    reach: Reach,
+    pub(crate) reach: Reach,
     /// How the request leaves.
-    route: Route,
+    pub(crate) route: Route,
     /// What happens to a redirect.
-    redirects: Redirects,
-    /// How many redirects the request has followed to get here.
-    followed: u8,
-}
-
-impl Admitted {
-    /// The purpose the request names.
-    pub(crate) fn purpose(&self) -> Purpose {
-        self.purpose
-    }
-
-    /// Where the request goes.
-    pub(crate) fn destination(&self) -> &Destination {
-        &self.destination
-    }
-
-    /// Which addresses the destination may resolve to.
-    pub(crate) fn reach(&self) -> Reach {
-        self.reach
-    }
-
-    /// How the request leaves.
-    pub(crate) fn route(&self) -> Route {
-        self.route
-    }
-
-    /// What happens to a redirect.
-    pub(crate) fn redirects(&self) -> Redirects {
-        self.redirects
-    }
-
-    /// How many redirects the request has followed to get here.
-    pub(crate) fn followed(&self) -> u8 {
-        self.followed
-    }
-
-    /// The request this one becomes by following a redirect, given `hop`,
-    /// what the configuration decided for the redirect's target: `hop`,
-    /// with one more redirect behind it than this request has.
-    pub(crate) fn followed_to(self, hop: Self) -> Self {
-        Self {
-            followed: self.followed.saturating_add(1),
-            ..hop
-        }
-    }
-}
-
-#[cfg(test)]
-impl Admitted {
-    /// A request as the configuration would let it out, for the tests of
-    /// what no R1 purpose does yet: following a redirect, and having
-    /// followed some already. The build outside tests has no such door.
-    pub(crate) fn assumed(
-        purpose: Purpose,
-        destination: Destination,
-        reach: Reach,
-        route: Route,
-        redirects: Redirects,
-        followed: u8,
-    ) -> Self {
-        Self {
-            purpose,
-            destination,
-            reach,
-            route,
-            redirects,
-            followed,
-        }
-    }
+    pub(crate) redirects: Redirects,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Admitted, Allowed, Configuration, Reach, Route, UPDATE_FEED_HOST};
+    use super::{Allowed, Configuration, Decision, Reach, Route, UPDATE_FEED_HOST};
     use crate::denial::Denial;
     use crate::destination::{Destination, Host, Scheme};
     use crate::purpose::{Purpose, Redirects};
@@ -340,14 +279,13 @@ mod tests {
     }
 
     /// What is let out directly to a destination on the internet.
-    fn direct(purpose: Purpose, destination: Destination) -> Admitted {
-        Admitted {
+    fn direct(purpose: Purpose, destination: Destination) -> Decision {
+        Decision {
             purpose,
             destination,
             reach: Reach::Global,
             route: Route::Direct,
             redirects: Redirects::Refused,
-            followed: 0,
         }
     }
 
@@ -508,13 +446,12 @@ mod tests {
         );
         assert_eq!(
             configuration.decide(Purpose::Acme, &lan_dns()),
-            Ok(Admitted {
+            Ok(Decision {
                 purpose: Purpose::Acme,
                 destination: lan_dns(),
                 reach: Reach::Lan,
                 route: Route::Direct,
                 redirects: Redirects::Refused,
-                followed: 0,
             })
         );
         let refused = [
@@ -596,7 +533,7 @@ mod tests {
         assert_eq!(
             configuration
                 .decide(Purpose::Acme, &lan_dns())
-                .map(|admitted| admitted.reach),
+                .map(|decision| decision.reach),
             Ok(Reach::Lan)
         );
         assert_eq!(
@@ -606,13 +543,12 @@ mod tests {
         let proxied = configuration.through_proxy();
         assert_eq!(
             proxied.decide(Purpose::UpdateFeed, &https("gunmetal.tv")),
-            Ok(Admitted {
+            Ok(Decision {
                 purpose: Purpose::UpdateFeed,
                 destination: https("gunmetal.tv"),
                 reach: Reach::Global,
                 route: Route::Proxy,
                 redirects: Redirects::Refused,
-                followed: 0,
             })
         );
         assert_eq!(

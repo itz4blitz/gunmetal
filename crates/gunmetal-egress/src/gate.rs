@@ -23,12 +23,18 @@
 //! any refusal. Nothing in this crate can make the client ask: an admitted
 //! request the client drops before asking leaves no line.
 //!
-//! The types keep the order of the questions. Only
-//! [`Configuration::decide`], which [`Gate::admit`] asks, makes an
-//! [`Admitted`] request, and only the gate's check makes the [`Pinned`]
-//! addresses that the one place that connects takes. The count of
-//! redirects a request followed travels inside it, where no caller can set
-//! it.
+//! The types keep the order of the questions. An [`Admitted`] request is
+//! made only by the gate whose configuration decided for it, and it is
+//! sealed for that gate: what it may reach, how it leaves and how many
+//! redirects it followed are told only to the gate that admitted it. A
+//! gate asked about a request that another gate admitted, under whatever
+//! configuration, refuses it as [`Denial::AdmittedElsewhere`], so nothing
+//! but the gate's own configuration stands behind what it pins or follows.
+//! Only the gate's address check makes the [`Pinned`] addresses that the
+//! one place that connects takes, and it is asked only about a request
+//! that leaves directly: one that leaves through the proxy is refused as
+//! [`Denial::RoutedThroughProxy`], so it is never pinned and never
+//! recorded as connecting by itself.
 
 use core::net::IpAddr;
 use std::collections::VecDeque;
@@ -40,10 +46,16 @@ use gunmetal_core::time::Timestamp;
 use crate::address::{self, Pinned};
 use crate::denial::Denial;
 use crate::destination::{Destination, Host};
-use crate::grant::{Admitted, Configuration, Route};
+use crate::grant::{Configuration, Route};
 use crate::listening::Listening;
 use crate::purpose::Purpose;
 use crate::redirect;
+
+mod admitted;
+
+pub use self::admitted::Admitted;
+pub(crate) use self::admitted::Direct;
+use self::admitted::Issuer;
 
 /// How many attempts the record keeps. An older attempt makes way for a
 /// newer one, so the record cannot grow without bound however many
@@ -72,6 +84,7 @@ pub struct Connection {
 pub struct Gate<S> {
     configuration: Configuration,
     listening: Listening,
+    issuer: Issuer,
     sink: S,
     activity: Mutex<VecDeque<Connection>>,
 }
@@ -84,17 +97,19 @@ impl<S: SecuritySink> Gate<S> {
         Self {
             configuration,
             listening,
+            issuer: Issuer::fresh(),
             sink,
             activity: Mutex::new(VecDeque::new()),
         }
     }
 
     /// Decides whether `purpose` may send a request to `destination`,
-    /// before anything is resolved or connected.
+    /// before anything is resolved or connected. What it admits is sealed
+    /// for this gate: no other gate will pin or follow it.
     ///
     /// # Errors
     ///
-    /// The [`Denial`] of [`Configuration::decide`], which is recorded and
+    /// The [`Denial`] of this gate's configuration, which is recorded and
     /// reported.
     pub fn admit(
         &self,
@@ -103,26 +118,29 @@ impl<S: SecuritySink> Gate<S> {
         now: Timestamp,
     ) -> Result<Admitted, Denial> {
         match self.configuration.decide(purpose, destination) {
-            Ok(admitted) => {
-                if admitted.route() == Route::Proxy {
+            Ok(decision) => {
+                if decision.route == Route::Proxy {
                     self.note(purpose, destination, Ok(()), now);
                 }
-                Ok(admitted)
+                Ok(Admitted::issue(self.issuer, decision))
             }
             Err(denial) => Err(self.refuse(purpose, destination, denial, now)),
         }
     }
 
-    /// Decides which addresses an admitted request that leaves directly
-    /// may connect to, given everything its host resolved to: an empty
-    /// `resolved` when the name did not resolve. The client asks this for
-    /// every such request, so that each has its line in the record.
+    /// Decides which addresses a request this gate admitted, and that
+    /// leaves directly, may connect to, given everything its host resolved
+    /// to: an empty `resolved` when the name did not resolve. The client
+    /// asks this for every such request, so that each has its line in the
+    /// record.
     ///
     /// # Errors
     ///
-    /// [`Denial::NoAddress`], [`Denial::TooManyAddresses`],
-    /// [`Denial::AddressRefused`] or [`Denial::OwnAddress`], which is
-    /// recorded and reported.
+    /// The first of these that applies, which is recorded and reported:
+    /// [`Denial::AdmittedElsewhere`] when another gate admitted the
+    /// request; [`Denial::RoutedThroughProxy`] when it leaves through the
+    /// proxy; then [`Denial::NoAddress`], [`Denial::TooManyAddresses`],
+    /// [`Denial::AddressRefused`] or [`Denial::OwnAddress`].
     pub fn pin(
         &self,
         admitted: &Admitted,
@@ -130,12 +148,10 @@ impl<S: SecuritySink> Gate<S> {
         now: Timestamp,
     ) -> Result<Pinned, Denial> {
         let destination = admitted.destination();
-        match address::pin(
-            admitted.reach(),
-            destination.port,
-            &self.listening,
-            resolved,
-        ) {
+        let checked = admitted
+            .direct(self.issuer)
+            .and_then(|direct| address::pin(&direct, &self.listening, resolved));
+        match checked {
             Ok(pinned) => {
                 self.note(admitted.purpose(), destination, Ok(()), now);
                 Ok(pinned)
@@ -144,22 +160,27 @@ impl<S: SecuritySink> Gate<S> {
         }
     }
 
-    /// Decides whether the request `from` may follow a redirect to `to`.
-    /// The hop is admitted like a first request, so its addresses are
-    /// checked next, and it has followed one redirect more than `from`.
-    /// `from` is used up either way, so a count cannot start again from it.
+    /// Decides whether `from`, a request this gate admitted, may follow a
+    /// redirect to `to`. The hop is admitted like a first request, so its
+    /// addresses are checked next, and it has followed one redirect more
+    /// than `from`. `from` is used up either way, so a count cannot start
+    /// again from it.
     ///
     /// # Errors
     ///
-    /// The [`Denial`] of [`follow`](crate::redirect::follow) or of
-    /// [`Gate::admit`], which is recorded and reported.
+    /// [`Denial::AdmittedElsewhere`] when another gate admitted `from`,
+    /// then the [`Denial`] of [`follow`](crate::redirect::follow) or of
+    /// [`Gate::admit`]. Each is recorded and reported.
     pub fn redirect(
         &self,
         from: Admitted,
         to: &Destination,
         now: Timestamp,
     ) -> Result<Admitted, Denial> {
-        match redirect::follow(from.redirects(), from.followed(), from.destination(), to) {
+        let allowed = from.redirects(self.issuer).and_then(|(policy, followed)| {
+            redirect::follow(policy, followed, from.destination(), to)
+        });
+        match allowed {
             Ok(()) => self
                 .admit(from.purpose(), to, now)
                 .map(|hop| from.followed_to(hop)),
@@ -221,6 +242,9 @@ impl<S: SecuritySink> Gate<S> {
 /// What code outside this crate must not be able to do with a request.
 /// Rustdoc on stable does not check which error a compile-fail test
 /// produced, so each shares its imports with the control, which compiles.
+/// What it cannot be stopped from doing, making a gate of its own and
+/// bringing what that gate admitted, is refused when it is tried, and the
+/// unit tests below show it.
 #[cfg(doctest)]
 mod compile_fail {
     /// Control: outside this crate, the gate admits a request, pins the
@@ -235,8 +259,8 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
@@ -273,8 +297,36 @@ mod compile_fail {
     /// fn nowhere() -> Listening {
     ///     Listening::none()
     /// }
+    ///
+    /// fn granted(configuration: &Configuration) -> Vec<Purpose> {
+    ///     configuration.granted()
+    /// }
     /// ```
     struct Control;
+
+    /// Supports: SEC-TM-048, SEC-API-079, SEC-PRV-012
+    ///
+    /// No code outside this crate can have a configuration decide: only a
+    /// gate asks its own, so there is no answer to carry to another gate.
+    ///
+    /// ```compile_fail,E0624
+    /// use core::net::{IpAddr, SocketAddr};
+    ///
+    /// use gunmetal_core::audit_event::SecuritySink;
+    /// use gunmetal_core::time::Timestamp;
+    /// use gunmetal_egress::address::Pinned;
+    /// use gunmetal_egress::denial::Denial;
+    /// use gunmetal_egress::destination::Destination;
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
+    /// use gunmetal_egress::listening::Listening;
+    /// use gunmetal_egress::purpose::{Purpose, Redirects};
+    ///
+    /// fn decided(configuration: &Configuration, to: &Destination) -> bool {
+    ///     configuration.decide(Purpose::Acme, to).is_ok()
+    /// }
+    /// ```
+    struct NoDecisionWithoutAGate;
 
     /// Supports: SEC-EXT-002, SEC-API-077
     ///
@@ -289,8 +341,8 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
@@ -313,21 +365,21 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
-    /// fn unrecorded(resolved: &[IpAddr]) -> Result<Pinned, Denial> {
-    ///     gunmetal_egress::address::pin(Reach::Lan, 8123, &Listening::none(), resolved)
+    /// fn unrecorded() {
+    ///     let _check = gunmetal_egress::address::pin;
     /// }
     /// ```
     struct NoCheckWithoutTheGate;
 
     /// Supports: SEC-TM-048, SEC-API-079
     ///
-    /// It cannot write an admitted request either, with whatever purpose,
-    /// destination, reach, route or count of redirects.
+    /// It cannot write an admitted request either, for whatever gate and
+    /// with whatever count of redirects.
     ///
     /// ```compile_fail,E0451
     /// use core::net::{IpAddr, SocketAddr};
@@ -337,20 +389,13 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
-    /// fn forged(destination: Destination) -> Admitted {
-    ///     Admitted {
-    ///         purpose: Purpose::Acme,
-    ///         destination,
-    ///         reach: Reach::Lan,
-    ///         route: Route::Direct,
-    ///         redirects: Redirects::SameHost,
-    ///         followed: 0,
-    ///     }
+    /// fn forged() -> Admitted {
+    ///     Admitted { followed: 0 }
     /// }
     /// ```
     struct NoForgedAdmission;
@@ -367,8 +412,8 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
@@ -396,8 +441,8 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
@@ -425,8 +470,8 @@ mod compile_fail {
     /// use gunmetal_egress::address::Pinned;
     /// use gunmetal_egress::denial::Denial;
     /// use gunmetal_egress::destination::Destination;
-    /// use gunmetal_egress::gate::Gate;
-    /// use gunmetal_egress::grant::{Admitted, Reach, Route};
+    /// use gunmetal_egress::gate::{Admitted, Gate};
+    /// use gunmetal_egress::grant::{Configuration, Reach, Route};
     /// use gunmetal_egress::listening::Listening;
     /// use gunmetal_egress::purpose::{Purpose, Redirects};
     ///
@@ -439,11 +484,11 @@ mod compile_fail {
 
 #[cfg(test)]
 mod tests {
-    use super::{ACTIVITY_CAPACITY, Connection, Gate};
+    use super::{ACTIVITY_CAPACITY, Admitted, Connection, Gate};
     use crate::address::Pinned;
     use crate::denial::Denial;
     use crate::destination::{Destination, Host, Scheme};
-    use crate::grant::{Admitted, Allowed, Configuration, Reach, Route};
+    use crate::grant::{Allowed, Configuration, Decision, Reach, Route};
     use crate::listening::Listening;
     use crate::purpose::{Purpose, Redirects};
     use core::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -521,41 +566,52 @@ mod tests {
         }
     }
 
-    /// An admitted request whose purpose follows redirects, which has
-    /// followed `followed` already. No R1 purpose follows any, so the
+    /// A request for certificate issuance that leaves directly for
+    /// `destination` on the internet, as `gate` would have admitted it
+    /// under this rule for redirects, after `followed` of them.
+    fn request(
+        gate: &Gate<Recorder>,
+        destination: Destination,
+        redirects: Redirects,
+        followed: u8,
+    ) -> Admitted {
+        Admitted::assumed(
+            gate.issuer,
+            Decision {
+                purpose: Purpose::Acme,
+                destination,
+                reach: Reach::Global,
+                route: Route::Direct,
+                redirects,
+            },
+            followed,
+        )
+    }
+
+    /// A request `gate` admitted whose purpose follows redirects, which
+    /// has followed `followed` already. No R1 purpose follows any, so the
     /// tests of the rule make one.
-    fn following(destination: Destination, followed: u8) -> Admitted {
-        Admitted::assumed(
-            Purpose::Acme,
-            destination,
-            Reach::Global,
-            Route::Direct,
-            Redirects::SameHost,
-            followed,
-        )
+    fn following(gate: &Gate<Recorder>, destination: Destination, followed: u8) -> Admitted {
+        request(gate, destination, Redirects::SameHost, followed)
     }
 
-    /// What certificate issuance lets out directly to `destination` on the
-    /// internet, after `followed` redirects.
-    fn issuance(destination: Destination, followed: u8) -> Admitted {
-        Admitted::assumed(
-            Purpose::Acme,
-            destination,
-            Reach::Global,
-            Route::Direct,
-            Redirects::Refused,
-            followed,
-        )
+    /// What `gate` lets out for certificate issuance, directly, to
+    /// `destination` on the internet, after `followed` redirects.
+    fn issuance(gate: &Gate<Recorder>, destination: Destination, followed: u8) -> Admitted {
+        request(gate, destination, Redirects::Refused, followed)
     }
 
-    /// What the update feed lets out through the proxy.
-    fn proxied_feed() -> Admitted {
+    /// What `gate` lets out for the update feed through the proxy.
+    fn proxied_feed(gate: &Gate<Recorder>) -> Admitted {
         Admitted::assumed(
-            Purpose::UpdateFeed,
-            https("gunmetal.tv"),
-            Reach::Global,
-            Route::Proxy,
-            Redirects::Refused,
+            gate.issuer,
+            Decision {
+                purpose: Purpose::UpdateFeed,
+                destination: https("gunmetal.tv"),
+                reach: Reach::Global,
+                route: Route::Proxy,
+                redirects: Redirects::Refused,
+            },
             0,
         )
     }
@@ -644,7 +700,7 @@ mod tests {
         let gate = gate_for(configured().through_proxy());
         assert_eq!(
             gate.admit(Purpose::UpdateFeed, &https("gunmetal.tv"), at(9)),
-            Ok(proxied_feed())
+            Ok(proxied_feed(&gate))
         );
         assert_eq!(
             gate.activity(),
@@ -685,7 +741,7 @@ mod tests {
             let millis = i64::try_from(attempt).expect("a small number");
             assert_eq!(
                 gate.admit(Purpose::UpdateFeed, &feed, at(millis)),
-                Ok(proxied_feed())
+                Ok(proxied_feed(&gate))
             );
         }
         let times: Vec<i64> = gate
@@ -707,7 +763,7 @@ mod tests {
         assert!(poisoned.is_err());
         assert_eq!(
             gate.admit(Purpose::UpdateFeed, &https("gunmetal.tv"), at(7)),
-            Ok(proxied_feed())
+            Ok(proxied_feed(&gate))
         );
         assert_eq!(
             gate.activity(),
@@ -764,11 +820,11 @@ mod tests {
         // is admitted, under the purpose's own rules.
         assert_eq!(
             gate.redirect(
-                following(https("ca.example"), 0),
+                following(&gate, https("ca.example"), 0),
                 &https("ca.example"),
                 at(1)
             ),
-            Ok(issuance(https("ca.example"), 1))
+            Ok(issuance(&gate, https("ca.example"), 1))
         );
         // The same host on a port, and over a scheme, the grant does not
         // name.
@@ -792,18 +848,18 @@ mod tests {
         ];
         for (followed, to, denial) in refusals {
             assert_eq!(
-                gate.redirect(following(https("ca.example"), followed), to, at(2)),
+                gate.redirect(following(&gate, https("ca.example"), followed), to, at(2)),
                 Err(denial)
             );
         }
         // A third redirect is still followed.
         assert_eq!(
             gate.redirect(
-                following(https("ca.example"), 2),
+                following(&gate, https("ca.example"), 2),
                 &https("ca.example"),
                 at(3)
             ),
-            Ok(issuance(https("ca.example"), 3))
+            Ok(issuance(&gate, https("ca.example"), 3))
         );
         assert_eq!(events(&gate), vec![SecurityEvent::GmEgressDenied {}; 4]);
         let outcomes: Vec<Result<(), Denial>> = gate
@@ -828,7 +884,7 @@ mod tests {
         let gate = gate_for(configured());
         let hop = gate
             .redirect(
-                following(https("ca.example"), 1),
+                following(&gate, https("ca.example"), 1),
                 &https("ca.example"),
                 at(1),
             )
@@ -856,23 +912,23 @@ mod tests {
         let gate = gate_for(configured());
         assert_eq!(
             gate.admit(Purpose::Acme, &https("ca.example"), at(1)),
-            Ok(issuance(https("ca.example"), 0))
+            Ok(issuance(&gate, https("ca.example"), 0))
         );
         for (before, after) in [(0, 1), (1, 2), (2, 3)] {
             assert_eq!(
                 gate.redirect(
-                    following(https("ca.example"), before),
+                    following(&gate, https("ca.example"), before),
                     &https("ca.example"),
                     at(2)
                 ),
-                Ok(issuance(https("ca.example"), after)),
+                Ok(issuance(&gate, https("ca.example"), after)),
                 "{before}"
             );
         }
         for before in [3, 4, 255] {
             assert_eq!(
                 gate.redirect(
-                    following(https("ca.example"), before),
+                    following(&gate, https("ca.example"), before),
                     &https("ca.example"),
                     at(3)
                 ),
@@ -952,6 +1008,176 @@ mod tests {
         assert_eq!(
             elsewhere.activity(),
             [line(Purpose::UpdateFeed, "gunmetal.tv", Ok(()), 6)]
+        );
+    }
+
+    /// A configuration that grants certificate issuance a destination on
+    /// the home network.
+    fn with_a_lan_grant() -> Configuration {
+        Configuration::default().own_domain_https(
+            Allowed::public(host("ca.example"), 443),
+            Allowed::lan(Scheme::Http, host("10.0.0.5"), 6379),
+        )
+    }
+
+    /// A caller cannot bring a gate a request that another gate, under a
+    /// configuration of the caller's choosing, admitted: offline mode, the
+    /// claim and the allow-list of the gate that is asked are not passed by.
+    ///
+    /// Supports: SEC-TM-048, SEC-API-079, SEC-PRV-012
+    #[test]
+    fn a_request_another_gate_admitted_is_not_pinned() {
+        let lan = Destination {
+            scheme: Scheme::Http,
+            host: host("10.0.0.5"),
+            port: 6379,
+        };
+        let private = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
+        let lenient = gate_for(with_a_lan_grant());
+        // The gate that is asked grants nothing, or is offline, or has
+        // been given the very same grants: it did not admit the request.
+        for configuration in [
+            Configuration::default().claimed(),
+            configured().offline(),
+            with_a_lan_grant(),
+        ] {
+            let gate = gate_for(configuration);
+            let admitted = lenient.admit(Purpose::Acme, &lan, at(1)).expect("admitted");
+            assert_eq!(
+                gate.pin(&admitted, &[private], at(2)),
+                Err(Denial::AdmittedElsewhere)
+            );
+            assert_eq!(events(&gate), [SecurityEvent::GmEgressDenied {}]);
+            assert_eq!(
+                gate.activity(),
+                [Connection {
+                    purpose: Purpose::Acme,
+                    host: host("10.0.0.5"),
+                    port: 6379,
+                    outcome: Err(Denial::AdmittedElsewhere),
+                    at: at(2),
+                }]
+            );
+        }
+        // The gate that admitted it pins it, and only its record says so.
+        let admitted = lenient.admit(Purpose::Acme, &lan, at(3)).expect("admitted");
+        assert_eq!(
+            lenient
+                .pin(&admitted, &[private], at(4))
+                .as_ref()
+                .map(addresses),
+            Ok(vec![SocketAddr::new(private, 6379)])
+        );
+        assert_eq!(events(&lenient), Vec::<SecurityEvent>::new());
+        assert_eq!(
+            lenient.activity(),
+            [Connection {
+                purpose: Purpose::Acme,
+                host: host("10.0.0.5"),
+                port: 6379,
+                outcome: Ok(()),
+                at: at(4),
+            }]
+        );
+    }
+
+    /// Supports: SEC-TM-048, SEC-EXT-003, SEC-PRV-012
+    #[test]
+    fn a_redirect_is_not_followed_for_a_request_another_gate_admitted() {
+        let lenient = gate_for(configured());
+        for configuration in [
+            Configuration::default().claimed(),
+            configured().offline(),
+            configured(),
+        ] {
+            let gate = gate_for(configuration);
+            // A request whose purpose would follow the redirect, and one
+            // as the other gate really admits it: the gate that is asked
+            // tells neither what its own rules would have said.
+            assert_eq!(
+                gate.redirect(
+                    following(&lenient, https("ca.example"), 0),
+                    &https("ca.example"),
+                    at(2)
+                ),
+                Err(Denial::AdmittedElsewhere)
+            );
+            let admitted = lenient
+                .admit(Purpose::Acme, &https("ca.example"), at(1))
+                .expect("admitted");
+            assert_eq!(
+                gate.redirect(admitted, &https("dns.example"), at(3)),
+                Err(Denial::AdmittedElsewhere)
+            );
+            assert_eq!(events(&gate), vec![SecurityEvent::GmEgressDenied {}; 2]);
+            assert_eq!(
+                gate.activity(),
+                [
+                    line(
+                        Purpose::Acme,
+                        "ca.example",
+                        Err(Denial::AdmittedElsewhere),
+                        2
+                    ),
+                    line(
+                        Purpose::Acme,
+                        "dns.example",
+                        Err(Denial::AdmittedElsewhere),
+                        3
+                    ),
+                ]
+            );
+        }
+        assert_eq!(events(&lenient), Vec::<SecurityEvent>::new());
+        assert_eq!(lenient.activity(), Vec::<Connection>::new());
+    }
+
+    /// The proxy resolves the name of a request that leaves through it and
+    /// connects for it, so the gate pins no address for one: the client
+    /// cannot take a proxied request and connect to its host directly.
+    ///
+    /// Supports: SEC-PRV-012, SEC-PRV-008
+    #[test]
+    fn a_request_through_the_proxy_is_not_pinned() {
+        let gate = gate_for(configured().through_proxy());
+        let admitted = gate
+            .admit(Purpose::UpdateFeed, &https("gunmetal.tv"), at(1))
+            .expect("admitted");
+        let public = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        assert_eq!(
+            gate.pin(&admitted, &[public], at(2)),
+            Err(Denial::RoutedThroughProxy)
+        );
+        // The route is refused before the answer is looked at.
+        assert_eq!(
+            gate.pin(&admitted, &[], at(3)),
+            Err(Denial::RoutedThroughProxy)
+        );
+        assert_eq!(events(&gate), vec![SecurityEvent::GmEgressDenied {}; 2]);
+        assert_eq!(
+            gate.activity(),
+            [
+                line(Purpose::UpdateFeed, "gunmetal.tv", Ok(()), 1),
+                line(
+                    Purpose::UpdateFeed,
+                    "gunmetal.tv",
+                    Err(Denial::RoutedThroughProxy),
+                    2
+                ),
+                line(
+                    Purpose::UpdateFeed,
+                    "gunmetal.tv",
+                    Err(Denial::RoutedThroughProxy),
+                    3
+                ),
+            ]
+        );
+        // Another gate is told nothing about the request, not even how it
+        // leaves.
+        let another = gate_for(configured());
+        assert_eq!(
+            another.pin(&admitted, &[public], at(4)),
+            Err(Denial::AdmittedElsewhere)
         );
     }
 }

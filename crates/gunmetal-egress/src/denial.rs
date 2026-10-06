@@ -23,6 +23,14 @@ pub enum Denial {
     /// and the destination is an address or a LAN destination, whose
     /// addresses could then not be checked.
     NotThroughProxy,
+    /// The request was admitted by another gate, under whatever
+    /// configuration that gate holds, and not by the gate asked to pin its
+    /// addresses or to follow its redirect.
+    AdmittedElsewhere,
+    /// The request leaves through the admin's proxy, which resolves its
+    /// name and connects for it, so the server pins no address for it and
+    /// does not connect to one itself.
+    RoutedThroughProxy,
     /// The name resolved to no address.
     NoAddress,
     /// The name resolved to more addresses than one request looks at.

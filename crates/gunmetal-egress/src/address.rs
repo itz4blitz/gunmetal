@@ -17,14 +17,17 @@
 //!
 //! What passes is a [`Pinned`], which only this check makes. The one place
 //! that connects takes a [`Pinned`], so it cannot be handed an address that
-//! was not checked.
+//! was not checked. And the check is asked only with what a gate read out
+//! of a request it admitted itself, which nothing but that gate can
+//! produce, so no code in this crate or outside it can have addresses
+//! pinned for a request no gate stands behind.
 
 use core::net::{IpAddr, SocketAddr};
 
 use gunmetal_core::net::classify;
 
 use crate::denial::Denial;
-use crate::grant::Reach;
+use crate::gate::Direct;
 use crate::listening::Listening;
 
 /// The most addresses one name may resolve to.
@@ -42,9 +45,8 @@ pub const MAX_RESOLVED: usize = 32;
 /// resolved to, each in its canonical form and on the destination's port,
 /// in the order it was resolved. There is always at least one.
 ///
-/// Only the check in this module makes one, and outside this crate the only
-/// way to that check is [`Gate::pin`](crate::gate::Gate::pin), which records
-/// what it decides.
+/// Only the check in this module makes one, and the only way to that check
+/// is [`Gate::pin`](crate::gate::Gate::pin), which records what it decides.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Pinned {
     addresses: Vec<SocketAddr>,
@@ -58,20 +60,20 @@ impl Pinned {
     }
 }
 
-/// Decides which socket addresses a request may connect to, given
-/// everything its host resolved to and where the server itself listens.
-/// For a host that is an address written out, `resolved` is that address.
+/// Decides which socket addresses a request may connect to, given what
+/// its gate read out of it, everything its host resolved to and where the
+/// server itself listens. For a host that is an address written out,
+/// `resolved` is that address.
 ///
 /// # Errors
 ///
 /// The first of these that applies: [`Denial::NoAddress`] when `resolved`
 /// is empty; [`Denial::TooManyAddresses`] when it holds more than
 /// [`MAX_RESOLVED`] addresses; and, for the first address that is refused,
-/// [`Denial::AddressRefused`] when `reach` does not admit its kind, or
-/// [`Denial::OwnAddress`] when the server listens on it.
+/// [`Denial::AddressRefused`] when the request's reach does not admit its
+/// kind, or [`Denial::OwnAddress`] when the server listens on it.
 pub(crate) fn pin(
-    reach: Reach,
-    port: u16,
+    direct: &Direct,
     listening: &Listening,
     resolved: &[IpAddr],
 ) -> Result<Pinned, Denial> {
@@ -88,13 +90,13 @@ pub(crate) fn pin(
         .map(|address| {
             let address = address.to_canonical();
             let class = classify(address);
-            if !reach.admits(class) {
+            if !direct.reach().admits(class) {
                 return Err(Denial::AddressRefused { address, class });
             }
             if listening.holds(address) {
                 return Err(Denial::OwnAddress { address });
             }
-            Ok(SocketAddr::new(address, port))
+            Ok(SocketAddr::new(address, direct.port()))
         })
         .collect::<Result<Vec<SocketAddr>, Denial>>()
         .map(|addresses| Pinned { addresses })
@@ -102,8 +104,9 @@ pub(crate) fn pin(
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_RESOLVED, Pinned, pin};
+    use super::{MAX_RESOLVED, Pinned};
     use crate::denial::Denial;
+    use crate::gate::Direct;
     use crate::grant::Reach;
     use crate::listening::Listening;
     use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -111,6 +114,17 @@ mod tests {
     use proptest::prelude::*;
     // Direct imports: Qodana does not resolve these macros through `prelude::*`.
     use proptest::{prop_oneof, proptest};
+
+    /// The check, asked as a gate asks it for a request it admitted with
+    /// this reach and port.
+    fn pin(
+        reach: Reach,
+        port: u16,
+        listening: &Listening,
+        resolved: &[IpAddr],
+    ) -> Result<Pinned, Denial> {
+        super::pin(&Direct::assumed(reach, port), listening, resolved)
+    }
 
     fn ip(text: &str) -> IpAddr {
         text.parse().expect("an address")
