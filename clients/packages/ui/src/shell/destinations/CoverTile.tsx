@@ -8,7 +8,8 @@ export type CoverTileProps = {
 };
 
 export function CoverTile({ tone, label, size = 'grid', coverId }: CoverTileProps) {
-  const glyph = label.trim().slice(0, 1) || '·';
+  const trimmed = label.trim();
+  const glyph = trimmed.length === 0 ? '·' : trimmed.slice(0, 1).toUpperCase();
   return (
     <View
       id={coverId ?? `cover-${size}`}
@@ -16,6 +17,7 @@ export function CoverTile({ tone, label, size = 'grid', coverId }: CoverTileProp
       accessibilityLabel={label}
       accessibilityRole="image"
     >
+      <View dataSet={{ coverPlate: '1' }} />
       <View dataSet={{ coverWash: '1' }} />
       <View dataSet={{ coverSheen: '1' }} />
       <Text dataSet={{ coverLabel: '1' }}>{glyph}</Text>

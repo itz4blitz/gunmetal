@@ -1,5 +1,7 @@
 export type ShellMessages = {
   wordmark: string;
+  skipToContent: string;
+  skipToPlayer: string;
   navHome: string;
   navSearch: string;
   navLibrary: string;
@@ -28,6 +30,8 @@ export type ShellMessages = {
 export function shellMessages(): ShellMessages {
   return {
     wordmark: 'Gunmetal',
+    skipToContent: 'Skip to content',
+    skipToPlayer: 'Skip to player',
     navHome: 'Home',
     navSearch: 'Search',
     navLibrary: 'Library',

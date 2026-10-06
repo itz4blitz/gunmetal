@@ -26,19 +26,26 @@ export function PlayerBar({
     playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
 
   return (
-    <View id="player-bar" accessibilityRole="region" accessibilityLabel={messages.playerRegion}>
+    <View
+      id="player-bar"
+      accessibilityRole="region"
+      accessibilityLabel={messages.playerRegion}
+      tabIndex={-1}
+    >
       {empty ? (
         <View id="player-now" dataSet={{ empty: '1' }}>
           <Text id="player-empty">{messages.playerEmpty}</Text>
         </View>
       ) : (
-        <View id="player-now" dataSet={{ playing: playback.playing ? '1' : '0' }}>
-          <CoverTile tone={playback.coverTone} label={playback.title} size="bar" />
+        <>
+          <View id="player-art" dataSet={{ playing: playback.playing ? '1' : '0' }}>
+            <CoverTile tone={playback.coverTone} label={playback.title} size="bar" />
+          </View>
           <View id="player-meta">
             <Text id="player-title">{playback.title}</Text>
             <Text id="player-artist">{playback.artistName}</Text>
           </View>
-        </View>
+        </>
       )}
       <View id="player-transport">
         <ControlButton

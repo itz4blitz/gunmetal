@@ -5,6 +5,8 @@ test('the catalogue returns trusted shell and destination strings', () => {
   expect(catalogue()).toStrictEqual({
     shell: {
       wordmark: 'Gunmetal',
+      skipToContent: 'Skip to content',
+      skipToPlayer: 'Skip to player',
       navHome: 'Home',
       navSearch: 'Search',
       navLibrary: 'Library',

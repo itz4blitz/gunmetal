@@ -133,3 +133,38 @@ test('controlled theme and width props update the shell attributes', () => {
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-theme')).toStrictEqual('oled');
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-width')).toStrictEqual('expanded');
 });
+
+function focusableElements(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>('[tabindex]')].filter((element) => {
+    const value = element.getAttribute('tabindex');
+    return value !== null && Number(value) >= 0;
+  });
+}
+
+test('skip links are the first focusable items and move focus to content and player', () => {
+  const { container } = render(<Shell path="/" widthPx={1600} />);
+  const root = container.querySelector('#token-shell') as HTMLElement;
+  const skipContent = screen.getByRole('link', { name: 'Skip to content' });
+  const skipPlayer = screen.getByRole('link', { name: 'Skip to player' });
+  expect(skipContent.id).toStrictEqual('skip-to-content');
+  expect(skipPlayer.id).toStrictEqual('skip-to-player');
+  expect(focusableElements(root).slice(0, 2)).toStrictEqual([skipContent, skipPlayer]);
+
+  const content = root.querySelector('#content') as HTMLElement;
+  const player = root.querySelector('#player-bar') as HTMLElement;
+  expect(content.getAttribute('tabindex')).toStrictEqual('-1');
+  expect(player.getAttribute('tabindex')).toStrictEqual('-1');
+
+  fireEvent.click(skipContent);
+  expect(document.activeElement).toBe(content);
+  fireEvent.click(skipPlayer);
+  expect(document.activeElement).toBe(player);
+  fireEvent.keyDown(skipContent, { key: 'Enter' });
+  expect(document.activeElement).toBe(content);
+  fireEvent.keyDown(skipPlayer, { key: ' ' });
+  expect(document.activeElement).toBe(player);
+  fireEvent.keyDown(skipContent, { key: 'Tab' });
+  expect(document.activeElement).toBe(player);
+  fireEvent.keyDown(skipPlayer, { key: 'Escape' });
+  expect(document.activeElement).toBe(player);
+});

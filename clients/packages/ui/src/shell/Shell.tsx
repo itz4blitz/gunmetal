@@ -53,6 +53,11 @@ function detailPath(match: MatchResult): string {
   return '/library';
 }
 
+function focusLandmark(id: 'content' | 'player-bar'): void {
+  const target = globalThis.document.getElementById(id);
+  target?.focus();
+}
+
 export function Shell({
   path,
   search = '',
@@ -214,6 +219,46 @@ export function Shell({
 
   const showWideQueue = width === 'wide';
 
+  const skipToContent = (
+    <View
+      id="skip-to-content"
+      accessibilityRole="link"
+      accessibilityLabel={messages.shell.skipToContent}
+      tabIndex={0}
+      onClick={() => {
+        focusLandmark('content');
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          focusLandmark('content');
+        }
+      }}
+    >
+      <Text>{messages.shell.skipToContent}</Text>
+    </View>
+  );
+
+  const skipToPlayer = (
+    <View
+      id="skip-to-player"
+      accessibilityRole="link"
+      accessibilityLabel={messages.shell.skipToPlayer}
+      tabIndex={0}
+      onClick={() => {
+        focusLandmark('player-bar');
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          focusLandmark('player-bar');
+        }
+      }}
+    >
+      <Text>{messages.shell.skipToPlayer}</Text>
+    </View>
+  );
+
   return (
     <View
       id="token-shell"
@@ -223,6 +268,10 @@ export function Shell({
         landmarks: currentLandmarks.join(' '),
       }}
     >
+      <View id="skip-links">
+        {skipToContent}
+        {skipToPlayer}
+      </View>
       <View id="shell-frame">
         <View id="shell-brand">
           <Text id="shell-wordmark">{messages.shell.wordmark}</Text>
@@ -248,7 +297,7 @@ export function Shell({
             footer={navFooter}
           />
         ) : null}
-        <View id="content" accessibilityRole="main">
+        <View id="content" accessibilityRole="main" tabIndex={-1}>
           <Destination
             match={match}
             messages={messages}

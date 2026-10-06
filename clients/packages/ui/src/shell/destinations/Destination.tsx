@@ -72,7 +72,12 @@ export function Destination({
   if (match.route.path === '/') {
     return (
       <View id="destination">
-        <Home messages={messages.destinations} library={library} onOpenAlbum={onOpenAlbum} />
+        <Home
+          messages={messages.destinations}
+          library={library}
+          onOpenAlbum={onOpenAlbum}
+          onPlayAlbum={onPlayAlbum}
+        />
       </View>
     );
   }
@@ -83,6 +88,7 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
+          onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
         />
       </View>
@@ -95,6 +101,7 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
+          onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
         />
       </View>

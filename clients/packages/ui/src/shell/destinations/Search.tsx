@@ -9,6 +9,7 @@ export type SearchProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
+  onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
 };
 
@@ -38,7 +39,13 @@ function demoLocalHits(
   return { albums, tracks };
 }
 
-export function Search({ messages, library, onOpenAlbum, onPlayTrack }: SearchProps) {
+export function Search({
+  messages,
+  library,
+  onOpenAlbum,
+  onPlayAlbum,
+  onPlayTrack,
+}: SearchProps) {
   const [query, setQuery] = useState('');
   const hits = demoLocalHits(library, query);
   const hasQuery = query.trim().length > 0;
@@ -76,6 +83,7 @@ export function Search({ messages, library, onOpenAlbum, onPlayTrack }: SearchPr
                     album={album}
                     messages={messages}
                     onOpen={onOpenAlbum}
+                    onPlay={onPlayAlbum}
                   />
                 ))}
               </View>

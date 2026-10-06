@@ -12,10 +12,17 @@ export type LibraryProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
+  onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
 };
 
-export function Library({ messages, library, onOpenAlbum, onPlayTrack }: LibraryProps) {
+export function Library({
+  messages,
+  library,
+  onOpenAlbum,
+  onPlayAlbum,
+  onPlayTrack,
+}: LibraryProps) {
   const [tab, setTab] = useState<LibraryTab>('albums');
 
   return (
@@ -52,7 +59,13 @@ export function Library({ messages, library, onOpenAlbum, onPlayTrack }: Library
       {tab === 'albums' ? (
         <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
           {library.albums.map((album) => (
-            <AlbumTile key={album.id} album={album} messages={messages} onOpen={onOpenAlbum} />
+            <AlbumTile
+              key={album.id}
+              album={album}
+              messages={messages}
+              onOpen={onOpenAlbum}
+              onPlay={onPlayAlbum}
+            />
           ))}
         </View>
       ) : null}
