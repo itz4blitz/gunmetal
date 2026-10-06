@@ -34,6 +34,7 @@ export function ThemeSwitcher({ messages, theme, onThemeChange }: ThemeSwitcherP
             accessibilityRole="button"
             accessibilityLabel={themeLabel(messages, id)}
             accessibilityState={{ selected }}
+            dataSet={{ selected: selected ? '1' : '0' }}
             tabIndex={0}
             onClick={() => {
               onThemeChange(id);

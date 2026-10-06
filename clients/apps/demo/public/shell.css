@@ -1440,7 +1440,9 @@ body,
   color: var(--gm-text-primary);
 }
 
-/* Underline brass indicator — radius.m hit target, never filled pills. */
+/* Underline brass indicator — radius.m hit target, never filled pills.
+   data-selected is the paint signal; RN-web does not emit aria-selected on View. */
+#library-tabs [data-selected='1'],
 #library-tabs [aria-selected='true'] {
   position: relative;
   background: transparent;
@@ -1449,6 +1451,7 @@ body,
   box-shadow: none;
 }
 
+#library-tabs [data-selected='1']::after,
 #library-tabs [aria-selected='true']::after {
   content: '';
   position: absolute;
@@ -1776,6 +1779,7 @@ body,
   box-shadow: none;
 }
 
+#settings-appearance #theme-switcher [data-selected='1'],
 #settings-appearance #theme-switcher [aria-selected='true'] {
   color: var(--gm-text-primary);
   background: var(--gm-bg-raised);

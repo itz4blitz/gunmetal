@@ -90,9 +90,9 @@ test('library tabs stick with a brass underline indicator at radius.m, not pills
   expect(css.includes('#library-tabs')).toStrictEqual(true);
   expect(css.includes('position: sticky')).toStrictEqual(true);
   expect(css.includes('var(--gm-accent-indicator)')).toStrictEqual(true);
-  expect(css.includes('#library-tabs [aria-selected=\'true\']::after')).toStrictEqual(true);
+  expect(css.includes("#library-tabs [data-selected='1']::after")).toStrictEqual(true);
   expect(css.includes('var(--gm-radius-m)')).toStrictEqual(true);
-  const marker = "#library-tabs [aria-selected='true']";
+  const marker = "#library-tabs [data-selected='1']";
   const start = css.indexOf(marker);
   const block = css.slice(start, css.indexOf('}', start) + 1);
   expect(block.includes('border-radius: var(--gm-radius-m)')).toStrictEqual(true);

@@ -151,6 +151,7 @@ function TabButton({ id, label, selected, onSelect }: TabButtonProps) {
       accessibilityRole="tab"
       accessibilityLabel={label}
       accessibilityState={{ selected }}
+      dataSet={{ selected: selected ? '1' : '0' }}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(event) => {

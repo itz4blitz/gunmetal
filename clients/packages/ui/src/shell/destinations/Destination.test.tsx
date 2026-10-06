@@ -65,7 +65,13 @@ test('home library search and settings destinations render fixture chrome', () =
     `${library.albums.length} albums`,
   );
   expect(document.querySelector('#destination')?.getAttribute('data-page-enter')).toStrictEqual('1');
+  expect(document.querySelector('#library-tab-albums')?.getAttribute('data-selected')).toStrictEqual(
+    '1',
+  );
   fireEvent.click(screen.getByRole('tab', { name: 'Artists' }));
+  expect(document.querySelector('#library-tab-artists')?.getAttribute('data-selected')).toStrictEqual(
+    '1',
+  );
   expect(document.querySelector('[data-artist-avatar="1"]')).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: ' ' });
   expect(screen.getByRole('heading', { name: 'Signal Loss' }).id).toStrictEqual(
@@ -150,12 +156,15 @@ test('opening an album uses history itemId and play fills the bar', () => {
   expect(screen.getByRole('heading', { name: 'Act One' })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: ' ' });
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Curtain');
-  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
-  expect(screen.getByRole('button', { name: 'Play' }).id).toStrictEqual('shell-play');
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'Enter' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Next' }), { key: ' ' });
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(document.querySelector('#player-full')).toBeNull();
+  fireEvent.click(document.querySelector('#shell-play')!);
+  expect(document.querySelector('#shell-play')?.getAttribute('aria-label')).toStrictEqual('Play');
+  fireEvent.keyDown(document.querySelector('#shell-play')!, { key: 'Enter' });
+  fireEvent.keyDown(document.querySelector('#player-next')!, { key: ' ' });
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Understudy');
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Previous' }), { key: 'Enter' });
+  fireEvent.keyDown(document.querySelector('#player-prev')!, { key: 'Enter' });
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Curtain');
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' });
@@ -262,7 +271,7 @@ test('compact queue sheet opens and closes from the player queue control', () =>
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: 'Tab' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Pause' }), { key: 'Tab' });
+  fireEvent.keyDown(document.querySelector('#shell-play')!, { key: 'Tab' });
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   expect(navigated).toStrictEqual(['/library', '/library']);
 });
