@@ -50,7 +50,12 @@ pub enum Finding {
 /// each module of `gunmetal-wasm` that declares mirror types.
 pub fn generated() -> Vec<File> {
     vec![
+        file("gain", &gunmetal_wasm::gain::DECLARATIONS),
         file("links", &gunmetal_wasm::links::DECLARATIONS),
+        file("lyrics", &gunmetal_wasm::lyrics::DECLARATIONS),
+        file("player", &gunmetal_wasm::player::DECLARATIONS),
+        file("queue", &gunmetal_wasm::queue::DECLARATIONS),
+        file("shuffle", &gunmetal_wasm::shuffle::DECLARATIONS),
         file("text", &gunmetal_wasm::text::DECLARATIONS),
     ]
 }

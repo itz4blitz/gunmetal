@@ -51,6 +51,13 @@ impl EntryId {
     pub const fn new(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
+
+    /// The sixteen bytes this identifier carries. The WebAssembly facade
+    /// (WP-236) converts them field by field; nothing else should need them.
+    #[must_use]
+    pub const fn bytes(self) -> [u8; 16] {
+        self.0
+    }
 }
 
 /// What an entry was chosen from, shown as "Playing from" (MUS-123): the
@@ -226,5 +233,15 @@ mod tests {
                 player: None,
             }
         );
+    }
+
+    #[test]
+    fn an_entry_id_gives_back_the_bytes_it_was_made_from() {
+        let bytes = [
+            0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f, 0x60, 0x71, 0x82, 0x93, 0xa4, 0xb5, 0xc6, 0xd7,
+            0xe8, 0xf9,
+        ];
+        assert_eq!(EntryId::new(bytes).bytes(), bytes);
+        assert_eq!(EntryId::new([0; 16]).bytes(), [0; 16]);
     }
 }
