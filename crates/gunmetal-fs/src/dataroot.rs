@@ -20,6 +20,26 @@
 //! [`DataRoot::replace`] interrupted by a crash left in `secrets/` is
 //! removed and reported the same way. Anything else is refused. Files are
 //! created with mode 0600 and directories with mode 0700.
+//!
+//! The user log names its directories and segments at run time, one
+//! directory for each stream and one segment for each month (ADR 3,
+//! section 3), so it gets three operations no other store has:
+//! [`DataRoot::log_streams`] and [`DataRoot::log_segments`] list what is
+//! there, reading at most [`LIST_MAX`] entries of a directory, and
+//! [`DataRoot::remove_log_stream`] removes one profile's directory. Each
+//! takes typed values and builds the names itself, lists only what is
+//! itself a directory or a file of such a name, and removes only what
+//! [`DataPath::log_stream`] and [`DataPath::log_segment`] can name.
+//!
+//! None of the three follows a symbolic link. Each directory on the way,
+//! `durable`, then `log`, then the stream's own, is opened by its one name
+//! beneath the handle of the directory that holds it, in a single call
+//! that succeeds only if the name is itself a directory (`O_DIRECTORY`
+//! with `O_NOFOLLOW`). No look at a name comes before the open of it, so
+//! nothing can be put in a directory's place between the two. What a
+//! directory holds is then read, inspected and unlinked by name through
+//! the handle that was opened, which does not follow a link either, and a
+//! removal syncs that same handle of `durable/log`.
 #![expect(
     clippy::disallowed_methods,
     reason = "the data-root handle is the workspace's filesystem door: it opens the root by path once and works beneath its handle (SEC-MED-033, SEC-HIS-016)"
@@ -35,7 +55,7 @@ use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions,
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
-use crate::path::{self, DataDir, DataPath};
+use crate::path::{self, DataDir, DataPath, LogMonth, LogStream, USER_LOG};
 
 /// The mode of every directory in the data directory.
 pub const DIR_MODE: u32 = 0o700;
@@ -43,11 +63,29 @@ pub const DIR_MODE: u32 = 0o700;
 /// The mode of every file the data root creates.
 pub const FILE_MODE: u32 = 0o600;
 
+/// The most entries a listing of one of the user log's directories reads.
+///
+/// `durable/log` holds one directory for each profile and one for the
+/// household, and a stream's directory one segment for each month it was
+/// written in: 4,096 entries are more profiles than a household's server
+/// has, and the months of 341 years. A directory that holds more was not
+/// filled by the server, and is refused rather than read to its end.
+pub const LIST_MAX: usize = 4_096;
+
 /// How the data directory itself is opened: a readable descriptor rather
 /// than `cap-std`'s `O_PATH` one, so the root's own mode can be repaired
 /// through it, and only if it is a directory.
 const ROOT_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
+    .union(OFlags::CLOEXEC);
+
+/// How a directory of the user log is opened beneath the handle of the
+/// directory that holds it: only if the name is itself a directory, which
+/// `O_DIRECTORY` with `O_NOFOLLOW` makes the one call decide, and readable,
+/// so that the handle can be synced.
+const DIR_FLAGS: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
 /// What to do with a wrong mode on something the service account owns.
@@ -139,9 +177,11 @@ pub enum Op {
     Write,
     /// Renaming a finished file over the old one.
     Rename,
-    /// Syncing the directory that holds a renamed file.
+    /// Syncing the directory that holds a renamed file, or the user log's
+    /// directory once a stream is gone from it.
     Sync,
-    /// Removing a temporary file that an interrupted replace left behind.
+    /// Removing a temporary file that an interrupted replace left behind,
+    /// or a stream's directory and segments from the user log.
     Remove,
 }
 
@@ -245,6 +285,49 @@ pub struct Refused {
     pub error: DataRootError,
     /// The repairs made before it, in order.
     pub repairs: Vec<Repair>,
+}
+
+/// What a listing of one of the user log's directories found.
+///
+/// A listing is whole or it is an error. An entry that cannot be inspected
+/// fails it, because a listing without that entry would hide a stream or a
+/// month from a caller that replays what it is given. The one entry a
+/// listing leaves out is an entry removed while the listing was made: it is
+/// in neither list, as it is no longer in the directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listing<T> {
+    /// What belongs there, in the order of the names: the streams whose
+    /// directory is itself a directory, or the months whose segment is
+    /// itself a regular file. The order of the names is the order of the
+    /// values, so the list is sorted: the household's stream comes before
+    /// every profile's, profiles come by ID, and months come oldest first.
+    pub entries: Vec<T>,
+    /// The names of everything else, in order: an entry whose name no
+    /// typed constructor builds, and an entry of such a name that is not
+    /// the kind of object that belongs there, such as a symbolic link.
+    /// The temporary file a [`DataRoot::replace`] of a segment left when a
+    /// crash interrupted it is among them.
+    pub foreign: Vec<OsString>,
+}
+
+/// Why one of the user log's directories could not be listed or removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogDirError {
+    /// The data root refused: the directory is missing, is not itself a
+    /// directory, or an operating-system call on it failed.
+    Root(DataRootError),
+    /// The directory holds more than `max` entries, so it was not read to
+    /// its end, and nothing in it was listed or removed.
+    TooMany {
+        /// The directory.
+        item: Item,
+        /// The most entries a listing reads, [`LIST_MAX`].
+        max: usize,
+    },
+    /// The household's stream was named for removal. Only a profile's
+    /// stream is ever removed (ADR 3, sections 3 and 8): what the household
+    /// curated stays when an account is deleted. Nothing was touched.
+    Household,
 }
 
 /// Maps an operating-system error about `item` during `op`.
@@ -712,6 +795,101 @@ impl DataRoot {
             .map_err(io_error(Item::Path(path.clone()), Op::CreateDir))
     }
 
+    /// The streams that have a directory in the user log, `durable/log`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when `durable/log` does not exist, is
+    /// not itself a directory or cannot be read, or when an entry named
+    /// like a stream's directory cannot be inspected, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_streams(&self) -> Result<Listing<LogStream>, LogDirError> {
+        let item = Item::Path(USER_LOG);
+        self.log_dir().map_err(LogDirError::Root).and_then(|log| {
+            listing(&log, &item, Kind::Dir, LogStream::named, &|name| {
+                rustix::fs::statat(&log, name, AtFlags::SYMLINK_NOFOLLOW)
+            })
+        })
+    }
+
+    /// The months `stream` has a segment for in the user log.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Root`] when the stream's directory does not
+    /// exist, is not itself a directory or cannot be read, or when an
+    /// entry named like a segment cannot be inspected, and
+    /// [`LogDirError::TooMany`] when it holds more than [`LIST_MAX`]
+    /// entries.
+    pub fn log_segments(&self, stream: LogStream) -> Result<Listing<LogMonth>, LogDirError> {
+        let item = Item::Path(DataPath::log_stream(stream));
+        self.log_dir()
+            .and_then(|log| real_dir(&log, &stream.name(), &item))
+            .map_err(LogDirError::Root)
+            .and_then(|dir| {
+                listing(&dir, &item, Kind::File, LogMonth::named, &|name| {
+                    rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW)
+                })
+            })
+    }
+
+    /// Removes a profile's `stream` from the user log: every segment in
+    /// its directory, every temporary file a [`DataRoot::replace`] of a
+    /// segment left beside one, then the directory itself, and syncs
+    /// `durable/log` so that a crash does not bring the stream back.
+    ///
+    /// A stream that has no directory is already removed, and `durable/log`
+    /// is synced all the same. An earlier call may have removed the
+    /// directory and stopped before its sync, and the erasure job, which
+    /// resumes from its ledger after a crash (ADR 3, section 8), takes `Ok`
+    /// to mean that the stream stays gone.
+    ///
+    /// Nothing else is removed. An entry of any other name stays, and the
+    /// directory with it, which the error reports. A symbolic link named
+    /// like a segment is removed itself; what it leads to is not touched.
+    /// An entry that cannot be removed does not keep the others: every
+    /// segment and temporary file that can be removed is, one that is
+    /// already gone counts as removed, and the error is the first failure.
+    ///
+    /// The household's stream is never removed. Erasure removes a profile's
+    /// stream and nothing of the household's (ADR 3, sections 3 and 8).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogDirError::Household`] for the household's stream,
+    /// before anything is opened. Returns [`LogDirError::Root`] when
+    /// `durable/log` does not exist, when the stream's name is taken by
+    /// something that is not itself a directory, when an entry or the
+    /// directory cannot be removed, or when `durable/log` cannot be synced,
+    /// and [`LogDirError::TooMany`] when the directory holds more than
+    /// [`LIST_MAX`] entries, in which case nothing is removed.
+    pub fn remove_log_stream(&self, stream: LogStream) -> Result<(), LogDirError> {
+        match stream {
+            LogStream::Household => Err(LogDirError::Household),
+            LogStream::Profile(_) => self.log_dir().map_err(LogDirError::Root).and_then(|log| {
+                remove_stream(
+                    &log,
+                    &stream.name(),
+                    &Item::Path(DataPath::log_stream(stream)),
+                    &|dir, entry| rustix::fs::unlinkat(dir, entry, AtFlags::empty()),
+                    &|| rustix::fs::fsync(&log).map_err(io::Error::from),
+                )
+            }),
+        }
+    }
+
+    /// Opens `durable/log`: `durable` beneath the root, and `log` beneath
+    /// that. Each must itself be a directory.
+    fn log_dir(&self) -> Result<Dir, DataRootError> {
+        real_dir(
+            &self.dir,
+            DataDir::Durable.name(),
+            &Item::Dir(DataDir::Durable),
+        )
+        .and_then(|durable| real_dir(&durable, path::LOG, &Item::Path(USER_LOG)))
+    }
+
     /// Opens `rel`, a path relative to the root, beneath the handle. Every
     /// file the data root opens goes through here, and the handle refuses a
     /// path that would leave the root even when `rel` was not built from a
@@ -772,6 +950,186 @@ impl DataRoot {
     }
 }
 
+/// Opens the entry `name` of `parent`, which must itself be a directory: a
+/// symbolic link to one is refused, never followed. `name` is one name, so
+/// nothing but that entry is resolved.
+///
+/// The open is the check. One system call opens the name only if it is a
+/// directory and not a link ([`DIR_FLAGS`]). A look at the name before the
+/// open would leave a moment in which a link could take the directory's
+/// place and be followed.
+fn real_dir(parent: &Dir, name: &str, item: &Item) -> Result<Dir, DataRootError> {
+    rustix::fs::openat(parent, name, DIR_FLAGS, Mode::empty())
+        .map(|fd| Dir::from_std_file(File::from(fd)))
+        .map_err(|refused| {
+            refusal(
+                refused,
+                rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW),
+                item,
+            )
+        })
+}
+
+/// Why the open of `item` was refused with `refused`, given what a look at
+/// its name without following a link found once the open had refused. The
+/// look decides nothing: by then nothing is opened, whatever it finds.
+///
+/// Something that is not itself a directory is a
+/// [`DataRootError::WrongKind`]. A directory after all is the open's own
+/// failure, which a directory the service account may not read gives.
+/// Nothing that can be looked at is the failure of the look, which a name
+/// with nothing behind it gives.
+fn refusal(
+    refused: rustix::io::Errno,
+    found: rustix::io::Result<Stat>,
+    item: &Item,
+) -> DataRootError {
+    match found.map(|stat| Facts::of(&stat).kind) {
+        Ok(Kind::Dir) => io_error(item.clone(), Op::List)(refused.into()),
+        Ok(found) => DataRootError::WrongKind {
+            item: item.clone(),
+            found,
+        },
+        Err(unseen) => io_error(item.clone(), Op::Inspect)(unseen.into()),
+    }
+}
+
+/// The names of the entries of `dir`, in order, when it holds at most
+/// [`LIST_MAX`] of them. It reads one entry more than that and no further,
+/// so a directory someone else filled cannot make the server hold a list
+/// without end.
+fn names(dir: &Dir, item: &Item) -> Result<Vec<OsString>, LogDirError> {
+    dir.entries()
+        .and_then(|entries| {
+            entries
+                .take(LIST_MAX.saturating_add(1))
+                .map(|entry| entry.map(|entry| entry.file_name()))
+                .collect::<io::Result<Vec<OsString>>>()
+        })
+        .map_err(io_error(item.clone(), Op::List))
+        .map_err(LogDirError::Root)
+        .and_then(|mut names| {
+            if names.len() > LIST_MAX {
+                Err(LogDirError::TooMany {
+                    item: item.clone(),
+                    max: LIST_MAX,
+                })
+            } else {
+                names.sort();
+                Ok(names)
+            }
+        })
+}
+
+/// Lists `dir`: the entries whose name `named` reads and that `inspect`
+/// finds to be themselves a `wanted`, and the names of the rest. `inspect`
+/// reads what the entry of a name is without following a link, so a
+/// symbolic link is a link, whatever it leads to.
+///
+/// An entry `inspect` cannot read fails the listing, as [`Listing`] says,
+/// unless it is gone, in which case it is in neither list. A name `named`
+/// does not read is not inspected: it is foreign whatever it is.
+///
+/// [`DataRoot::log_streams`] and [`DataRoot::log_segments`] pass the system
+/// call. A test passes a look that fails, as it passes [`Settler::clear`] a
+/// removal that fails. The look is a trait object so that the system call
+/// and a test's look go through the same compiled function.
+fn listing<T>(
+    dir: &Dir,
+    item: &Item,
+    wanted: Kind,
+    named: fn(&str) -> Option<T>,
+    inspect: &dyn Fn(&OsStr) -> rustix::io::Result<Stat>,
+) -> Result<Listing<T>, LogDirError> {
+    names(dir, item).and_then(|names| {
+        let mut found = Listing {
+            entries: Vec::new(),
+            foreign: Vec::new(),
+        };
+        for name in names {
+            let Some(entry) = name.to_str().and_then(named) else {
+                found.foreign.push(name);
+                continue;
+            };
+            match inspect(&name) {
+                Ok(stat) if Facts::of(&stat).kind == wanted => found.entries.push(entry),
+                Ok(_) => found.foreign.push(name),
+                // Gone since the directory was read.
+                Err(rustix::io::Errno::NOENT) => {}
+                Err(errno) => {
+                    return Err(LogDirError::Root(io_error(item.clone(), Op::List)(
+                        errno.into(),
+                    )));
+                }
+            }
+        }
+        Ok(found)
+    })
+}
+
+/// Does the work of [`DataRoot::remove_log_stream`] in `log`, the open
+/// `durable/log`, for the stream whose directory is called `name`.
+///
+/// `unlink` removes one entry of the stream's directory and `sync` makes
+/// what was done in `log` durable. [`DataRoot::remove_log_stream`] passes
+/// the system calls. A test passes a step that fails, as it passes
+/// [`Settler::clear`] a removal that fails. Both are trait objects so that
+/// the system calls and a test's steps go through the same compiled
+/// function.
+fn remove_stream(
+    log: &Dir,
+    name: &str,
+    item: &Item,
+    unlink: &dyn Fn(&Dir, &OsStr) -> rustix::io::Result<()>,
+    sync: &dyn Fn() -> io::Result<()>,
+) -> Result<(), LogDirError> {
+    let gone = match real_dir(log, name, item) {
+        // No directory: an earlier call removed it, and may have stopped
+        // before its sync, so this call still syncs.
+        Err(DataRootError::Io {
+            op: Op::Inspect,
+            kind: io::ErrorKind::NotFound,
+            ..
+        }) => Ok(()),
+        found => found.map_err(LogDirError::Root).and_then(|dir| {
+            names(&dir, item).and_then(|entries| {
+                // A failure does not keep the entries after it: each one is
+                // tried, and the first failure is the one reported. An
+                // entry that is already gone is removed.
+                let mut emptied: rustix::io::Result<()> = Ok(());
+                for entry in entries.iter().filter(|entry| removable(entry)) {
+                    emptied = emptied.and(match unlink(&dir, entry.as_os_str()) {
+                        Err(rustix::io::Errno::NOENT) => Ok(()),
+                        outcome => outcome,
+                    });
+                }
+                emptied
+                    .and_then(|()| rustix::fs::unlinkat(log, name, AtFlags::REMOVEDIR))
+                    .map_err(io::Error::from)
+                    .map_err(io_error(item.clone(), Op::Remove))
+                    .map_err(LogDirError::Root)
+            })
+        }),
+    };
+    // The removal is durable once `durable/log` is synced.
+    gone.and_then(|()| {
+        sync()
+            .map_err(io_error(Item::Path(USER_LOG), Op::Sync))
+            .map_err(LogDirError::Root)
+    })
+}
+
+/// Whether the removal of a stream may remove the entry called `name` from
+/// the stream's directory: a segment, or the temporary file a replace of a
+/// segment writes beside it.
+fn removable(name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        LogMonth::named(name)
+            .or_else(|| path::replaced_by(name).and_then(LogMonth::named))
+            .is_some()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,6 +1137,7 @@ mod tests {
     use proptest::prelude::*;
     // Direct imports: Qodana does not resolve these macros through `prelude::*`.
     use proptest::{prop_oneof, proptest};
+    use std::cell::Cell;
     use std::io::Read;
 
     const UID: u32 = 1000;
@@ -1108,6 +1467,252 @@ mod tests {
         assert_eq!(
             open_raw(&root, "durable/escape/secret").map(|_| ()),
             Err(denied())
+        );
+    }
+
+    const ALICE: LogStream = LogStream::Profile([0xA1; 16]);
+
+    /// The name of Alice's directory in the user log, written out.
+    const ALICE_DIR: &str = "p-a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+
+    /// Alice's directory, as an error names it.
+    fn alice() -> Item {
+        Item::Path(DataPath::log_stream(ALICE))
+    }
+
+    fn month(year: u16, number: u8) -> LogMonth {
+        LogMonth::new(year, number).expect("a month of the calendar")
+    }
+
+    /// Where the user log of `scratch` is on disk.
+    fn log_path(scratch: &Scratch) -> PathBuf {
+        scratch.0.join("root/durable/log")
+    }
+
+    /// Opens the data root of `scratch`, plants Alice's stream in its user
+    /// log with an empty file for each of `files`, and returns the handle
+    /// of `durable/log`.
+    fn log_with(scratch: &Scratch, files: &[&str]) -> Dir {
+        let root = scratch.root();
+        let stream = log_path(scratch).join(ALICE_DIR);
+        std::fs::create_dir_all(&stream).expect("the stream's directory");
+        for file in files {
+            std::fs::write(stream.join(file), b"").expect("a file in the stream's directory");
+        }
+        root.log_dir().expect("the user log opens")
+    }
+
+    /// The names in the directory at `path`, sorted.
+    fn names_at(path: &Path) -> Vec<String> {
+        let mut found: Vec<String> = std::fs::read_dir(path)
+            .expect("list the directory")
+            .map(|entry| {
+                entry
+                    .expect("a directory entry")
+                    .file_name()
+                    .into_string()
+                    .expect("a UTF-8 name")
+            })
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// Removes the entry `name` of `dir`, as the data root does.
+    fn unlink(dir: &Dir, name: &OsStr) -> rustix::io::Result<()> {
+        rustix::fs::unlinkat(dir, name, AtFlags::empty())
+    }
+
+    /// A sync that succeeds and counts itself in `syncs`.
+    fn counted(syncs: &Cell<u32>) -> impl Fn() -> io::Result<()> {
+        move || {
+            syncs.set(syncs.get() + 1);
+            Ok(())
+        }
+    }
+
+    /// A sync that fails for want of space.
+    fn full() -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::StorageFull))
+    }
+
+    /// What a removal reports when its sync fails for want of space.
+    fn not_synced() -> LogDirError {
+        LogDirError::Root(DataRootError::Io {
+            item: Item::Path(USER_LOG),
+            op: Op::Sync,
+            kind: io::ErrorKind::StorageFull,
+        })
+    }
+
+    #[test]
+    fn says_why_a_directory_was_not_opened() {
+        let scratch = Scratch::new("refused-open");
+        let directory = scratch.0.join("outside");
+        let file = scratch.0.join("outside/secret");
+        let missing = scratch.0.join("outside/nothing");
+        // A directory after all: the open's own failure.
+        assert_eq!(
+            refusal(
+                rustix::io::Errno::ACCESS,
+                rustix::fs::stat(&directory),
+                &alice()
+            ),
+            DataRootError::Io {
+                item: alice(),
+                op: Op::List,
+                kind: io::ErrorKind::PermissionDenied,
+            }
+        );
+        // Something that is not a directory: what it is.
+        assert_eq!(
+            refusal(rustix::io::Errno::NOTDIR, rustix::fs::stat(&file), &alice()),
+            DataRootError::WrongKind {
+                item: alice(),
+                found: Kind::File,
+            }
+        );
+        // Nothing: the failure of the look.
+        assert_eq!(
+            refusal(
+                rustix::io::Errno::NOENT,
+                rustix::fs::stat(&missing),
+                &alice()
+            ),
+            DataRootError::Io {
+                item: alice(),
+                op: Op::Inspect,
+                kind: io::ErrorKind::NotFound,
+            }
+        );
+    }
+
+    #[test]
+    fn a_retried_removal_syncs_the_user_log_when_the_directory_is_already_gone() {
+        let scratch = Scratch::new("retried-removal");
+        let log = log_with(&scratch, &["2026-10.seg"]);
+        // The first call removes the directory, and its sync fails.
+        assert_eq!(
+            remove_stream(&log, ALICE_DIR, &alice(), &unlink, &full),
+            Err(not_synced())
+        );
+        assert_eq!(names_at(&log_path(&scratch)), Vec::<String>::new());
+        // The retry finds no directory. It cannot know that the first
+        // call's removal reached the disk, so it syncs before it says so.
+        let syncs = Cell::new(0);
+        assert_eq!(
+            remove_stream(&log, ALICE_DIR, &alice(), &unlink, &counted(&syncs)),
+            Ok(())
+        );
+        assert_eq!(syncs.get(), 1);
+        // A retry whose sync fails does not report the stream removed.
+        assert_eq!(
+            remove_stream(&log, ALICE_DIR, &alice(), &unlink, &full),
+            Err(not_synced())
+        );
+    }
+
+    #[test]
+    fn removes_every_entry_it_can_and_reports_the_first_it_could_not() {
+        let scratch = Scratch::new("stuck-entries");
+        let log = log_with(
+            &scratch,
+            &["2026-07.seg", "2026-08.seg", "2026-09.seg", "2026-10.seg"],
+        );
+        // August's segment cannot be removed, and September's cannot for
+        // another reason.
+        let stuck = |dir: &Dir, name: &OsStr| match name.to_str() {
+            Some("2026-08.seg") => Err(rustix::io::Errno::ACCESS),
+            Some("2026-09.seg") => Err(rustix::io::Errno::BUSY),
+            _ => unlink(dir, name),
+        };
+        let syncs = Cell::new(0);
+        assert_eq!(
+            remove_stream(&log, ALICE_DIR, &alice(), &stuck, &counted(&syncs)),
+            Err(LogDirError::Root(DataRootError::Io {
+                item: alice(),
+                op: Op::Remove,
+                kind: io::ErrorKind::PermissionDenied,
+            }))
+        );
+        assert_eq!(
+            names_at(&log_path(&scratch).join(ALICE_DIR)),
+            ["2026-08.seg", "2026-09.seg"]
+        );
+        // The stream is still there, so there is no removal to sync.
+        assert_eq!(syncs.get(), 0);
+    }
+
+    #[test]
+    fn counts_an_entry_that_is_already_gone_as_removed() {
+        let scratch = Scratch::new("vanished-segment");
+        let log = log_with(&scratch, &["2026-09.seg", "2026-10.seg"]);
+        let stream = log_path(&scratch).join(ALICE_DIR);
+        // Something else removes October's segment once the directory has
+        // been read, before the removal reaches it.
+        let raced = |dir: &Dir, name: &OsStr| {
+            if name == "2026-10.seg" {
+                std::fs::remove_file(stream.join(name)).expect("remove the segment");
+            }
+            unlink(dir, name)
+        };
+        let syncs = Cell::new(0);
+        assert_eq!(
+            remove_stream(&log, ALICE_DIR, &alice(), &raced, &counted(&syncs)),
+            Ok(())
+        );
+        assert_eq!(names_at(&log_path(&scratch)), Vec::<String>::new());
+        assert_eq!(syncs.get(), 1);
+    }
+
+    #[test]
+    fn fails_a_listing_when_it_cannot_tell_what_an_entry_is() {
+        let scratch = Scratch::new("unread-entry");
+        let log = log_with(&scratch, &["2026-08.seg", "2026-09.seg", "notes.txt"]);
+        let dir = real_dir(&log, ALICE_DIR, &alice()).expect("the stream's directory opens");
+        // The look at September's segment fails.
+        let look = |name: &OsStr| {
+            if name == "2026-09.seg" {
+                Err(rustix::io::Errno::ACCESS)
+            } else {
+                rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW)
+            }
+        };
+        assert_eq!(
+            listing(&dir, &alice(), Kind::File, LogMonth::named, &look),
+            Err(LogDirError::Root(DataRootError::Io {
+                item: alice(),
+                op: Op::List,
+                kind: io::ErrorKind::PermissionDenied,
+            }))
+        );
+    }
+
+    #[test]
+    fn leaves_an_entry_that_is_gone_when_it_is_looked_at_out_of_a_listing() {
+        let scratch = Scratch::new("vanished-entry");
+        let log = log_with(
+            &scratch,
+            &["2026-08.seg", "2026-09.seg", "2026-10.seg", "notes.txt"],
+        );
+        let stream = log_path(&scratch).join(ALICE_DIR);
+        // A directory named like a segment is not a segment.
+        std::fs::create_dir(stream.join("2026-11.seg")).expect("a directory");
+        let dir = real_dir(&log, ALICE_DIR, &alice()).expect("the stream's directory opens");
+        // September's segment is removed once the directory has been read,
+        // before the listing looks at it.
+        let look = |name: &OsStr| {
+            if name == "2026-09.seg" {
+                std::fs::remove_file(stream.join(name)).expect("remove the segment");
+            }
+            rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW)
+        };
+        assert_eq!(
+            listing(&dir, &alice(), Kind::File, LogMonth::named, &look),
+            Ok(Listing {
+                entries: vec![month(2026, 8), month(2026, 10)],
+                foreign: vec![OsString::from("2026-11.seg"), OsString::from("notes.txt")],
+            })
         );
     }
 

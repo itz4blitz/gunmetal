@@ -284,6 +284,181 @@ pub(crate) fn replaced_by(temp: &str) -> Option<&str> {
     temp.strip_prefix('.')?.strip_suffix(".tmp")
 }
 
+/// The name, inside `durable/`, of the directory that holds the user log.
+pub(crate) const LOG: &str = "log";
+
+/// `durable/log`: the user log, one directory for each stream (ADR 3,
+/// section 3). The user log creates it; [`DataPath::log_stream`] and
+/// [`DataPath::log_segment`] name what goes inside.
+pub const USER_LOG: DataPath = DataPath::constant(DataDir::Durable, LOG);
+
+/// The name of the household stream's directory.
+const HOUSEHOLD: &str = "household";
+
+/// What the name of a profile stream's directory starts with.
+const PROFILE_PREFIX: &str = "p-";
+
+/// What the name of a segment file ends with.
+const SEGMENT_SUFFIX: &str = ".seg";
+
+/// One stream of the user log: the household's, or a profile's (ADR 3,
+/// section 3).
+///
+/// A profile is named by its internal random ID, the 16 bytes the identity
+/// store keeps for it, never by a name, a title or anything a request
+/// carries (SEC-HIS-015). The directory's name is built from those bytes
+/// alone, so it is `p-` and 32 hexadecimal digits whatever they are.
+///
+/// Streams order as the names of their directories do: the household's
+/// first, then each profile's by its ID. A listing gives them in the order
+/// of the names ([`Listing`](crate::dataroot::Listing)), so it is sorted by
+/// this order too and can be searched as a sorted list. The order comes
+/// from the order of the variants, which a test holds to the names: keep
+/// `Household` first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LogStream {
+    /// The household's stream.
+    Household,
+    /// One profile's stream, by the profile's internal random ID.
+    Profile([u8; 16]),
+}
+
+impl LogStream {
+    /// The name of the stream's directory: `p-` and the profile's ID as 32
+    /// lower-case hexadecimal digits, or `household`.
+    pub(crate) fn name(self) -> String {
+        match self {
+            Self::Profile(id) => format!("{PROFILE_PREFIX}{:032x}", u128::from_be_bytes(id)),
+            Self::Household => HOUSEHOLD.to_owned(),
+        }
+    }
+
+    /// The stream whose directory is called `name`, or `None` when no
+    /// stream's is: [`LogStream::name`] gives exactly one spelling, and
+    /// nothing else is read as one.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        let stream = match name.strip_prefix(PROFILE_PREFIX) {
+            Some(digits) => Self::Profile(u128::from_str_radix(digits, 16).ok()?.to_be_bytes()),
+            None => Self::Household,
+        };
+        (stream.name() == name).then_some(stream)
+    }
+}
+
+/// The month a user-log segment holds, by the server's UTC clock: a year
+/// from 0 to 9999 and a month from 1 to 12 (ADR 3, section 3). Months order
+/// by time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LogMonth {
+    year: u16,
+    month: u8,
+}
+
+impl LogMonth {
+    /// The latest year a segment can be named for.
+    pub const MAX_YEAR: u16 = 9999;
+
+    /// January of year 0, the earliest month a segment can be named for.
+    pub const MIN: Self = Self { year: 0, month: 1 };
+
+    /// Month `month` of year `year`, or `None` unless the year is at most
+    /// [`LogMonth::MAX_YEAR`] and the month is 1 to 12.
+    #[must_use]
+    pub const fn new(year: u16, month: u8) -> Option<Self> {
+        if year <= Self::MAX_YEAR && month >= 1 && month <= 12 {
+            Some(Self { year, month })
+        } else {
+            None
+        }
+    }
+
+    /// The year, 0 to 9999.
+    #[must_use]
+    pub const fn year(self) -> u16 {
+        self.year
+    }
+
+    /// The month, 1 to 12.
+    #[must_use]
+    pub const fn month(self) -> u8 {
+        self.month
+    }
+
+    /// The name of the month's segment file, such as `2026-10.seg`.
+    pub(crate) fn name(self) -> String {
+        format!("{:04}-{:02}{SEGMENT_SUFFIX}", self.year, self.month)
+    }
+
+    /// The month whose segment file is called `name`, or `None` when no
+    /// month's is: [`LogMonth::name`] gives exactly one spelling, and
+    /// nothing else is read as one.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        let (year, month) = name.strip_suffix(SEGMENT_SUFFIX)?.split_once('-')?;
+        let found = Self::new(year.parse().ok()?, month.parse().ok()?)?;
+        (found.name() == name).then_some(found)
+    }
+}
+
+impl DataPath {
+    /// `durable/log/<stream>`: the directory of one stream of the user log.
+    ///
+    /// It takes the stream as a typed value and builds the name itself, so
+    /// no caller can put text of its own into the path (SEC-HIS-015):
+    ///
+    /// ```
+    /// use gunmetal_fs::path::{DataPath, LogMonth, LogStream};
+    ///
+    /// let stream = DataPath::log_stream(LogStream::Profile([0x5a; 16]));
+    /// assert_eq!(stream.rel(), "log/p-5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a");
+    /// ```
+    ///
+    /// Verifies: SEC-HIS-015
+    ///
+    /// ```compile_fail,E0308
+    /// use gunmetal_fs::path::{DataPath, LogMonth, LogStream};
+    ///
+    /// let stream = DataPath::log_stream("p-5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a/../../secrets");
+    /// assert_eq!(stream.rel(), "log/p-5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a");
+    /// ```
+    #[must_use]
+    pub fn log_stream(stream: LogStream) -> Self {
+        Self {
+            dir: DataDir::Durable,
+            rel: Cow::Owned(format!("{LOG}/{}", stream.name())),
+        }
+    }
+
+    /// `durable/log/<stream>/<yyyy-mm>.seg`: the segment that holds what
+    /// was appended to `stream` in `month`.
+    ///
+    /// Both parts are typed values, so the name is built from 16 bytes, a
+    /// year and a month and from nothing else (SEC-HIS-015):
+    ///
+    /// ```
+    /// use gunmetal_fs::path::{DataPath, LogMonth, LogStream};
+    ///
+    /// let october = LogMonth::new(2026, 10).expect("a month of the calendar");
+    /// let segment = DataPath::log_segment(LogStream::Household, october);
+    /// assert_eq!(segment.rel(), "log/household/2026-10.seg");
+    /// ```
+    ///
+    /// Verifies: SEC-HIS-015
+    ///
+    /// ```compile_fail,E0308
+    /// use gunmetal_fs::path::{DataPath, LogMonth, LogStream};
+    ///
+    /// let segment = DataPath::log_segment(LogStream::Household, "../../secrets/root.key");
+    /// assert_eq!(segment.rel(), "log/household/2026-10.seg");
+    /// ```
+    #[must_use]
+    pub fn log_segment(stream: LogStream, month: LogMonth) -> Self {
+        Self {
+            dir: DataDir::Durable,
+            rel: Cow::Owned(format!("{LOG}/{}/{}", stream.name(), month.name())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
