@@ -42,8 +42,8 @@
 //! can a power loss; the tests show what truncation and a failed step leave
 //! behind, and the order of the syncs is this module's code to review.
 
-use std::collections::btree_map::Entry as Slot;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry as Slot;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::ops::Range;
@@ -796,11 +796,11 @@ mod tests {
     use crate::userlog::error::LedgerFlaw;
     use crate::userlog::scan::Problem;
     use crate::userlog::testing::{
-        bytes, data, frame, frame_version, header, love, of, play, record, ALICE, BOB,
+        ALICE, BOB, bytes, data, frame, frame_version, header, love, of, play, record,
     };
     use gunmetal_core::authz::{
-        decide, Action, Capability, CapabilitySet, Context, DeviceClass, Elevation, Network, Owner,
-        PrincipalFacts, PrincipalKind, Reach, RemoteAdmin, ResourceFacts, UserVerification,
+        Action, Capability, CapabilitySet, Context, DeviceClass, Elevation, Network, Owner,
+        PrincipalFacts, PrincipalKind, Reach, RemoteAdmin, ResourceFacts, UserVerification, decide,
     };
     use gunmetal_core::client_context::PathClass;
     use gunmetal_core::id::IdKind;
