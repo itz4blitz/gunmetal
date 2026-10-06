@@ -10,10 +10,22 @@ export type HomeProps = {
   onPlayAlbum: (albumId: string) => void;
 };
 
-function EmptyCard({ state, copy }: { state: string; copy: string }) {
+function EmptyCard({
+  state,
+  title,
+  body,
+}: {
+  state: string;
+  title: string;
+  body: string;
+}) {
   return (
     <View dataSet={{ emptyRow: '1', emptyCard: '1' }}>
-      <Text dataSet={{ emptyState: state }}>{copy}</Text>
+      <View dataSet={{ emptyMark: '1' }} />
+      <Text accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
+        {title}
+      </Text>
+      <Text dataSet={{ emptyState: state }}>{body}</Text>
     </View>
   );
 }
@@ -27,42 +39,47 @@ export function Home({ messages, library, onOpenAlbum, onPlayAlbum }: HomeProps)
         {messages.homeHeadline}
       </Text>
       <View id="home-row-continue" dataSet={{ homeRow: 'continue' }}>
-        <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
-          {messages.continueListening}
-        </Text>
-        <EmptyCard state="continue" copy={messages.emptyContinue} />
+        <EmptyCard
+          state="continue"
+          title={messages.continueListening}
+          body={messages.emptyContinue}
+        />
       </View>
       <View id="home-row-played" dataSet={{ homeRow: 'played' }}>
-        <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
-          {messages.recentlyPlayed}
-        </Text>
-        <EmptyCard state="played" copy={messages.emptyRecentlyPlayed} />
+        <EmptyCard
+          state="played"
+          title={messages.recentlyPlayed}
+          body={messages.emptyRecentlyPlayed}
+        />
       </View>
       <View id="home-row-recent" dataSet={{ homeRow: 'recent' }}>
-        <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
-          {messages.recentlyAdded}
-        </Text>
         {albums.length === 0 ? (
-          <EmptyCard state="recent" copy={messages.emptyRecentlyAdded} />
+          <EmptyCard
+            state="recent"
+            title={messages.recentlyAdded}
+            body={messages.emptyRecentlyAdded}
+          />
         ) : (
-          <View dataSet={{ albumRow: '1' }}>
-            {albums.map((album) => (
-              <AlbumTile
-                key={album.id}
-                album={album}
-                messages={messages}
-                onOpen={onOpenAlbum}
-                onPlay={onPlayAlbum}
-              />
-            ))}
-          </View>
+          <>
+            <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
+              {messages.recentlyAdded}
+            </Text>
+            <View dataSet={{ albumRow: '1' }}>
+              {albums.map((album) => (
+                <AlbumTile
+                  key={album.id}
+                  album={album}
+                  messages={messages}
+                  onOpen={onOpenAlbum}
+                  onPlay={onPlayAlbum}
+                />
+              ))}
+            </View>
+          </>
         )}
       </View>
       <View id="home-row-loved" dataSet={{ homeRow: 'loved' }}>
-        <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
-          {messages.loved}
-        </Text>
-        <EmptyCard state="loved" copy={messages.emptyLoved} />
+        <EmptyCard state="loved" title={messages.loved} body={messages.emptyLoved} />
       </View>
     </View>
   );

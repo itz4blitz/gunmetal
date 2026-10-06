@@ -135,7 +135,12 @@ export function Search({
       </View>
       {!hasQuery ? (
         <View id="search-recent" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-          <Text id="search-recent-heading" accessibilityRole="header" dataSet={{ type: 'title2' }}>
+          <View dataSet={{ emptyMark: '1' }} />
+          <Text
+            id="search-recent-heading"
+            accessibilityRole="header"
+            dataSet={{ emptyTitle: '1' }}
+          >
             {messages.searchRecentHeading}
           </Text>
           <Text id="search-recent-empty" dataSet={{ emptyState: 'search-recent' }}>

@@ -16,6 +16,20 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(screen.getByText('Nothing played yet')).toBeTruthy();
   expect(screen.getByText('No loved tracks yet')).toBeTruthy();
   expect(document.querySelectorAll('[data-empty-card="1"]').length).toBeGreaterThanOrEqual(3);
+  const continueCard = document.querySelector('#home-row-continue [data-empty-card="1"]');
+  expect(continueCard?.querySelector('[data-empty-title="1"]')?.textContent).toStrictEqual(
+    'Continue listening',
+  );
+  expect(continueCard?.querySelector('[data-empty-state="continue"]')?.textContent).toStrictEqual(
+    'Nothing to continue yet',
+  );
+  expect(continueCard?.querySelector('[data-empty-mark="1"]')).toBeTruthy();
+  expect(
+    document.querySelector('#home-row-played [data-empty-title="1"]')?.textContent,
+  ).toStrictEqual('Recently played');
+  expect(
+    document.querySelector('#home-row-loved [data-empty-title="1"]')?.textContent,
+  ).toStrictEqual('Loved');
   expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
   home.rerender(
     <Shell
@@ -54,6 +68,13 @@ test('home library search and settings destinations render fixture chrome', () =
   const search = render(<Shell path="/search" widthPx={800} library={library} />);
   expect(screen.getByRole('heading', { name: 'Recent searches' })).toBeTruthy();
   expect(screen.getByText('No recent searches')).toBeTruthy();
+  expect(document.querySelector('#search-recent [data-empty-title="1"]')?.textContent).toStrictEqual(
+    'Recent searches',
+  );
+  expect(document.querySelector('#search-recent [data-empty-state="search-recent"]')?.textContent).toStrictEqual(
+    'No recent searches',
+  );
+  expect(document.querySelector('#search-recent [data-empty-mark="1"]')).toBeTruthy();
   expect(document.querySelector('#search-affordance')).toBeTruthy();
   expect(document.querySelector('#search-field-wrap')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Search albums and tracks'), {
@@ -169,17 +190,17 @@ test('compact queue sheet opens and closes from the player queue control', () =>
   fireEvent.keyDown(screen.getByRole('button', { name: 'Night Shift' }), { key: ' ' });
   expect(navigated).toStrictEqual(['/library']);
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
-  expect(document.querySelector('#queue-sheet')).toBeTruthy();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: 'Enter' });
-  expect(document.querySelector('#queue-sheet')).toBeNull();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
-  expect(document.querySelector('#queue-sheet')).toBeTruthy();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: ' ' });
-  expect(document.querySelector('#queue-sheet')).toBeNull();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
-  expect(document.querySelector('#queue-sheet')).toBeTruthy();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close queue' }), { key: 'Tab' });
-  expect(document.querySelector('#queue-sheet')).toBeTruthy();
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Pause' }), { key: 'Tab' });
@@ -262,4 +283,7 @@ test('home recently-added empty card appears when every fixture album is hostile
   render(<Shell path="/" widthPx={1600} library={library} />);
   expect(screen.getByText('No albums added yet')).toBeTruthy();
   expect(document.querySelector('#home-row-recent [data-empty-card="1"]')).toBeTruthy();
+  expect(
+    document.querySelector('#home-row-recent [data-empty-title="1"]')?.textContent,
+  ).toStrictEqual('Recently added');
 });

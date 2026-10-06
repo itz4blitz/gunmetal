@@ -11,15 +11,13 @@ export type QueuePaneProps = {
 };
 
 export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: QueuePaneProps) {
-  if (compactSheet && !playback.queueOpen) {
-    return null;
-  }
-
   const body = (
     <View
       id={compactSheet ? 'queue-sheet' : 'right-pane'}
       accessibilityRole="complementary"
       accessibilityLabel={messages.rightPane}
+      accessibilityElementsHidden={compactSheet ? !playback.queueOpen : undefined}
+      dataSet={compactSheet ? { queueOpen: playback.queueOpen ? '1' : '0' } : undefined}
     >
       <View dataSet={{ queueHeader: '1' }}>
         <Text accessibilityRole="header">{messages.queueHeading}</Text>
@@ -28,7 +26,7 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
             id="queue-sheet-close"
             accessibilityRole="button"
             accessibilityLabel={messages.queueClose}
-            tabIndex={0}
+            tabIndex={playback.queueOpen ? 0 : -1}
             onClick={() => {
               onCloseSheet?.();
             }}
@@ -44,7 +42,13 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
         ) : null}
       </View>
       {playback.queue.length === 0 ? (
-        <Text id="queue-empty">{messages.queueEmpty}</Text>
+        <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
+          <View dataSet={{ emptyMark: '1' }} />
+          <Text dataSet={{ emptyTitle: '1' }}>{messages.queue}</Text>
+          <Text id="queue-empty" dataSet={{ emptyState: 'queue' }}>
+            {messages.queueEmpty}
+          </Text>
+        </View>
       ) : (
         <View id="queue-list">
           {playback.queue.map((line) => (
