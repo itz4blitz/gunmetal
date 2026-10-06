@@ -30,6 +30,7 @@ pub mod path;
 pub mod player;
 pub mod probe;
 pub mod problem;
+pub mod qr;
 pub mod queue;
 pub mod ratelimit;
 pub mod retention;
