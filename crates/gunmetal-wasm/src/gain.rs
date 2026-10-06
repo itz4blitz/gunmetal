@@ -276,7 +276,7 @@ mod tests {
     use gunmetal_core::values::{GainDb, PeakRatio};
 
     use super::{
-        Clamp, DECLARATIONS, GainDecision, GainInput, GainOutcome, Mode, Scheme, Source, factor,
+        Clamp, DECLARATIONS, GainDecision, GainInput, GainOutcome, Mode, Scheme, Source,
         gain_decide,
     };
 
@@ -292,6 +292,10 @@ mod tests {
             prev_same_album: false,
             next_same_album: false,
         }
+    }
+
+    fn web_audio_factor(db: f32) -> f32 {
+        10_f32.powf(db / 20.0)
     }
 
     fn as_decision(outcome: GainOutcome) -> Option<GainDecision> {
@@ -368,7 +372,7 @@ mod tests {
         input.track_peak = Some(0.5);
         let decision = as_decision(gain_decide(-18.0, input, Mode::Track)).unwrap();
         assert_eq!(decision.applied_db.to_bits(), (-6.5_f32).to_bits());
-        assert_eq!(decision.factor.to_bits(), factor(-6.5).to_bits());
+        assert_eq!(decision.factor.to_bits(), web_audio_factor(-6.5).to_bits());
         assert_eq!(decision.source, Source::TaggedTrack);
         assert_eq!(decision.clamp, Clamp::None);
         let core = gain::decide(
@@ -483,6 +487,7 @@ mod tests {
         album.next_same_album = true;
         let decision = as_decision(gain_decide(-18.0, album, Mode::Album)).unwrap();
         assert_eq!(decision.applied_db.to_bits(), (-4.0_f32).to_bits());
+        assert_eq!(decision.factor.to_bits(), web_audio_factor(-4.0).to_bits());
         assert_eq!(decision.source, Source::TaggedAlbum);
         assert_eq!(decision.clamp, Clamp::None);
 

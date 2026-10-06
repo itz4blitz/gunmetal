@@ -356,7 +356,7 @@ fn nibble(ch: u8) -> Option<u8> {
 fn hex_pair(high: u8, low: u8) -> Result<u8, QueueError> {
     let hi = nibble(high).ok_or(QueueError::Unusable)?;
     let lo = nibble(low).ok_or(QueueError::Unusable)?;
-    Ok((hi << 4) | lo)
+    Ok(hi.wrapping_shl(4).wrapping_add(lo))
 }
 
 fn parse_entry(text: &str) -> Result<EntryId, QueueError> {
