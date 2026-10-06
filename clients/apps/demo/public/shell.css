@@ -619,7 +619,7 @@ body,
 }
 
 [data-album-tile]:hover [data-album-play],
-[data-album-play]:focus {
+[data-album-play]:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
@@ -630,6 +630,7 @@ body,
 }
 
 [data-album-play]:active {
+  filter: brightness(0.92);
   transform: scale(0.96);
 }
 
@@ -985,6 +986,10 @@ body,
   background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-overlay));
 }
 
+#album-back:active {
+  filter: brightness(0.92);
+}
+
 /* Hex nut play — album page */
 #album-play {
   position: relative;
@@ -1003,6 +1008,11 @@ body,
 #album-play:hover {
   filter: brightness(1.06);
   transform: scale(1.03);
+}
+
+#album-play:active {
+  filter: brightness(0.92);
+  transform: none;
 }
 
 #album-play [data-control-label],
@@ -1152,6 +1162,15 @@ body,
 #player-queue:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-overlay));
   color: var(--gm-text-primary);
+}
+
+#player-transport [data-player-control]:active,
+#player-actions [data-player-control]:active,
+#player-queue:active,
+#theme-switcher [id^='theme-']:active,
+#queue-sheet-close:active,
+#library-tabs [role='tab']:active {
+  filter: brightness(0.92);
 }
 
 /* Hex nut primary play */
