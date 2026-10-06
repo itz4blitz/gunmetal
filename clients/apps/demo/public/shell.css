@@ -967,11 +967,40 @@ body,
   box-shadow: var(--gm-raised-edge);
 }
 
-[data-album-row],
-[data-search-albums] {
+[data-album-row] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 16px;
+}
+
+[data-search-albums],
+[data-search-tracks] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+[data-search-group] {
+  margin: 0;
+}
+
+[data-search-album-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 24px;
+}
+
+#search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+#search-demo-notice {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 #library-album-grid {
@@ -1394,8 +1423,9 @@ body,
   color: var(--gm-text-primary);
 }
 
+/* Underline brass indicator — radius.m hit target, never filled pills. */
 #library-tabs [aria-selected='true'] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 18%, transparent);
+  background: transparent;
   color: var(--gm-text-primary);
   border-radius: var(--gm-radius-m);
   box-shadow: inset 0 -2px 0 var(--gm-accent-indicator);
@@ -1404,11 +1434,14 @@ body,
 #library-artist-list,
 #library-track-list,
 #queue-list,
-[data-search-tracks],
 [data-disc-block] {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+[data-search-tracks] [data-track-row] + [data-track-row] {
+  margin-top: 2px;
 }
 
 [data-artist-row],
@@ -1578,7 +1611,7 @@ body,
 #search-field-wrap {
   position: relative;
   width: 100%;
-  max-width: 520px;
+  max-width: 720px;
 }
 
 #search-affordance {
@@ -1607,15 +1640,17 @@ body,
 
 #search-field {
   width: 100%;
-  padding: 14px 16px 14px 44px;
+  padding: 18px 18px 18px 48px;
   border-radius: var(--gm-radius-l);
   border: 1px solid var(--gm-line-control);
   background: var(--gm-bg-inset);
   color: var(--gm-text-primary);
   font-family: inherit;
-  font-size: 16px;
-  line-height: 22px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #000 18%, transparent);
+  font-size: 18px;
+  line-height: 24px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #000 18%, transparent),
+    var(--gm-raised-edge);
   transition:
     border-color var(--gm-motion),
     box-shadow var(--gm-motion);
@@ -1675,21 +1710,47 @@ body,
 [data-settings-panel] {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  border-top: 1px solid var(--gm-line-subtle);
+  gap: 14px;
+  padding: 20px 20px;
+  border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
   box-shadow: var(--gm-raised-edge);
 }
 
+/* Segmented theme control — raised selected segment inside inset track. */
 #settings-appearance #theme-switcher {
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
   border-radius: var(--gm-radius-m);
   background: var(--gm-bg-inset);
+  border: 1px solid var(--gm-line-subtle);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #000 18%, transparent);
+}
+
+#settings-appearance #theme-label {
+  width: 100%;
+  padding: 0 2px 6px;
+}
+
+#settings-appearance #theme-switcher [id^='theme-'] {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: calc(var(--gm-radius-m) - 1px);
+  color: var(--gm-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+#settings-appearance #theme-switcher [aria-selected='true'] {
+  color: var(--gm-text-primary);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-raised-edge);
 }
 
 [data-settings-demo-body],
@@ -2164,7 +2225,7 @@ body,
 #right-pane,
 #queue-sheet {
   scrollbar-width: thin;
-  scrollbar-color: var(--gm-line-subtle) transparent;
+  scrollbar-color: color-mix(in srgb, var(--gm-line-control) 45%, transparent) transparent;
 }
 
 #content::-webkit-scrollbar,
@@ -2174,11 +2235,26 @@ body,
   height: 8px;
 }
 
+#content::-webkit-scrollbar-track,
+#right-pane::-webkit-scrollbar-track,
+#queue-sheet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 #content::-webkit-scrollbar-thumb,
 #right-pane::-webkit-scrollbar-thumb,
 #queue-sheet::-webkit-scrollbar-thumb {
-  background: var(--gm-line-subtle);
-  border-radius: var(--gm-radius-s);
+  background: color-mix(in srgb, var(--gm-line-control) 40%, transparent);
+  border-radius: var(--gm-radius-m);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+#content::-webkit-scrollbar-thumb:hover,
+#right-pane::-webkit-scrollbar-thumb:hover,
+#queue-sheet::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gm-line-control) 65%, transparent);
+  background-clip: padding-box;
 }
 
 @media (max-width: 899px) {
