@@ -11,6 +11,7 @@ export type PlayerBarProps = {
   onPrevious?: () => void;
   onNext?: () => void;
   onToggleQueue?: () => void;
+  onOpenFull?: () => void;
 };
 
 export function PlayerBar({
@@ -20,10 +21,17 @@ export function PlayerBar({
   onPrevious,
   onNext,
   onToggleQueue,
+  onOpenFull,
 }: PlayerBarProps) {
   const empty = playback.trackId === undefined;
   const progress =
     playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
+
+  const openFull = () => {
+    if (!empty) {
+      onOpenFull?.();
+    }
+  };
 
   return (
     <View
@@ -38,10 +46,35 @@ export function PlayerBar({
         </View>
       ) : (
         <>
-          <View id="player-art" dataSet={{ playing: playback.playing ? '1' : '0' }}>
+          <View
+            id="player-art"
+            dataSet={{ playing: playback.playing ? '1' : '0' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.openFullPlayer}
+            tabIndex={0}
+            onClick={openFull}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openFull();
+              }
+            }}
+          >
             <CoverTile tone={playback.coverTone} label={playback.title} size="bar" />
           </View>
-          <View id="player-meta">
+          <View
+            id="player-meta"
+            accessibilityRole="button"
+            accessibilityLabel={messages.openFullPlayer}
+            tabIndex={0}
+            onClick={openFull}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openFull();
+              }
+            }}
+          >
             <Text id="player-title">{playback.title}</Text>
             <Text id="player-artist">{playback.artistName}</Text>
           </View>

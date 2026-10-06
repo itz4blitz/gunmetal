@@ -25,6 +25,9 @@ export type ShellMessages = {
   queueHeading: string;
   queueClose: string;
   progress: string;
+  openFullPlayer: string;
+  playerFullRegion: string;
+  playerClose: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -55,5 +58,8 @@ export function shellMessages(): ShellMessages {
     queueHeading: 'Up next',
     queueClose: 'Close queue',
     progress: 'Progress',
+    openFullPlayer: 'Open full player',
+    playerFullRegion: 'Full player',
+    playerClose: 'Close',
   };
 }

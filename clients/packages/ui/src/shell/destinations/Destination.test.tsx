@@ -50,8 +50,13 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
     'destination-headline',
   );
+  expect(document.querySelector('#destination-album')?.getAttribute('data-art-tone')).toStrictEqual(
+    '01',
+  );
   expect(document.querySelector('[data-album-header-large="1"]')).toBeTruthy();
+  expect(document.querySelector('[data-album-header-bleed="1"]')).toBeTruthy();
   expect(document.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();
+  expect(screen.getByText('4 tracks').id).toStrictEqual('album-track-count');
   expect(screen.getByRole('heading', { name: 'Tracks' })).toBeTruthy();
   home.unmount();
 
@@ -155,6 +160,27 @@ test('opening an album uses history itemId and play fills the bar', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' });
   expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+});
+
+test('player art and meta open the full player sheet; Escape and Close dismiss it', () => {
+  const library = demoLibrary();
+  render(<Shell path="/library" widthPx={1600} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(document.querySelector('#track-row-demo-track-01-01')?.getAttribute('data-current')).toStrictEqual(
+    '1',
+  );
+  expect(document.querySelector('#track-row-demo-track-01-01 [data-now-playing="1"]')).toBeTruthy();
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[1]!);
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('0');
 });
 
 test('missing album itemId and empty shell without library keep closed routes', () => {

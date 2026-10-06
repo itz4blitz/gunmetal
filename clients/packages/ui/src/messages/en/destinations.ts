@@ -40,6 +40,7 @@ export type DestinationMessages = {
   trackFlagUnplayable: string;
   trackFlagDamaged: string;
   yearLabel: string;
+  trackCountLabel: string;
   hostileAlbumLabel: string;
   hostileArtistLabel: string;
 };
@@ -88,6 +89,7 @@ export function destinationMessages(): DestinationMessages {
     trackFlagUnplayable: 'Cannot play',
     trackFlagDamaged: 'Damaged',
     yearLabel: 'Year',
+    trackCountLabel: 'tracks',
     hostileAlbumLabel: 'Hostile metadata (fixture)',
     hostileArtistLabel: 'Security corpus',
   };

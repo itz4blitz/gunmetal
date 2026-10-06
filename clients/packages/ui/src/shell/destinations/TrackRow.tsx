@@ -6,10 +6,11 @@ import type { ShellTrack } from '../library-types.ts';
 export type TrackRowProps = {
   track: ShellTrack;
   messages: DestinationMessages;
+  current?: boolean;
   onPlay: (albumId: string, trackId: string) => void;
 };
 
-export function TrackRow({ track, messages, onPlay }: TrackRowProps) {
+export function TrackRow({ track, messages, current = false, onPlay }: TrackRowProps) {
   const flagLabel =
     track.flag === 'unplayable'
       ? messages.trackFlagUnplayable
@@ -19,7 +20,7 @@ export function TrackRow({ track, messages, onPlay }: TrackRowProps) {
   return (
     <View
       id={`track-row-${track.id}`}
-      dataSet={{ trackRow: track.id }}
+      dataSet={{ trackRow: track.id, current: current ? '1' : '0' }}
       accessibilityRole="button"
       accessibilityLabel={track.title}
       tabIndex={0}
@@ -33,6 +34,7 @@ export function TrackRow({ track, messages, onPlay }: TrackRowProps) {
         }
       }}
     >
+      {current ? <View dataSet={{ nowPlaying: '1' }} /> : null}
       <Text dataSet={{ trackNumber: '1' }}>{`${track.number}`}</Text>
       <View dataSet={{ trackMeta: '1' }}>
         <Text dataSet={{ trackTitle: '1' }}>{track.title}</Text>

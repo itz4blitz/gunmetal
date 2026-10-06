@@ -3,7 +3,7 @@ import { Text, View } from 'react-native-web';
 export type CoverTileProps = {
   tone: string;
   label: string;
-  size?: 'row' | 'grid' | 'detail' | 'bar';
+  size?: 'row' | 'grid' | 'detail' | 'bar' | 'full';
   coverId?: string;
 };
 

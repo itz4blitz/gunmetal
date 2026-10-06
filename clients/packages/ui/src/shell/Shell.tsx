@@ -15,6 +15,7 @@ import {
   type PlaybackSnapshot,
 } from './playback.ts';
 import { PlayerBar } from './PlayerBar.tsx';
+import { PlayerFull } from './PlayerFull.tsx';
 import { QueuePane } from './QueuePane.tsx';
 import { defaultTheme, type ThemeId } from './theme.ts';
 import { ThemeSwitcher } from './ThemeSwitcher.tsx';
@@ -74,6 +75,7 @@ export function Shell({
   const [theme, setTheme] = useState<ThemeId>(themeProp ?? defaultTheme());
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
   const [playback, setPlayback] = useState<PlaybackSnapshot>(() => emptyPlayback());
+  const [fullPlayerOpen, setFullPlayerOpen] = useState(false);
   const [location, setLocation] = useState(() => {
     if (path !== undefined) {
       return { pathname: path, search, hash, state: historyState };
@@ -323,6 +325,7 @@ export function Shell({
             onSeeAll={() => {
               navigate('/library');
             }}
+            currentTrackId={playback.trackId}
           />
           {width === 'compact' ? navFooter : null}
         </View>
@@ -352,6 +355,26 @@ export function Shell({
           }}
           onToggleQueue={() => {
             setPlayback((current) => setQueueOpen(current, !current.queueOpen));
+          }}
+          onOpenFull={() => {
+            setFullPlayerOpen(true);
+          }}
+        />
+        <PlayerFull
+          messages={messages.shell}
+          playback={playback}
+          open={fullPlayerOpen && playback.trackId !== undefined}
+          onClose={() => {
+            setFullPlayerOpen(false);
+          }}
+          onPlayPause={() => {
+            setPlayback((current) => togglePlaying(current));
+          }}
+          onPrevious={() => {
+            setPlayback((current) => stepQueue(current, -1));
+          }}
+          onNext={() => {
+            setPlayback((current) => stepQueue(current, 1));
           }}
         />
         {width === 'compact' ? (

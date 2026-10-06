@@ -7,6 +7,7 @@ import { TrackRow } from './TrackRow.tsx';
 export type AlbumDetailProps = {
   album: ShellAlbum | undefined;
   messages: DestinationMessages;
+  currentTrackId?: string;
   onBack: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
@@ -15,6 +16,7 @@ export type AlbumDetailProps = {
 export function AlbumDetail({
   album,
   messages,
+  currentTrackId,
   onBack,
   onPlayAlbum,
   onPlayTrack,
@@ -48,7 +50,14 @@ export function AlbumDetail({
   const artist = album.hostile ? messages.hostileArtistLabel : album.artistName;
 
   return (
-    <View id="destination-album" dataSet={{ albumId: album.id, hostile: album.hostile ? '1' : '0' }}>
+    <View
+      id="destination-album"
+      dataSet={{
+        albumId: album.id,
+        hostile: album.hostile ? '1' : '0',
+        artTone: album.coverTone,
+      }}
+    >
       <View
         id="album-back"
         accessibilityRole="button"
@@ -64,7 +73,7 @@ export function AlbumDetail({
       >
         <Text>{messages.backToLibrary}</Text>
       </View>
-      <View dataSet={{ albumHeader: '1', albumHeaderLarge: '1' }}>
+      <View dataSet={{ albumHeader: '1', albumHeaderLarge: '1', albumHeaderBleed: '1' }}>
         <CoverTile
           tone={album.coverTone}
           label={title}
@@ -77,6 +86,9 @@ export function AlbumDetail({
           </Text>
           <Text dataSet={{ albumArtist: '1', type: 'title3' }}>{artist}</Text>
           <Text dataSet={{ albumYear: '1' }}>{`${messages.yearLabel} ${album.year}`}</Text>
+          <Text id="album-track-count" dataSet={{ albumTrackCount: '1' }}>
+            {`${album.tracks.length} ${messages.trackCountLabel}`}
+          </Text>
           <View
             id="album-play"
             accessibilityRole="button"
@@ -110,6 +122,7 @@ export function AlbumDetail({
                     key={track.id}
                     track={track}
                     messages={messages}
+                    current={track.id === currentTrackId}
                     onPlay={onPlayTrack}
                   />
                 ))}
@@ -121,7 +134,13 @@ export function AlbumDetail({
               {messages.tracksHeading}
             </Text>
             {album.tracks.map((track) => (
-              <TrackRow key={track.id} track={track} messages={messages} onPlay={onPlayTrack} />
+              <TrackRow
+                key={track.id}
+                track={track}
+                messages={messages}
+                current={track.id === currentTrackId}
+                onPlay={onPlayTrack}
+              />
             ))}
           </View>
         )}

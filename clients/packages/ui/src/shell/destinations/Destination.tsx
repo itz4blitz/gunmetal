@@ -22,6 +22,7 @@ export type DestinationProps = {
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
   onSeeAll: () => void;
+  currentTrackId?: string;
 };
 
 function pageKey(match: MatchResult, itemId: string | undefined): string {
@@ -43,6 +44,7 @@ export function Destination({
   onPlayAlbum,
   onPlayTrack,
   onSeeAll,
+  currentTrackId,
 }: DestinationProps) {
   const enterKey = pageKey(match, itemId);
 
@@ -62,6 +64,7 @@ export function Destination({
         <AlbumDetail
           album={findAlbum(library, itemId)}
           messages={messages.destinations}
+          currentTrackId={currentTrackId}
           onBack={onBackFromAlbum}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}

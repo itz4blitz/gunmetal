@@ -135,3 +135,17 @@ test('page enter fades over 160ms and scrollbars are thin muted chrome', async (
     true,
   );
 });
+
+test('album detail wash denser track rows and full player sheet are crafted', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#destination-album[data-art-tone]')).toStrictEqual(true);
+  expect(css.includes('min-height: 48px')).toStrictEqual(true);
+  expect(css.includes('[data-now-playing=') || css.includes('[data-now-playing=')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('#player-full')).toStrictEqual(true);
+  expect(css.includes('#player-full-scrim')).toStrictEqual(true);
+  expect(css.includes("[data-size='full']") || css.includes('[data-size="full"]')).toStrictEqual(
+    true,
+  );
+});

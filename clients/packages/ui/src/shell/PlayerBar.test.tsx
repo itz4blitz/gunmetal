@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, test, vi } from 'vitest';
 import { shellMessages } from '../messages/en/shell.ts';
 import { emptyPlayback, type PlaybackSnapshot } from './playback.ts';
 import { PlayerBar } from './PlayerBar.tsx';
@@ -22,8 +22,9 @@ function playingSnapshot(): PlaybackSnapshot {
 }
 
 test('empty player bar keeps Nothing is playing left-aligned in the now slot', () => {
+  const onOpenFull = vi.fn();
   const { container } = render(
-    <PlayerBar messages={shellMessages()} playback={emptyPlayback()} />,
+    <PlayerBar messages={shellMessages()} playback={emptyPlayback()} onOpenFull={onOpenFull} />,
   );
   const bar = container.querySelector('#player-bar');
   const empty = screen.getByText('Nothing is playing');
@@ -35,11 +36,13 @@ test('empty player bar keeps Nothing is playing left-aligned in the now slot', (
   expect(bar?.querySelector('#player-transport')).toBeTruthy();
   expect(bar?.querySelector('#player-progress')).toBeTruthy();
   expect(bar?.querySelector('#player-actions')).toBeTruthy();
+  expect(onOpenFull).toHaveBeenCalledTimes(0);
 });
 
 test('playing bar lays out art, meta, transport, scrubber and actions', () => {
+  const onOpenFull = vi.fn();
   const { container } = render(
-    <PlayerBar messages={shellMessages()} playback={playingSnapshot()} />,
+    <PlayerBar messages={shellMessages()} playback={playingSnapshot()} onOpenFull={onOpenFull} />,
   );
   const bar = container.querySelector('#player-bar');
   expect(bar).toBeTruthy();
@@ -60,4 +63,15 @@ test('playing bar lays out art, meta, transport, scrubber and actions', () => {
   expect(container.querySelector('#player-progress-fill')?.getAttribute('data-fill')).toStrictEqual(
     '25',
   );
+  fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
+  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
+    key: 'Enter',
+  });
+  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
+    key: ' ',
+  });
+  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
+    key: 'Tab',
+  });
+  expect(onOpenFull).toHaveBeenCalledTimes(3);
 });

@@ -35,4 +35,11 @@ test('cover tile layers wash sheen and an uppercase glyph for each size', () => 
   expect(row.container.querySelector('[data-size="row"] [data-cover-label]')?.textContent).toStrictEqual(
     'S',
   );
+  row.unmount();
+
+  const full = render(<CoverTile tone="01" label="Pier" size="full" coverId="cover-full-x" />);
+  expect(full.container.querySelector('#cover-full-x')?.getAttribute('data-size')).toStrictEqual(
+    'full',
+  );
+  expect(full.container.querySelector('[data-cover-label]')?.textContent).toStrictEqual('P');
 });

@@ -30,6 +30,9 @@ test('the catalogue returns trusted shell and destination strings', () => {
       queueHeading: 'Up next',
       queueClose: 'Close queue',
       progress: 'Progress',
+      openFullPlayer: 'Open full player',
+      playerFullRegion: 'Full player',
+      playerClose: 'Close',
     },
     destinations: {
       homeHeadline: 'Home',
@@ -74,6 +77,7 @@ test('the catalogue returns trusted shell and destination strings', () => {
       trackFlagUnplayable: 'Cannot play',
       trackFlagDamaged: 'Damaged',
       yearLabel: 'Year',
+      trackCountLabel: 'tracks',
       hostileAlbumLabel: 'Hostile metadata (fixture)',
       hostileArtistLabel: 'Security corpus',
     },
