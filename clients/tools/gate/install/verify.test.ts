@@ -123,7 +123,8 @@ const peers = (suffix: string, key = suffix) => (lock: string): string => lock
 const unpinned = 'every snapshot must name a locked package';
 
 // Verifies: SEC-SUP-036. A peer context names the same locked package; it is verified as that package.
-for (const suffix of ['(ghost@1.0.0)', '(ghost@1.0.0(deep@2.0.0))(other@3.0.0)']) {
+// An empty one, `()`, is a group in balanced parentheses like the others, and so names `yaml@2.9.1` too.
+for (const suffix of ['(ghost@1.0.0)', '(ghost@1.0.0(deep@2.0.0))(other@3.0.0)', '()']) {
   test(`an importer dependency locked in the peer context ${suffix} is verified as its package`, async () => {
     assert.deepEqual(await copied(directory => relock(directory, peers(suffix))), verified);
   });
@@ -162,7 +163,13 @@ const elsewhere = (fields: string[], snapshots = ['ghost@1.0.0:\n    optional: t
   .replace(snapshot, `snapshots:\n\n${snapshots.map(entry => `  ${entry}\n\n`).join('')}  yaml@2.9.1: {}`);
 
 // Verifies: SEC-SUP-036. The pinned manager is the linux, x64, glibc one; what it skips there may be absent.
-for (const fields of [['cpu: [arm64]', 'os: [darwin]'], ['cpu: [x64]', 'os: [linux]', 'libc: [musl]'], ['os: [darwin, win32]']]) {
+// Each of the three lists, alone, can be the one that leaves this platform out.
+for (const fields of [
+  ['cpu: [arm64]', 'os: [darwin]'],
+  ['cpu: [x64]', 'os: [linux]', 'libc: [musl]'],
+  ['os: [darwin, win32]'],
+  ['cpu: [arm64]', 'os: [linux]', 'libc: [glibc]'],
+]) {
   test(`an optional package for another platform (${fields.join(', ')}) may be absent`, async () => {
     assert.deepEqual(await copied(directory => relock(directory, elsewhere(fields))), verified);
   });
@@ -179,6 +186,8 @@ for (const [name, change] of [
   ['optional with a platform that is not a list', elsewhere(['os: darwin'])],
   ['optional with a negated platform, which this check does not read', elsewhere(["os: ['!linux']"])],
   ['optional with a platform that is not a name', elsewhere(['os: [1]'])],
+  ['optional with the platform list [any]', elsewhere(['os: [any]'])],
+  ['optional with a platform list naming any beside another platform', elsewhere(['cpu: [arm64, any]'])],
   ['optional with an optional flag that is not true', elsewhere(['os: [darwin]'], ["ghost@1.0.0:\n    optional: 'true'"])],
 ] as const) {
   test(`a locked package that is ${name} must be installed`, async () => {
