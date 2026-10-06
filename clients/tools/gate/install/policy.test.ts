@@ -163,7 +163,7 @@ for (const [field, source] of [
   ['devDependencies', 'gh:1.0.0'],
   ['dependencies', 'npm:yaml@2.9.1'],
   ['devDependencies', 'catalog:yaml'],
-]) {
+] as const) {
   test(`manifest refuses exotic source ${source}`, () => {
     assert.deepEqual(inspect('manifest', { manifest: { [field]: { bad: source } }, members: [] }),
       refused('SEC-SUP-033', `manifest.${field}.bad`, 'only exact registry versions or known workspace:* members are allowed'));

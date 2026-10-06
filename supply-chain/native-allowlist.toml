@@ -156,6 +156,11 @@ reason = "Integer formatting for http (status codes), axum and serde_json, under
 requirement = "SEC-API-001"
 
 [[crate]]
+name = "js-sys"
+reason = "Bindings to JavaScript's built-in objects, which serde-wasm-bindgen builds and reads the facade's values with, under gunmetal-wasm (WP-235, record 12). Unsafe for typed-array views over WebAssembly memory and raw copies to and from it, and, in its futures support, raw wakers, an `ErasableGeneric` implementation and the JSPI hook."
+requirement = "SEC-MED-077, SEC-API-047"
+
+[[crate]]
 name = "landlock"
 reason = "The Landlock ruleset a media worker enforces on itself, which grants no path (WP-045, D-02). Unsafe calls of the three Landlock system calls through libc, taking ownership of the ruleset descriptor, and building access sets from checked bits."
 requirement = "SEC-MED-022"
@@ -241,6 +246,11 @@ reason = "Protocol types serialise to postcard and JSON, in the core (WP-039, D-
 requirement = "SEC-MED-023"
 
 [[crate]]
+name = "serde-wasm-bindgen"
+reason = "Converts gunmetal-wasm's mirror values to and from JavaScript values without a JSON round trip, called by tsify's `js` feature (WP-235, record 12, decision 13). Three unsafe uses: it rebuilds a `JsValue` from its ABI form in two places, and makes a `Uint8Array` view over a Rust byte slice when it serialises bytes."
+requirement = "SEC-MED-077, SEC-API-047"
+
+[[crate]]
 name = "serde_core"
 reason = "serde's data model and traits, behind serde (WP-039, D-02). Unsafe `from_utf8_unchecked` on ASCII it formatted itself."
 requirement = "SEC-MED-023"
@@ -276,9 +286,29 @@ reason = "The TOML lexer and parser under toml, which gunmetal-server reads its 
 requirement = "SEC-HIS-004, SEC-HIS-021, SEC-TM-046"
 
 [[crate]]
+name = "tsify"
+reason = "Derives the TypeScript declaration of each mirror type in gunmetal-wasm and its conversions at the WebAssembly boundary (WP-235, record 12, decision 13). Unsafe in src/ts.rs, where it implements wasm-bindgen's ABI traits, whose `from_abi`, `ref_from_abi`, `long_ref_from_abi` and `vector_from_abi` are declared unsafe; the other files that use it are expanded-macro samples under tests/, which are not built into what ships."
+requirement = "SEC-MED-077, SEC-API-047"
+
+[[crate]]
+name = "unicode-ident"
+reason = "The Unicode identifier tables behind wasm-bindgen-shared's identifier checks, which what ships now reaches through wasm-bindgen under gunmetal-wasm (WP-235); until then only procedural macros used it. Unsafe unchecked reads of its leaf table, at an offset it computed from its own trie."
+requirement = "SEC-MED-077, SEC-API-047"
+
+[[crate]]
 name = "unicode-normalization"
 reason = "Canonical and compatibility decomposition for search folding and natural sort, in the core (WP-036, D-02, MUS-020, DIS-085). No security requirement asks for it; it is in the core under the reviewed allowlist SEC-SUP-025 keeps. Unsafe `char::from_u32_unchecked` on Hangul syllables it composed or decomposed by arithmetic."
 requirement = "SEC-SUP-025"
+
+[[crate]]
+name = "wasm-bindgen"
+reason = "The binding layer between gunmetal-wasm and JavaScript, which every exported function and every value that crosses goes through (WP-235, record 6). Unsafe throughout that layer: the ABI conversions, pointers and lengths handed across the boundary, the table of JavaScript object references, closures passed to JavaScript, and `Send` and `Sync` implementations for `JsValue`."
+requirement = "SEC-MED-077, SEC-API-047"
+
+[[crate]]
+name = "wasm-bindgen-shared"
+reason = "The schema that wasm-bindgen's macro and its command-line tool share, which wasm-bindgen itself depends on (WP-235). It has no unsafe and links no native library: its manifest declares `links` as `wasm_bindgen` so that cargo refuses two versions of it in one build."
+requirement = "SEC-MED-077, SEC-API-047"
 
 [[crate]]
 name = "winnow"

@@ -353,6 +353,19 @@ include-archives = true
 # serde_json sets a cfg flag from the target's architecture and pointer
 # width. zmij runs rustc --version and sets cfg flags from the answer and
 # from OPT_LEVEL. They fetch nothing and run no other program.
+#
+# Added with WP-235's tsify and serde-wasm-bindgen (the owner's delegated
+# decision of 2026-10-05), read on the build worker on 2026-10-05 and still
+# to be confirmed by a person: rustversion runs rustc --version, through
+# RUSTC_WRAPPER when that is set, writes the answer to a file in OUT_DIR and
+# sets cfg flags. wasm-bindgen asks rustversion for the compiler's version,
+# reads the target's architecture, system and features from cargo's
+# environment, and sets cfg flags (and one linker argument on Emscripten,
+# which is not a Gunmetal target). wasm-bindgen-shared hashes two of its own
+# source files into an environment variable and runs `git rev-parse HEAD`,
+# putting the revision in its version text when that succeeds. That is the
+# one script here that starts a program other than rustc. None of the three
+# fetches anything.
 allow-build-scripts = [
     "cap-primitives",
     "cap-std",
@@ -365,10 +378,13 @@ allow-build-scripts = [
     "proc-macro2",
     "quote",
     "rustix",
+    "rustversion",
     "serde",
     "serde_core",
     "serde_json",
     "thiserror",
+    "wasm-bindgen",
+    "wasm-bindgen-shared",
     "zerocopy",
     "zmij",
 ]

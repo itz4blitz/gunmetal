@@ -35,7 +35,7 @@ const names = ['gunmetal-implicit-gyp-canary', 'gunmetal-install-canary'];
 for (const [name, manifest] of [
   ['gunmetal-install-canary', 'canary-package'],
   ['gunmetal-implicit-gyp-canary', 'canary-gyp-package'],
-]) {
+] as const) {
   const packageDirectory = join(directory, name);
   await mkdir(packageDirectory, { recursive: true });
   await writeFile(join(packageDirectory, 'package.json'), await readFile(new URL(`fixtures/${manifest}.txt`, import.meta.url)));

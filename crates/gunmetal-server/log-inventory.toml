@@ -57,3 +57,19 @@ level = "warn"
 destination = "standard output"
 retention = "the host's log retention (ADM-111)"
 fields = []
+
+# The sign-in failure line that fail2ban matches (SEC-OPS-028, SEC-IAM-099).
+# Its name and the order of its fields are format version 1, which "v"
+# states; "addr" is the resolved client address, written in full so that a
+# filter on the host can act on it.
+[[event]]
+name = "authn_login_fail"
+level = "error"
+destination = "standard output"
+retention = "the host's log retention (ADM-111)"
+fields = [
+    { name = "addr", class = "identity" },
+    { name = "v", class = "public" },
+    { name = "pathway", class = "public" },
+    { name = "cause", class = "public" },
+]

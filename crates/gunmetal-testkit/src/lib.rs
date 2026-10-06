@@ -14,6 +14,7 @@ pub mod checksum;
 pub mod clock;
 pub mod flac;
 pub mod flac_frames;
+pub mod fmp4;
 pub mod id3v1;
 pub mod id3v2;
 pub mod library;
