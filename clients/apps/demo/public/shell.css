@@ -1622,6 +1622,19 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   transition: background-color var(--gm-motion), box-shadow var(--gm-motion);
 }
 
+[data-track-row] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+[data-track-play] {
+  display: grid;
+  grid-template-columns: 32px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 48px;
+}
+
 [data-artist-row] {
   grid-template-columns: 40px 1fr auto;
   min-height: 56px;
@@ -2591,6 +2604,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 [data-album-play]:focus-visible,
 #library-tabs [role='tab']:focus-visible,
 #settings-nav [role='tab']:focus-visible,
+[data-track-play]:focus-visible,
 [data-track-row]:focus-visible,
 [data-artist-row]:focus-visible,
 #album-play:focus-visible,
