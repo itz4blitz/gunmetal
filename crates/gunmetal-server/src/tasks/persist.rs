@@ -135,8 +135,11 @@ pub(crate) fn insert_or_join(
 }
 
 fn last_id(tx: &Transaction<'_>) -> Result<TaskId, StoreError> {
-    let rows = tx.query(&LAST_ID)?;
-    match rows.as_slice() {
+    id_from_rows(&tx.query(&LAST_ID)?)
+}
+
+fn id_from_rows(rows: &[Row]) -> Result<TaskId, StoreError> {
+    match rows {
         [row] => parse_id(row),
         _ => Err(StoreError::Catalogue),
     }
@@ -375,8 +378,8 @@ pub(crate) fn sqlite_constraint() -> i32 {
 #[cfg(test)]
 mod persist_tests {
     use super::{
-        TaskKind, TaskStatus, constraint, find_open, insert_or_join, on_insert_error, parse_id,
-        parse_row,
+        TaskKind, TaskStatus, constraint, find_open, id_from_rows, insert_or_join, last_id,
+        mark_running, on_insert_error, parse_id, parse_row,
     };
     use crate::tasks::runner::TaskId;
     use crate::tasks::schema::SCHEMA;
@@ -488,6 +491,15 @@ mod persist_tests {
             parse_id(&Row(vec![Value::Integer(2)])).expect("id"),
             TaskId(2)
         );
+        assert_eq!(id_from_rows(&[]).err(), Some(StoreError::Catalogue));
+        assert_eq!(
+            id_from_rows(&[Row(vec![Value::Integer(2)])]).expect("one"),
+            TaskId(2)
+        );
+        assert_eq!(
+            id_from_rows(&[Row(vec![Value::Integer(2)]), Row(vec![Value::Integer(3)]),]).err(),
+            Some(StoreError::Catalogue)
+        );
 
         let mut kind = valid_cols();
         kind[1] = Value::Text("analysis".to_owned());
@@ -582,6 +594,52 @@ mod persist_tests {
         let mut id_ty = valid_cols();
         id_ty[0] = Value::Text("1".to_owned());
         assert_eq!(parse_row(&Row(id_ty)).err(), Some(StoreError::Catalogue));
+
+        let mut too_early = valid_cols();
+        too_early[8] = Value::Integer(Timestamp::MIN.millis().saturating_sub(1));
+        assert_eq!(
+            parse_row(&Row(too_early)).err(),
+            Some(StoreError::Catalogue)
+        );
+        let mut started_ty = valid_cols();
+        started_ty[9] = Value::Text("now".to_owned());
+        assert_eq!(
+            parse_row(&Row(started_ty)).err(),
+            Some(StoreError::Catalogue)
+        );
+        let mut finished_ty = valid_cols();
+        finished_ty[10] = Value::Text("now".to_owned());
+        assert_eq!(
+            parse_row(&Row(finished_ty)).err(),
+            Some(StoreError::Catalogue)
+        );
+        let mut finished_bad = valid_cols();
+        finished_bad[10] = Value::Integer(Timestamp::MIN.millis().saturating_sub(1));
+        assert_eq!(
+            parse_row(&Row(finished_bad)).err(),
+            Some(StoreError::Catalogue)
+        );
+    }
+
+    #[test]
+    fn last_id_after_insert_and_a_second_mark_running_are_ok_or_false() {
+        let (_dir, store) = store();
+        let principal = user();
+        let id = wait::wait(store.write({
+            let principal = principal.clone();
+            move |tx| insert_or_join(tx, TaskKind::Backup, &principal, "", now())
+        }))
+        .expect("insert");
+        let again = wait::wait(store.write(last_id)).expect("last");
+        assert_eq!(again, id);
+        let first = wait::wait(store.write(move |tx| mark_running(tx, id, now()))).expect("first");
+        assert!(first);
+        let second =
+            wait::wait(store.write(move |tx| mark_running(tx, id, now()))).expect("second");
+        assert!(!second);
+        let unknown =
+            wait::wait(store.write(|tx| mark_running(tx, TaskId(99), now()))).expect("unknown");
+        assert!(!unknown);
     }
 
     #[test]

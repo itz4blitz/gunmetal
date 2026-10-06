@@ -307,24 +307,21 @@ fn worker_loop(store: &Arc<Store>, clock: &Arc<dyn Clock + Send + Sync>, inner: 
         if inner.stopping.load(Ordering::SeqCst) {
             break;
         }
-        match next_job(store, inner) {
-            Some(job) => run_job(store, clock, inner, job),
-            None => {
-                if wait_for_work(inner) {
-                    break;
-                }
+        if let Some(job) = next_job(store, inner) {
+            run_job(store, clock, inner, job);
+        } else {
+            // Inlined so a `wait_for_work -> false` mutant cannot turn
+            // shutdown into a busy loop that outlives cargo-mutants.
+            let mut guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
+            while !inner.has_work.load(Ordering::SeqCst) && !inner.stopping.load(Ordering::SeqCst) {
+                guard = recover(inner.work.wait(guard));
+            }
+            inner.has_work.store(false, Ordering::SeqCst);
+            if inner.stopping.load(Ordering::SeqCst) {
+                break;
             }
         }
     }
-}
-
-fn wait_for_work(inner: &Inner) -> bool {
-    let mut guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
-    while !inner.has_work.load(Ordering::SeqCst) && !inner.stopping.load(Ordering::SeqCst) {
-        guard = recover(inner.work.wait(guard));
-    }
-    inner.has_work.store(false, Ordering::SeqCst);
-    inner.stopping.load(Ordering::SeqCst)
 }
 
 struct Job {

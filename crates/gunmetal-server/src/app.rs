@@ -134,6 +134,17 @@ impl AppState {
         clock: Arc<dyn Clock + Send + Sync>,
         out: Box<dyn Write + Send>,
     ) -> Result<Self, StartError> {
+        Self::build(dir, host, env, clock, out, &OsRandom)
+    }
+
+    fn build(
+        dir: &Path,
+        host: &Host,
+        env: &Env,
+        clock: Arc<dyn Clock + Send + Sync>,
+        out: Box<dyn Write + Send>,
+        random: &dyn Random,
+    ) -> Result<Self, StartError> {
         host.privileges.check().map_err(StartError::Privileged)?;
         let log = Logger::new(Arc::clone(&clock), Level::Info, out);
         let policy = Policy {
@@ -161,7 +172,7 @@ impl AppState {
             bus.security
                 .subscribe(move |event| sink.record(event.clone()));
         }
-        let generation = cache_generation(&OsRandom).map_err(StartError::Random)?;
+        let generation = cache_generation(random).map_err(StartError::Random)?;
         let opened = Store::open(&data, &[tasks::SCHEMA], Generation(generation))
             .map_err(StartError::Cache)?;
         let store = Arc::new(opened.store);
@@ -653,5 +664,47 @@ mod tests {
             cache_open_error(TaskError::PathTooLong { length: 5 }),
             StartError::Cache(StoreError::Closed)
         );
+    }
+
+    #[test]
+    fn randomness_unavailable_at_start_is_a_random_refusal() {
+        struct Failing;
+        impl Random for Failing {
+            fn fill(&self, _: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                Err(RandomnessUnavailable)
+            }
+        }
+        let dir = TempDir::new("app-random").expect("scratch");
+        let (clock, _) = testing::clock();
+        let out = Capture::default();
+        let started = AppState::build(
+            dir.path(),
+            &local(),
+            &Env::default(),
+            clock,
+            Box::new(out.clone()),
+            &Failing,
+        );
+        assert_eq!(
+            started.err(),
+            Some(StartError::Random(RandomnessUnavailable))
+        );
+        assert_eq!(
+            StartError::Random(RandomnessUnavailable).message(dir.path()),
+            "The operating system could not supply random bytes the cache needs."
+        );
+        assert_eq!(out.text(), STARTED);
+    }
+
+    #[test]
+    fn an_unreadable_cache_file_refuses_start() {
+        let dir = TempDir::new("app-cache").expect("scratch");
+        let cache = DataPath::constant(DataDir::Cache, "library.db");
+        arrange(&dir).create_dir(&cache).expect("not a file");
+        let (started, out) = start(&dir, &local(), &Env::default());
+        let error = started.err().expect("refused");
+        assert!(matches!(error, StartError::Cache(_)));
+        assert_eq!(error.message(dir.path()), "The cache could not be opened.");
+        assert_eq!(out, STARTED);
     }
 }

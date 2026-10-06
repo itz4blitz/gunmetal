@@ -23,7 +23,7 @@ use super::runner::{Limits, MAX_PATH, Runner, TaskHandle, TaskId, TaskSnapshot};
 use super::schema::SCHEMA;
 use crate::testing::{self, TestClock};
 
-const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_millis(400);
 const FIRST: Generation = Generation([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
 struct World {
@@ -677,4 +677,80 @@ fn production_limits_sweep_every_hour() {
         super::runner::SWEEP_EVERY_MS
     );
     assert_eq!(Limits::test().sweep_every_ms, 1_000);
+}
+
+#[test]
+fn a_zero_sweep_period_never_fires() {
+    let dir = TempDir::new("server-tasks-zero-sweep").expect("scratch");
+    let host = HostFacts::probe(dir.path()).expect("probe");
+    let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+        .expect("data root")
+        .root;
+    let opened = Store::open(&root, &[SCHEMA], FIRST).expect("store");
+    let store = Arc::new(opened.store);
+    let (clock, manual) = testing::clock();
+    let runner =
+        Runner::open(Arc::clone(&store), clock, Limits { sweep_every_ms: 0 }).expect("runner");
+    let count = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&count);
+    runner.on_expiry(move |_| {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    runner.tick();
+    manual.advance(1_000);
+    runner.tick();
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_handler_error_without_a_message_is_failed() {
+    struct UnknownKind;
+    impl Handler for UnknownKind {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Purge
+        }
+        fn run(&self, _ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            Err(TaskError::Unknown)
+        }
+    }
+    let world = world();
+    world.runner.register(Arc::new(UnknownKind));
+    let handle = world
+        .runner
+        .request(TaskKind::Purge, user(1), None)
+        .expect("run");
+    let done = settle(&world.runner, handle.id);
+    assert_eq!(done.status, TaskStatus::Failed);
+    assert_eq!(done.error.as_deref(), Some("failed"));
+}
+
+#[test]
+fn progress_above_one_hundred_is_stored_as_one_hundred() {
+    struct Over;
+    impl Handler for Over {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Backup
+        }
+        fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            ctx.progress(255)?;
+            ctx.checkpoint(&[7], 101)?;
+            Ok(Outcome::Succeeded)
+        }
+    }
+    let world = world();
+    world.runner.register(Arc::new(Over));
+    let handle = world
+        .runner
+        .request(TaskKind::Backup, user(1), None)
+        .expect("run");
+    let done = settle(&world.runner, handle.id);
+    assert_eq!(done.status, TaskStatus::Succeeded);
+    assert_eq!(done.progress, 100);
+    assert_eq!(done.checkpoint.as_deref(), Some([7_u8].as_slice()));
+}
+
+#[test]
+fn a_task_id_that_does_not_fit_i64_is_clamped() {
+    assert_eq!(TaskId(u64::MAX).as_i64(), i64::MAX);
+    assert_eq!(TaskId(1).as_i64(), 1);
 }
