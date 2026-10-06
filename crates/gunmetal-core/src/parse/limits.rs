@@ -311,6 +311,9 @@ impl Limits {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// The defaults and ceilings this package must ship, written out from
     /// the limits table and the requirement rows, independently of the code.
@@ -431,6 +434,9 @@ mod tests {
     fn refuses_an_override_above_the_ceiling() {
         for kind in LimitKind::ALL {
             let ceiling = expected(kind).1;
+            // The label is built first. `kind` is `Copy`, and the message is
+            // a separate value, so the assertion does not use `kind` twice.
+            let rendered = format!("{kind:?}");
             assert_eq!(
                 Limits::DEFAULT.with_override(kind, ceiling + 1),
                 Err(LimitError::AboveCeiling {
@@ -438,7 +444,7 @@ mod tests {
                     value: ceiling + 1,
                     ceiling,
                 }),
-                "{kind:?}"
+                "{rendered}"
             );
             assert_eq!(
                 Limits::DEFAULT.with_override(kind, u64::MAX),
@@ -447,7 +453,7 @@ mod tests {
                     value: u64::MAX,
                     ceiling,
                 }),
-                "{kind:?}"
+                "{rendered}"
             );
         }
     }
@@ -456,6 +462,7 @@ mod tests {
     fn accepts_an_override_at_the_ceiling_and_changes_only_that_limit() {
         for kind in LimitKind::ALL {
             let ceiling = expected(kind).1;
+            let rendered = format!("{kind:?}");
             let raised = Limits::DEFAULT
                 .with_override(kind, ceiling)
                 .map(|limits| values(&limits));
@@ -465,7 +472,7 @@ mod tests {
                     entry.1 = ceiling;
                 }
             }
-            assert_eq!(raised, Ok(wanted), "{kind:?}");
+            assert_eq!(raised, Ok(wanted), "{rendered}");
         }
     }
 
@@ -473,11 +480,12 @@ mod tests {
     fn accepts_an_override_below_the_default() {
         for kind in LimitKind::ALL {
             let lowered = expected(kind).0 - 1;
+            let rendered = format!("{kind:?}");
             let limits = Limits::DEFAULT.with_override(kind, lowered);
             assert_eq!(
                 limits.map(|limits| limits.get(kind)),
                 Ok(lowered),
-                "{kind:?}"
+                "{rendered}"
             );
         }
     }
@@ -503,7 +511,8 @@ mod tests {
     fn allows_a_value_at_each_limit_and_refuses_one_past_it() {
         for kind in LimitKind::ALL {
             let max = expected(kind).0;
-            assert_eq!(Limits::DEFAULT.check(kind, max, 9), Ok(()), "{kind:?}");
+            let rendered = format!("{kind:?}");
+            assert_eq!(Limits::DEFAULT.check(kind, max, 9), Ok(()), "{rendered}");
             assert_eq!(
                 Limits::DEFAULT.check(kind, max + 1, 9),
                 Err(ParseFault::LimitExceeded {
@@ -512,7 +521,7 @@ mod tests {
                     max,
                     offset: 9,
                 }),
-                "{kind:?}"
+                "{rendered}"
             );
         }
     }
@@ -536,39 +545,64 @@ mod tests {
         );
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-006, SEC-TM-032
-        #[test]
-        fn refuses_exactly_the_values_above_the_limit(
-            index in 0..LimitKind::ALL.len(),
-            value in prop_oneof![any::<u64>(), 0_u64..300_000_000],
-            offset in any::<u64>(),
-        ) {
-            let kind = LimitKind::ALL[index];
-            let max = expected(kind).0;
-            let wanted = if value > max {
-                Err(ParseFault::LimitExceeded { limit: kind, value, max, offset })
-            } else {
-                Ok(())
-            };
-            prop_assert_eq!(Limits::DEFAULT.check(kind, value, offset), wanted);
-        }
+    /// Verifies: SEC-MED-006, SEC-TM-032
+    #[test]
+    fn refuses_exactly_the_values_above_the_limit() {
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    0..LimitKind::ALL.len(),
+                    prop_oneof![any::<u64>(), 0_u64..300_000_000],
+                    any::<u64>(),
+                ),
+                |(index, value, offset)| {
+                    let kind = LimitKind::ALL[index];
+                    let max = expected(kind).0;
+                    let wanted = if value > max {
+                        Err(ParseFault::LimitExceeded {
+                            limit: kind,
+                            value,
+                            max,
+                            offset,
+                        })
+                    } else {
+                        Ok(())
+                    };
+                    prop_assert_eq!(Limits::DEFAULT.check(kind, value, offset), wanted);
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Verifies: SEC-MED-010
-        #[test]
-        fn never_holds_a_limit_above_its_ceiling(
-            overrides in proptest::collection::vec((0..LimitKind::ALL.len(), any::<u64>()), 0..8),
-        ) {
-            let mut limits = Limits::DEFAULT;
-            for (index, value) in overrides {
-                let kind = LimitKind::ALL[index];
-                if let Ok(changed) = limits.with_override(kind, value) {
-                    limits = changed;
-                }
-            }
-            for kind in LimitKind::ALL {
-                prop_assert!(limits.get(kind) <= expected(kind).1, "{:?}", kind);
-            }
-        }
+    /// Verifies: SEC-MED-010
+    #[test]
+    fn never_holds_a_limit_above_its_ceiling() {
+        // A random `u64` is above every ceiling, so half of the values come
+        // from the range the ceilings lie in and some overrides are accepted.
+        TestRunner::new(Config::default())
+            .run(
+                &proptest::collection::vec(
+                    (
+                        0..LimitKind::ALL.len(),
+                        prop_oneof![any::<u64>(), 0_u64..300_000_000],
+                    ),
+                    0..8,
+                ),
+                |overrides| {
+                    let mut limits = Limits::DEFAULT;
+                    for (index, value) in overrides {
+                        let kind = LimitKind::ALL[index];
+                        if let Ok(changed) = limits.with_override(kind, value) {
+                            limits = changed;
+                        }
+                    }
+                    for kind in LimitKind::ALL {
+                        prop_assert!(limits.get(kind) <= expected(kind).1, "{:?}", kind);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

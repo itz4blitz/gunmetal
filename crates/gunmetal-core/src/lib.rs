@@ -14,6 +14,7 @@ pub mod decision;
 pub mod ebml;
 pub mod formats;
 pub mod gain;
+pub mod home;
 pub mod http;
 pub mod id;
 pub mod imagedata;
@@ -44,3 +45,6 @@ pub mod userdata;
 pub mod values;
 pub mod webauthn;
 pub mod wire;
+
+#[cfg(test)]
+mod test_support;

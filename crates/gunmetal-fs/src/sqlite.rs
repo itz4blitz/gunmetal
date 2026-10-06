@@ -351,7 +351,7 @@ pub enum DbError {
 /// An open database connection.
 #[derive(Debug)]
 pub struct Db {
-    conn: rusqlite::Connection,
+    conn: Connection,
 }
 
 impl Db {
