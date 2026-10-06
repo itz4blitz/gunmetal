@@ -7,7 +7,8 @@
 //! ACC-064, ACC-080). It makes the matrix and nothing else. Whoever shows a
 //! symbol draws the squares and leaves the margin the standard asks for,
 //! four light modules on every side. What a symbol carries is decided by
-//! the package that issues it; this module holds no security control.
+//! the package that issues it. That can be a link's secret, so a symbol
+//! neither prints nor compares what it carries (SEC-OPS-013).
 //!
 //! A symbol is a QR Code of ISO/IEC 18004:2015 with these choices made:
 //!
@@ -66,9 +67,24 @@ pub enum QrError {
 /// A QR code symbol, without the light margin a drawing of it needs.
 ///
 /// Rows are counted from the top and columns from the left, both from 0.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A symbol carries its payload, and the payload of an invitation or a
+/// pairing link holds a secret (SEC-OPS-013). So its `Debug` form shows
+/// only its size, and it has no `==`, no `Display` and no serialised
+/// form: what it carries is read one module at a time, through
+/// [`Matrix::is_dark`], by the code that draws it.
+#[derive(Clone)]
 pub struct Matrix {
     rows: Vec<Vec<bool>>,
+}
+
+impl core::fmt::Debug for Matrix {
+    /// Writes the size and `..` for the modules.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Matrix")
+            .field("size", &self.size())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Matrix {
