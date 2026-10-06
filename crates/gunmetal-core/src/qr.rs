@@ -33,6 +33,7 @@
 //! reading gives a symbol any reader reads; they differ only in which of the
 //! eight masks is picked.
 
+use std::collections::BTreeMap;
 use std::iter::once;
 
 /// The longest payload a symbol holds, in bytes: what version 15 carries at
@@ -292,15 +293,19 @@ static MASKS: [Mask; 8] = [
     Mask {
         format: 0x4F97,
         flips: |row: usize, column: usize| {
+            // The table takes the product modulo 2 before it adds. Whether
+            // the sum is even is the same without that step.
             let product = row.wrapping_mul(column);
-            (product % 2).wrapping_add(product % 3) % 2 == 0
+            product.wrapping_add(product % 3) % 2 == 0
         },
     },
     Mask {
         format: 0x4AA0,
         flips: |row: usize, column: usize| {
+            // As in mask 110: the table takes the row plus the column
+            // modulo 2 before it adds.
             let product = row.wrapping_mul(column);
-            (row.wrapping_add(column) % 2).wrapping_add(product % 3) % 2 == 0
+            row.wrapping_add(column).wrapping_add(product % 3) % 2 == 0
         },
     },
 ];
@@ -568,13 +573,16 @@ fn dark_module(size: usize, row: usize, column: usize) -> Option<bool> {
 /// (clause 7.10).
 fn version_information(version: &Version, row: usize, column: usize) -> Option<bool> {
     let word = version.information?;
-    // The blocks' short side starts eleven modules from the far edge.
+    // The blocks' short side starts eleven modules from the far edge. A
+    // place is in a block when it is one of the six modules along and one
+    // of the three across.
     let start = version.size().saturating_sub(11);
     [(row, column), (column, row)]
         .into_iter()
         .find_map(|(long, short)| {
             let across = short.checked_sub(start)?;
-            (long < 6 && across < 3).then_some(long.saturating_mul(3).saturating_add(across))
+            matches!((long, across), (0..=5, 0..=2))
+                .then_some(long.saturating_mul(3).saturating_add(across))
         })
         .map(|bit| (word >> bit) & 1 == 1)
 }
@@ -638,9 +646,12 @@ fn place(grid: &mut [Vec<Module>], codewords: &[u8]) {
     let bits = codewords
         .iter()
         .flat_map(|&codeword| (0..8).rev().map(move |bit| (codeword >> bit) & 1 == 1));
-    for ((row, column), bit) in data_modules(grid).into_iter().zip(bits) {
-        if let Some(module) = grid.get_mut(row).and_then(|line| line.get_mut(column)) {
-            *module = Module::Data(bit);
+    let placed: BTreeMap<(usize, usize), bool> = data_modules(grid).into_iter().zip(bits).collect();
+    for (row, line) in grid.iter_mut().enumerate() {
+        for (column, module) in line.iter_mut().enumerate() {
+            if let Some(&bit) = placed.get(&(row, column)) {
+                *module = Module::Data(bit);
+            }
         }
     }
 }
