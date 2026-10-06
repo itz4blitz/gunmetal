@@ -12,6 +12,13 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(screen.getByRole('heading', { name: 'Continue listening' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently played' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
+  expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual(
+    '01',
+  );
+  expect(document.querySelector('#home-spotlight')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Open' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'See all' })).toBeTruthy();
   expect(screen.getByText('Nothing to continue yet')).toBeTruthy();
   expect(screen.getByText('Nothing played yet')).toBeTruthy();
   expect(screen.getByText('No loved tracks yet')).toBeTruthy();
@@ -49,7 +56,12 @@ test('home library search and settings destinations render fixture chrome', () =
   home.unmount();
 
   const libraryView = render(<Shell path="/library" widthPx={1200} library={library} />);
+  expect(document.querySelector('#library-section-count')?.textContent).toStrictEqual(
+    `${library.albums.length} albums`,
+  );
+  expect(document.querySelector('#destination')?.getAttribute('data-page-enter')).toStrictEqual('1');
   fireEvent.click(screen.getByRole('tab', { name: 'Artists' }));
+  expect(document.querySelector('[data-artist-avatar="1"]')).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: ' ' });
   expect(screen.getByRole('heading', { name: 'Signal Loss' }).id).toStrictEqual(
     'destination-headline',
@@ -81,6 +93,8 @@ test('home library search and settings destinations render fixture chrome', () =
     target: { value: 'Harbour' },
   });
   expect(screen.getByText('Demo-local filter — not CorePort search')).toBeTruthy();
+  expect(document.querySelector('#search-group-albums')?.textContent).toStrictEqual('Albums');
+  expect(document.querySelector('#search-group-tracks')?.textContent).toStrictEqual('Tracks');
   fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
   expect(document.querySelector('[data-search-albums="1"]')).toBeNull();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Albums' }), { key: 'Enter' });
@@ -104,6 +118,8 @@ test('home library search and settings destinations render fixture chrome', () =
     target: { value: 'zzzz' },
   });
   expect(screen.getByText('No matches for this query in Music')).toBeTruthy();
+  expect(document.querySelector('#search-no-hits [data-empty-card="1"]')).toBeTruthy();
+  expect(document.querySelector('#search-no-hits [data-empty-mark="1"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
   fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
   searchTracks.unmount();
@@ -117,6 +133,7 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(screen.getByText(/arrive with CorePort/)).toBeTruthy();
   expect(screen.getByText(/fixture demo data only/)).toBeTruthy();
   expect(document.querySelector('#settings-appearance #theme-switcher')).toBeTruthy();
+  expect(document.querySelectorAll('[data-settings-panel="1"]').length).toBeGreaterThanOrEqual(4);
   settings.unmount();
 });
 
@@ -286,4 +303,26 @@ test('home recently-added empty card appears when every fixture album is hostile
   expect(
     document.querySelector('#home-row-recent [data-empty-title="1"]')?.textContent,
   ).toStrictEqual('Recently added');
+  expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toBeNull();
+  expect(document.querySelector('#home-spotlight')).toBeNull();
+});
+
+test('home see all navigates to the library destination', () => {
+  const library = demoLibrary();
+  render(<Shell path="/" widthPx={1600} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'See all' }));
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual(
+    'destination-headline',
+  );
+});
+
+test('home spotlight play fills the bar from the featured fixture album', () => {
+  const library = demoLibrary();
+  render(<Shell path="/" widthPx={1600} library={library} />);
+  fireEvent.click(document.querySelector('#home-spotlight-play')!);
+  expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
+    'destination-headline',
+  );
 });

@@ -49,6 +49,8 @@ test('the catalogue returns trusted shell and destination strings', () => {
       tabArtists: 'Artists',
       tabTracks: 'Tracks',
       play: 'Play',
+      open: 'Open',
+      seeAll: 'See all',
       playAlbum: 'Play album',
       backToLibrary: 'Back',
       tracksHeading: 'Tracks',

@@ -11,10 +11,16 @@ test('the demo app mounts the shell with fixture home rows and demo data', () =>
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
   expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual(
+    '01',
+  );
+  expect(document.querySelector('#home-spotlight')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently played' })).toBeTruthy();
   expect(screen.getByText('Nothing played yet')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'See all' })).toBeTruthy();
 });
 
 test('playing a fixture album fills the player bar from demo-local state', () => {

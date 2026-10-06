@@ -67,27 +67,27 @@ export function AlbumTile({ album, messages, onOpen, onPlay }: AlbumTileProps) {
             size="grid"
             coverId={`cover-grid-${album.id}`}
           />
+          <View
+            dataSet={{ albumPlay: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.playAlbum}
+            tabIndex={0}
+            onClick={(event: MouseEvent<HTMLElement>) => {
+              event.stopPropagation();
+              activatePlay(album.id, onOpen, onPlay);
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.stopPropagation();
+                activatePlay(album.id, onOpen, onPlay);
+              }
+            }}
+          />
         </View>
         <Text dataSet={{ albumTitle: '1' }}>{title}</Text>
         <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
       </View>
-      <View
-        dataSet={{ albumPlay: '1' }}
-        accessibilityRole="button"
-        accessibilityLabel={messages.playAlbum}
-        tabIndex={0}
-        onClick={(event: MouseEvent<HTMLElement>) => {
-          event.stopPropagation();
-          activatePlay(album.id, onOpen, onPlay);
-        }}
-        onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            event.stopPropagation();
-            activatePlay(album.id, onOpen, onPlay);
-          }
-        }}
-      />
     </View>
   );
 }

@@ -16,6 +16,8 @@ export type DestinationMessages = {
   tabArtists: string;
   tabTracks: string;
   play: string;
+  open: string;
+  seeAll: string;
   playAlbum: string;
   backToLibrary: string;
   tracksHeading: string;
@@ -61,6 +63,8 @@ export function destinationMessages(): DestinationMessages {
     tabArtists: 'Artists',
     tabTracks: 'Tracks',
     play: 'Play',
+    open: 'Open',
+    seeAll: 'See all',
     playAlbum: 'Play album',
     backToLibrary: 'Back',
     tracksHeading: 'Tracks',

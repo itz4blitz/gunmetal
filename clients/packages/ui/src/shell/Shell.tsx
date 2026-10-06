@@ -218,6 +218,18 @@ export function Shell({
   );
 
   const showWideQueue = width === 'wide';
+  const sidebarBrand = width === 'expanded' || width === 'wide';
+  const artTone = playback.playing && playback.trackId !== undefined ? playback.coverTone : undefined;
+
+  const brandBlock = (
+    <View id="shell-brand">
+      <View id="shell-brand-mark">
+        <Text id="shell-wordmark">{messages.shell.wordmark}</Text>
+        <View id="shell-brand-rule" accessibilityRole="none" />
+      </View>
+      {showDemoLabel ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
+    </View>
+  );
 
   const skipToContent = (
     <View
@@ -266,6 +278,7 @@ export function Shell({
         theme,
         width,
         landmarks: currentLandmarks.join(' '),
+        ...(artTone !== undefined ? { artTone } : {}),
       }}
     >
       <View id="skip-links">
@@ -273,10 +286,7 @@ export function Shell({
         {skipToPlayer}
       </View>
       <View id="shell-frame">
-        <View id="shell-brand">
-          <Text id="shell-wordmark">{messages.shell.wordmark}</Text>
-          {showDemoLabel ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
-        </View>
+        {sidebarBrand ? null : brandBlock}
         {width === 'medium' ? (
           <Nav
             id="nav-rail"
@@ -287,13 +297,14 @@ export function Shell({
             footer={navFooter}
           />
         ) : null}
-        {width === 'expanded' || width === 'wide' ? (
+        {sidebarBrand ? (
           <Nav
             id="nav-sidebar"
             label={messages.shell.primaryNav}
             items={items}
             activePath={activePath}
             onNavigate={navigate}
+            brand={brandBlock}
             footer={navFooter}
           />
         ) : null}
@@ -309,6 +320,9 @@ export function Shell({
             onBackFromAlbum={backFromAlbum}
             onPlayAlbum={playAlbum}
             onPlayTrack={playTrack}
+            onSeeAll={() => {
+              navigate('/library');
+            }}
           />
           {width === 'compact' ? navFooter : null}
         </View>

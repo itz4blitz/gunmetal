@@ -21,6 +21,7 @@ export type DestinationProps = {
   onBackFromAlbum: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
+  onSeeAll: () => void;
 };
 
 export function Destination({
@@ -34,6 +35,7 @@ export function Destination({
   onBackFromAlbum,
   onPlayAlbum,
   onPlayTrack,
+  onSeeAll,
 }: DestinationProps) {
   if (match.kind === 'not-found') {
     return (
@@ -77,6 +79,7 @@ export function Destination({
           library={library}
           onOpenAlbum={onOpenAlbum}
           onPlayAlbum={onPlayAlbum}
+          onSeeAll={onSeeAll}
         />
       </View>
     );
