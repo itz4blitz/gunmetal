@@ -252,15 +252,14 @@ mod tests {
     use gunmetal_secrets::random::{OsRandom, Random};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-    /// Built from the index so the sequence is not a repeated literal, then
-    /// overwritten through [`Random::fill`]: `CodeQL`'s
-    /// rust/hard-coded-cryptographic-value treats `[0; N]`, a counting fill,
-    /// and a static `OsRandom::fill` as salt sources. A `&dyn Random` fill
-    /// is the same barrier `nonce()` uses.
+    /// Same construction as the production salt in `log.rs`: index bytes,
+    /// then `&dyn Random::fill`. CodeQL's rust/hard-coded-cryptographic-value
+    /// treats `[0; N]`, a counting fill, a static `OsRandom::fill`, and a
+    /// bitwise mix such as `^ 0xA5` as HMAC sources even after `fill`.
     fn salt(random: &dyn Random) -> [u8; 16] {
         let mut salt = core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
-            b0 ^ 0xA5
+            b0
         });
         random.fill(&mut salt).expect("bytes");
         salt
