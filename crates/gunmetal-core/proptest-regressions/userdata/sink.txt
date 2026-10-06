@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1be05fdf619f8412e2149edf8c1506c7c3d529255aa6a69efc05ccb6199364bd # shrinks to event = Event { id: EventId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), clock: Hlc { wall_ms: 0, logical: 0 }, device: DeviceId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), stream: Profile(ProfileId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])), body: Play(Play { item: ContentId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), position_ms: 0, completed: false }) }
+cc 2c887c2b9a7ac82bb26d10700fc7d0785f1d808ce87972de082d08b14b2576cb # shrinks to event = Event { id: EventId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), clock: Hlc { wall_ms: 0, logical: 0 }, device: DeviceId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), stream: Profile(ProfileId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])), body: Position(Position { item: ContentId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), place: Time { offset_ms: 0 } }) }

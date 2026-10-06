@@ -306,7 +306,9 @@ mod tests {
         SharedAddressSpace, Translated, Unspecified,
     };
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
     use proptest::sample::select;
+    use proptest::{prop_oneof, proptest};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     /// The IANA IPv4 Special-Purpose Address Registry (RFC 6890 and its
