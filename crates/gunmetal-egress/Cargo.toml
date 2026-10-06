@@ -1,0 +1,18 @@
+[package]
+name = "gunmetal-egress"
+description = "Gunmetal's egress door: the purposes the server may reach out for, the destinations each may reach, and the gate every outbound request passes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
