@@ -69,7 +69,7 @@ mod tests {
         })
     }
 
-    /// Verifies: SEC-API-077, SEC-EXT-002, SEC-HIS-023, SEC-TM-048
+    /// Supports: SEC-API-077, SEC-EXT-002, SEC-HIS-023, SEC-TM-048
     #[test]
     fn a_destination_on_the_internet_connects_only_to_globally_reachable_addresses() {
         assert_eq!(
@@ -111,7 +111,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-API-077, SEC-EXT-002, SEC-HIS-023
+    /// Supports: SEC-API-077, SEC-EXT-002, SEC-HIS-023
     #[test]
     fn an_ipv4_mapped_address_is_checked_and_connected_to_as_ipv4() {
         assert_eq!(
@@ -131,7 +131,7 @@ mod tests {
     /// A name that answers with a public address and a private one is
     /// refused, whichever comes first.
     ///
-    /// Verifies: SEC-API-077, SEC-EXT-002, SEC-TM-048
+    /// Supports: SEC-API-077, SEC-EXT-002, SEC-TM-048
     #[test]
     fn one_refused_address_among_the_answers_refuses_the_request() {
         assert_eq!(
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(pin(Reach::Lan, 8123, &[]), Err(Denial::NoAddress));
     }
 
-    /// Verifies: SEC-API-079, SEC-EXT-002
+    /// Supports: SEC-API-079, SEC-EXT-002
     #[test]
     fn a_lan_destination_reaches_private_addresses_and_never_loopback_or_link_local() {
         assert_eq!(
@@ -226,7 +226,7 @@ mod tests {
         /// every address is public, to exactly those addresses; otherwise
         /// the refusal names the first address that is not.
         ///
-        /// Verifies: SEC-API-077, SEC-EXT-002
+        /// Supports: SEC-API-077, SEC-EXT-002
         #[test]
         fn every_answer_must_be_public_and_every_public_answer_is_kept(
             answers in proptest::collection::vec(address(), 1..6),

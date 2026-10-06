@@ -292,7 +292,8 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-TM-048, SEC-TM-075, SEC-PRV-013
+    /// Verifies: SEC-TM-075, SEC-PRV-013
+    /// Supports: SEC-TM-048
     #[test]
     fn the_default_configuration_grants_no_purpose() {
         let default = Configuration::default();
@@ -311,7 +312,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-TM-048, SEC-API-079
+    /// Supports: SEC-TM-048, SEC-API-079
     #[test]
     fn configuring_an_own_domain_grants_exactly_certificate_issuance() {
         let configuration = own_domain();
@@ -335,7 +336,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-078, SEC-API-079, SEC-EXT-004, SEC-PRV-008
+    /// Supports: SEC-API-078, SEC-API-079, SEC-EXT-004, SEC-PRV-008
     #[test]
     fn the_update_feed_reaches_only_the_project_feed_over_https() {
         assert_eq!(UPDATE_FEED_HOST, "gunmetal.tv");
@@ -399,7 +400,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-PRV-012
+    /// Supports: SEC-PRV-012
     #[test]
     fn offline_mode_refuses_every_purpose() {
         let offline = own_domain().update_feed().claimed().offline();
@@ -422,7 +423,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-078, SEC-API-079, SEC-EXT-002, SEC-EXT-004
+    /// Supports: SEC-API-078, SEC-API-079, SEC-EXT-002, SEC-EXT-004
     #[test]
     fn a_lan_destination_is_one_exact_scheme_host_and_port() {
         let configuration = Configuration::default().own_domain_https(
@@ -476,7 +477,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-077, SEC-API-079, SEC-EXT-002
+    /// Supports: SEC-API-077, SEC-API-079, SEC-EXT-002
     #[test]
     fn a_destination_on_the_internet_admits_public_addresses_and_a_lan_destination_private_ones() {
         let cases = [
@@ -500,7 +501,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-PRV-012
+    /// Supports: SEC-PRV-012
     #[test]
     fn through_a_proxy_only_a_destination_on_the_internet_named_by_host_goes_out() {
         let configuration = Configuration::default()

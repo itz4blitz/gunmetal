@@ -60,7 +60,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-API-078, SEC-EXT-003
+    /// Supports: SEC-API-078, SEC-EXT-003
     #[test]
     fn a_request_that_follows_no_redirects_follows_none() {
         let feed = https("feed.example", 443);
@@ -73,7 +73,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-API-078, SEC-EXT-003
+    /// Supports: SEC-API-078, SEC-EXT-003
     #[test]
     fn at_most_three_redirects_are_followed() {
         assert_eq!(MAX_REDIRECTS, 3);
@@ -95,7 +95,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-EXT-003, SEC-PRV-008, SEC-TM-048
+    /// Supports: SEC-EXT-003, SEC-PRV-008, SEC-TM-048
     #[test]
     fn a_redirect_to_another_host_is_refused() {
         let feed = https("feed.example", 443);

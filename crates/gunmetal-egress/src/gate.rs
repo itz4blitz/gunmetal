@@ -283,7 +283,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-API-079, SEC-PRV-008, SEC-TM-048
+    /// Supports: SEC-API-079, SEC-PRV-008, SEC-TM-048
     #[test]
     fn a_refusal_is_recorded_once_and_sends_exactly_one_event() {
         let cases = [
@@ -314,7 +314,7 @@ mod tests {
         }
     }
 
-    /// Verifies: SEC-PRV-008
+    /// Supports: SEC-PRV-008
     #[test]
     fn a_direct_request_is_recorded_once_its_addresses_have_passed() {
         let gate = gate_for(configured());
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(events(&gate), Vec::<SecurityEvent>::new());
     }
 
-    /// Verifies: SEC-EXT-002, SEC-PRV-008, SEC-TM-048
+    /// Supports: SEC-EXT-002, SEC-PRV-008, SEC-TM-048
     #[test]
     fn a_refused_address_is_recorded_and_sends_exactly_one_event() {
         let gate = gate_for(configured());
@@ -354,7 +354,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-PRV-008, SEC-PRV-012
+    /// Supports: SEC-PRV-008, SEC-PRV-012
     #[test]
     fn a_request_through_the_proxy_is_recorded_when_it_is_admitted() {
         let gate = gate_for(configured().through_proxy());
@@ -398,7 +398,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-PRV-008
+    /// Supports: SEC-PRV-008
     #[test]
     fn the_record_keeps_the_latest_attempts_and_drops_the_oldest() {
         let gate = gate_for(configured().through_proxy());
@@ -439,7 +439,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-API-078, SEC-EXT-003
+    /// Supports: SEC-API-078, SEC-EXT-003
     #[test]
     fn no_r1_purpose_follows_a_redirect() {
         let gate = gate_for(configured());
@@ -480,7 +480,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-EXT-003, SEC-PRV-008, SEC-TM-048
+    /// Supports: SEC-EXT-003, SEC-PRV-008, SEC-TM-048
     #[test]
     fn a_followed_redirect_passes_the_gate_like_a_first_request() {
         let gate = gate_for(configured());
@@ -542,7 +542,7 @@ mod tests {
         );
     }
 
-    /// Verifies: SEC-EXT-003, SEC-HIS-023
+    /// Supports: SEC-EXT-003, SEC-HIS-023
     #[test]
     fn a_redirect_that_leads_to_a_private_address_is_refused() {
         let gate = gate_for(configured());

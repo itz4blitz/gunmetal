@@ -105,7 +105,8 @@ mod tests {
     /// names, and the ones that may be used before the claim are the ones
     /// whose default says so.
     ///
-    /// Verifies: SEC-TM-075, SEC-OPS-060
+    /// Verifies: SEC-TM-075
+    /// Supports: SEC-OPS-060
     #[test]
     fn the_purposes_are_the_inventory_rows_due_in_r1() {
         let due: Vec<(String, bool)> = inventory()
@@ -146,7 +147,7 @@ mod tests {
         assert_eq!(named, ["certificate issuance", "update feed"]);
     }
 
-    /// Verifies: SEC-EXT-003, SEC-API-078
+    /// Supports: SEC-EXT-003, SEC-API-078
     #[test]
     fn no_purpose_follows_redirects_and_each_has_the_baseline_limits() {
         let limits = Limits {
