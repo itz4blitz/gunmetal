@@ -35,6 +35,15 @@ test('spotlight uses the first recently-added fixture with art tone and actions'
   ).toStrictEqual('Mira Sol');
   expect(document.querySelector('#destination-headline')).toBeNull();
   expect(screen.queryByRole('heading', { name: 'Home' })).toBeNull();
+  expect(
+    [...document.querySelectorAll('#destination-home > [id^="home-"]')].map((node) => node.id),
+  ).toStrictEqual([
+    'home-spotlight',
+    'home-row-continue',
+    'home-row-played',
+    'home-row-loved',
+    'home-row-recent',
+  ]);
 
   fireEvent.click(document.querySelector('#home-spotlight-play')!);
   expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');

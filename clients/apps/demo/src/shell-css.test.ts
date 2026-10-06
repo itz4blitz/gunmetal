@@ -276,6 +276,9 @@ test('plugin slots and album license chrome use muted tokens, not a host control
 
 test('2026 chrome uses icon transport, a compact empty rail, a 360 hero and playing bars', async () => {
   const css = await demoShellCss();
+  expect(css.includes('#player-prev > *')).toStrictEqual(true);
+  expect(css.includes('#player-next > *')).toStrictEqual(true);
+  expect(css.includes('font-size: 0 !important')).toStrictEqual(true);
   expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(
     true,
   );

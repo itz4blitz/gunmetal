@@ -2454,18 +2454,27 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   transition: background-color var(--gm-motion), color var(--gm-motion);
 }
 
-#player-prev [data-control-label],
-#player-next [data-control-label],
-#player-queue [data-control-label] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
+#player-prev,
+#player-next,
+#player-queue {
   overflow: hidden;
+}
+
+#player-prev > *,
+#player-next > *,
+#player-queue > * {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
 }
 
 #player-prev::after,
@@ -3153,17 +3162,25 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   transition: background-color var(--gm-motion), filter var(--gm-motion);
 }
 
-#player-full-prev [data-control-label],
-#player-full-next [data-control-label] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
+#player-full-prev,
+#player-full-next {
   overflow: hidden;
+}
+
+#player-full-prev > *,
+#player-full-next > * {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
 }
 
 #player-full-prev::after,

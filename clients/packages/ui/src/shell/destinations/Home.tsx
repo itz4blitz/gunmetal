@@ -138,6 +138,9 @@ export function Home({
           body={messages.emptyRecentlyPlayed}
         />
       </View>
+      <View id="home-row-loved" dataSet={{ homeRow: 'loved' }}>
+        <EmptyCard state="loved" title={messages.loved} body={messages.emptyLoved} />
+      </View>
       <View id="home-row-recent" dataSet={{ homeRow: 'recent' }}>
         {albums.length === 0 ? (
           <EmptyCard
@@ -182,9 +185,6 @@ export function Home({
             </View>
           </>
         )}
-      </View>
-      <View id="home-row-loved" dataSet={{ homeRow: 'loved' }}>
-        <EmptyCard state="loved" title={messages.loved} body={messages.emptyLoved} />
       </View>
     </View>
   );
