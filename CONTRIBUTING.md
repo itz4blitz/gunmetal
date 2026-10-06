@@ -80,6 +80,14 @@ proptest! {
 - The regression test for a fixed vulnerability is also named after its
   advisory ID (SEC-TM-003).
 
+## Source of truth
+
+The canonical repository is the Premier Studio Forgejo on the tailnet
+(`https://git.taild1bbf.ts.net/PremierStudio/gunmetal`). GitHub is a
+mirror ([decision D-89](docs/decisions.md#d-89-source-of-truth-forge)).
+Open pull requests on Forgejo when you can reach it. Vulnerability
+reports still go through GitHub, as [SECURITY.md](SECURITY.md) says.
+
 ## Working in parallel
 
 The build runs as waves of work packages, many of them at once

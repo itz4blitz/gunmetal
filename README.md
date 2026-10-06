@@ -129,6 +129,14 @@ You need Rust 1.85 or newer, plus
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and
 [cargo-mutants](https://mutants.rs).
 
+On the Premier tailnet:
+
+```bash
+git clone https://git.taild1bbf.ts.net/PremierStudio/gunmetal.git
+```
+
+GitHub is the public mirror, used when the tailnet is not reachable:
+
 ```bash
 git clone https://github.com/PremierStudio/gunmetal.git
 ```

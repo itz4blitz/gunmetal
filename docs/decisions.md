@@ -132,6 +132,14 @@ The owner delegated purely technical choices to the recommended defaults (D-02).
 
 D-73 (player shortcuts), D-74's fallback and the default answer to "Is this your own device?" stay the owner's. The client plan proceeds on its recommended defaults for the first and the last, which the owner may change.
 
+## Owner answers, 2026-10-06
+
+The owner directed these in conversation on 2026-10-06.
+
+| Decision | Answer |
+|---|---|
+| D-89 Source of truth forge | Forgejo on the Premier tailnet is the source of truth: `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`, hosted on the Unraid box. GitHub remains a mirror for Cursor cloud agents, crate metadata and GitHub Actions until those paths can reach the tailnet or a public tunnel. Disclosure (D-63) stays GitHub-only. Recorded as [record 16](adr/0016-forgejo-source-of-truth.md). |
+
 ## Decide first
 
 These block the build in this order. D-01 to D-04 block wave 0 of the plan
@@ -2612,3 +2620,17 @@ Answered 2026-10-03: recommendation accepted and applied.
   with their fields in R1.1.
 
 Answered 2026-10-03: recommendation accepted and applied.
+
+### D-89 Source of truth forge
+
+- **Question.** Is GitHub still the repository the project clones, reviews
+  and merges from, or has that moved to the Premier Studio Forgejo on
+  Unraid over Tailscale?
+- **Recommendation.** Treat Forgejo as the source of truth at
+  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`. Keep GitHub as a
+  reachable mirror. Do not move vulnerability reporting or crate
+  `repository` URLs onto a MagicDNS name that does not resolve off the
+  tailnet.
+
+Answered 2026-10-06: Forgejo is the source of truth; GitHub is the mirror.
+See [record 16](adr/0016-forgejo-source-of-truth.md).
