@@ -45,14 +45,16 @@ test('album tile shows title artist hierarchy and opens on activate', () => {
     'Harbour Lights',
   );
   expect(document.querySelector('[data-album-artist="1"]')?.textContent).toStrictEqual('Keratin');
-  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(document.querySelector('[data-album-art="1"]')!);
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
   expect(onOpen).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: 'Enter' });
+  expect(onOpen).toHaveBeenCalledTimes(3);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: ' ' });
-  expect(onOpen).toHaveBeenCalledTimes(3);
+  expect(onOpen).toHaveBeenCalledTimes(4);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: 'Tab' });
-  expect(onOpen).toHaveBeenCalledTimes(3);
+  expect(onOpen).toHaveBeenCalledTimes(4);
 });
 
 test('play control is a sibling of open — never a nested button', () => {

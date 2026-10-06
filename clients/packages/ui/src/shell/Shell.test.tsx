@@ -167,7 +167,8 @@ test('shell sets data-art-tone from cover while playing and clears it when pause
   fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
   expect(root.getAttribute('data-art-tone')).toStrictEqual('01');
-  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  fireEvent.click(document.querySelector('#shell-play')!);
   expect(root.getAttribute('data-art-tone')).toBeNull();
 });
 

@@ -388,3 +388,41 @@ test('home spotlight play fills the bar from the featured fixture album', () => 
     'destination-headline',
   );
 });
+
+test('unresolvable album or track play leaves the full player closed', () => {
+  const base = demoLibrary();
+  const emptyAlbum = {
+    ...base.albums[0]!,
+    id: 'demo-album-empty',
+    title: 'Silent Shelf',
+    tracks: [],
+  };
+  const mismatched = {
+    ...base.albums[1]!,
+    id: 'demo-album-host',
+    title: 'Host Album',
+    tracks: [
+      {
+        ...base.albums[1]!.tracks[0]!,
+        id: 'demo-track-orphan',
+        albumId: 'demo-album-missing',
+        title: 'Orphan Click',
+      },
+    ],
+  };
+  const library: ShellLibrary = {
+    kind: 'demo-fixtures',
+    albums: [emptyAlbum, mismatched],
+    artists: base.artists,
+  };
+  render(<Shell path="/library" widthPx={1600} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Silent Shelf' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#player-empty')).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Host Album' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Orphan Click' }));
+  expect(document.querySelector('#player-full')).toBeNull();
+  expect(document.querySelector('#player-empty')).toBeTruthy();
+});
