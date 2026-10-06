@@ -66,6 +66,7 @@ test('open full player shows cover title artist scrubber transport and close', (
   const sheet = container.querySelector('#player-full');
   expect(sheet?.getAttribute('data-open')).toStrictEqual('1');
   expect(sheet?.getAttribute('aria-label')).toStrictEqual('Full player');
+  expect(screen.getByRole('heading', { name: 'Now playing' }).id).toStrictEqual('player-full-heading');
   expect(screen.getByText('Pier at Dusk').id).toStrictEqual('player-full-title');
   expect(screen.getByText('Mira Sol').id).toStrictEqual('player-full-artist');
   expect(container.querySelector('#player-full-art [data-size="full"]')).toBeTruthy();

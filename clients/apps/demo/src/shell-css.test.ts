@@ -336,9 +336,11 @@ test('full player stays inside the shell on medium and wider and overlays only o
   const compactBlock = css.slice(css.indexOf(compactMarker), css.indexOf(compactMarker) + 280);
   expect(compactBlock.includes('position: fixed')).toStrictEqual(true);
   expect(compactBlock.includes('grid-area: content')).toStrictEqual(false);
-  const wideBlock = css.slice(css.indexOf(wideMarker), css.indexOf(wideMarker) + 280);
+  const wideBlock = css.slice(css.indexOf(wideMarker), css.indexOf(wideMarker) + 420);
   expect(wideBlock.includes('grid-area: content')).toStrictEqual(true);
   expect(wideBlock.includes('position: fixed')).toStrictEqual(false);
+  expect(wideBlock.includes('inset: 0')).toStrictEqual(false);
+  expect(wideBlock.includes('var(--gm-radius-l)')).toStrictEqual(true);
   expect(css.includes("#token-shell[data-width='wide'] #player-full-scrim")).toStrictEqual(true);
   const wideScrim = css.slice(
     css.indexOf("#token-shell[data-width='wide'] #player-full-scrim"),

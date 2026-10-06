@@ -87,20 +87,25 @@ export function PlayerFull({
         accessibilityLabel={messages.playerFullRegion}
         dataSet={{ open: '1', placement }}
       >
-        <View
-          id="player-full-close"
-          accessibilityRole="button"
-          accessibilityLabel={messages.playerClose}
-          tabIndex={0}
-          onClick={onClose}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onClose();
-            }
-          }}
-        >
-          <Text>{messages.playerClose}</Text>
+        <View id="player-full-chrome">
+          <Text id="player-full-heading" accessibilityRole="header">
+            {messages.playerRegion}
+          </Text>
+          <View
+            id="player-full-close"
+            accessibilityRole="button"
+            accessibilityLabel={messages.playerClose}
+            tabIndex={0}
+            onClick={onClose}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClose();
+              }
+            }}
+          >
+            <Text>{messages.playerClose}</Text>
+          </View>
         </View>
         {fromLabel === undefined ? null : <Text id="player-full-from">{fromLabel}</Text>}
         <View id="player-full-art">
