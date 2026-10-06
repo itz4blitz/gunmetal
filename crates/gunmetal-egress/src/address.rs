@@ -121,10 +121,10 @@ mod tests {
     }
 
     /// What a request may connect to when these addresses passed.
-    fn pinned(addresses: &[&str]) -> Result<Pinned, Denial> {
-        Ok(Pinned {
+    fn pinned(addresses: &[&str]) -> Pinned {
+        Pinned {
             addresses: addresses.iter().copied().map(socket).collect(),
-        })
+        }
     }
 
     /// The refusal of `address`, which is of `class`.
@@ -171,7 +171,7 @@ mod tests {
                 &nowhere,
                 &[ip("8.8.8.8"), ip("2606:4700::1111")]
             ),
-            pinned(&["8.8.8.8:443", "[2606:4700::1111]:443"])
+            Ok(pinned(&["8.8.8.8:443", "[2606:4700::1111]:443"]))
         );
         let cases = [
             ("127.0.0.1", AddrClass::Loopback),
@@ -214,7 +214,7 @@ mod tests {
         let nowhere = Listening::none();
         assert_eq!(
             pin(Reach::Global, 443, &nowhere, &[ip("::ffff:8.8.8.8")]),
-            pinned(&["8.8.8.8:443"])
+            Ok(pinned(&["8.8.8.8:443"]))
         );
         assert_eq!(
             pin(Reach::Global, 443, &nowhere, &[ip("::ffff:127.0.0.1")]),
@@ -296,11 +296,11 @@ mod tests {
                     ip("100.64.0.7")
                 ]
             ),
-            pinned(&[
+            Ok(pinned(&[
                 "192.168.1.20:8123",
                 "[fd7a:115c:a1e0::20]:8123",
                 "100.64.0.7:8123"
-            ])
+            ]))
         );
         let cases = [
             ("127.0.0.1", AddrClass::Loopback),
@@ -355,7 +355,11 @@ mod tests {
                 &home(),
                 &[ip("8.8.8.8"), ip("8.8.4.5"), ip("2606:4700::1002")]
             ),
-            pinned(&["8.8.8.8:443", "8.8.4.5:443", "[2606:4700::1002]:443"])
+            Ok(pinned(&[
+                "8.8.8.8:443",
+                "8.8.4.5:443",
+                "[2606:4700::1002]:443"
+            ]))
         );
         // ... and so are they, by a process that listens nowhere: with no
         // listener no address is its own.
@@ -366,7 +370,7 @@ mod tests {
                 &Listening::none(),
                 &[ip("8.8.4.4"), ip("2606:4700::1001")]
             ),
-            pinned(&["8.8.4.4:443", "[2606:4700::1001]:443"])
+            Ok(pinned(&["8.8.4.4:443", "[2606:4700::1001]:443"]))
         );
     }
 
@@ -400,11 +404,11 @@ mod tests {
                     ip("100.64.0.8")
                 ]
             ),
-            pinned(&[
+            Ok(pinned(&[
                 "192.168.1.11:8123",
                 "[fd7a:115c:a1e0::11]:8123",
                 "100.64.0.8:8123"
-            ])
+            ]))
         );
         // ... and so are they, by a process that listens nowhere.
         assert_eq!(
@@ -418,11 +422,11 @@ mod tests {
                     ip("100.64.0.9")
                 ]
             ),
-            pinned(&[
+            Ok(pinned(&[
                 "192.168.1.10:8123",
                 "[fd7a:115c:a1e0::10]:8123",
                 "100.64.0.9:8123"
-            ])
+            ]))
         );
     }
 
@@ -594,13 +598,13 @@ mod tests {
 
     /// What a request to `port` may connect to when all of `addresses`
     /// passed, in their order.
-    fn all(addresses: &[IpAddr], port: u16) -> Result<Pinned, Denial> {
-        Ok(Pinned {
+    fn all(addresses: &[IpAddr], port: u16) -> Pinned {
+        Pinned {
             addresses: addresses
                 .iter()
                 .map(|address| SocketAddr::new(*address, port))
                 .collect(),
-        })
+        }
     }
 
     #[test]
@@ -610,11 +614,11 @@ mod tests {
         // Thirty-two are all looked at and all kept.
         assert_eq!(
             pin(Reach::Global, 443, &nowhere, &public_run(32)),
-            all(&public_run(32), 443)
+            Ok(all(&public_run(32), 443))
         );
         assert_eq!(
             pin(Reach::Lan, 8123, &nowhere, &private_run(32)),
-            all(&private_run(32), 8123)
+            Ok(all(&private_run(32), 8123))
         );
         // One more is refused, and so are far more.
         assert_eq!(
@@ -713,7 +717,7 @@ mod tests {
                     address: *address,
                     class: classify(*address),
                 }),
-                None => all(&canonical, port),
+                None => Ok(all(&canonical, port)),
             };
             prop_assert_eq!(pin(Reach::Global, port, &Listening::none(), &answers), expected);
         }
@@ -747,7 +751,7 @@ mod tests {
             let first_own = canonical.iter().find(|one| held.contains(one));
             let expected: Result<Pinned, Denial> = match first_own {
                 Some(address) => Err(Denial::OwnAddress { address: *address }),
-                None => all(&canonical, port),
+                None => Ok(all(&canonical, port)),
             };
             prop_assert_eq!(pin(Reach::Global, port, &server, &answers), expected);
         }
