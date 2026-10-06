@@ -12,9 +12,11 @@
 //!   SEC-PRV-013);
 //! - a request goes only to a [`destination::Destination`] its purpose's
 //!   grant names exactly, as scheme, host and port;
-//! - [`address::pin`] checks every address a name resolved to, and the
-//!   request may connect only to the addresses it returns (SEC-EXT-002,
-//!   SEC-API-077);
+//! - [`gate::Gate::pin`] checks every address a name resolved to, and the
+//!   request may connect only to the [`address::Pinned`] addresses it
+//!   returns, never to one of a kind the destination may not reach or to
+//!   one the server itself listens on, as [`listening::Listening`] says
+//!   (SEC-EXT-002, SEC-API-077);
 //! - [`redirect::follow`] decides whether a redirect is followed
 //!   (SEC-EXT-003), and [`limits::Limits`] caps time and size (SEC-EXT-004);
 //! - every refusal sends one security event to the audit log's sink, and
@@ -30,5 +32,6 @@ pub mod destination;
 pub mod gate;
 pub mod grant;
 pub mod limits;
+pub mod listening;
 pub mod purpose;
 pub mod redirect;

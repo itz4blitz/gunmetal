@@ -25,12 +25,22 @@ pub enum Denial {
     NotThroughProxy,
     /// The name resolved to no address.
     NoAddress,
+    /// The name resolved to more addresses than one request looks at.
+    TooManyAddresses {
+        /// How many addresses the name resolved to.
+        resolved: usize,
+    },
     /// The name resolved to an address the destination may not reach.
     AddressRefused {
         /// The address, in its canonical form.
         address: IpAddr,
         /// What kind of address it is.
         class: AddrClass,
+    },
+    /// The name resolved to an address the server itself listens on.
+    OwnAddress {
+        /// The address, in its canonical form.
+        address: IpAddr,
     },
     /// The request follows no redirects.
     RedirectsRefused,

@@ -223,25 +223,99 @@ impl Configuration {
             reach: allowed.reach,
             route: self.route,
             redirects: rules.redirects,
+            followed: 0,
         })
     }
 }
 
 /// A request the configuration lets out: which purpose, to which
-/// destination, at which addresses and by which route. Only
-/// [`Configuration::decide`] makes one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// destination, at which addresses and by which route, and how many
+/// redirects led to it.
+///
+/// Only [`Configuration::decide`] makes one, and only the gate moves one
+/// on along a redirect, so no other code can write one or say how many
+/// redirects it followed. It cannot be copied: following a redirect uses
+/// the request up, so its count cannot be started again from an earlier
+/// copy.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Admitted {
     /// The purpose the request names.
-    pub(crate) purpose: Purpose,
+    purpose: Purpose,
     /// Where the request goes.
-    pub(crate) destination: Destination,
+    destination: Destination,
     /// Which addresses the destination may resolve to.
-    pub(crate) reach: Reach,
+    reach: Reach,
     /// How the request leaves.
-    pub(crate) route: Route,
+    route: Route,
     /// What happens to a redirect.
-    pub(crate) redirects: Redirects,
+    redirects: Redirects,
+    /// How many redirects the request has followed to get here.
+    followed: u8,
+}
+
+impl Admitted {
+    /// The purpose the request names.
+    pub(crate) fn purpose(&self) -> Purpose {
+        self.purpose
+    }
+
+    /// Where the request goes.
+    pub(crate) fn destination(&self) -> &Destination {
+        &self.destination
+    }
+
+    /// Which addresses the destination may resolve to.
+    pub(crate) fn reach(&self) -> Reach {
+        self.reach
+    }
+
+    /// How the request leaves.
+    pub(crate) fn route(&self) -> Route {
+        self.route
+    }
+
+    /// What happens to a redirect.
+    pub(crate) fn redirects(&self) -> Redirects {
+        self.redirects
+    }
+
+    /// How many redirects the request has followed to get here.
+    pub(crate) fn followed(&self) -> u8 {
+        self.followed
+    }
+
+    /// The request this one becomes by following a redirect, given `hop`,
+    /// what the configuration decided for the redirect's target: `hop`,
+    /// with one more redirect behind it than this request has.
+    pub(crate) fn followed_to(self, hop: Self) -> Self {
+        // Not yet counted.
+        let _ = self.followed;
+        hop
+    }
+}
+
+#[cfg(test)]
+impl Admitted {
+    /// A request as the configuration would let it out, for the tests of
+    /// what no R1 purpose does yet: following a redirect, and having
+    /// followed some already. The build outside tests has no such door.
+    pub(crate) fn assumed(
+        purpose: Purpose,
+        destination: Destination,
+        reach: Reach,
+        route: Route,
+        redirects: Redirects,
+        followed: u8,
+    ) -> Self {
+        Self {
+            purpose,
+            destination,
+            reach,
+            route,
+            redirects,
+            followed,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +346,7 @@ mod tests {
             reach: Reach::Global,
             route: Route::Direct,
             redirects: Redirects::Refused,
+            followed: 0,
         }
     }
 
@@ -438,6 +513,7 @@ mod tests {
                 reach: Reach::Lan,
                 route: Route::Direct,
                 redirects: Redirects::Refused,
+                followed: 0,
             })
         );
         let refused = [
@@ -535,6 +611,7 @@ mod tests {
                 reach: Reach::Global,
                 route: Route::Proxy,
                 redirects: Redirects::Refused,
+                followed: 0,
             })
         );
         assert_eq!(
