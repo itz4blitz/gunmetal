@@ -4,6 +4,7 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
+use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::PathBuf;
 
@@ -11,6 +12,7 @@ use gunmetal_fs::open::FileKind;
 use gunmetal_fs::pool::Pool;
 use gunmetal_fs::root::{FsError, LinkPolicy, Op};
 use rustix::fs::OFlags;
+use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::{Errno, FdFlags};
 
 use crate::support::{
@@ -131,8 +133,8 @@ fn refuses_a_directory_and_the_root_itself() {
     }
 }
 
-/// A device is opened without blocking and then refused for what the open
-/// handle is, here through a link into a folder approved for the library.
+/// A device is refused for what it is, here through a link into a folder
+/// approved for the library.
 ///
 /// Verifies: SEC-MED-035
 #[test]
@@ -149,6 +151,46 @@ fn refuses_a_device_whatever_led_to_it() {
             found: FileKind::Other
         })
     );
+}
+
+/// What the door found an entry to be is enough to refuse it: a FIFO, a
+/// socket or a directory is not opened at all, as a watch for opens shows.
+/// The same watch does see a regular file opened.
+///
+/// Verifies: SEC-MED-035
+#[test]
+fn refuses_what_is_not_a_regular_file_before_opening_it() {
+    let scratch = Scratch::new("fs-open-unopened");
+    fifo(&scratch.path("music/track.flac"));
+    socket(&scratch.path("music/cover.jpg"));
+    scratch.dir("music/Album");
+    scratch.file("music/real.flac", b"fLaC");
+    let root = scratch.root();
+    let watch = inotify::init(CreateFlags::NONBLOCK.union(CreateFlags::CLOEXEC))
+        .expect("an inotify instance");
+    inotify::add_watch(&watch, scratch.path("music"), WatchFlags::OPEN).expect("watch the library");
+    for (path, found) in [
+        ("track.flac", FileKind::Fifo),
+        ("cover.jpg", FileKind::Socket),
+        ("Album", FileKind::Dir),
+    ] {
+        assert_eq!(
+            root.open_file(&at(path)).map(|_| ()),
+            Err(FsError::NotRegular { found }),
+            "{path}"
+        );
+    }
+    drop(root.open_file(&at("real.flac")).expect("the file opens"));
+    let mut buffer = [MaybeUninit::<u8>::uninit(); 1024];
+    let mut events = inotify::Reader::new(&watch, &mut buffer);
+    assert_eq!(
+        events.next().map(|event| (
+            event.events(),
+            event.file_name().map(|name| name.to_bytes().to_vec())
+        )),
+        Ok((ReadFlags::OPEN, Some(b"real.flac".to_vec())))
+    );
+    assert_eq!(events.next().map(|event| event.events()), Err(Errno::AGAIN));
 }
 
 #[test]

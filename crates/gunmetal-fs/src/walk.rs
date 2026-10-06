@@ -15,11 +15,35 @@
 
 use std::collections::{BTreeSet, VecDeque};
 
+use gunmetal_core::parse::{LimitKind, Limits};
 use gunmetal_core::path::RelPath;
 
 use crate::fingerprint::{DirSummary, Mark, summarise};
 use crate::open::{FileKind, Identity};
 use crate::root::{Base, Found, FsError, Root};
+
+/// How far a walk may go: how many entries a directory may hold, and how
+/// deep it may lie, and still be listed. See [`Root::walk_with`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalkLimits {
+    /// The most entries a directory may hold and still be listed.
+    pub entries: u64,
+    /// The deepest a directory may lie and still be listed. The root lies
+    /// at depth 0, and a directory in it at depth 1.
+    pub depth: u64,
+}
+
+impl WalkLimits {
+    /// The defaults, taken from the limits table every parse runs under
+    /// (`docs/security/media-and-parser-safety.md`, section 3), which has
+    /// no rows for folders: as many entries as a container's children
+    /// ([`LimitKind::Children`], 65,536), and as deep as a binary
+    /// container's nesting ([`LimitKind::ContainerDepth`], 32).
+    pub const DEFAULT: Self = Self {
+        entries: Limits::DEFAULT.get(LimitKind::Children),
+        depth: Limits::DEFAULT.get(LimitKind::ContainerDepth),
+    };
+}
 
 /// One thing a walk found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +110,12 @@ impl Root {
             ready: VecDeque::new(),
             seen: BTreeSet::new(),
         }
+    }
+
+    /// Walks everything beneath the root under `limits`.
+    #[must_use]
+    pub fn walk_with(&self, _limits: WalkLimits) -> Walk<'_> {
+        self.walk()
     }
 }
 

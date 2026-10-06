@@ -1,8 +1,10 @@
 //! Nothing the door does changes a library: it needs no write permission,
 //! and a watch on the library sees no change.
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::{self, Write as _};
 use std::mem::MaybeUninit;
+use std::os::fd::AsFd as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
@@ -139,4 +141,37 @@ fn walks_and_reads_a_library_it_may_not_write_and_leaves_it_as_it_was() {
         Ok(true)
     );
     set_mode(&scratch.path("music"), 0o755);
+}
+
+/// A `MediaFile` lends its descriptor, so that it can be handed to a
+/// worker, and a borrowed descriptor can be cloned into one that is owned.
+/// That one is still open for reading only: it cannot write the file or
+/// change its length.
+///
+/// Verifies: SEC-MED-038, SEC-OPS-054
+#[test]
+fn a_descriptor_cloned_from_an_open_file_still_cannot_write() {
+    let scratch = Scratch::new("fs-read-only-clone");
+    scratch.file("music/track.flac", b"fLaC");
+    let file = scratch
+        .root()
+        .open_file(&at("track.flac"))
+        .expect("the file opens");
+    let mut owned = File::from(
+        file.as_fd()
+            .try_clone_to_owned()
+            .expect("clone the descriptor"),
+    );
+    assert_eq!(
+        owned.write_all(b"x").map_err(|error| error.kind()),
+        Err(io::Error::from(Errno::BADF).kind())
+    );
+    assert_eq!(
+        owned.set_len(0).map_err(|error| error.kind()),
+        Err(io::Error::from(Errno::INVAL).kind())
+    );
+    assert_eq!(
+        fs::read(scratch.path("music/track.flac")).expect("read the file back"),
+        b"fLaC"
+    );
 }

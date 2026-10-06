@@ -131,6 +131,36 @@ pub enum FsError {
     /// The walk already listed this directory under another path, as a link
     /// back to a folder above it would make it do for ever.
     AlreadyWalked,
+    /// A directory holds more entries than the walk's limit allows
+    /// ([`WalkLimits::entries`]), so none of it was listed.
+    ///
+    /// [`WalkLimits::entries`]: crate::walk::WalkLimits::entries
+    TooManyEntries {
+        /// The most entries a directory may hold.
+        max: u64,
+    },
+    /// A directory lies deeper than the walk's limit allows
+    /// ([`WalkLimits::depth`]), so it was not entered.
+    ///
+    /// [`WalkLimits::depth`]: crate::walk::WalkLimits::depth
+    TooDeep {
+        /// How deep it lies. The root lies at depth 0.
+        depth: u64,
+        /// The deepest a directory may lie.
+        max: u64,
+    },
+    /// What was opened is not the object whose path was judged a moment
+    /// before: something replaced it in between, such as a symbolic link
+    /// swapped in for it, so it was not used (SEC-MED-034).
+    Replaced,
+    /// A folder approved as a link target could not be opened, so the root
+    /// was not opened either.
+    Approved {
+        /// Which of [`LinkPolicy::approved`].
+        index: usize,
+        /// Why it could not be opened.
+        reason: Box<Self>,
+    },
 }
 
 /// Maps an operating-system error during `op`.

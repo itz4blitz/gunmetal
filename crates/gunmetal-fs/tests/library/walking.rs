@@ -12,7 +12,7 @@ use gunmetal_fs::fingerprint::Mark;
 use gunmetal_fs::open::FileKind;
 use gunmetal_fs::pool::Pool;
 use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, Op};
-use gunmetal_fs::walk::Visit;
+use gunmetal_fs::walk::{Visit, WalkLimits};
 
 use crate::support::{
     LONG, Scratch, assert_not_root, at, collect, fifo, hex, identity, io, outside, raw, rel,
@@ -436,5 +436,174 @@ fn a_change_shows_in_the_summary_of_its_own_directory_only() {
             before[2] == after[2]
         ),
         (true, false, true)
+    );
+}
+
+/// The path of the folder `depth` levels of `d` below the root.
+fn nested(depth: usize) -> RelPath {
+    let names: Vec<&[u8]> = std::iter::repeat_n(b"d".as_slice(), depth).collect();
+    rel(&names)
+}
+
+/// The limits that change only how many entries a directory may hold.
+fn entries(entries: u64) -> WalkLimits {
+    WalkLimits {
+        entries,
+        depth: WalkLimits::DEFAULT.depth,
+    }
+}
+
+/// The limits that change only how deep a directory may lie.
+fn depth(depth: u64) -> WalkLimits {
+    WalkLimits {
+        entries: WalkLimits::DEFAULT.entries,
+        depth,
+    }
+}
+
+/// A plain walk runs under the limits the core's limits table gives a
+/// container: 65,536 children and 32 levels. A folder 32 levels below the
+/// root is listed, and the one 33 levels below it is reported and not
+/// entered.
+#[test]
+fn walks_folders_as_deep_as_the_default_limit_and_no_deeper() {
+    assert_eq!(
+        WalkLimits::DEFAULT,
+        WalkLimits {
+            entries: 65_536,
+            depth: 32
+        }
+    );
+    let scratch = Scratch::new("fs-walk-default-depth");
+    scratch.dir(&format!("music/{}", ["d"; 33].join("/")));
+    let mut expected: Vec<Visit> = (0..=32)
+        .map(|level| dir(nested(level), &[folder(b"d")]))
+        .collect();
+    expected.push(Visit::Skipped {
+        path: nested(33),
+        reason: FsError::TooDeep { depth: 33, max: 32 },
+    });
+    assert_eq!(collect(scratch.root().walk()), expected);
+}
+
+/// A directory with exactly as many entries as the limit is listed whole.
+/// One with a single entry more is not listed at all: it is reported once,
+/// with the limit, and nothing in it is reported as if it were all of it.
+/// Its parent still lists it as a directory.
+#[test]
+fn lists_a_directory_at_the_entry_limit_and_skips_one_over_it_whole() {
+    let scratch = Scratch::new("fs-walk-entries");
+    for name in ["a.flac", "b.flac", "c.flac"] {
+        for place in ["Full", "Over"] {
+            scratch.dir(&format!("music/{place}"));
+            scratch.file(&format!("music/{place}/{name}"), b"fLaC");
+        }
+    }
+    scratch.file("music/Over/d.flac", b"fLaC");
+    let root = scratch.root();
+    assert_eq!(
+        collect(root.walk_with(entries(3))),
+        [
+            dir(rel(&[]), &[folder(b"Full"), folder(b"Over")]),
+            dir(
+                at("Full"),
+                &[
+                    found(&scratch, b"a.flac", "music/Full/a.flac"),
+                    found(&scratch, b"b.flac", "music/Full/b.flac"),
+                    found(&scratch, b"c.flac", "music/Full/c.flac"),
+                ]
+            ),
+            file(&scratch, "Full/a.flac"),
+            file(&scratch, "Full/b.flac"),
+            file(&scratch, "Full/c.flac"),
+            skipped("Over", FsError::TooManyEntries { max: 3 }),
+        ]
+    );
+    // The root is held to the limit too.
+    assert_eq!(
+        collect(root.walk_with(entries(1))),
+        [Visit::Skipped {
+            path: rel(&[]),
+            reason: FsError::TooManyEntries { max: 1 },
+        }]
+    );
+}
+
+#[test]
+fn lists_directories_at_the_depth_limit_and_skips_deeper_ones() {
+    let scratch = Scratch::new("fs-walk-depth");
+    scratch.dir("music/a/b/c");
+    scratch.file("music/a/1.flac", b"fLaC");
+    scratch.file("music/a/b/2.flac", b"fLaC");
+    scratch.file("music/a/b/c/3.flac", b"fLaC");
+    let root = scratch.root();
+    assert_eq!(
+        collect(root.walk_with(depth(2))),
+        [
+            dir(rel(&[]), &[folder(b"a")]),
+            dir(
+                at("a"),
+                &[found(&scratch, b"1.flac", "music/a/1.flac"), folder(b"b")]
+            ),
+            file(&scratch, "a/1.flac"),
+            dir(
+                at("a/b"),
+                &[found(&scratch, b"2.flac", "music/a/b/2.flac"), folder(b"c")]
+            ),
+            file(&scratch, "a/b/2.flac"),
+            skipped("a/b/c", FsError::TooDeep { depth: 3, max: 2 }),
+        ]
+    );
+    assert_eq!(
+        collect(root.walk_with(depth(0))),
+        [
+            dir(rel(&[]), &[folder(b"a")]),
+            skipped("a", FsError::TooDeep { depth: 1, max: 0 }),
+        ]
+    );
+}
+
+/// A directory waiting to be listed is judged again when the walk comes to
+/// it, so whatever replaced it since is taken for what it is now: a link
+/// by the link policy, a file as no directory, and a link to a folder the
+/// walk has listed as that folder, which is not listed twice.
+///
+/// Verifies: SEC-MED-034
+#[test]
+fn judges_a_directory_again_when_it_comes_to_list_it() {
+    let scratch = Scratch::new("fs-walk-rejudge");
+    scratch.dir("outside");
+    for name in ["a", "b", "c", "d"] {
+        scratch.dir(&format!("music/{name}"));
+        scratch.file(&format!("music/{name}/track.flac"), b"fLaC");
+    }
+    let root = scratch.root();
+    let mut walk = root.walk();
+    assert_eq!(
+        walk.next(),
+        Some(dir(
+            rel(&[]),
+            &[folder(b"a"), folder(b"b"), folder(b"c"), folder(b"d")]
+        ))
+    );
+    for name in ["b", "c", "d"] {
+        fs::rename(scratch.path(&format!("music/{name}")), scratch.path(name))
+            .expect("move the folder away");
+    }
+    scratch.link("../outside", "music/b");
+    scratch.file("music/c", b"fLaC");
+    scratch.link("a", "music/d");
+    assert_eq!(
+        collect(walk),
+        [
+            dir(
+                at("a"),
+                &[found(&scratch, b"track.flac", "music/a/track.flac")]
+            ),
+            file(&scratch, "a/track.flac"),
+            skipped("b", outside(scratch.raw("outside"))),
+            skipped("c", io(Op::List, ErrorKind::NotADirectory)),
+            skipped("d", FsError::AlreadyWalked),
+        ]
     );
 }

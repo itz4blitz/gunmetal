@@ -1,6 +1,7 @@
 //! The symbolic-link policy: a link is followed only when its whole chain
 //! stays beneath the library's root or a folder approved for it.
 
+use std::fs;
 use std::io::ErrorKind;
 
 use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, MAX_LINKS, Op};
@@ -201,6 +202,40 @@ fn refuses_links_into_the_servers_own_secrets_backups_and_database() {
             Err(outside(scratch.raw(target))),
             "{path}"
         );
+    }
+}
+
+/// `..` in a link's text is collapsed by name before the target is judged,
+/// as the core's path rules do, and not by first following what the names
+/// before it lead to, as the kernel would. So `sub/link/../x.flac` leads to
+/// `sub/x.flac` although `sub/link` is a link to somewhere else, and
+/// `sub/missing/../x.flac` leads there too although there is no
+/// `sub/missing`. The target is judged either way, so it cannot leave the
+/// roots the policy allows.
+#[test]
+fn collapses_dot_dot_in_link_text_by_name() {
+    let scratch = Scratch::new("fs-link-dot-dot");
+    scratch.dir("music/sub");
+    scratch.dir("music/other/deep");
+    scratch.file("music/sub/x.flac", b"by name");
+    scratch.file("music/other/x.flac", b"by the kernel");
+    scratch.link("../other/deep", "music/sub/link");
+    scratch.link("sub/link/../x.flac", "music/through.flac");
+    scratch.link("sub/missing/../x.flac", "music/gap.flac");
+    // The kernel follows `sub/link` before it climbs out of it, and finds
+    // no `sub/missing` to climb out of.
+    assert_eq!(
+        fs::read(scratch.path("music/through.flac")).expect("the kernel follows the link"),
+        b"by the kernel"
+    );
+    assert_eq!(
+        fs::read(scratch.path("music/gap.flac")).map_err(|error| error.kind()),
+        Err(ErrorKind::NotFound)
+    );
+    let root = scratch.root();
+    for path in ["through.flac", "gap.flac"] {
+        let file = root.open_file(&at(path)).expect("the link is followed");
+        assert_eq!(contents(&file), b"by name", "{path}");
     }
 }
 

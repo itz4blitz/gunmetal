@@ -4,7 +4,7 @@ use std::fs;
 use std::io::ErrorKind;
 
 use gunmetal_fs::host::Filesystem;
-use gunmetal_fs::root::{LinkPolicy, Op, Root, resolve};
+use gunmetal_fs::root::{FsError, LinkPolicy, Op, Root, resolve};
 
 use crate::support::{Scratch, at, contents, io};
 
@@ -65,7 +65,30 @@ fn refuses_an_approved_folder_that_is_not_there() {
     };
     assert_eq!(
         Root::open(&scratch.path("music"), policy).map(|_| ()),
-        Err(io(Op::Resolve, ErrorKind::NotFound))
+        Err(FsError::Approved {
+            index: 0,
+            reason: Box::new(io(Op::Resolve, ErrorKind::NotFound))
+        })
+    );
+}
+
+/// The error names the approved folder that could not be opened, by its
+/// place in the policy, with why.
+#[test]
+fn names_the_approved_folder_that_could_not_be_opened() {
+    let scratch = Scratch::new("fs-root-approved-which");
+    scratch.dir("debrid");
+    scratch.file("track.flac", b"fLaC");
+    let policy = LinkPolicy {
+        approved: vec![scratch.path("debrid"), scratch.path("track.flac")],
+        others: Vec::new(),
+    };
+    assert_eq!(
+        Root::open(&scratch.path("music"), policy).map(|_| ()),
+        Err(FsError::Approved {
+            index: 1,
+            reason: Box::new(io(Op::OpenRoot, ErrorKind::NotADirectory))
+        })
     );
 }
 
