@@ -304,12 +304,11 @@ mod tests {
             vec![(1, 10, Some(addr), Some(salt.to_vec()))]
         );
         let mac = MixMac::new(7);
-        let mac_salt = [1_u8, 2];
-        let (kid, tag) = commit(&mac, addr, &mac_salt).expect("commit");
+        let (kid, tag) = commit(&mac, addr, &salt).expect("commit");
         assert_eq!(kid, 7);
-        assert_eq!(tag, mix(7, &commitment_msg(addr, &mac_salt)));
+        assert_eq!(tag, mix(7, &commitment_msg(addr, &salt)));
         assert_eq!(
-            commit(&FailingMac, addr, &mac_salt),
+            commit(&FailingMac, addr, &salt),
             Err(AuditError::MacUnavailable)
         );
         db.execute(

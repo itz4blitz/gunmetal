@@ -10,9 +10,9 @@ use gunmetal_durable::audit::error::AuditError;
 use gunmetal_durable::audit::log::AuditLog;
 use gunmetal_durable::audit::record::WriteClass;
 use gunmetal_fs::dataroot::DataRoot;
-use gunmetal_secrets::keyring::Purpose;
+use gunmetal_secrets::keyring::{KeyRing, Purpose};
 use gunmetal_secrets::random::OsRandom;
-use gunmetal_secrets::root::Root;
+use gunmetal_secrets::root::{Root, SecretsError};
 
 /// The audit log wired as a [`SecuritySink`].
 pub struct AuditSink {
@@ -29,9 +29,26 @@ impl AuditSink {
     /// When the root secret, a key ring or the log cannot be opened.
     pub fn open(data: DataRoot, clock: Arc<dyn Clock + Send + Sync>) -> Result<Self, AuditError> {
         let root = Root::load_or_create(&data, &OsRandom)?;
-        let address = Arc::new(root.key_ring(Purpose::AuditAddress)?);
-        let signing = Arc::new(root.key_ring(Purpose::AuditSigning)?);
-        let log = AuditLog::open(data, address, signing, Arc::new(OsRandom))?;
+        Self::from_rings(
+            data,
+            clock,
+            root.key_ring(Purpose::AuditAddress),
+            root.key_ring(Purpose::AuditSigning),
+        )
+    }
+
+    fn from_rings(
+        data: DataRoot,
+        clock: Arc<dyn Clock + Send + Sync>,
+        address: Result<KeyRing, SecretsError>,
+        signing: Result<KeyRing, SecretsError>,
+    ) -> Result<Self, AuditError> {
+        let log = AuditLog::open(
+            data,
+            Arc::new(address?),
+            Arc::new(signing?),
+            Arc::new(OsRandom),
+        )?;
         Ok(Self { log, clock })
     }
 }
@@ -65,9 +82,13 @@ mod tests {
     use gunmetal_core::audit_event::{SecurityEvent, SecuritySink};
     use gunmetal_core::http::forwarded::{ForwardingHeaders, HostNetwork, path_class};
     use gunmetal_core::id::{IdKind, PublicId};
+    use gunmetal_durable::audit::error::AuditError;
     use gunmetal_fs::dataroot::{DataRoot, Policy};
     use gunmetal_fs::host::HostFacts;
     use gunmetal_fs::path::{AuditSeg, DataDir, DataPath};
+    use gunmetal_secrets::keyring::Purpose;
+    use gunmetal_secrets::random::OsRandom;
+    use gunmetal_secrets::root::{Root, SecretsError};
     use gunmetal_testkit::tempdir::TempDir;
     use std::io::Read;
     use std::net::{IpAddr, Ipv4Addr};
@@ -245,6 +266,38 @@ mod tests {
             .expect("wrote");
         let (clock, _) = testing::clock();
         assert!(AuditSink::open(root, clock).is_err());
+    }
+
+    #[test]
+    fn open_fails_when_an_audit_key_cannot_be_derived() {
+        let dir = TempDir::new("audit-sink-primitive").expect("scratch");
+        let host = HostFacts::probe(dir.path()).expect("host");
+        let root = DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+            .expect("root")
+            .root;
+        let secret = Root::load_or_create(&root, &OsRandom).expect("secret");
+        let address = secret.key_ring(Purpose::AuditAddress).expect("address");
+        let signing = secret.key_ring(Purpose::AuditSigning).expect("signing");
+        let (clock, _) = testing::clock();
+        let again = || {
+            DataRoot::open(dir.path(), &host, Policy::DEFAULT)
+                .expect("root")
+                .root
+        };
+        assert_eq!(
+            AuditSink::from_rings(
+                again(),
+                clock.clone(),
+                Err(SecretsError::Primitive),
+                Ok(signing),
+            )
+            .err(),
+            Some(AuditError::Secrets(SecretsError::Primitive))
+        );
+        assert_eq!(
+            AuditSink::from_rings(again(), clock, Ok(address), Err(SecretsError::Primitive),).err(),
+            Some(AuditError::Secrets(SecretsError::Primitive))
+        );
     }
 
     #[test]

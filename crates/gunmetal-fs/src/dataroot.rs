@@ -1334,6 +1334,10 @@ mod tests {
         root.replace(&key, b"old keys").expect("keys");
         std::fs::create_dir(scratch.0.join("root/secrets/.keys.json.tmp")).expect("dir");
         assert!(matches!(
+            root.replace(&key, b"half"),
+            Err(DataRootError::Io { op: Op::Create, .. })
+        ));
+        assert!(matches!(
             root.leave_replacement(&key, b"half"),
             Err(DataRootError::Io { op: Op::Create, .. })
         ));
