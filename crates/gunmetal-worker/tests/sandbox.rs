@@ -18,7 +18,11 @@
 //! What each kernel offers is decided here, never by the code under test:
 //! from `/sys/kernel/security/lsm`, the kernel's release, the build's
 //! architecture, and which calls this executable itself took away
-//! ([`Host`]). Every expected report and outcome is written out per case.
+//! ([`Host`]). A kernel without securityfs publishes no such list, and a
+//! container is usually not shown it. There the kernel is asked about each
+//! module directly: by the Landlock version query, and by whether Yama's
+//! setting exists ([`active`]). Every expected report and outcome is
+//! written out per case.
 #![expect(
     clippy::disallowed_methods,
     reason = "the hostile worker tries each forbidden action by path, socket and Command, and the test reads /proc to see what the kernel holds for a worker (SEC-MED-022, SEC-TM-044)"
@@ -75,7 +79,19 @@ const EMULATED: [&str; 0] = [];
 /// One test: its name and its body, which is told what the kernel offers.
 type Test = (&'static str, fn(&Host));
 
-const TESTS: [Test; 11] = [
+const TESTS: [Test; 14] = [
+    (
+        "the_module_list_decides_and_without_one_the_kernels_direct_answer_does",
+        the_module_list_decides_and_without_one_the_kernels_direct_answer_does,
+    ),
+    (
+        "a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is",
+        a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is,
+    ),
+    (
+        "the_kernels_direct_answers_agree_with_what_these_tests_expect_of_it",
+        the_kernels_direct_answers_agree_with_what_these_tests_expect_of_it,
+    ),
     (
         "self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing",
         self_test_reports_the_tier_the_kernel_allows_and_names_what_is_missing,
@@ -187,8 +203,10 @@ struct Host {
     landlock_signals: bool,
     /// The Yama module is active, so `PR_SET_PTRACER` exists.
     yama: bool,
-    /// Some seccomp filter binds the worker: its own, or the one this
-    /// executable installed to take calls away.
+    /// Some seccomp filter binds the worker: its own, or one it inherits
+    /// from this process. That is the one this executable installed to
+    /// take calls away, or one this process itself started under, as in a
+    /// container with a seccomp profile.
     filtered: bool,
 }
 
@@ -246,12 +264,85 @@ fn emulate(_position: usize) -> (bool, bool) {
     (true, true)
 }
 
+/// Where the kernel lists its active security modules. The file is on
+/// securityfs, which a kernel can be built without and a container is
+/// usually not shown.
+const MODULE_LIST: &str = "/sys/kernel/security/lsm";
+/// Yama's one setting, which the kernel publishes exactly where Yama is
+/// active: the module registers the setting when it starts.
+const YAMA_SETTING: &str = "/proc/sys/kernel/yama/ptrace_scope";
+
+/// The text of a file the kernel publishes, or `None` where the kernel
+/// publishes no file by that name. Any other failure to read it is an
+/// error, never taken for a missing file.
+fn published(path: &str) -> Result<Option<String>, io::ErrorKind> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.kind()),
+    }
+}
+
+/// Whether a security module is active on the running kernel. Where the
+/// kernel publishes the list of its modules, the list decides, and a
+/// module is one whole name in it. Where it publishes none, `answered`
+/// decides: what the kernel said when it was asked about that module
+/// directly.
+fn active(list: Option<&str>, module: &str, answered: bool) -> bool {
+    list.map_or(answered, |names| {
+        names.trim().split(',').any(|name| name == module)
+    })
+}
+
+/// The Landlock version the running kernel answers with, or `Unsupported`
+/// where it answers with none. The query is `landlock_create_ruleset` with
+/// only the version flag: it creates no ruleset and restricts nothing. A
+/// kernel built without Landlock answers `ENOSYS`, as does one this
+/// executable took the call away from, and a kernel that has Landlock
+/// switched off answers `EOPNOTSUPP`.
+///
+/// Making the call needs `unsafe`, which this crate allows in one place
+/// only (ADR 13), so it is made through the `landlock` crate: a builder
+/// that is given nothing to restrict and told to leave `no_new_privs`
+/// alone asks for the version and does nothing else. None of the sandbox's
+/// own code is involved.
+fn landlock_version() -> landlock::ABI {
+    let answer = landlock::RestrictSelf::default()
+        .no_new_privs(false)
+        .apply()
+        .expect("the kernel's answer about Landlock");
+    landlock::ABI::from(answer.landlock)
+}
+
+/// Whether the kernel publishes Yama's setting, and so whether Yama is
+/// active.
+fn yama_answers() -> bool {
+    published(YAMA_SETTING)
+        .expect("the kernel's answer about Yama")
+        .is_some()
+}
+
 impl Host {
     /// Reads what the running kernel offers, less what the emulated
     /// kernel at this position in [`EMULATED`] lacks.
     fn read(emulated: Option<usize>) -> Self {
-        let lsm = fs::read_to_string("/sys/kernel/security/lsm").expect("the kernel's LSM list");
-        let active = |module: &str| lsm.trim().split(',').any(|name| name == module);
+        let list = published(MODULE_LIST).expect("the kernel's LSM list");
+        // The kernel is asked before anything is taken away, so each
+        // answer is about the running kernel, as its list is.
+        let no_new_privs = status(process::id(), "NoNewPrivs:");
+        let landlock = active(
+            list.as_deref(),
+            "landlock",
+            landlock_version() != landlock::ABI::Unsupported,
+        );
+        // A worker inherits this flag. Had asking set it here, a worker
+        // that set none of its own would still show it.
+        assert_eq!(
+            status(process::id(), "NoNewPrivs:"),
+            no_new_privs,
+            "asking about Landlock changed this process's no_new_privs"
+        );
+        let yama = active(list.as_deref(), "yama", yama_answers());
         let release =
             fs::read_to_string("/proc/sys/kernel/osrelease").expect("the kernel's release");
         let mut numbers = release
@@ -266,11 +357,13 @@ impl Host {
             seccomp: seccomp_left
                 && cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
                 && status(process::id(), "Seccomp:").is_some(),
-            landlock: landlock_left && active("landlock"),
+            landlock: landlock_left && landlock,
             landlock_network: version >= (6, 7),
             landlock_signals: version >= (6, 12),
-            yama: active("yama"),
-            filtered: emulated.is_some(),
+            yama,
+            // Read after anything was taken away, and from the kernel, so
+            // no start is assumed for this process.
+            filtered: status(process::id(), "Seccomp:").as_deref() == Some("2"),
         }
     }
 }
@@ -513,6 +606,91 @@ fn limit(limits: &str, label: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Where the kernel publishes the list of its security modules, the list
+/// decides and the kernel's direct answer changes nothing; a module is a
+/// whole name in the list. On a kernel that publishes none, as one without
+/// securityfs, the direct answer decides.
+fn the_module_list_decides_and_without_one_the_kernels_direct_answer_does(_host: &Host) {
+    let listed = Some("lockdown,capability,landlock,yama,apparmor\n");
+    assert_eq!(
+        [
+            active(listed, "landlock", false),
+            active(listed, "yama", false),
+            active(listed, "lockdown", false),
+            active(listed, "apparmor", false),
+            active(listed, "selinux", true),
+            active(listed, "lock", true),
+            active(listed, "", true),
+        ],
+        [true, true, true, true, false, false, false]
+    );
+    // One name, as the kernel writes it, with no line end.
+    assert!(active(Some("landlock"), "landlock", false));
+    assert!(!active(Some("capability,yama"), "landlock", true));
+    assert!(!active(Some(""), "landlock", true));
+    assert_eq!(
+        [
+            active(None, "landlock", true),
+            active(None, "landlock", false),
+            active(None, "yama", true),
+            active(None, "yama", false),
+        ],
+        [true, false, true, false]
+    );
+}
+
+/// A kernel without securityfs has no file where the list would be.
+/// Reading it is "no list", not a failure, and that is what sends
+/// [`Host`] to the kernel's direct answers. A file that is there is read
+/// whole. Any other failure stays an error, so a list that exists and
+/// cannot be read is never taken for a kernel without one.
+fn a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is(_host: &Host) {
+    assert_eq!(
+        published("/proc/sys/kernel/ostype"),
+        Ok(Some("Linux\n".to_owned()))
+    );
+    assert_eq!(published("/sys/kernel/security/no-such-list"), Ok(None));
+    assert_eq!(
+        published("/proc/self/status/lsm"),
+        Err(io::ErrorKind::NotADirectory)
+    );
+}
+
+/// What [`Host`] says of Landlock and Yama is what the kernel answers
+/// when it is asked directly. On a kernel that publishes its module list
+/// `Host` took both from the list, so this is the list and the direct
+/// answers agreeing, which is what lets the direct answers stand in where
+/// there is no list. On a kernel that publishes none, `Host` took them
+/// from these same answers, and only the rest is proven there.
+///
+/// Landlock is asked again here, after an emulated kernel took its calls
+/// away, so on those kernels the answer must be "no", as `Host` says.
+///
+/// The version the kernel answers with is also what gives Landlock its
+/// network rules, from 4, and its signal scoping, from 6. `Host` takes
+/// those two from the kernel's release instead, which does not pass
+/// through the crate the sandbox enforces with, so a version read too low
+/// there cannot lower what these tests expect. Here the two must agree: a
+/// kernel whose release and Landlock version tell different stories fails
+/// this test by name, before the hostile actions fail on an error number.
+fn the_kernels_direct_answers_agree_with_what_these_tests_expect_of_it(host: &Host) {
+    let version = landlock_version();
+    assert_eq!(
+        (
+            version != landlock::ABI::Unsupported,
+            version >= landlock::ABI::V4,
+            version >= landlock::ABI::V6,
+            yama_answers(),
+        ),
+        (
+            host.landlock,
+            host.landlock && host.landlock_network,
+            host.landlock && host.landlock_signals,
+            host.yama,
+        )
+    );
 }
 
 /// Namespaces are never created, so the tier is always the reduced one;
