@@ -434,6 +434,7 @@ dependencies = [
 name = "gunmetal-server"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "gunmetal-core",
  "gunmetal-durable",
  "gunmetal-fs",
@@ -1315,6 +1316,8 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "gunmetal-fuzz",
+ "gunmetal-http",
+ "gunmetal-server",
 ]
 
 [[package]]

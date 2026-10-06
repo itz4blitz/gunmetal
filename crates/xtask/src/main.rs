@@ -33,6 +33,9 @@
 //! - `native-code <cargo-metadata-output>`: every crate in the shipped graph
 //!   that is a `-sys` crate, declares `links` or uses `unsafe` is on the
 //!   justified allow-list (SEC-TM-034).
+//! - `openapi`: the `OpenAPI` description of the server's routes, generated
+//!   from the route registry, and `openapi check`: the committed copy is
+//!   that description (SEC-API-091).
 //! - `repo`: repository protections, workflow pinning, REUSE, runbooks and
 //!   CODEOWNERS (WP-124).
 //! - `repo settings <live-dir>`: live GitHub dumps against the expected
@@ -73,6 +76,7 @@ mod lint_exceptions;
 mod lockfile;
 mod lockfile_age;
 mod native_code;
+mod openapi;
 mod repo;
 mod site;
 mod standards;
@@ -86,6 +90,7 @@ use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gunmetal_fuzz::registry;
+use gunmetal_server::routes;
 
 use crate::tree::{Disk, Tree};
 
@@ -159,6 +164,8 @@ fn dispatch(
             &read(&tree, metadata)?,
             &tree.read(native_code::ALLOWLIST).unwrap_or_default(),
         )),
+        ["openapi"] => write(out, &openapi::render(&routes::REGISTRY.routes())),
+        ["openapi", "check"] => report(openapi::check(&tree, &routes::REGISTRY.routes())),
         ["repo"] => report(repo::check(&tree, now)),
         ["repo", "advisories", json] => report(repo::advisories(&tree, &read(&tree, json)?)),
         ["repo", "codeql", sarif] => report(repo::codeql(&read(&tree, sarif)?)),
