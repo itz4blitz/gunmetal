@@ -1333,14 +1333,13 @@ mod tests {
         let key = DataPath::constant(DataDir::Secrets, "keys.json");
         root.replace(&key, b"old keys").expect("keys");
         std::fs::create_dir(scratch.0.join("root/secrets/.keys.json.tmp")).expect("dir");
-        assert!(matches!(
-            root.replace(&key, b"half"),
-            Err(DataRootError::Io { op: Op::Create, .. })
-        ));
-        assert!(matches!(
-            root.leave_replacement(&key, b"half"),
-            Err(DataRootError::Io { op: Op::Create, .. })
-        ));
+        let blocked = Err(DataRootError::Io {
+            item: Item::Path(key.clone()),
+            op: Op::Create,
+            kind: io::ErrorKind::AlreadyExists,
+        });
+        assert_eq!(root.replace(&key, b"half"), blocked.clone());
+        assert_eq!(root.leave_replacement(&key, b"half"), blocked);
         std::fs::remove_dir(scratch.0.join("root/secrets/.keys.json.tmp")).expect("gone");
         root.leave_replacement(&key, b"half written")
             .expect("leftover");
