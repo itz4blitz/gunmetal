@@ -1,0 +1,113 @@
+# The limits register (SEC-STD-030): every business limit the server
+# enforces, with its default and the test that enforces it. It is a registry:
+# a package that enforces a limit adds its entries, sorted by name, and
+# WP-130's xtask check reads the file.
+#
+# Each entry gives the limit's name; its scope, which is what it is counted
+# for ("source" for one client address or network, "server" for the whole
+# server); its default, a whole number of the unit named; the requirement it
+# serves; and the test that enforces it, as the file that holds the test and
+# the test's name.
+#
+# The sign_in entries are the credential verifier's (WP-064, SEC-IAM-101).
+# A ceiling is two entries: "burst" attempts at once, then one more every
+# "interval_ms". Every endpoint that checks a secret or starts a sign-in
+# ceremony counts against its source's ceilings and the server's; a test in
+# crates/gunmetal-server/src/limiter/rates.rs fails when these entries and
+# the ceilings in force differ.
+
+[[limit]]
+name = "sign_in.guess_delays.keys"
+scope = "server"
+default = 4096
+unit = "keys"
+requirement = "SEC-NET-051"
+test = "crates/gunmetal-server/src/verifier/guesses.rs: a_full_store_never_drops_a_wait_that_is_still_running"
+
+[[limit]]
+name = "sign_in.ipv6_48.burst"
+scope = "source"
+default = 40
+unit = "attempts"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: an_ipv6_network_is_held_at_each_of_its_prefixes"
+
+[[limit]]
+name = "sign_in.ipv6_48.interval_ms"
+scope = "source"
+default = 1500
+unit = "milliseconds"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: an_ipv6_network_is_held_at_each_of_its_prefixes"
+
+[[limit]]
+name = "sign_in.ipv6_56.burst"
+scope = "source"
+default = 20
+unit = "attempts"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: an_ipv6_network_is_held_at_each_of_its_prefixes"
+
+[[limit]]
+name = "sign_in.ipv6_56.interval_ms"
+scope = "source"
+default = 3000
+unit = "milliseconds"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: an_ipv6_network_is_held_at_each_of_its_prefixes"
+
+[[limit]]
+name = "sign_in.server.burst"
+scope = "server"
+default = 100
+unit = "attempts"
+requirement = "SEC-IAM-101"
+test = "crates/gunmetal-server/src/limiter/rates.rs: sources_together_reach_the_server_wide_ceiling"
+
+[[limit]]
+name = "sign_in.server.interval_ms"
+scope = "server"
+default = 600
+unit = "milliseconds"
+requirement = "SEC-IAM-101"
+test = "crates/gunmetal-server/src/limiter/rates.rs: sources_together_reach_the_server_wide_ceiling"
+
+[[limit]]
+name = "sign_in.source.burst"
+scope = "source"
+default = 10
+unit = "attempts"
+requirement = "SEC-IAM-101"
+test = "crates/gunmetal-server/src/limiter/rates.rs: a_source_gets_its_burst_then_one_attempt_per_interval"
+
+[[limit]]
+name = "sign_in.source.interval_ms"
+scope = "source"
+default = 6000
+unit = "milliseconds"
+requirement = "SEC-IAM-101"
+test = "crates/gunmetal-server/src/limiter/rates.rs: a_source_gets_its_burst_then_one_attempt_per_interval"
+
+[[limit]]
+name = "sign_in.tracked_keys"
+scope = "server"
+default = 16384
+unit = "keys"
+requirement = "SEC-NET-051"
+test = "crates/gunmetal-server/src/limiter/rates.rs: forgets_the_source_it_heard_from_longest_ago_when_it_is_full"
+
+[[limit]]
+name = "sign_in.unknown.burst"
+scope = "source"
+default = 20
+unit = "attempts"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: peers_behind_the_gateway_share_one_bucket_that_cannot_delay_a_direct_peer"
+
+[[limit]]
+name = "sign_in.unknown.interval_ms"
+scope = "source"
+default = 3000
+unit = "milliseconds"
+requirement = "SEC-NET-052"
+test = "crates/gunmetal-server/src/limiter/rates.rs: peers_behind_the_gateway_share_one_bucket_that_cannot_delay_a_direct_peer"
