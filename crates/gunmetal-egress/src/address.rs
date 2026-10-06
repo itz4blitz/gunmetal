@@ -72,12 +72,16 @@ impl Pinned {
 pub(crate) fn pin(
     reach: Reach,
     port: u16,
-    _listening: &Listening,
+    listening: &Listening,
     resolved: &[IpAddr],
 ) -> Result<Pinned, Denial> {
-    // Not yet counted, and the server's own addresses not yet refused.
     if resolved.is_empty() {
         return Err(Denial::NoAddress);
+    }
+    if resolved.len() > MAX_RESOLVED {
+        return Err(Denial::TooManyAddresses {
+            resolved: resolved.len(),
+        });
     }
     resolved
         .iter()
@@ -86,6 +90,9 @@ pub(crate) fn pin(
             let class = classify(address);
             if !reach.admits(class) {
                 return Err(Denial::AddressRefused { address, class });
+            }
+            if listening.holds(address) {
+                return Err(Denial::OwnAddress { address });
             }
             Ok(SocketAddr::new(address, port))
         })
@@ -102,6 +109,8 @@ mod tests {
     use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use gunmetal_core::net::{AddrClass, classify};
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
+    use proptest::{prop_oneof, proptest};
 
     fn ip(text: &str) -> IpAddr {
         text.parse().expect("an address")

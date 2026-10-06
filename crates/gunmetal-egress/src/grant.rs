@@ -288,9 +288,10 @@ impl Admitted {
     /// what the configuration decided for the redirect's target: `hop`,
     /// with one more redirect behind it than this request has.
     pub(crate) fn followed_to(self, hop: Self) -> Self {
-        // Not yet counted.
-        let _ = self.followed;
-        hop
+        Self {
+            followed: self.followed.saturating_add(1),
+            ..hop
+        }
     }
 }
 

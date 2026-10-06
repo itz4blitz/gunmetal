@@ -62,17 +62,28 @@ impl Listening {
     /// [`ListeningError::Wildcard`] with the first wildcard address in it,
     /// `0.0.0.0`, `::` or `::ffff:0.0.0.0`.
     pub fn new(addresses: &[IpAddr]) -> Result<Self, ListeningError> {
-        // Not yet refused: an empty list and a wildcard. Not yet canonical.
-        Ok(Self(addresses.iter().copied().collect()))
+        if addresses.is_empty() {
+            return Err(ListeningError::Empty);
+        }
+        addresses
+            .iter()
+            .map(|address| {
+                let address = address.to_canonical();
+                if address.is_unspecified() {
+                    Err(ListeningError::Wildcard { address })
+                } else {
+                    Ok(address)
+                }
+            })
+            .collect::<Result<BTreeSet<IpAddr>, ListeningError>>()
+            .map(Self)
     }
 
     /// Whether the server listens on `address`, in whichever form it is
     /// written.
     #[must_use]
-    pub fn holds(&self, _address: IpAddr) -> bool {
-        // Not yet looked up.
-        let _ = &self.0;
-        false
+    pub fn holds(&self, address: IpAddr) -> bool {
+        self.0.contains(&address.to_canonical())
     }
 }
 
@@ -81,6 +92,8 @@ mod tests {
     use super::{Listening, ListeningError};
     use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
+    use proptest::{prop_oneof, proptest};
 
     fn ip(text: &str) -> IpAddr {
         text.parse().expect("an address")
