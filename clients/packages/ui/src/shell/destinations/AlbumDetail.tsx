@@ -125,6 +125,12 @@ export function AlbumDetail({
             <Text>{artist}</Text>
           </View>
           <Text dataSet={{ albumYear: '1' }}>{`${messages.yearLabel} ${album.year}`}</Text>
+          {album.license === undefined ? null : (
+            <Text
+              id="album-license"
+              dataSet={{ albumLicense: album.license.spdx }}
+            >{`${messages.licenseLabel} ${album.license.spdx} · ${album.license.attribution} · ${album.license.source}`}</Text>
+          )}
           <Text id="album-track-count" dataSet={{ albumTrackCount: '1' }}>
             {`${album.tracks.length} ${messages.trackCountLabel}`}
           </Text>

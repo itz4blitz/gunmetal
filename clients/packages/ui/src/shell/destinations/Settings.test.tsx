@@ -114,6 +114,24 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
     document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent,
   ).toStrictEqual('Plugins run as WebAssembly with per-grant consent; none load in this build.');
   expect(document.querySelector('#settings-extensions [data-empty-mark="1"]')).toBeTruthy();
+  expect(document.querySelector('#settings-plugin-slots')).toBeTruthy();
+  expect(
+    [...document.querySelectorAll('#settings-plugin-slots [data-plugin-slot]')].map((node) => [
+      node.getAttribute('data-plugin-slot'),
+      node.getAttribute('data-slot-plane'),
+      node.getAttribute('data-slot-loaded'),
+      node.querySelector('[data-slot-title]')?.textContent,
+      node.querySelector('[data-slot-plane]')?.textContent,
+      node.querySelector('[data-slot-state]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['metadata-provider', 'server', '0', 'Metadata and artwork', 'Server', 'Not loaded'],
+    ['lyrics-provider', 'server', '0', 'Lyrics lookup', 'Server', 'Not loaded'],
+    ['search-provider', 'server', '0', 'Catalogue search', 'Server', 'Not loaded'],
+    ['scrobbler', 'server', '0', 'Scrobblers', 'Server', 'Not loaded'],
+    ['theme-pack', 'client', '0', 'Themes', 'Client', 'Not loaded'],
+    ['home-row', 'client', '0', 'Home rows', 'Client', 'Not loaded'],
+  ]);
   expect(document.querySelector('[data-settings-fact="data"]')?.textContent).toStrictEqual('Demo data');
   expect(document.querySelector('[data-settings-fact="address"]')?.textContent).toStrictEqual('loopback');
   expect(document.querySelector('[data-settings-fact="version"]')?.textContent).toStrictEqual('demo');

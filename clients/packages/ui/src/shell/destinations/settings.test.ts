@@ -7,6 +7,8 @@ import {
   settingsRelease,
   settingsSectionTitle,
   settingsSections,
+  settingsSlotPlaneLabel,
+  settingsSlotTitle,
 } from './settings.ts';
 
 test('settings sections are the six 2026 catalogue panes in listed order', () => {
@@ -53,4 +55,16 @@ test('section titles and nav items are the catalogue literals', () => {
     { id: 'about', label: 'About this connection' },
     { id: 'privacy', label: 'Privacy' },
   ]);
+});
+
+test('plugin slot titles and planes are the catalogue literals', () => {
+  const messages = destinationMessages();
+  expect(settingsSlotTitle('metadata-provider', messages)).toStrictEqual('Metadata and artwork');
+  expect(settingsSlotTitle('lyrics-provider', messages)).toStrictEqual('Lyrics lookup');
+  expect(settingsSlotTitle('search-provider', messages)).toStrictEqual('Catalogue search');
+  expect(settingsSlotTitle('scrobbler', messages)).toStrictEqual('Scrobblers');
+  expect(settingsSlotTitle('theme-pack', messages)).toStrictEqual('Themes');
+  expect(settingsSlotTitle('home-row', messages)).toStrictEqual('Home rows');
+  expect(settingsSlotPlaneLabel('server', messages)).toStrictEqual('Server');
+  expect(settingsSlotPlaneLabel('client', messages)).toStrictEqual('Client');
 });

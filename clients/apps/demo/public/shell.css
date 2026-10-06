@@ -1083,7 +1083,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: 28px;
 }
 
-#search-demo-notice {
+#search-demo-notice,
+#search-plugin-notice {
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -1294,12 +1295,14 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 [data-settings-placeholder],
 [data-settings-privacy],
 #search-demo-notice,
+#search-plugin-notice,
 #player-time,
 #player-empty,
 [data-artist-count],
 [data-queue-duration],
 [data-track-album-hint],
-[data-album-year] {
+[data-album-year],
+[data-album-license] {
   font-size: 13px;
   line-height: 18px;
   --gm-text: var(--gm-text-muted);
@@ -2102,6 +2105,44 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   max-width: 40rem;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
+}
+
+#settings-plugin-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#settings-plugin-slots [data-plugin-slot] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+}
+
+#settings-plugin-slots [data-slot-loaded='0'] {
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#settings-plugin-slots [data-slot-title] {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#settings-plugin-slots [data-slot-plane],
+#settings-plugin-slots [data-slot-state] {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* Segmented theme control — raised selected segment inside inset track. */

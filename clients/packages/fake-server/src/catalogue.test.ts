@@ -4,7 +4,7 @@ import { coverDataUri } from './cover.ts';
 import { demoLocalFilter } from './filter.ts';
 import { hostileCorpus } from './hostile.ts';
 
-test('the demo library holds eight fixture albums with unique opaque ids', () => {
+test('the demo library holds nine fixture albums with unique opaque ids', () => {
   const library = demoLibrary();
   expect(library.kind).toStrictEqual('demo-fixtures');
   expect(library.albums.map((album) => album.id)).toStrictEqual([
@@ -16,9 +16,10 @@ test('the demo library holds eight fixture albums with unique opaque ids', () =>
     'demo-album-06',
     'demo-album-07',
     'demo-album-08',
+    'demo-album-09',
   ]);
   const ids = new Set(library.albums.map((album) => album.id));
-  expect(ids.size).toStrictEqual(8);
+  expect(ids.size).toStrictEqual(9);
   const trackIds = allTracks(library).map((track) => track.id);
   expect(new Set(trackIds).size).toStrictEqual(trackIds.length);
 });
@@ -88,6 +89,19 @@ test('demo-local filter matches substring on titles and artists and ignores blan
   expect(harbour.tracks.map((track) => track.id)).toStrictEqual([]);
   const mira = demoLocalFilter(library, 'Mira');
   expect(mira.albums.map((album) => album.id)).toStrictEqual(['demo-album-01', 'demo-album-02']);
+  expect(demoLocalFilter(library, 'zabriskie').albums.map((album) => album.id)).toStrictEqual([
+    'demo-album-09',
+  ]);
+  expect(demoLocalFilter(library, 'cc-by-4.0').albums.map((album) => album.id)).toStrictEqual([
+    'demo-album-09',
+  ]);
+  expect(demoLocalFilter(library, 'Cylinders by Chris').albums.map((album) => album.id)).toStrictEqual([
+    'demo-album-09',
+  ]);
+  expect(demoLocalFilter(library, 'chriszabriskie.com').albums.map((album) => album.id)).toStrictEqual([
+    'demo-album-09',
+  ]);
+  expect(library.artists.some((artist) => artist.key === 'chris-zabriskie')).toStrictEqual(true);
   expect(mira.tracks.some((track) => track.id === 'demo-track-06-03')).toStrictEqual(true);
   expect(albumById(library, 'missing')).toStrictEqual(undefined);
   expect(trackById(library, 'missing')).toStrictEqual(undefined);

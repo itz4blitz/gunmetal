@@ -48,6 +48,17 @@ export type DestinationMessages = {
   settingsPrivacy: string;
   settingsPrivacyBody: string;
   settingsNav: string;
+  settingsSlotMetadata: string;
+  settingsSlotLyrics: string;
+  settingsSlotSearch: string;
+  settingsSlotScrobble: string;
+  settingsSlotTheme: string;
+  settingsSlotHome: string;
+  settingsSlotServer: string;
+  settingsSlotClient: string;
+  settingsSlotUnloaded: string;
+  licenseLabel: string;
+  searchPluginNotice: string;
   albumMissing: string;
   artistMissing: string;
   goToArtist: string;
@@ -116,6 +127,18 @@ export function destinationMessages(): DestinationMessages {
     settingsPrivacy: 'Privacy',
     settingsPrivacyBody: 'History and loves stay on this profile; this demo has no server yet.',
     settingsNav: 'Settings sections',
+    settingsSlotMetadata: 'Metadata and artwork',
+    settingsSlotLyrics: 'Lyrics lookup',
+    settingsSlotSearch: 'Catalogue search',
+    settingsSlotScrobble: 'Scrobblers',
+    settingsSlotTheme: 'Themes',
+    settingsSlotHome: 'Home rows',
+    settingsSlotServer: 'Server',
+    settingsSlotClient: 'Client',
+    settingsSlotUnloaded: 'Not loaded',
+    licenseLabel: 'License',
+    searchPluginNotice:
+      'A signed catalogue plugin can find releases outside this library. None is loaded.',
     albumMissing: 'That album is not in the demo library',
     artistMissing: 'That artist is not in the demo library',
     goToArtist: 'Go to artist',

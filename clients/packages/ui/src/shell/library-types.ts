@@ -24,6 +24,12 @@ export type ShellTrack = {
   lyricsKind: ShellLyricsKind;
 };
 
+export type ShellLicense = {
+  spdx: 'CC0-1.0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'CC-BY-SA-3.0';
+  attribution: string;
+  source: string;
+};
+
 export type ShellAlbum = {
   id: string;
   title: string;
@@ -34,6 +40,7 @@ export type ShellAlbum = {
   discs: readonly ShellDisc[];
   tracks: readonly ShellTrack[];
   hostile: boolean;
+  license?: ShellLicense;
 };
 
 export type ShellArtist = {

@@ -262,6 +262,18 @@ test('wordmark and form controls use theme tokens and Inter, not hardcoded dark 
   expect(css.includes('--gm-text: var(--gm-text-muted)')).toStrictEqual(true);
 });
 
+test('plugin slots and album license chrome use muted tokens, not a host control', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#settings-plugin-slots')).toStrictEqual(true);
+  expect(css.includes('[data-plugin-slot]')).toStrictEqual(true);
+  expect(css.includes("[data-slot-loaded='0']") || css.includes('[data-slot-loaded="0"]')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('[data-album-license]')).toStrictEqual(true);
+  expect(css.includes('#search-plugin-notice')).toStrictEqual(true);
+  expect(css.includes('#plugin-host') || css.includes('[data-plugin-host]')).toStrictEqual(false);
+});
+
 test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plate', async () => {
   const css = await demoShellCss();
   expect(css.includes('--gm-type-display-size: 44px')).toStrictEqual(true);

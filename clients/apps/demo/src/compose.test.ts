@@ -14,5 +14,6 @@ test('the demo composition root injects fixture library and labels demo data', (
     'demo-album-06',
     'demo-album-07',
     'demo-album-08',
+    'demo-album-09',
   ]);
 });

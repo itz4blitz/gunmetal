@@ -4,6 +4,7 @@ import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
+import { pluginSlots } from '../../../../fake-server/src/plugin-slots.ts';
 import { ThemeSwitcher } from '../ThemeSwitcher.tsx';
 import {
   defaultSettingsSection,
@@ -12,6 +13,8 @@ import {
   settingsRelease,
   settingsSectionTitle,
   settingsSections,
+  settingsSlotPlaneLabel,
+  settingsSlotTitle,
   type SettingsSection,
 } from './settings.ts';
 
@@ -136,6 +139,22 @@ export function Settings({
           <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
             <View dataSet={{ emptyMark: '1' }} />
             <Text dataSet={{ emptyState: 'extensions' }}>{messages.settingsExtensionsBody}</Text>
+          </View>
+          <View id="settings-plugin-slots">
+            {pluginSlots().map((slot) => (
+              <View
+                key={slot.id}
+                dataSet={{
+                  pluginSlot: slot.id,
+                  slotLoaded: slot.loaded ? '1' : '0',
+                  slotPlane: slot.plane,
+                }}
+              >
+                <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
+                <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
+                <Text dataSet={{ slotState: slot.loaded ? '1' : '0' }}>{messages.settingsSlotUnloaded}</Text>
+              </View>
+            ))}
           </View>
         </SettingsPane>
       ) : null}

@@ -158,6 +158,22 @@ test('home library search and settings destinations render fixture chrome', () =
   expect(document.querySelector('#settings-extensions [data-settings-badge="R2"]')?.textContent).toStrictEqual(
     'R2',
   );
+  expect(
+    [...document.querySelectorAll('#settings-plugin-slots [data-plugin-slot]')].map((node) =>
+      node.getAttribute('data-plugin-slot'),
+    ),
+  ).toStrictEqual([
+    'metadata-provider',
+    'lyrics-provider',
+    'search-provider',
+    'scrobbler',
+    'theme-pack',
+    'home-row',
+  ]);
+  expect(document.querySelector('[data-plugin-slot="search-provider"] [data-slot-state]')?.textContent).toStrictEqual(
+    'Not loaded',
+  );
+  expect(document.querySelector('[data-plugin-row]')).toBeNull();
   fireEvent.click(screen.getByRole('tab', { name: 'About this connection' }));
   expect(document.querySelector('[data-settings-fact="data"]')?.textContent).toStrictEqual('Demo data');
   expect(document.querySelector('[data-settings-fact="address"]')?.textContent).toStrictEqual('loopback');

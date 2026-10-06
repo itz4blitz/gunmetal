@@ -1,3 +1,4 @@
+import type { PluginPlane, PluginSlotId } from '../../../../fake-server/src/plugin-slots.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { WidthClass } from '../width.ts';
 
@@ -68,4 +69,30 @@ export function settingsNavItems(
     id,
     label: settingsSectionTitle(id, messages),
   }));
+}
+
+export function settingsSlotTitle(id: PluginSlotId, messages: DestinationMessages): string {
+  if (id === 'metadata-provider') {
+    return messages.settingsSlotMetadata;
+  }
+  if (id === 'lyrics-provider') {
+    return messages.settingsSlotLyrics;
+  }
+  if (id === 'search-provider') {
+    return messages.settingsSlotSearch;
+  }
+  if (id === 'scrobbler') {
+    return messages.settingsSlotScrobble;
+  }
+  if (id === 'theme-pack') {
+    return messages.settingsSlotTheme;
+  }
+  return messages.settingsSlotHome;
+}
+
+export function settingsSlotPlaneLabel(plane: PluginPlane, messages: DestinationMessages): string {
+  if (plane === 'server') {
+    return messages.settingsSlotServer;
+  }
+  return messages.settingsSlotClient;
 }

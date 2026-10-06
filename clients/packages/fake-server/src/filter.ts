@@ -16,9 +16,14 @@ export function demoLocalFilter(library: DemoLibrary, query: string): DemoLocalF
     return { albums: [], tracks: [] };
   }
   const albums = library.albums.filter((album) => {
+    const license = album.license;
     return (
       album.title.toLowerCase().includes(needle) ||
-      album.artistName.toLowerCase().includes(needle)
+      album.artistName.toLowerCase().includes(needle) ||
+      (license !== undefined &&
+        (license.spdx.toLowerCase().includes(needle) ||
+          license.attribution.toLowerCase().includes(needle) ||
+          license.source.toLowerCase().includes(needle)))
     );
   });
   const tracks = allTracks(library).filter((entry) => {

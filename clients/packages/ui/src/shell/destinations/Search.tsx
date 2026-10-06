@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native-web';
+import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import type { ShellAlbum, ShellLibrary, ShellTrack } from '../library-types.ts';
+import type { ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
@@ -21,27 +22,8 @@ export type SearchProps = {
 function demoLocalHits(
   library: ShellLibrary,
   query: string,
-): { albums: readonly ShellAlbum[]; tracks: readonly ShellTrack[] } {
-  const needle = query.trim().toLowerCase();
-  if (needle.length === 0) {
-    return { albums: [], tracks: [] };
-  }
-  const albums = library.albums.filter(
-    (album) =>
-      album.title.toLowerCase().includes(needle) || album.artistName.toLowerCase().includes(needle),
-  );
-  const tracks: ShellTrack[] = [];
-  for (const album of library.albums) {
-    for (const track of album.tracks) {
-      if (
-        track.title.toLowerCase().includes(needle) ||
-        track.artistName.toLowerCase().includes(needle)
-      ) {
-        tracks.push(track);
-      }
-    }
-  }
-  return { albums, tracks };
+): { albums: readonly ShellLibrary['albums'][number][]; tracks: readonly ShellTrack[] } {
+  return demoLocalFilter(library, query);
 }
 
 function TypeChip({
@@ -160,6 +142,7 @@ export function Search({
       ) : (
         <View id="search-results">
           <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
+          <Text id="search-plugin-notice">{messages.searchPluginNotice}</Text>
           {noVisibleHits ? (
             <View id="search-no-hits" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
               <View dataSet={{ emptyMark: '1' }} />

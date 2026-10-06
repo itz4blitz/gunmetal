@@ -24,6 +24,12 @@ export type DemoTrack = {
   lyricsKind: DemoLyricsKind;
 };
 
+export type DemoLicense = {
+  spdx: 'CC0-1.0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'CC-BY-SA-3.0';
+  attribution: string;
+  source: string;
+};
+
 export type DemoAlbum = {
   id: string;
   title: string;
@@ -36,6 +42,7 @@ export type DemoAlbum = {
   tracks: readonly DemoTrack[];
   /** True when every text field holds the hostile-metadata corpus (SEC-CLI-001 demo). */
   hostile: boolean;
+  license?: DemoLicense;
 };
 
 export type DemoArtist = {

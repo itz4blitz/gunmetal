@@ -172,6 +172,43 @@ test('album lyrics toggle paints fixture lines as Text and highlights synced fir
   expect(document.querySelector('#album-lyrics')).toBeTruthy();
 });
 
+test('a licensed album paints SPDX attribution and source; others omit the row', () => {
+  const licensed: ShellAlbum = {
+    ...album,
+    license: {
+      spdx: 'CC-BY-4.0',
+      attribution: 'Cylinders by Chris Zabriskie',
+      source: 'chriszabriskie.com',
+    },
+  };
+  const { unmount } = render(
+    <AlbumDetail
+      album={licensed}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  const row = document.querySelector('#album-license');
+  expect(row?.getAttribute('data-album-license')).toStrictEqual('CC-BY-4.0');
+  expect(row?.textContent).toStrictEqual(
+    'License CC-BY-4.0 · Cylinders by Chris Zabriskie · chriszabriskie.com',
+  );
+  unmount();
+
+  render(
+    <AlbumDetail
+      album={album}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('#album-license')).toBeNull();
+});
+
 test('album lyrics fall back to the first plain or synced track when the current row has none', () => {
   const withLyrics = {
     ...album,

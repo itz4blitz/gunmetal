@@ -1,3 +1,4 @@
+import { cylindersAlbum } from './commons.ts';
 import { hostileCorpus } from './hostile.ts';
 import type { DemoAlbum, DemoArtist, DemoLibrary, DemoTrack } from './types.ts';
 
@@ -436,6 +437,7 @@ function albumTable(): readonly DemoAlbum[] {
     radioAtlas(),
     signalLoss(),
     hostileAlbum(),
+    cylindersAlbum(),
   ];
 }
 
