@@ -494,7 +494,7 @@ mod tests {
                         b"interrupted",
                     )
                     .expect("leftover");
-                    self.write(&[])?;
+                    self.write(&[]).expect("empty recurse");
                 }
                 self.inner.write(bytes)
             }

@@ -20,10 +20,10 @@ use gunmetal_fs::path::{AUDIT_DIR, AUDIT_HEAD, AUDIT_RESERVE, AuditSeg, DataPath
 use proptest::prelude::*;
 
 use super::{
-    AuditLog, FAIL_ADDR_CKPT, FAIL_COMMIT, FAIL_HEAD, FAIL_LINE, FAIL_PUT, FAIL_REMOVE,
-    FAIL_RESERVE, FAIL_SHRINK, FAIL_SYNC, FAIL_WRITE, FIRST_SEG, Kind, Limits, arm_fail,
-    checkpoint_mac_from_raw, ensure_reserve, load_head, load_segments, parse_line, persist_head,
-    shrink_reserve, write_line,
+    AuditLog, FAIL_ADDR_CKPT, FAIL_CKPT_HEAD, FAIL_CKPT_LINE, FAIL_COMMIT, FAIL_HEAD, FAIL_LINE,
+    FAIL_PUT, FAIL_REMOVE, FAIL_RESERVE, FAIL_SHRINK, FAIL_SYNC, FAIL_WRITE, FIRST_SEG, Kind,
+    Limits, arm_fail, checkpoint_mac_from_raw, ensure_reserve, load_head, load_segments,
+    parse_line, persist_head, shrink_reserve, write_line,
 };
 use crate::audit::chain;
 use crate::audit::encode::{hex, unhex32};
@@ -1548,6 +1548,11 @@ fn load_head_and_segments_refuse_corrupt_bytes() {
     );
     let db = crate::audit::addresses::open(&handle(&data)).expect("db");
     assert_eq!(
+        load_head(r#"{"next":1,"seg":1}"#, db).err(),
+        Some(AuditError::Corrupt { seq: 0 })
+    );
+    let db = crate::audit::addresses::open(&handle(&data)).expect("db");
+    assert_eq!(
         load_head(r#"{"next":1,"seg":1,"bytes":x}"#, db).err(),
         Some(AuditError::Corrupt { seq: 0 })
     );
@@ -1771,6 +1776,21 @@ fn addressed_append_fails(bit: u32) {
     );
 }
 
+fn checkpoint_fails(bit: u32) {
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    let t0 = at(1_791_028_800_000);
+    opened
+        .append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("1");
+    arm_fail(bit);
+    assert!(
+        opened
+            .append_security_event(at(t0.millis() + 1), &egress(), None, ORDINARY)
+            .is_err()
+    );
+}
+
 #[test]
 fn injected_io_failures_are_typed_at_each_call_site() {
     open_fails(FAIL_RESERVE);
@@ -1847,4 +1867,6 @@ fn injected_io_failures_are_typed_at_each_call_site() {
             .apply_retention(&DEFAULT, at(t0.millis() + 366 * 86_400_000))
             .is_err()
     );
+    checkpoint_fails(FAIL_CKPT_LINE);
+    checkpoint_fails(FAIL_CKPT_HEAD);
 }

@@ -63,6 +63,10 @@ const FAIL_REMOVE: u32 = 128;
 const FAIL_ADDR_CKPT: u32 = 256;
 #[cfg(test)]
 const FAIL_LINE: u32 = 512;
+#[cfg(test)]
+const FAIL_CKPT_LINE: u32 = 1_024;
+#[cfg(test)]
+const FAIL_CKPT_HEAD: u32 = 2_048;
 
 #[cfg(test)]
 fn take_fail(bit: u32) -> bool {
@@ -420,11 +424,14 @@ impl AuditLog {
                     b0
                 });
                 self.random.fill(&mut salt)?;
+                let committed = addresses::commit(self.address.as_ref(), ctx.addr(), &salt);
                 #[cfg(test)]
-                if take_fail(FAIL_COMMIT) {
-                    return Err(AuditError::MacUnavailable);
-                }
-                let (kid, tag) = addresses::commit(self.address.as_ref(), ctx.addr(), &salt)?;
+                let committed = if take_fail(FAIL_COMMIT) {
+                    Err(AuditError::MacUnavailable)
+                } else {
+                    committed
+                };
+                let (kid, tag) = committed?;
                 (Some(kid), Some(tag), Some((salt, ctx)))
             }
             None => (None, None, None),
@@ -446,11 +453,14 @@ impl AuditLog {
         let raw = with_hash(&canonical, &hash);
         write_line(&self.root, state, &self.limits, &raw)?;
         if let Some((salt, ctx)) = salt {
+            let stored = addresses::put(&state.db, seq, now.millis(), &salt, ctx.addr());
             #[cfg(test)]
-            if take_fail(FAIL_PUT) {
-                return Err(AuditError::Io(std::io::ErrorKind::Other));
-            }
-            addresses::put(&state.db, seq, now.millis(), &salt, ctx.addr())?;
+            let stored = if take_fail(FAIL_PUT) {
+                Err(AuditError::Io(std::io::ErrorKind::Other))
+            } else {
+                stored
+            };
+            stored?;
         }
         state.lines.push(Line {
             seq,
@@ -608,7 +618,14 @@ fn write_checkpoint(log: &AuditLog, state: &mut State, now: Timestamp) -> Result
     canonical.push('}');
     let hash = chain::digest(&prev, &canonical);
     let raw = with_hash(&canonical, &hash);
-    write_line(&log.root, state, &log.limits, &raw)?;
+    let wrote = write_line(&log.root, state, &log.limits, &raw);
+    #[cfg(test)]
+    let wrote = if take_fail(FAIL_CKPT_LINE) {
+        Err(AuditError::Io(std::io::ErrorKind::Other))
+    } else {
+        wrote
+    };
+    wrote?;
     let signed = SignedHead {
         seq,
         head: state.head,
@@ -634,7 +651,14 @@ fn write_checkpoint(log: &AuditLog, state: &mut State, now: Timestamp) -> Result
     state.next = seq.saturating_add(1);
     state.checkpoint = Some(signed);
     state.last_checkpoint_at = Some(now);
-    persist_head(&log.root, state)?;
+    let headed = persist_head(&log.root, state);
+    #[cfg(test)]
+    let headed = if take_fail(FAIL_CKPT_HEAD) {
+        Err(AuditError::Io(std::io::ErrorKind::Other))
+    } else {
+        headed
+    };
+    headed?;
     Ok(())
 }
 
@@ -912,21 +936,27 @@ fn apply_retention(
                 }
             }
             Purge::Remove => {
+                let removed_row = addresses::remove(&state.db, seq);
                 #[cfg(test)]
-                if take_fail(FAIL_REMOVE) {
-                    return Err(AuditError::Io(std::io::ErrorKind::Other));
-                }
-                addresses::remove(&state.db, seq)?;
+                let removed_row = if take_fail(FAIL_REMOVE) {
+                    Err(AuditError::Io(std::io::ErrorKind::Other))
+                } else {
+                    removed_row
+                };
+                removed_row?;
                 removed = removed.saturating_add(1);
             }
             Purge::Keep => {}
         }
     }
+    let addr_ckpt = addresses::checkpoint(&state.db);
     #[cfg(test)]
-    if take_fail(FAIL_ADDR_CKPT) {
-        return Err(AuditError::Io(std::io::ErrorKind::Other));
-    }
-    addresses::checkpoint(&state.db)?;
+    let addr_ckpt = if take_fail(FAIL_ADDR_CKPT) {
+        Err(AuditError::Io(std::io::ErrorKind::Other))
+    } else {
+        addr_ckpt
+    };
+    addr_ckpt?;
     let mut drop_through = 0_u64;
     for line in &state.lines {
         if line.kind != Kind::Event {
