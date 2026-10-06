@@ -14,8 +14,10 @@ import { nativePnpm, nativePnpmChecksum, Refusal } from './native-pnpm.ts';
 // - the native manager is the pinned archive and its executable (`native-pnpm.ts`), and the lockfile's
 //   entry for it carries that same pinned checksum;
 // - every package directory under `node_modules/.pnpm`, and the manager, names an identity the lockfile holds;
-// - nothing locked is missing: every dependency of every importer that is not a workspace link, and every
-//   package of every project document, is among those installed identities.
+// - every snapshot of every document is of a package under `packages`, and every dependency of every importer
+//   that is not a workspace link names one of those snapshots exactly;
+// - nothing locked is missing: every package an importer names, and every package of every project document
+//   but an optional one for another platform (below), is among those installed identities.
 // With the registry (`verify`):
 // - the registry's metadata for each installed identity carries the lockfile's integrity;
 // - the bundled npm verifies the registry signatures, and the provenance that metadata announces, for
@@ -30,8 +32,9 @@ import { nativePnpm, nativePnpmChecksum, Refusal } from './native-pnpm.ts';
 // - a version followed by its peer context, `1.2.3(peer@4.5.6)`: the importer must name a snapshot the
 //   same document holds, and every snapshot must be of a package under `packages`, which pins it;
 // - a package for another platform, which the manager does not install here: it may be absent only when
-//   every snapshot of it is `optional: true` and its `os`, `cpu` or `libc` list leaves out linux, x64 or
-//   glibc. Such a package is locked but not installed, so nothing here verifies it on this platform.
+//   every snapshot of it is `optional: true` and one of its `os`, `cpu` or `libc` lists names only platforms
+//   other than linux, x64 or glibc, and not `any`. Such a package is locked but not installed, so nothing
+//   here verifies it on this platform.
 export { Refusal };
 type Identity = { name: string; version: string; integrity: string };
 export type Installed = Identity & { path: string };
@@ -57,12 +60,14 @@ function peerless(key: string): string | null {
 }
 // Whether a locked package is for another platform than the one the pinned manager runs on, which
 // `native-pnpm.ts` fixes as linux, x64 and glibc. It is only when one of its lists is a plain list of
-// names that leaves this platform's out. A missing list, an empty one, a negation and anything that
-// is not a list of names all read as "for this platform", so such a package still has to be installed.
+// names, none of them this platform's or `any`. A missing list, an empty one, one naming `any`, a negation
+// and anything that is not a list of names all read as "for this platform", so such a package still has
+// to be installed.
 function elsewhere(entry: Platforms): boolean {
   return ([['os', 'linux'], ['cpu', 'x64'], ['libc', 'glibc']] as const).some(([field, own]) => {
     const named = entry[field];
-    return Array.isArray(named) && named.length !== 0 && named.every(name => typeof name === 'string' && !name.startsWith('!')) && !named.includes(own);
+    return Array.isArray(named) && named.length !== 0 &&
+      named.every(name => typeof name === 'string' && !name.startsWith('!') && name !== own && name !== 'any');
   });
 }
 function object(value: unknown): value is ObjectValue {
@@ -133,14 +138,16 @@ export async function collectInstalled(directory: string): Promise<{ installed: 
     const pinned = document.packages ?? {};
     const snapshots = document.snapshots ?? {};
     // A snapshot is a locked package in one peer context. One whose package has no entry under `packages`
-    // has no integrity, so nothing pins it.
-    const contexts = Object.keys(snapshots).map(key => [key, peerless(key)] as const);
-    if (contexts.some(([, key]) => key === null || !Object.hasOwn(pinned, key))) {
-      refuse('verification.installation', 'every snapshot must name a locked package');
+    // has no integrity, so nothing pins it. `contexts` maps each snapshot to the package it is of.
+    const contexts = new Map<string, string>();
+    for (const snapshot of Object.keys(snapshots)) {
+      const key = peerless(snapshot);
+      if (key === null || !Object.hasOwn(pinned, key)) refuse('verification.installation', 'every snapshot must name a locked package');
+      contexts.set(snapshot, key);
     }
     // The one kind of locked package that may be absent: optional in every snapshot it has, and for another platform.
     const skipped = (key: string, entry: Platforms): boolean => {
-      const own = contexts.filter(([, context]) => context === key);
+      const own = [...contexts].filter(([, context]) => context === key);
       return own.length !== 0 && own.every(([snapshot]) => snapshots[snapshot]?.optional === true) && elsewhere(entry);
     };
     // The manager's own document locks one executable for each platform. Only this platform's exists here,
@@ -155,8 +162,8 @@ export async function collectInstalled(directory: string): Promise<{ installed: 
           if (version.startsWith('link:')) continue;
           // An importer names one snapshot exactly, peer context included, and so the package that snapshot is of.
           // Whatever an importer names must be installed, optional or not.
-          const key = peerless(`${name}@${version}`);
-          if (key === null || !Object.hasOwn(snapshots, `${name}@${version}`)) refuse('verification.installation', 'every locked package must be installed');
+          const key = contexts.get(`${name}@${version}`);
+          if (key === undefined) refuse('verification.installation', 'every locked package must be installed');
           required.push(key);
         }
       }
