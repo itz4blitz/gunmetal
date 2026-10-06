@@ -9,16 +9,25 @@
 //! read: nothing in this crate can create, change, rename or delete inside a
 //! library root (SEC-MED-038, SEC-TM-042, SEC-OPS-054).
 //!
-//! **Links** (SEC-MED-034). A path is resolved one name at a time, and no
-//! symbolic link is left to the kernel. For each link the text is read and
-//! judged by the core's path rules (WP-024): a target beneath the library's
-//! own root, or beneath a folder the admin approved for this library, is
-//! followed by carrying on beneath that root's handle; a target in another
-//! library or anywhere else is refused with a [`LinkRefusal`] that names
-//! it, so that the scan can list it. With the default [`LinkPolicy`] no
-//! folder is approved, so every link that leaves the root is refused. The
-//! final open is still confined by the kernel beneath the handle the
-//! verdict named, so a link swapped during the check cannot redirect it.
+//! **Links** (SEC-MED-034). A path is resolved one name at a time, and
+//! every symbolic link on it is judged before anything is opened. For each
+//! link the text is read and judged by the core's path rules (WP-024): a
+//! target beneath the library's own root, or beneath a folder the admin
+//! approved for this library, is followed by carrying on beneath that
+//! root's handle; a target in another library or anywhere else is refused
+//! with a [`LinkRefusal`] that names it, so that the scan can list it. With
+//! the default [`LinkPolicy`] no folder is approved, so every link that
+//! leaves the root is refused. `..` in a link's text is collapsed by name,
+//! before the target is judged, as the core's rules do.
+//!
+//! The open itself is confined by the kernel beneath the handle the verdict
+//! named, so a link swapped in after the judgement cannot lead out of that
+//! handle. In the last name it is not followed either: where cap-std opens
+//! with `openat2` the kernel refuses it (`O_NOFOLLOW`), and where cap-std
+//! resolves the path by hand the door refuses what it opened unless it is
+//! the very object judged, by device and inode ([`FsError::Replaced`]). A
+//! link swapped in for a directory above the last name is followed by the
+//! kernel beneath the same handle: confined, but not judged.
 #![expect(
     clippy::disallowed_methods,
     reason = "a library root is resolved and opened by path once, here, and the unit tests below build scratch libraries by path; everything else is opened beneath its handle (SEC-MED-033, SEC-HIS-016)"
@@ -31,12 +40,13 @@ use std::io;
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::{Path, PathBuf};
 
-use cap_std::fs::Dir;
+use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt as _};
 use gunmetal_core::path::{
     LinkVerdict, PathError, RawPath, RelPath, classify_link, link_target, normalise,
 };
 use gunmetal_core::untrusted::Untrusted;
 use rustix::fs::{Mode, OFlags};
+use rustix::io::Errno;
 
 use crate::host::Filesystem;
 use crate::open::{Facts, FileKind, Identity};
@@ -51,6 +61,17 @@ const ROOT_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
+
+/// How a directory beneath a root is opened to be listed, besides
+/// read-only: as a directory and nothing else, not through a link in its
+/// last name, and closed when another program starts.
+const LIST_FLAGS: i32 = i32::from_ne_bytes(
+    OFlags::DIRECTORY
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
+        .bits()
+        .to_ne_bytes(),
+);
 
 /// The operation that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,8 +149,8 @@ pub enum FsError {
         /// What is there now.
         found: Identity,
     },
-    /// The walk already listed this directory under another path, as a link
-    /// back to a folder above it would make it do for ever.
+    /// The walk already came to this directory under another path, as a
+    /// link back to a folder above it would make it do for ever.
     AlreadyWalked,
     /// A directory holds more entries than the walk's limit allows
     /// ([`WalkLimits::entries`]), so none of it was listed.
@@ -263,6 +284,61 @@ pub(crate) fn child(dir: &RelPath, name: &[u8]) -> Result<RelPath, FsError> {
     normalise(Untrusted::new(names.as_slice())).map_err(FsError::Path)
 }
 
+/// Maps the failure of an open during `op`. The opens beneath a root do not
+/// follow a link in the last name, and the kernel says so with `ELOOP`: the
+/// path was judged to hold no link there, so something has replaced what
+/// was judged (SEC-MED-034).
+fn opening(op: Op) -> impl FnOnce(io::Error) -> FsError {
+    move |error| {
+        if error.raw_os_error() == Some(Errno::LOOP.raw_os_error()) {
+            FsError::Replaced
+        } else {
+            FsError::Io {
+                op,
+                kind: error.kind(),
+            }
+        }
+    }
+}
+
+/// Whether `opened` is the object `judged` describes: the same device and
+/// inode.
+const fn same(opened: &Facts, judged: &Facts) -> bool {
+    opened.identity.device == judged.identity.device
+        && opened.identity.inode == judged.identity.inode
+}
+
+/// The options a directory is opened with to be listed.
+fn listing() -> OpenOptions {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(LIST_FLAGS)
+        .clone()
+}
+
+/// The names of the entries of `dir`, in name order: all of them, or
+/// [`FsError::TooManyEntries`] when it holds more than `max`, which is known
+/// once one more than `max` has been read. No more are read.
+pub(crate) fn read_names(dir: &Dir, max: u64) -> Result<Vec<Vec<u8>>, FsError> {
+    let most = usize::try_from(max).unwrap_or(usize::MAX);
+    dir.entries()
+        .and_then(|entries| {
+            entries
+                .take(most.saturating_add(1))
+                .map(|entry| entry.map(|entry| entry.file_name().into_vec()))
+                .collect::<io::Result<Vec<Vec<u8>>>>()
+        })
+        .map_err(io_error(Op::List))
+        .and_then(|mut names| {
+            if names.len() > most {
+                Err(FsError::TooManyEntries { max })
+            } else {
+                names.sort();
+                Ok(names)
+            }
+        })
+}
+
 impl Base {
     /// Resolves `path` and opens the folder there.
     fn at(path: &Path) -> Result<Self, FsError> {
@@ -294,28 +370,45 @@ impl Base {
             .map_err(io_error(Op::ReadLink))
     }
 
-    /// The entries of the directory at `names`, in name order, each with
-    /// its path beneath the directory shown as `shown`.
-    pub(crate) fn list(
+    /// Opens what is at `names` beneath this folder with `options`, during
+    /// `op`, and refuses it unless it is the object `judged` describes, the
+    /// one whose path was judged a moment before: the same device and
+    /// inode. A link swapped in for the last name since is refused by the
+    /// kernel where cap-std opens with `openat2`; where cap-std resolves the
+    /// path by hand, it is resolved beneath this folder and what it leads to
+    /// is refused here (SEC-MED-034).
+    pub(crate) fn open_judged(
         &self,
-        shown: &RelPath,
         names: &[Vec<u8>],
-    ) -> Result<Vec<(RelPath, Vec<u8>)>, FsError> {
+        options: &OpenOptions,
+        judged: &Facts,
+        op: Op,
+    ) -> Result<(File, Facts), FsError> {
         self.dir
-            .read_dir(os_path(names))
-            .and_then(|entries| {
-                entries
-                    .map(|entry| entry.map(|entry| entry.file_name().into_vec()))
-                    .collect::<io::Result<Vec<Vec<u8>>>>()
+            .open_with(os_path(names), options)
+            .and_then(|file| {
+                file.metadata()
+                    .map(|metadata| (file.into_std(), Facts::of(&metadata)))
             })
-            .map_err(io_error(Op::List))
-            .and_then(|mut found| {
-                found.sort();
-                found
-                    .into_iter()
-                    .map(|name| child(shown, &name).map(|path| (path, name)))
-                    .collect()
+            .map_err(opening(op))
+            .and_then(|(file, facts)| {
+                if same(&facts, judged) {
+                    Ok((file, facts))
+                } else {
+                    Err(FsError::Replaced)
+                }
             })
+    }
+
+    /// Opens the directory at `names`, judged a moment before to be
+    /// `judged`, to list it, with its identity read from the open handle.
+    pub(crate) fn open_dir(
+        &self,
+        names: &[Vec<u8>],
+        judged: &Facts,
+    ) -> Result<(Dir, Identity), FsError> {
+        self.open_judged(names, &listing(), judged, Op::List)
+            .map(|(file, facts)| (Dir::from_std_file(file), facts.identity))
     }
 }
 
@@ -325,15 +418,22 @@ impl Root {
     ///
     /// # Errors
     ///
-    /// Returns [`FsError::Io`] with [`Op::Resolve`] when a folder does not
+    /// Returns [`FsError::Io`] with [`Op::Resolve`] when the folder does not
     /// exist, and with [`Op::OpenRoot`] when it is not a directory or may
-    /// not be read.
+    /// not be read. Returns [`FsError::Approved`], naming the folder and
+    /// holding one of those, when an approved folder cannot be opened.
     pub fn open(path: &Path, policy: LinkPolicy) -> Result<Self, FsError> {
         let own = Base::at(path)?;
         let approved = policy
             .approved
             .iter()
-            .map(|target| Base::at(target))
+            .enumerate()
+            .map(|(index, target)| {
+                Base::at(target).map_err(|reason| FsError::Approved {
+                    index,
+                    reason: Box::new(reason),
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let targets = approved.iter().map(|base| base.path.clone()).collect();
         rel(&[]).map(|top| Self {
@@ -424,20 +524,24 @@ impl Root {
     }
 
     /// Decides whether a link that leads to `target` may be followed
-    /// (SEC-MED-034).
+    /// (SEC-MED-034). An approved folder's index always names one of
+    /// `approved`, which [`Root::open`] fills from the same list as
+    /// `targets`; were it ever not, the link would be refused like any
+    /// other that leads outside, by the same code.
     fn admit(&self, target: RawPath) -> Result<(&Base, RelPath), FsError> {
         let verdict = classify_link(&target, &self.own.path, &self.targets, &self.others);
         let refuse = |reason| FsError::Link(LinkRefusal { target, reason });
-        match verdict {
-            LinkVerdict::Own(rest) => Ok((&self.own, rest)),
-            LinkVerdict::Approved { index, rest } => self
-                .approved
-                .get(index)
-                .map(|base| (base, rest))
-                .ok_or(refuse(LinkReason::Outside)),
-            LinkVerdict::OtherLibrary { index } => Err(refuse(LinkReason::OtherLibrary { index })),
-            LinkVerdict::Outside => Err(refuse(LinkReason::Outside)),
-        }
+        let followed = match verdict {
+            LinkVerdict::Own(rest) => Some((&self.own, rest)),
+            LinkVerdict::Approved { index, rest } => {
+                self.approved.get(index).map(|base| (base, rest))
+            }
+            LinkVerdict::OtherLibrary { index } => {
+                return Err(refuse(LinkReason::OtherLibrary { index }));
+            }
+            LinkVerdict::Outside => None,
+        };
+        followed.ok_or_else(|| refuse(LinkReason::Outside))
     }
 }
 
@@ -476,10 +580,11 @@ mod tests {
     }
 
     /// A link swapped in for a file after the file was judged is not
-    /// followed to the file it names. Where the kernel resolves the path
-    /// the open refuses the link itself; where cap-std resolves it by hand
-    /// the open reaches `other.flac`, which is not the file judged. The
-    /// door reports both as the same swap.
+    /// followed to what it names. Where the kernel resolves the path the
+    /// open refuses the link itself; where cap-std resolves it by hand the
+    /// open reaches `other.flac`, which is not the file judged, or gives up
+    /// on the link that leads only to itself. The door reports each as the
+    /// same swap.
     ///
     /// Verifies: SEC-MED-034
     #[test]
@@ -487,12 +592,15 @@ mod tests {
         let (temp, root) = library("fs-unit-swapped-link");
         let judged = judge(&root, "track.flac");
         let track = temp.path().join("music/track.flac");
-        std::fs::remove_file(&track).expect("remove the file");
-        std::os::unix::fs::symlink("other.flac", &track).expect("make a link");
-        assert_eq!(
-            root.own().file(&names("track.flac"), &judged).err(),
-            Some(FsError::Replaced)
-        );
+        for text in ["other.flac", "track.flac"] {
+            std::fs::remove_file(&track).expect("remove what is there");
+            std::os::unix::fs::symlink(text, &track).expect("make a link");
+            assert_eq!(
+                root.own().file(&names("track.flac"), &judged).err(),
+                Some(FsError::Replaced),
+                "{text}"
+            );
+        }
     }
 
     /// Verifies: SEC-MED-034

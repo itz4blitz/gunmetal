@@ -5,16 +5,24 @@
 //! own [`Pool`], never on a thread a request or another root waits for
 //! (SEC-MED-041, LIB-207):
 //!
-//! - at most `limit` jobs run at once, and one more is refused as
-//!   [`PoolError::Busy`] instead of queueing behind them;
+//! - at most `limit` jobs are waited for at once, and one more is refused
+//!   as [`PoolError::Busy`] instead of queueing behind them;
 //! - a job that has not finished by its deadline is given up on: the caller
 //!   gets [`PoolError::TimedOut`], and the worker is counted as lost and no
-//!   longer holds a place;
+//!   longer holds a place. Its thread lives on until the call it is stuck
+//!   in returns, because nothing can stop it;
 //! - after [`LOST_LIMIT`] lost workers the root is paused. Its status is
 //!   [`Status::NotResponding`], and every job is refused as
-//!   [`PoolError::Paused`] until [`Pool::resume`], so a hung share costs
-//!   two stuck threads and no more. Other roots have pools of their own
-//!   and carry on.
+//!   [`PoolError::Paused`] until [`Pool::resume`]. Other roots have pools
+//!   of their own and carry on;
+//! - when the operating system will not start another thread, the job is
+//!   refused as [`PoolError::NoThread`] and its place given back.
+//!
+//! So a hung share holds at most `limit` threads that the pool waits for,
+//! and at most [`LOST_LIMIT`] stuck threads between one resume and the
+//! next. A resume forgets the lost workers, not their threads: each resume
+//! while the share is still hung lets [`LOST_LIMIT`] more threads get
+//! stuck, so whoever resumes a root decides how often to retry (WP-082).
 //!
 //! The scan's worker processes are counted here too: the worker pool
 //! (WP-078) calls [`Pool::report_lost`] when a worker is stuck reading this
@@ -119,8 +127,11 @@ impl Pool {
     /// Takes a place for `task` and starts it with `spawn` on a thread of
     /// its own, or refuses it and drops it.
     fn start(&self, task: Task, spawn: fn(Task) -> io::Result<()>) -> Result<(), PoolError> {
-        self.admit().map(|()| {
-            let _ = spawn(task);
+        self.admit().and_then(|()| {
+            spawn(task).map_err(|error| {
+                self.release(0);
+                PoolError::NoThread { kind: error.kind() }
+            })
         })
     }
 
@@ -152,8 +163,9 @@ impl Pool {
     ///
     /// # Errors
     ///
-    /// Returns [`PoolError::Paused`] or [`PoolError::Busy`] when the job was
-    /// not started, [`PoolError::TimedOut`] when it missed the deadline, and
+    /// Returns [`PoolError::Paused`], [`PoolError::Busy`] or
+    /// [`PoolError::NoThread`] when the job was not started,
+    /// [`PoolError::TimedOut`] when it missed the deadline, and
     /// [`PoolError::Panicked`] when it panicked.
     pub fn run<T, F>(&self, deadline: Duration, job: F) -> Result<T, PoolError>
     where
@@ -184,7 +196,8 @@ impl Pool {
     }
 
     /// Forgets the lost workers and accepts jobs again, for an admin's
-    /// retry or once the storage is seen to answer.
+    /// retry or once the storage is seen to answer. A lost worker's thread
+    /// that is still stuck stays stuck, and is no longer counted.
     pub fn resume(&self) {
         self.ledger().lost = 0;
     }
@@ -214,10 +227,12 @@ mod tests {
         Err(io::Error::from(io::ErrorKind::WouldBlock))
     }
 
+    /// A job that does nothing.
+    fn job() {}
+
     #[test]
     fn gives_the_place_back_when_no_thread_can_be_started() {
         let pool = Pool::new(1);
-        let job = || ();
         assert_eq!(
             pool.start(Box::new(job), refuse),
             Err(PoolError::NoThread {

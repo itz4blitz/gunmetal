@@ -105,6 +105,12 @@ fn encode(bytes: &mut Vec<u8>, name: &[u8], mark: Mark) {
 /// byte for the mark (0 for a file, 1 for a directory, 2 for something
 /// skipped) and, for a file, its device, inode, size, and the seconds and
 /// nanoseconds of its modification time, each as eight little-endian bytes.
+///
+/// Those bytes are gathered in one buffer and hashed at once, because the
+/// core's SHA-256 takes one slice. The walk's entry limit
+/// ([`WalkLimits::entries`]) bounds the buffer.
+///
+/// [`WalkLimits::entries`]: crate::walk::WalkLimits::entries
 #[must_use]
 pub fn summarise<'a>(entries: impl IntoIterator<Item = (&'a [u8], Mark)>) -> DirSummary {
     let mut bytes = Vec::new();

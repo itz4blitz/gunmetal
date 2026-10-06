@@ -1,22 +1,27 @@
 //! Opening one file beneath a library root, read-only.
 //!
-//! [`Root::open_file`] follows the path's links by the root's policy, then
-//! opens what they lead to beneath the handle with `O_NONBLOCK`, `O_NOCTTY`
-//! and `O_CLOEXEC`, so that a FIFO cannot block the open and a terminal
-//! cannot become the server's controlling terminal. The type is then read
-//! from the open handle, never from the path, and anything that is not a
-//! regular file is refused (SEC-MED-035).
+//! [`Root::open_file`] follows the path's links by the root's policy and
+//! judges what they lead to. Anything that is not a regular file is
+//! refused there, before it is opened: a FIFO, a socket, a device or a
+//! directory (SEC-MED-035). A regular file is then opened beneath the
+//! handle with `O_NONBLOCK`, `O_NOCTTY`, `O_CLOEXEC` and `O_NOFOLLOW`, so
+//! that a FIFO swapped in since cannot block the open, a terminal cannot
+//! become the server's controlling terminal, and a link swapped in since
+//! is not followed where the kernel resolves the path. What was opened must
+//! be the object that was judged, the same device and inode, and its type
+//! is read again from the open handle, never from the path
+//! ([`FsError::Replaced`], [`FsError::NotRegular`]).
 //!
-//! A [`MediaFile`] can only be read. There is no way to ask for a handle
-//! that can write: the open options are fixed here, and the root's
-//! directory handle is private (SEC-MED-038, SEC-TM-042, SEC-OPS-054).
+//! A [`MediaFile`] reads, and lends its descriptor for handing to a worker.
+//! There is no way to ask for a handle that can write: the open options are
+//! fixed here, and the root's directory handle is private (SEC-MED-038,
+//! SEC-TM-042, SEC-OPS-054).
 //!
 //! [`Root::open_verified`] is the check before bytes are served: the file
 //! at the recorded path must still be the one the index recorded
 //! (SEC-MED-036, SEC-API-018).
 
 use std::fs::File;
-use std::io;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::FileExt as _;
 
@@ -25,9 +30,8 @@ use cap_std::fs::{
 };
 use gunmetal_core::path::RelPath;
 use rustix::fs::OFlags;
-use rustix::io::Errno;
 
-use crate::root::{Base, FsError, Op, Root, io_error, os_path};
+use crate::root::{Base, FsError, Op, Root, io_error};
 
 /// The flags every file is opened with, besides read-only: a FIFO must not
 /// block the open, a terminal must not become the controlling terminal, the
@@ -133,7 +137,7 @@ impl Facts {
 }
 
 /// A regular file beneath a library root, open for reading and nothing
-/// else.
+/// else. It reads, and lends its read-only descriptor.
 #[derive(Debug)]
 pub struct MediaFile {
     file: File,
@@ -173,7 +177,7 @@ impl MediaFile {
     /// # Errors
     ///
     /// Returns [`FsError::Io`] with [`Op::Read`] when the read fails, with
-    /// [`io::ErrorKind::UnexpectedEof`] when the file ends first.
+    /// [`std::io::ErrorKind::UnexpectedEof`] when the file ends first.
     pub fn read_exact_at(&self, buffer: &mut [u8], offset: u64) -> Result<(), FsError> {
         self.file
             .read_exact_at(buffer, offset)
@@ -182,7 +186,10 @@ impl MediaFile {
 }
 
 impl AsFd for MediaFile {
-    /// The read-only descriptor, to hand to a worker process.
+    /// The read-only descriptor, to hand to a worker process. Whoever holds
+    /// it, or a clone of it, can read the file and not write it or change
+    /// its length; as through any descriptor, the file's owner can change
+    /// its mode and times.
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.file.as_fd()
     }
@@ -193,43 +200,30 @@ fn read_only() -> OpenOptions {
     OpenOptions::new().read(true).custom_flags(FLAGS).clone()
 }
 
-/// Maps the failure of an open of something that looked like `seen`. A
-/// socket cannot be opened at all, so that failure is reported as what it
-/// is: not a regular file.
-fn refused(seen: FileKind) -> impl FnOnce(io::Error) -> FsError {
-    move |error| {
-        if error.raw_os_error() == Some(Errno::NXIO.raw_os_error()) {
-            FsError::NotRegular { found: seen }
-        } else {
-            FsError::Io {
-                op: Op::Open,
-                kind: error.kind(),
-            }
-        }
+/// Refuses anything but a regular file (SEC-MED-035).
+fn regular(kind: FileKind) -> Result<(), FsError> {
+    if kind == FileKind::File {
+        Ok(())
+    } else {
+        Err(FsError::NotRegular { found: kind })
     }
 }
 
 impl Base {
-    /// Opens the file at `names`, which was judged to be `judged` before it
-    /// was opened, and refuses it unless the open handle is a regular file.
+    /// Opens the regular file at `names`, which was judged to be `judged` a
+    /// moment before. What the judgement says is not a regular file is
+    /// refused without being opened. What is opened must be the object
+    /// judged, and is refused again unless the open handle is a regular
+    /// file (SEC-MED-034, SEC-MED-035).
     pub(crate) fn file(&self, names: &[Vec<u8>], judged: &Facts) -> Result<MediaFile, FsError> {
-        self.dir
-            .open_with(os_path(names), &read_only())
-            .and_then(|file| {
-                file.metadata()
-                    .map(|metadata| (file.into_std(), Facts::of(&metadata)))
-            })
-            .map_err(refused(judged.kind))
+        regular(judged.kind)
+            .and_then(|()| self.open_judged(names, &read_only(), judged, Op::Open))
             .and_then(|(file, facts)| {
-                if facts.kind == FileKind::File {
-                    Ok(MediaFile {
-                        file,
-                        identity: facts.identity,
-                        links: facts.links,
-                    })
-                } else {
-                    Err(FsError::NotRegular { found: facts.kind })
-                }
+                regular(facts.kind).map(|()| MediaFile {
+                    file,
+                    identity: facts.identity,
+                    links: facts.links,
+                })
             })
     }
 }
@@ -242,8 +236,9 @@ impl Root {
     /// Returns [`FsError::Link`] or [`FsError::TooManyLinks`] when a
     /// symbolic link on the path may not be followed,
     /// [`FsError::NotRegular`] when the path leads to anything but a regular
-    /// file, and [`FsError::Io`] when the file does not exist or may not be
-    /// read.
+    /// file, [`FsError::Replaced`] when what the path leads to changed
+    /// between its judgement and the open, and [`FsError::Io`] when the
+    /// file does not exist or may not be read.
     pub fn open_file(&self, rel: &RelPath) -> Result<MediaFile, FsError> {
         self.locate(self.own(), &[], rel.components())
             .and_then(|found| found.base.file(&found.names, &found.facts))
@@ -280,21 +275,30 @@ mod read_only {
     ///
     /// Opening takes a root and a path and nothing else, so there are no
     /// options with which to ask for a handle that can write. What comes
-    /// back is not a writer, and does not turn into a `std::fs::File` or an
-    /// owned descriptor, whose methods can change a file's length, times
-    /// and mode.
+    /// back is not a writer, and does not convert into a `std::fs::File` or
+    /// an `OwnedFd`.
+    ///
+    /// It does lend its descriptor (`AsFd`), so that it can be handed to a
+    /// worker process, and a borrowed descriptor can be cloned into an owned
+    /// one (`try_clone_to_owned`) and so into a `File`. That descriptor is
+    /// open for reading only: it cannot write the file or change its length
+    /// (`read_only::a_descriptor_cloned_from_an_open_file_still_cannot_write`
+    /// in the library tests). The file's owner can change its mode and
+    /// times through any descriptor (`fchmod`, `futimens`), this one too;
+    /// nothing in this crate does.
     ///
     /// The probe below has its inherent constant only for a type that has
     /// the ability asked about, and the trait's constant for any other.
-    /// The first four assertions show that it does see each ability.
-    /// Giving `MediaFile` one of them, or `open_file` another argument,
-    /// makes this example fail.
+    /// The first six assertions show that it does see each ability, and
+    /// that it can say no. Giving `MediaFile` any of the first three
+    /// abilities, taking away the fourth, or giving `open_file` another
+    /// argument makes this example fail.
     ///
     /// ```
     /// use std::fs::File;
     /// use std::io::Write;
     /// use std::marker::PhantomData;
-    /// use std::os::fd::OwnedFd;
+    /// use std::os::fd::{AsFd, OwnedFd};
     ///
     /// use gunmetal_core::path::RelPath;
     /// use gunmetal_fs::open::MediaFile;
@@ -308,6 +312,7 @@ mod read_only {
     ///     const WRITES: bool = false;
     ///     const BECOMES_A_FILE: bool = false;
     ///     const BECOMES_A_DESCRIPTOR: bool = false;
+    ///     const LENDS_A_DESCRIPTOR: bool = false;
     /// }
     /// impl<T> Lacks for Probe<T> {}
     ///
@@ -320,16 +325,22 @@ mod read_only {
     /// impl<T: Into<OwnedFd>> Probe<T> {
     ///     const BECOMES_A_DESCRIPTOR: bool = true;
     /// }
+    /// impl<T: AsFd> Probe<T> {
+    ///     const LENDS_A_DESCRIPTOR: bool = true;
+    /// }
     ///
     /// assert!(<Probe<File>>::WRITES);
     /// assert!(<Probe<&File>>::WRITES);
     /// assert!(<Probe<File>>::BECOMES_A_FILE);
     /// assert!(<Probe<File>>::BECOMES_A_DESCRIPTOR);
+    /// assert!(<Probe<File>>::LENDS_A_DESCRIPTOR);
+    /// assert!(!<Probe<u8>>::LENDS_A_DESCRIPTOR);
     ///
     /// assert!(!<Probe<MediaFile>>::WRITES);
     /// assert!(!<Probe<&MediaFile>>::WRITES);
     /// assert!(!<Probe<MediaFile>>::BECOMES_A_FILE);
     /// assert!(!<Probe<MediaFile>>::BECOMES_A_DESCRIPTOR);
+    /// assert!(<Probe<MediaFile>>::LENDS_A_DESCRIPTOR);
     /// ```
     struct OnlyReads;
 
