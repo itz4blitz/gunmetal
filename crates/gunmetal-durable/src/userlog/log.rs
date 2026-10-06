@@ -245,8 +245,10 @@ impl UserLog {
     ///
     /// # Errors
     ///
-    /// Returns [`LogError::Halted`] after an earlier failure, and
-    /// [`LogError::Root`], [`LogError::Dir`], [`LogError::Io`] or
+    /// Returns [`LogError::Household`] when `selector` names the household's
+    /// whole stream, which is never erased; nothing is then written and the
+    /// log goes on. Returns [`LogError::Halted`] after an earlier failure,
+    /// and [`LogError::Root`], [`LogError::Dir`], [`LogError::Io`] or
     /// [`LogError::NewerRecord`] when the ledger or a segment cannot be
     /// read or written; the log then halts, and opening it again finishes
     /// the erasure if the ledger holds it.
@@ -350,6 +352,7 @@ mod tests {
     use gunmetal_fs::path::{DataDir, DataPath, LogStream, USER_LOG};
     use proptest::prelude::*;
     use std::io::{self, Write};
+    use std::slice::from_ref;
 
     /// The erasure ledger and its directory, written out.
     const LEDGER: DataPath = DataPath::constant(DataDir::Durable, "erasure/ledger");
@@ -549,17 +552,17 @@ mod tests {
         let third = play(3, ALICE, 3_000);
         let fourth = play(4, ALICE, 4_000);
         assert_eq!(
-            log.append(&data.root, at(SEPTEMBER_END), &[first.clone()]),
+            log.append(&data.root, at(SEPTEMBER_END), from_ref(&first)),
             Ok(vec![Ok(Appended::Stored { seq: 1 })])
         );
         assert_eq!(
-            log.append(&data.root, at(OCTOBER_START), &[second.clone()]),
+            log.append(&data.root, at(OCTOBER_START), from_ref(&second)),
             Ok(vec![Ok(Appended::Stored { seq: 2 })])
         );
         // The server's clock steps back a month: the record still goes
         // after the last one, in the newest segment.
         assert_eq!(
-            log.append(&data.root, at(SEPTEMBER_END), &[third.clone()]),
+            log.append(&data.root, at(SEPTEMBER_END), from_ref(&third)),
             Ok(vec![Ok(Appended::Stored { seq: 3 })])
         );
         let september = [header([0xA1; 16], 2026, 9), record(1, &first)].concat();
@@ -580,14 +583,13 @@ mod tests {
         );
         // After a restart everything acknowledged is there, in order, and
         // the numbers go on.
-        drop(log);
         let log = opened(&data.root);
         assert_eq!(
             replayed(&log, &data.root, ALICE, 0),
             [stamped(1, &first), stamped(2, &second), stamped(3, &third)]
         );
         assert_eq!(
-            stored(&log, &data.root, &[fourth.clone()]),
+            stored(&log, &data.root, from_ref(&fourth)),
             [Ok(Appended::Stored { seq: 4 })]
         );
         assert_eq!(bytes(&data.root, &segment(ALICE_DIR, 2026, 9)), september);
@@ -604,12 +606,12 @@ mod tests {
         let first = play(1, ALICE, 1_000);
         let second = play(2, ALICE, 2_000);
         assert_eq!(
-            stored(&log, &data.root, &[first.clone()]),
+            stored(&log, &data.root, from_ref(&first)),
             [Ok(Appended::Stored { seq: 1 })]
         );
         // A retry, then another event under the same ID.
         assert_eq!(
-            stored(&log, &data.root, &[first.clone()]),
+            stored(&log, &data.root, from_ref(&first)),
             [Ok(Appended::Duplicate { seq: 1 })]
         );
         assert_eq!(
@@ -644,7 +646,6 @@ mod tests {
         .concat();
         assert_eq!(bytes(&data.root, &segment(ALICE_DIR, 2026, 10)), held);
         // A restart forgets none of it.
-        drop(log);
         let log = opened(&data.root);
         assert_eq!(
             stored(
@@ -705,7 +706,6 @@ mod tests {
                 Ok(Appended::Stored { seq: 2 }),
             ]
         );
-        drop(log);
         let path = segment(ALICE_DIR, 2026, 10);
         let whole = [header([0xA1; 16], 2026, 10), record(1, &first)].concat();
         // A crash cut the second record five octets short.
@@ -730,7 +730,7 @@ mod tests {
         assert_eq!(bytes(&data.root, &path), whole);
         // The record was never acknowledged: its number and its ID are free.
         assert_eq!(
-            stored(&opened.log, &data.root, &[second.clone()]),
+            stored(&opened.log, &data.root, from_ref(&second)),
             [Ok(Appended::Stored { seq: 2 })]
         );
         assert_eq!(
@@ -749,16 +749,15 @@ mod tests {
             let data = data();
             let log = opened(&data.root);
             assert_eq!(
-                stored(&log, &data.root, &[first.clone()]),
+                stored(&log, &data.root, from_ref(&first)),
                 [Ok(Appended::Stored { seq: 1 })]
             );
-            drop(log);
             let written = bytes(&data.root, &path);
             data.root
                 .replace(&path, &written[..kept])
                 .expect("the segment is cut");
             let opened = UserLog::open(&data.root).expect("the log opens");
-            let next = stored(&opened.log, &data.root, &[first.clone()]);
+            let next = stored(&opened.log, &data.root, from_ref(&first));
             (opened.report, next, bytes(&data.root, &path))
         };
         let whole = [header([0xA1; 16], 2026, 10), record(1, &first)].concat();
@@ -804,10 +803,9 @@ mod tests {
             ])
         );
         assert_eq!(
-            stored(&log, &data.root, &[third.clone()]),
+            stored(&log, &data.root, from_ref(&third)),
             [Ok(Appended::Stored { seq: 3 })]
         );
-        drop(log);
         let path = segment(ALICE_DIR, 2026, 9);
         let start = [header([0xA1; 16], 2026, 9), record(1, &first)]
             .concat()
@@ -849,7 +847,6 @@ mod tests {
             &data.root,
             &[first.clone(), second.clone(), third.clone()],
         );
-        drop(log);
         let path = segment(ALICE_DIR, 2026, 10);
         let start = [header([0xA1; 16], 2026, 10), record(1, &first)]
             .concat()
@@ -895,7 +892,7 @@ mod tests {
         let second = play(2, ALICE, 2_000);
         let third = love(3, ALICE, 3_000);
         let curation = love(9, Stream::Household, 3_000);
-        log.append(&data.root, at(SEPTEMBER_END), &[first.clone()])
+        log.append(&data.root, at(SEPTEMBER_END), from_ref(&first))
             .expect("the batch is written");
         stored(
             &log,
@@ -993,8 +990,7 @@ mod tests {
         let data = data();
         let log = opened(&data.root);
         let mine = play(1, ALICE, 1_000);
-        stored(&log, &data.root, &[mine.clone()]);
-        drop(log);
+        stored(&log, &data.root, from_ref(&mine));
         // Bob's record, whole and numbered to fit, put after Alice's.
         let path = segment(ALICE_DIR, 2026, 10);
         let start = bytes(&data.root, &path).len();
@@ -1078,7 +1074,6 @@ mod tests {
         assert_eq!(replayed(&log, &data.root, ALICE, 0), after);
         // A restart changes none of it, and the erased record's number is
         // not given out again.
-        drop(log);
         let log = opened(&data.root);
         assert_eq!(replayed(&log, &data.root, ALICE, 0), after);
         assert_eq!(
@@ -1170,7 +1165,6 @@ mod tests {
             Ok(ErasureReport { erased: vec![] })
         );
         // After a restart the ledger still answers for all of them.
-        drop(log);
         let log = opened(&data.root);
         assert_eq!(
             stored(
@@ -1200,7 +1194,7 @@ mod tests {
         let first = play(1, ALICE, 1_000);
         let second = love(2, ALICE, 2_000);
         let theirs = play(1, BOB, 1_000);
-        log.append(&data.root, at(SEPTEMBER_END), &[second.clone()])
+        log.append(&data.root, at(SEPTEMBER_END), from_ref(&second))
             .expect("the batch is written");
         stored(&log, &data.root, &[first.clone(), theirs.clone()]);
         let whole = Selector {
@@ -1242,10 +1236,72 @@ mod tests {
             log.read(&data.root, &own(1), &Known, 0..u64::MAX),
             Ok(Page { records: vec![] })
         );
-        drop(log);
         let log = opened(&data.root);
         assert_eq!(stored(&log, &data.root, &[first]), [Ok(Appended::Erased)]);
         assert_eq!(data.root.log_streams(), only_bob);
+    }
+
+    #[test]
+    fn never_promises_to_erase_the_household_s_whole_stream() {
+        let data = data();
+        let log = opened(&data.root);
+        let whole = Selector {
+            stream: Stream::Household,
+            scope: Scope::Stream,
+        };
+        // Refused while the household has written nothing, and once it has.
+        assert_eq!(log.erase(&data.root, whole), Err(LogError::Household));
+        let curation = love(9, Stream::Household, 3_000);
+        assert_eq!(
+            stored(&log, &data.root, from_ref(&curation)),
+            [Ok(Appended::Stored { seq: 1 })]
+        );
+        assert_eq!(log.erase(&data.root, whole), Err(LogError::Household));
+        // Nothing was promised: the ledger is empty, and the stream is as
+        // it was.
+        assert_eq!(bytes(&data.root, &LEDGER), Vec::<u8>::new());
+        let path = segment(LogStream::Household, 2026, 10);
+        let held = [header([0x00; 16], 2026, 10), record(1, &curation)].concat();
+        assert_eq!(bytes(&data.root, &path), held);
+        // A refusal is not a failure: the log goes on.
+        let later = love(10, Stream::Household, 4_000);
+        assert_eq!(
+            stored(&log, &data.root, from_ref(&later)),
+            [Ok(Appended::Stored { seq: 2 })]
+        );
+        // Only the whole stream is refused. An erasure of the household's
+        // history is promised like any other, and removes none of its
+        // curation: floor 3, tag 1 for the household, scope 2 and the clock.
+        let history = Selector {
+            stream: Stream::Household,
+            scope: Scope::UpTo(Hlc::new(9_999, 0)),
+        };
+        assert_eq!(
+            log.erase(&data.root, history),
+            Ok(ErasureReport { erased: vec![] })
+        );
+        let promised = frame(
+            &[
+                &3_u64.to_le_bytes()[..],
+                &[1, 2],
+                &9_999_u64.to_le_bytes(),
+                &0_u32.to_le_bytes(),
+            ]
+            .concat(),
+        );
+        assert_eq!(bytes(&data.root, &LEDGER), promised);
+        let both = [held, record(2, &later)].concat();
+        assert_eq!(bytes(&data.root, &path), both);
+        // A restart has no promise about the whole stream to keep, and the
+        // refusal stands.
+        let log = opened(&data.root);
+        assert_eq!(
+            replayed(&log, &data.root, Stream::Household, 0),
+            [stamped(1, &curation), stamped(2, &later)]
+        );
+        assert_eq!(log.erase(&data.root, whole), Err(LogError::Household));
+        assert_eq!(bytes(&data.root, &LEDGER), promised);
+        assert_eq!(bytes(&data.root, &path), both);
     }
 
     #[test]
@@ -1259,7 +1315,6 @@ mod tests {
             &data.root,
             &[first.clone(), second.clone(), play(1, BOB, 1_000)],
         );
-        drop(log);
         // What a crash leaves after the ledger was synced and before any
         // segment was touched: one of Alice's events, and all of Bob.
         let bob = frame(&[&2_u64.to_le_bytes()[..], &[0], &[0xB2; 16], &[4]].concat());
@@ -1300,7 +1355,7 @@ mod tests {
         let data = data();
         let log = opened(&data.root);
         let first = play(1, ALICE, 1_000);
-        stored(&log, &data.root, &[first.clone()]);
+        stored(&log, &data.root, from_ref(&first));
         // The stream's directory goes missing behind the log's back, so
         // the erasure fails at its second step.
         data.root
@@ -1345,6 +1400,14 @@ mod tests {
     fn a_failed_write_or_read_halts_the_log_until_it_is_opened_again() {
         let data = data();
         let log = opened(&data.root);
+        // Opening made the log's directory, with no stream in it yet.
+        assert_eq!(
+            data.root.log_streams(),
+            Ok(Listing {
+                entries: vec![],
+                foreign: vec![],
+            })
+        );
         // Something made Alice's directory behind the log's back.
         let folder = DataPath::log_stream(ALICE_DIR);
         data.root
@@ -1438,11 +1501,28 @@ mod tests {
                 range: 0..entry.len()
             }))
         );
+        // A ledger that promises the household's whole stream, which this
+        // version never promises: floor 0, tag 1 for the household, scope 4.
+        let planted = data();
+        let promise = frame(&[&0_u64.to_le_bytes()[..], &[1], &[4]].concat());
+        planted
+            .root
+            .create_dir(&LEDGER_DIR)
+            .expect("the directory is made");
+        planted
+            .root
+            .replace(&LEDGER, &promise)
+            .expect("the ledger is written");
+        assert_eq!(
+            report(&planted.root),
+            Err(LogError::Ledger(LedgerFlaw::NotAnEntry {
+                range: 0..promise.len()
+            }))
+        );
         // A record a newer version wrote, after one this version reads.
         let newer = data();
         let log = opened(&newer.root);
         stored(&log, &newer.root, &[play(1, ALICE, 1_000)]);
-        drop(log);
         let path = segment(ALICE_DIR, 2026, 10);
         let offset = bytes(&newer.root, &path).len();
         newer
@@ -1477,7 +1557,6 @@ mod tests {
             },
         )
         .expect("the erasure is done");
-        drop(log);
         // A crash cut a second entry three octets short.
         let whole = bytes(&data.root, &LEDGER);
         let entry = alice_entry(3, &one_event(2));

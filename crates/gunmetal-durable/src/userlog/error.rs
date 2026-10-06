@@ -41,6 +41,11 @@ pub enum LogError {
     /// The permit was not decided for reading a profile's own data, or the
     /// profile it names has no stream the server knows.
     Denied,
+    /// An erasure named the household's whole stream. Only a profile's
+    /// stream is ever erased whole (ADR 3, sections 3 and 8): what the
+    /// household curated stays when an account is deleted. Nothing was
+    /// written to the ledger, and the log goes on.
+    Household,
 }
 
 /// What is wrong with the erasure ledger.
