@@ -435,7 +435,9 @@ name = "gunmetal-server"
 version = "0.0.0"
 dependencies = [
  "gunmetal-core",
+ "gunmetal-durable",
  "gunmetal-fs",
+ "gunmetal-http",
  "gunmetal-secrets",
  "gunmetal-testkit",
  "proptest",

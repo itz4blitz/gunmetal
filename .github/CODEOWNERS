@@ -63,6 +63,7 @@ Cargo.lock @itz4blitz
 /crates/gunmetal-secrets/ @itz4blitz
 /crates/gunmetal-egress/ @itz4blitz
 /crates/gunmetal-durable/src/audit/ @itz4blitz
+/crates/gunmetal-durable/src/identity/permitted.rs @itz4blitz
 /crates/gunmetal-fs/src/sqlite.rs @itz4blitz
 /crates/gunmetal-worker/src/sandbox/ @itz4blitz
 /crates/gunmetal-names/ @itz4blitz
@@ -95,3 +96,4 @@ Cargo.lock @itz4blitz
 /crates/gunmetal-server/src/restore/ @itz4blitz
 /crates/gunmetal-server/src/erasure/ @itz4blitz
 /crates/gunmetal-server/tests/route_security/ @itz4blitz
+/crates/gunmetal-server/tests/storage_access.rs @itz4blitz
