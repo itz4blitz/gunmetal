@@ -42,8 +42,8 @@
 //! can a power loss; the tests show what truncation and a failed step leave
 //! behind, and the order of the syncs is this module's code to review.
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as Slot;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::ops::Range;
@@ -436,8 +436,7 @@ impl State {
             for kept in settled.kept {
                 let Stamped { seq, event } = kept.stamped;
                 held.next = seq.saturating_add(1).max(held.next);
-                held
-                    .ids
+                held.ids
                     .insert(event.id, (seq, sha256(&codec::encode(&event))));
             }
             erased.extend(settled.erased.iter().map(|gone| gone.stamped.event.id));
@@ -797,11 +796,11 @@ mod tests {
     use crate::userlog::error::LedgerFlaw;
     use crate::userlog::scan::Problem;
     use crate::userlog::testing::{
-        ALICE, BOB, bytes, data, frame, frame_version, header, love, of, play, record,
+        bytes, data, frame, frame_version, header, love, of, play, record, ALICE, BOB,
     };
     use gunmetal_core::authz::{
-        Action, Capability, CapabilitySet, Context, DeviceClass, Elevation, Network, Owner,
-        PrincipalFacts, PrincipalKind, Reach, RemoteAdmin, ResourceFacts, UserVerification, decide,
+        decide, Action, Capability, CapabilitySet, Context, DeviceClass, Elevation, Network, Owner,
+        PrincipalFacts, PrincipalKind, Reach, RemoteAdmin, ResourceFacts, UserVerification,
     };
     use gunmetal_core::client_context::PathClass;
     use gunmetal_core::id::IdKind;
