@@ -280,7 +280,8 @@ mod tests {
         assert_eq!(encode_addr(v4)[0], 4);
         assert_eq!(encode_addr(v6)[0], 6);
         assert_eq!(encode_addr(v6).len(), 17);
-        assert_eq!(commitment_msg(v4, &[1, 2]).len(), 1 + 4 + 2);
+        let extra = salt(&OsRandom);
+        assert_eq!(commitment_msg(v4, &extra).len(), 1 + 4 + extra.len());
         assert_eq!(commitment_msg(v6, &[]).len(), 1 + 16);
     }
 
