@@ -303,19 +303,6 @@ pub(crate) fn child(dir: &RelPath, name: &[u8]) -> Result<RelPath, FsError> {
     normalise(Untrusted::new(names.as_slice())).map_err(FsError::Path)
 }
 
-/// Refuses link text longer than [`MAX_LINK_TEXT`], before any of it is
-/// resolved.
-fn short(text: Vec<u8>) -> Result<Vec<u8>, FsError> {
-    if text.len() > MAX_LINK_TEXT {
-        Err(FsError::LinkTooLong {
-            len: text.len(),
-            max: MAX_LINK_TEXT,
-        })
-    } else {
-        Ok(text)
-    }
-}
-
 /// Maps the failure of an open during `op`. The opens beneath a root do not
 /// follow a link in the last name, and the kernel says so with `ELOOP`: the
 /// path was judged to hold no link there, so something has replaced what
@@ -546,7 +533,16 @@ impl Root {
     fn follow(&self, base: &Base, link: &[Vec<u8>]) -> Result<(&Base, RelPath), FsError> {
         let dir = link.split_last().map_or(link, |(_, dir)| dir);
         base.link_text(link)
-            .and_then(short)
+            .and_then(|text| {
+                if text.len() > MAX_LINK_TEXT {
+                    Err(FsError::LinkTooLong {
+                        len: text.len(),
+                        max: MAX_LINK_TEXT,
+                    })
+                } else {
+                    Ok(text)
+                }
+            })
             .and_then(|text| {
                 rel(dir).and_then(|dir| {
                     link_target(&base.path, &dir, Untrusted::new(text.as_slice()))
@@ -601,6 +597,65 @@ mod tests {
         (temp, root)
     }
 
+    /// The same refusals the library tests check, from this binary, so the
+    /// error paths of [`Root::open`] are covered in every instantiation.
+    #[test]
+    fn refuses_a_root_or_an_approved_folder_that_cannot_be_opened() {
+        let temp = TempDir::new("fs-unit-open-refuse").expect("a scratch directory");
+        assert_eq!(
+            Root::open(&temp.path().join("missing"), LinkPolicy::default()).map(|_| ()),
+            Err(FsError::Io {
+                op: Op::Resolve,
+                kind: std::io::ErrorKind::NotFound,
+            })
+        );
+        std::fs::write(temp.path().join("track.flac"), b"fLaC").expect("a file");
+        assert_eq!(
+            Root::open(&temp.path().join("track.flac"), LinkPolicy::default()).map(|_| ()),
+            Err(FsError::Io {
+                op: Op::OpenRoot,
+                kind: std::io::ErrorKind::NotADirectory,
+            })
+        );
+        let music = temp.path().join("music");
+        std::fs::create_dir(&music).expect("create the library");
+        assert_eq!(
+            Root::open(
+                &music,
+                LinkPolicy {
+                    approved: vec![temp.path().join("debrid")],
+                    others: Vec::new(),
+                }
+            )
+            .map(|_| ()),
+            Err(FsError::Approved {
+                index: 0,
+                reason: Box::new(FsError::Io {
+                    op: Op::Resolve,
+                    kind: std::io::ErrorKind::NotFound,
+                }),
+            })
+        );
+        std::fs::create_dir(temp.path().join("debrid")).expect("an approved folder");
+        assert_eq!(
+            Root::open(
+                &music,
+                LinkPolicy {
+                    approved: vec![temp.path().join("debrid"), temp.path().join("track.flac")],
+                    others: Vec::new(),
+                }
+            )
+            .map(|_| ()),
+            Err(FsError::Approved {
+                index: 1,
+                reason: Box::new(FsError::Io {
+                    op: Op::OpenRoot,
+                    kind: std::io::ErrorKind::NotADirectory,
+                }),
+            })
+        );
+    }
+
     /// The names of the entry `name` of the root.
     fn names(name: &str) -> Vec<Vec<u8>> {
         vec![name.as_bytes().to_vec()]
@@ -646,6 +701,122 @@ mod tests {
         assert_eq!(
             root.own().file(&names("track.flac"), &judged).err(),
             Some(FsError::Replaced)
+        );
+    }
+
+    /// A file removed after it was judged fails the open as I/O, not as a
+    /// replacement: the kernel says the name is gone, not that a link is
+    /// there. Covers that branch of the open-error map in this binary.
+    ///
+    /// Verifies: SEC-MED-034
+    #[test]
+    fn reports_a_file_removed_after_it_was_judged_as_io() {
+        let (temp, root) = library("fs-unit-removed");
+        let judged = judge(&root, "track.flac");
+        std::fs::remove_file(temp.path().join("music/track.flac")).expect("remove");
+        assert_eq!(
+            root.own().file(&names("track.flac"), &judged).err(),
+            Some(FsError::Io {
+                op: Op::Open,
+                kind: std::io::ErrorKind::NotFound,
+            })
+        );
+    }
+
+    /// Link policy refusals and the too-many-links bound, from this binary.
+    ///
+    /// Verifies: SEC-MED-034
+    #[test]
+    fn refuses_links_the_policy_forbids_and_a_chain_that_is_too_long() {
+        let temp = TempDir::new("fs-unit-policy").expect("a scratch directory");
+        let music = temp.path().join("music");
+        let other = temp.path().join("films");
+        std::fs::create_dir(&music).expect("library");
+        std::fs::create_dir(&other).expect("other library");
+        std::fs::write(music.join("track.flac"), b"the track").expect("write");
+        std::fs::write(other.join("x.flac"), b"other").expect("write");
+        std::os::unix::fs::symlink("/etc/passwd", music.join("out.flac")).expect("outside");
+        std::os::unix::fs::symlink("../films/x.flac", music.join("lib.flac")).expect("other lib");
+        let root = Root::open(
+            &music,
+            LinkPolicy {
+                approved: Vec::new(),
+                others: vec![resolve(&other).expect("resolve the other library")],
+            },
+        )
+        .expect("open");
+        assert_eq!(
+            root.open_file(&rel(&names("out.flac")).expect("path"))
+                .map(|_| ()),
+            Err(FsError::Link(LinkRefusal {
+                target: RawPath::parse(Untrusted::new(b"/etc/passwd")).expect("path"),
+                reason: LinkReason::Outside,
+            }))
+        );
+        assert_eq!(
+            root.open_file(&rel(&names("lib.flac")).expect("path"))
+                .map(|_| ()),
+            Err(FsError::Link(LinkRefusal {
+                target: resolve(&other.join("x.flac")).expect("resolve"),
+                reason: LinkReason::OtherLibrary { index: 0 },
+            }))
+        );
+        // Links that lead only to each other trip the same bound.
+        std::os::unix::fs::symlink("b.flac", music.join("a.flac")).expect("loop a");
+        std::os::unix::fs::symlink("a.flac", music.join("b.flac")).expect("loop b");
+        assert_eq!(
+            root.open_file(&rel(&names("a.flac")).expect("path"))
+                .map(|_| ()),
+            Err(FsError::TooManyLinks)
+        );
+        // An approved folder is followed from this binary too.
+        let debrid = temp.path().join("debrid");
+        std::fs::create_dir(&debrid).expect("approved");
+        std::fs::write(debrid.join("ok.flac"), b"ok").expect("write");
+        std::os::unix::fs::symlink("../debrid/ok.flac", music.join("approved.flac"))
+            .expect("approved link");
+        let with_approved = Root::open(
+            &music,
+            LinkPolicy {
+                approved: vec![debrid],
+                others: Vec::new(),
+            },
+        )
+        .expect("open with approved");
+        with_approved
+            .open_file(&rel(&names("approved.flac")).expect("path"))
+            .expect("the approved link is followed");
+    }
+
+    /// The same length bound the library tests check, from this binary, so
+    /// the path that refuses over-long link text is covered here as well.
+    /// A link at the limit is followed, so the path that accepts one is
+    /// covered in this instantiation too.
+    ///
+    /// Verifies: SEC-MED-034
+    #[test]
+    fn judges_link_text_up_to_the_limit_from_this_binary() {
+        let (temp, root) = library("fs-unit-link-length");
+        assert_eq!(
+            root.own().inspect(&[]).map(|facts| facts.kind),
+            Ok(FileKind::Dir)
+        );
+        let at_the_limit = format!("{}track.flac", "./".repeat(507));
+        let over = format!("{}/track.flac", "./".repeat(507));
+        assert_eq!((at_the_limit.len(), over.len()), (1024, 1025));
+        std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
+            .expect("make a link at the limit");
+        std::os::unix::fs::symlink(&over, temp.path().join("music/over.flac"))
+            .expect("make a long link");
+        root.open_file(&rel(&names("limit.flac")).expect("path"))
+            .expect("the link at the limit is followed");
+        assert_eq!(
+            root.open_file(&rel(&names("over.flac")).expect("path"))
+                .map(|_| ()),
+            Err(FsError::LinkTooLong {
+                len: 1025,
+                max: MAX_LINK_TEXT
+            })
         );
     }
 
