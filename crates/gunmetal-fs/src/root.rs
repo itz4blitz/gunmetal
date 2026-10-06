@@ -187,7 +187,11 @@ pub enum FsError {
     },
     /// What was opened is not the object whose path was judged a moment
     /// before: something replaced it in between, such as a symbolic link
-    /// swapped in for it, so it was not used (SEC-MED-034).
+    /// swapped in for it, so it was not used (SEC-MED-034). A walk also
+    /// reports this for an entry that was a refused link when its directory
+    /// was listed and is something else when the entry is reported. It is
+    /// a passing state: the entry is still there, and is worth another
+    /// look.
     Replaced,
     /// A folder approved as a link target could not be opened, so the root
     /// was not opened either.
@@ -297,6 +301,19 @@ pub(crate) fn child(dir: &RelPath, name: &[u8]) -> Result<RelPath, FsError> {
         .chain(std::iter::once(name))
         .collect();
     normalise(Untrusted::new(names.as_slice())).map_err(FsError::Path)
+}
+
+/// Refuses link text longer than [`MAX_LINK_TEXT`], before any of it is
+/// resolved.
+fn short(text: Vec<u8>) -> Result<Vec<u8>, FsError> {
+    if text.len() > MAX_LINK_TEXT {
+        Err(FsError::LinkTooLong {
+            len: text.len(),
+            max: MAX_LINK_TEXT,
+        })
+    } else {
+        Ok(text)
+    }
 }
 
 /// Maps the failure of an open during `op`. The opens beneath a root do not
@@ -529,6 +546,7 @@ impl Root {
     fn follow(&self, base: &Base, link: &[Vec<u8>]) -> Result<(&Base, RelPath), FsError> {
         let dir = link.split_last().map_or(link, |(_, dir)| dir);
         base.link_text(link)
+            .and_then(short)
             .and_then(|text| {
                 rel(dir).and_then(|dir| {
                     link_target(&base.path, &dir, Untrusted::new(text.as_slice()))

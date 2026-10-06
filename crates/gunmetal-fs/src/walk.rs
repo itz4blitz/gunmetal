@@ -32,12 +32,16 @@
 //! should treat a skipped directory as unknown, not as empty.
 //!
 //! What a walk holds at once is bounded by those limits. It holds the
-//! listing of the directory it is reporting, each name once with what it
-//! is (for a refused link, where it leads), and for each directory above
-//! that one only the names of the directories in it still to be walked:
-//! at most `entries × (depth + 1)` names. Reading a directory's names
-//! stops one past the limit. It also keeps the device and inode of every
-//! directory it has listed, so that none is listed twice.
+//! listing of the directory it is reporting, each name once with a record
+//! of fixed size of what it is, and for each directory above that one only
+//! the names of the directories in it still to be walked: at most
+//! `entries × (depth + 1)` names. Reading a directory's names stops one
+//! past the limit. Where a refused link leads is not held with the
+//! listing, because a folder of links can make that large: the link is
+//! read again when it is reported, so one refusal exists at a time, and a
+//! link that is no longer refused by then is reported as
+//! [`FsError::Replaced`]. The walk also keeps the device and inode of
+//! every directory it has listed, so that none is listed twice.
 
 use std::collections::BTreeSet;
 use std::convert::identity;
@@ -52,7 +56,9 @@ use crate::open::{FileKind, Identity};
 use crate::root::{Base, Found, FsError, Root, child, read_names};
 
 /// How far a walk may go: how many entries a directory may hold, and how
-/// deep it may lie, and still be listed. See [`Root::walk_with`].
+/// deep it may lie, and still be listed. See [`Root::walk_with`]. The only
+/// values are [`WalkLimits::DEFAULT`] and what [`WalkLimits::new`] allows,
+/// so every limit stays at or below its ceiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WalkLimits {
     /// The most entries a directory may hold and still be listed.
@@ -73,14 +79,25 @@ impl WalkLimits {
         depth: Limits::DEFAULT.get(LimitKind::ContainerDepth),
     };
 
-    /// Limits of `entries` entries a directory and `depth` levels.
+    /// Limits of `entries` entries a directory and `depth` levels. Either
+    /// may be as low as wanted. Neither may be above the ceiling the core's
+    /// limits table gives the row its default comes from, which the core's
+    /// own [`Limits`] decides here: four times the default for entries
+    /// (262,144), and the default itself for depth (32). So no caller can
+    /// switch a limit off.
     ///
     /// # Errors
     ///
-    /// Returns [`LimitError::AboveCeiling`] when a limit is above its
-    /// ceiling.
-    pub const fn new(entries: u64, depth: u64) -> Result<Self, LimitError> {
-        Ok(Self { entries, depth })
+    /// Returns [`LimitError::AboveCeiling`], naming the core's row, the
+    /// value and the ceiling, when a limit is above its ceiling.
+    pub fn new(entries: u64, depth: u64) -> Result<Self, LimitError> {
+        Limits::DEFAULT
+            .with_override(LimitKind::Children, entries)
+            .and_then(|limits| limits.with_override(LimitKind::ContainerDepth, depth))
+            .map(|limits| Self {
+                entries: limits.get(LimitKind::Children),
+                depth: limits.get(LimitKind::ContainerDepth),
+            })
     }
 
     /// The most entries a directory may hold and still be listed.
@@ -139,7 +156,10 @@ enum Class {
     },
     /// A directory, or a link that may be followed to one.
     Dir,
-    /// Something the walk does not take, and why.
+    /// A link the policy refuses. Where it leads is not kept: the link is
+    /// read again when the entry is reported.
+    Refused,
+    /// Anything else the walk does not take, and why.
     Skipped(FsError),
 }
 
@@ -155,6 +175,7 @@ impl Class {
                 FileKind::Dir => Self::Dir,
                 found => Self::Skipped(FsError::NotRegular { found }),
             },
+            Err(FsError::Link(_)) => Self::Refused,
             Err(reason) => Self::Skipped(reason),
         }
     }
@@ -164,7 +185,7 @@ impl Class {
         match self {
             Self::File { identity, .. } => Mark::File(*identity),
             Self::Dir => Mark::Dir,
-            Self::Skipped(_) => Mark::Skipped,
+            Self::Refused | Self::Skipped(_) => Mark::Skipped,
         }
     }
 }
@@ -183,8 +204,9 @@ struct Level<'r> {
     /// Its names beneath that folder.
     names: Vec<Vec<u8>>,
     /// Its entries that are not directories, in name order, still to be
-    /// reported.
-    entries: vec::IntoIter<(Vec<u8>, Entry)>,
+    /// reported: each with what it is, or nothing for a link the policy
+    /// refuses, which is read again when it is reported.
+    entries: vec::IntoIter<(Vec<u8>, Option<Entry>)>,
     /// The names of the directories in it, in name order, still to be
     /// walked.
     dirs: vec::IntoIter<Vec<u8>>,
@@ -274,16 +296,14 @@ impl<'r> Walk<'r> {
     /// reports it; or reports why it was not listed.
     fn enter(&mut self, path: RelPath, located: Result<Found<'r>, FsError>, depth: u64) -> Visit {
         let limits = self.limits;
-        let listed = within(depth, limits.depth)
-            .and_then(|()| located)
-            .and_then(|found| {
-                found
-                    .base
-                    .open_dir(&found.names, &found.facts)
-                    .and_then(|(dir, identity)| self.fresh(identity).map(|()| dir))
-                    .and_then(|dir| read_names(&dir, limits.entries))
-                    .map(|names| (found, names))
-            });
+        let listed = within(depth, limits.depth).and(located).and_then(|found| {
+            found
+                .base
+                .open_dir(&found.names, &found.facts)
+                .and_then(|(dir, identity)| self.fresh(identity).map(|()| dir))
+                .and_then(|dir| read_names(&dir, limits.entries))
+                .map(|names| (found, names))
+        });
         match listed {
             Ok((found, names)) => self.take(path, found, names),
             Err(reason) => skipped(&path)(reason),
@@ -309,13 +329,16 @@ impl<'r> Walk<'r> {
                 .iter()
                 .map(|(name, class)| (name.as_slice(), class.mark())),
         );
-        let mut entries: Vec<(Vec<u8>, Entry)> = Vec::new();
+        let mut entries: Vec<(Vec<u8>, Option<Entry>)> = Vec::new();
         let mut dirs = Vec::new();
         for (name, class) in judged {
             match class {
-                Class::File { identity, links } => entries.push((name, Ok((identity, links)))),
+                Class::File { identity, links } => {
+                    entries.push((name, Some(Ok((identity, links)))));
+                }
                 Class::Dir => dirs.push(name),
-                Class::Skipped(reason) => entries.push((name, Err(reason))),
+                Class::Refused => entries.push((name, None)),
+                Class::Skipped(reason) => entries.push((name, Some(Err(reason)))),
             }
         }
         self.levels.push(Level {
@@ -341,7 +364,16 @@ impl Iterator for Walk<'_> {
         }
         loop {
             let level = self.levels.last_mut()?;
-            if let Some((name, entry)) = level.entries.next() {
+            if let Some((name, kept)) = level.entries.next() {
+                // A refused link is read again now, for where it leads. One
+                // that is no longer refused has been replaced since its
+                // directory was listed.
+                let entry = kept.unwrap_or_else(|| {
+                    Err(root
+                        .locate(level.base, &level.names, slice::from_ref(&name))
+                        .err()
+                        .unwrap_or(FsError::Replaced))
+                });
                 return Some(report(&level.shown, &name, entry));
             }
             if let Some(name) = level.dirs.next() {

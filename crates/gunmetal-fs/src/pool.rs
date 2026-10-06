@@ -93,7 +93,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// A pool that runs at most `limit` jobs at once.
+    /// A pool that waits for at most `limit` jobs at once.
     #[must_use]
     pub const fn new(limit: usize) -> Self {
         Self {
