@@ -422,7 +422,7 @@ impl State {
             .log_segments(place::dir(stream))
             .map_err(LogError::Dir)?
             .entries;
-        let mut shelf = Shelf {
+        let mut held = Shelf {
             months: months.clone(),
             next: self.floor(stream),
             ids: BTreeMap::new(),
@@ -433,16 +433,16 @@ impl State {
             let newest = months.last() == Some(month);
             let settled = self.settle(root, (stream, *month, newest), last, report)?;
             last = settled.last;
-            for held in settled.kept {
-                let Stamped { seq, event } = held.stamped;
-                shelf.next = seq.saturating_add(1).max(shelf.next);
-                shelf
+            for kept in settled.kept {
+                let Stamped { seq, event } = kept.stamped;
+                held.next = seq.saturating_add(1).max(held.next);
+                held
                     .ids
                     .insert(event.id, (seq, sha256(&codec::encode(&event))));
             }
-            erased.extend(settled.erased.iter().map(|held| held.stamped.event.id));
+            erased.extend(settled.erased.iter().map(|gone| gone.stamped.event.id));
         }
-        self.streams.insert(stream, shelf);
+        self.streams.insert(stream, held);
         Ok(erased)
     }
 
@@ -538,8 +538,8 @@ impl State {
         }
         let octets = codec::encode(event);
         let digest = sha256(&octets);
-        let shelf = self.streams.get(&event.stream);
-        let held = shelf.and_then(|shelf| shelf.ids.get(&event.id)).copied();
+        let known = self.streams.get(&event.stream);
+        let held = known.and_then(|shelf| shelf.ids.get(&event.id)).copied();
         if let Some((seq, stored)) = held {
             return Ok(if stored == digest {
                 Ok(Appended::Duplicate { seq })
@@ -547,7 +547,7 @@ impl State {
                 Err(Refused::Conflict { seq })
             });
         }
-        let seq = shelf.map_or(self.floor(event.stream), |shelf| shelf.next);
+        let seq = known.map_or(self.floor(event.stream), |shelf| shelf.next);
         let frame = match logframe::encode(&record::payload(seq, &octets)) {
             Ok(frame) => frame,
             Err(error) => return Ok(Err(Refused::TooLarge(error))),
@@ -557,9 +557,9 @@ impl State {
             Slot::Vacant(slot) => slot.insert(self.segment(root, event.stream, now)?),
         };
         file.write_all(&frame).map_err(LogError::from).map(|()| {
-            let shelf = self.streams.entry(event.stream).or_default();
-            shelf.next = seq.saturating_add(1);
-            shelf.ids.insert(event.id, (seq, digest));
+            let stream_state = self.streams.entry(event.stream).or_default();
+            stream_state.next = seq.saturating_add(1);
+            stream_state.ids.insert(event.id, (seq, digest));
             Ok(Appended::Stored { seq })
         })
     }
@@ -585,14 +585,12 @@ impl State {
                 .and_then(|log| log.sync_all().map_err(LogError::from))
         };
         made?;
-        let floor = self.floor(stream);
-        let shelf = self.streams.entry(stream).or_insert_with(|| Shelf {
-            next: floor,
-            ..Shelf::default()
-        });
+        // `next` is filled by the caller after a successful write; only the
+        // months list is used here.
+        let stream_state = self.streams.entry(stream).or_default();
         // The server's clock can step back; a stream's records stay in
         // order all the same, in its newest segment.
-        let newest = shelf.months.last().copied();
+        let newest = stream_state.months.last().copied();
         let month = newest.map_or(now, |newest| newest.max(now));
         let path = DataPath::log_segment(dir, month);
         if newest == Some(month) {
@@ -609,7 +607,7 @@ impl State {
                     .and_then(|()| root.open_read(&folder).map_err(LogError::Root))
                     .and_then(|synced| synced.sync_all().map_err(LogError::from))
                     .map(|()| {
-                        shelf.months.push(month);
+                        stream_state.months.push(month);
                         file
                     })
             })

@@ -139,8 +139,8 @@ pub(crate) fn parse(bytes: &[u8], budget: &mut Budget) -> Result<Parsed, LedgerF
                 let end = pos
                     .saturating_add(FRAME)
                     .saturating_add(record.payload.len());
-                let found = Some(record.payload)
-                    .filter(|_| record.version == RECORD_VERSION)
+                let found = (record.version == RECORD_VERSION)
+                    .then_some(record.payload)
                     .and_then(entry)
                     .ok_or(LedgerFlaw::NotAnEntry { range: pos..end })?;
                 parsed.entries.push(found);
