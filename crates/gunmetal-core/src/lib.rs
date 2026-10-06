@@ -26,6 +26,7 @@ pub mod lyrics;
 pub mod music;
 pub mod net;
 pub mod otp;
+pub mod package;
 pub mod parse;
 pub mod path;
 pub mod player;
