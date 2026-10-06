@@ -763,6 +763,7 @@ fn balance_penalty(rows: &[Vec<bool>]) -> usize {
 )]
 mod tests {
     use super::*;
+    use core::marker::PhantomData;
     use proptest::collection::vec;
     use proptest::prelude::*;
 
@@ -2210,6 +2211,95 @@ mod tests {
         assert_eq!(outside, Ok([false; 4]));
     }
 
+    /// A symbol carries its payload, and the payload of an invitation or a
+    /// pairing link holds a secret, so the `Debug` form of a symbol shows
+    /// its size and nothing of its modules.
+    ///
+    /// Verifies: SEC-OPS-013
+    #[test]
+    fn shows_only_its_size_when_formatted_for_debugging() {
+        let shown: Vec<_> = [FIGURE_1_TEXT.to_vec(), sample(412)]
+            .iter()
+            .map(|payload| {
+                encode(payload).map(|symbol| (format!("{symbol:?}"), format!("{symbol:#?}")))
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                Ok((
+                    "Matrix { size: 21, .. }".to_owned(),
+                    "Matrix {\n    size: 21,\n    ..\n}".to_owned()
+                )),
+                Ok((
+                    "Matrix { size: 77, .. }".to_owned(),
+                    "Matrix {\n    size: 77,\n    ..\n}".to_owned()
+                )),
+            ]
+        );
+    }
+
+    /// A question about a type `T`. Each answer is `false`, from [`Lacks`],
+    /// unless `T` has the trait asked about: then the inherent constant of
+    /// the same name applies, is found first, and answers `true`.
+    struct Probe<T>(PhantomData<T>);
+
+    /// The answers for a type that has none of the three traits.
+    trait Lacks {
+        const COMPARES: bool = false;
+        const DISPLAYS: bool = false;
+        const SERIALISES: bool = false;
+    }
+
+    impl<T> Lacks for Probe<T> {}
+
+    impl<T: PartialEq> Probe<T> {
+        const COMPARES: bool = true;
+    }
+
+    impl<T: core::fmt::Display> Probe<T> {
+        const DISPLAYS: bool = true;
+    }
+
+    impl<T: serde::Serialize> Probe<T> {
+        const SERIALISES: bool = true;
+    }
+
+    /// A symbol has no `==`, no `Display` and no serialised form: what it
+    /// carries is read one module at a time, through `is_dark`. The first
+    /// two rows show that the probe tells each of the three apart on types
+    /// that have them.
+    ///
+    /// Verifies: SEC-OPS-013
+    #[test]
+    fn a_symbol_cannot_be_compared_displayed_or_serialised() {
+        let answers = [
+            (
+                Probe::<Vec<u8>>::COMPARES,
+                Probe::<Vec<u8>>::DISPLAYS,
+                Probe::<Vec<u8>>::SERIALISES,
+            ),
+            (
+                Probe::<std::io::Error>::COMPARES,
+                Probe::<std::io::Error>::DISPLAYS,
+                Probe::<std::io::Error>::SERIALISES,
+            ),
+            (
+                Probe::<Matrix>::COMPARES,
+                Probe::<Matrix>::DISPLAYS,
+                Probe::<Matrix>::SERIALISES,
+            ),
+        ];
+        assert_eq!(
+            answers,
+            [
+                (true, false, true),
+                (false, true, false),
+                (false, false, false)
+            ]
+        );
+    }
+
     #[test]
     fn chooses_the_smallest_version_that_holds_the_payload() {
         let mut least = 0;
@@ -2234,13 +2324,15 @@ mod tests {
 
     #[test]
     fn refuses_a_payload_longer_than_the_largest_symbol_holds() {
+        // A symbol has no `==` (SEC-OPS-013), so a refusal is compared as
+        // its error alone: `err` gives `None` for a symbol.
         assert_eq!(
-            encode(&[0x61; 413]),
-            Err(QrError::TooLong { len: 413, max: 412 })
+            encode(&[0x61; 413]).err(),
+            Some(QrError::TooLong { len: 413, max: 412 })
         );
         assert_eq!(
-            encode(&sample(100_000)),
-            Err(QrError::TooLong {
+            encode(&sample(100_000)).err(),
+            Some(QrError::TooLong {
                 len: 100_000,
                 max: 412
             })
@@ -2259,8 +2351,8 @@ mod tests {
         #[test]
         fn refuses_every_payload_over_the_cap(len in 413_usize..2_000) {
             prop_assert_eq!(
-                encode(&sample(len)),
-                Err(QrError::TooLong { len, max: 412 })
+                encode(&sample(len)).err(),
+                Some(QrError::TooLong { len, max: 412 })
             );
         }
     }
