@@ -15,8 +15,8 @@
 //! - [`delay`] decides when a source that guessed a short secret wrong may
 //!   guess again, on the schedule of SEC-API-056: 30 seconds, 1 minute,
 //!   5 minutes, then 15 minutes, never longer and never for good. The
-//!   verifier keeps the count it decides on in the identity store, so a
-//!   restart forgives nothing.
+//!   verifier keeps the count it decides on in memory and nowhere else, so
+//!   a restart forgets it, as it forgets the ceilings.
 //!
 //! The only address either part takes is the `ClientContext` the listener
 //! resolved; neither reads a socket peer or a header (SEC-OPS-037).

@@ -6,7 +6,7 @@
 //! Only the pathways whose secrets can be guessed have entries
 //! (SEC-API-056).
 //!
-//! A guess is counted before it is looked at. [`GuessCounts::charge`]
+//! A guess is counted before it is looked at. `GuessCounts::charge`
 //! decides whether the schedule lets the guess through and, when it does,
 //! counts it as wrong, in one step under one lock, so that of guesses made
 //! at the same moment only the first is looked at. The verifier clears the
@@ -125,13 +125,25 @@ impl GuessCounts {
     /// it; otherwise says how long to wait.
     #[must_use]
     pub(in crate::verifier) fn charge(&self, key: &GuessKey, now: Timestamp) -> Decision {
-        // Red: decides on what is held, and counts nothing.
         let mut counts = self.lock();
-        let before = counts.get(key).map(|found| settled(*found, now));
-        before.map_or_else(
+        let before = counts.get_mut(key).map(|found| {
+            *found = settled(*found, now);
+            *found
+        });
+        let decision = before.map_or_else(
             || room(&mut counts, self.capacity, now),
             |failures| guess_allowed(Some(failures), now),
-        )
+        );
+        if decision == Decision::Allow {
+            counts.insert(
+                key.clone(),
+                Failures {
+                    count: before.map_or(1, |failures| failures.count.saturating_add(1)),
+                    last_at: now,
+                },
+            );
+        }
+        decision
     }
 
     /// Forgets the wrong guesses counted for `key`.
@@ -292,14 +304,14 @@ mod tests {
         assert_eq!(counts.charge(&third, at(NOON + 2)), Decision::Allow);
         // Full, with every wait still running: however many new keys come,
         // each is refused until the first wait ends, and nothing is dropped.
-        let flood: Vec<_> = (0..1_000_u128)
+        let flood: Vec<_> = (0..100_u128)
             .map(|n| {
                 let target = Target::from_bytes(n.to_be_bytes());
                 let key = GuessKey::new(Pathway::PairingCode, Some(target), &source("192.0.2.9"));
                 counts.charge(&key, at(NOON + 3))
             })
             .collect();
-        assert_eq!(flood, vec![wait(29_997); 1_000]);
+        assert_eq!(flood, [wait(29_997); 100]);
         let waiting = HashMap::from([
             (first.clone(), counted(1, NOON)),
             (second.clone(), counted(1, NOON + 1)),

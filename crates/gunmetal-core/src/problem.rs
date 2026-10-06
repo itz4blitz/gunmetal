@@ -125,7 +125,7 @@ problems! {
     StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
     /// A limit refused a sign-in attempt before it was looked at: its source's ceiling or the server's was reached, or an earlier wrong guess has not been waited out. The response says how long to wait and nothing about whether an account, code or link exists (SEC-API-057, SEC-IAM-101).
     TooManyAttempts = ("too_many_attempts", Some(429), "Too many attempts. Wait a little, then try again."),
-    /// The request carried no valid credential. A refused sign-in gets this one answer whether the account or code is unknown, disabled or wrong (SEC-API-058).
+    /// The request carried no valid credential for a route that needs one: none, a malformed, expired or revoked one, or one for an account that is disabled or gone. All of these get this one answer (SEC-API-003).
     Unauthenticated = ("unauthenticated", Some(401), "Sign in to continue."),
     /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
     UnknownHost = ("unknown_host", Some(421), "This server doesn't answer to that name."),

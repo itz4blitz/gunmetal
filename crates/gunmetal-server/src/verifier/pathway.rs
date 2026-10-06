@@ -78,8 +78,7 @@ pub enum Strength {
 }
 
 impl Pathway {
-    /// The pathway's name in the sign-in failure line and in the guess
-    /// log.
+    /// The pathway's name in the sign-in failure line.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -170,9 +169,10 @@ impl<'a> Presented<'a> {
         self.target
     }
 
-    /// The credential, unless none was presented or it was empty.
+    /// The credential, unless none was presented or it was empty. Only
+    /// the verifier asks.
     #[must_use]
-    pub fn credential(&self) -> Option<Credential<'a>> {
+    pub(in crate::verifier) fn credential(&self) -> Option<Credential<'a>> {
         self.secret
             .filter(|secret| !secret.is_empty())
             .map(Credential)
@@ -290,9 +290,7 @@ impl From<IdentityError> for Fault {
 ///
 /// Neither step may change anything. The verifier may still refuse after
 /// both have answered, and what a sign-in does (using up a code, opening a
-/// session) is done by the caller once [`Verified`] comes back. Neither
-/// step may call the verifier: it looks at one guess at a short secret at
-/// a time, and would wait for itself.
+/// session) is done by the caller once [`Verified`] comes back.
 pub trait PathwayCheck {
     /// Which entry of the inventory this is.
     fn pathway(&self) -> Pathway;

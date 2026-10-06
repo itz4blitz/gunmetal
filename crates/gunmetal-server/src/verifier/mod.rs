@@ -9,9 +9,14 @@
 //!
 //! 1. **Limits first.** The per-source and server-wide ceilings of
 //!    `crate::limiter`, then, for a short secret, the delay its earlier
-//!    wrong guesses have earned (SEC-IAM-101, SEC-API-056). A refused
-//!    attempt never reaches the pathway's check. The claim code from the
-//!    server itself is never limited (SEC-IAM-008).
+//!    wrong guesses have earned (SEC-IAM-101, SEC-API-056). A guess the
+//!    delay lets through is counted as a wrong one before it is looked at,
+//!    and the count is cleared if it turns out right, so guesses made at
+//!    the same moment cannot all be looked at before one is counted. The
+//!    counts are kept in memory only: no client address is stored, and a
+//!    restart forgets them. A refused attempt never reaches the pathway's
+//!    check. The claim code from the server itself is never limited
+//!    (SEC-IAM-008).
 //! 2. **No empty credential.** A request that presented nothing, or
 //!    nothing but an empty value, is refused before the pathway is asked
 //!    anything, so no pathway can treat a missing credential as a match
@@ -23,9 +28,11 @@
 //!    and a wrong credential all get the one answer (SEC-API-058,
 //!    SEC-IAM-022, SEC-HIS-047). A stored credential issued for another
 //!    pathway is refused the same way (SEC-EXT-007).
-//! 4. **Any fault is a denial.** An error, a timeout or missing data, in
-//!    the pathway's check or in the verifier's own bookkeeping, ends in
-//!    the same refusal, never in a weaker check (SEC-IAM-069).
+//! 4. **Any fault is a denial.** An error, a timeout or missing data in
+//!    the pathway's check ends in the same refusal, never in a weaker
+//!    check, and a guess at a short secret whose check failed stays
+//!    counted as a wrong one (SEC-IAM-069). The verifier's own bookkeeping
+//!    needs nothing that can fail.
 //!
 //! # What a refused attempt leaves behind
 //!
