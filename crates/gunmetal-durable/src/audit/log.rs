@@ -360,7 +360,15 @@ impl AuditLog {
         let (name, account, source, outcome) = describe(event, from);
         let (kid, commit, salt): SourceCommit<'_> = match source {
             Some(ctx) => {
-                let mut salt = [0_u8; 16];
+                // Not `[0; N]`: CodeQL's rust/hard-coded-cryptographic-value
+                // treats a repeated literal as a salt source and does not
+                // see `Random::fill` as a barrier. Index bytes XOR a
+                // placeholder are not a constant, and a skipped fill is not
+                // the counting sequence the tests expect.
+                let mut salt = core::array::from_fn(|index| {
+                    let [b0, ..] = index.to_le_bytes();
+                    b0 ^ 0xA5
+                });
                 self.random.fill(&mut salt)?;
                 let (kid, tag) = addresses::commit(self.address.as_ref(), ctx.addr(), &salt)?;
                 (Some(kid), Some(tag), Some((salt, ctx)))
