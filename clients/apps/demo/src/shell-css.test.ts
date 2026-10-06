@@ -86,13 +86,15 @@ test('library tabs stick with a brass underline indicator at radius.m, not pills
   const css = await demoShellCss();
   expect(css.includes('#library-tabs')).toStrictEqual(true);
   expect(css.includes('position: sticky')).toStrictEqual(true);
-  expect(css.includes('inset 0 -2px 0 var(--gm-accent-indicator)')).toStrictEqual(true);
+  expect(css.includes('var(--gm-accent-indicator)')).toStrictEqual(true);
+  expect(css.includes('#library-tabs [aria-selected=\'true\']::after')).toStrictEqual(true);
   expect(css.includes('var(--gm-radius-m)')).toStrictEqual(true);
   const marker = "#library-tabs [aria-selected='true']";
   const start = css.indexOf(marker);
   const block = css.slice(start, css.indexOf('}', start) + 1);
   expect(block.includes('border-radius: var(--gm-radius-m)')).toStrictEqual(true);
   expect(block.includes('border-radius: 999px') || block.includes('pill')).toStrictEqual(false);
+  expect(block.includes('background: transparent')).toStrictEqual(true);
 });
 
 test('library album grid uses minmax 160px and a 24px gap', async () => {
