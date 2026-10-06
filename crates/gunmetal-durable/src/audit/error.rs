@@ -77,6 +77,9 @@ impl From<RandomnessUnavailable> for AuditError {
 #[cfg(test)]
 mod tests {
     use super::AuditError;
+    use gunmetal_fs::dataroot::DataRootError;
+    use gunmetal_fs::host::NetworkFs;
+    use gunmetal_fs::sqlite::DbError;
     use gunmetal_secrets::random::RandomnessUnavailable;
     use gunmetal_secrets::root::SecretsError;
 
@@ -89,6 +92,14 @@ mod tests {
         assert_eq!(
             AuditError::from(RandomnessUnavailable),
             AuditError::Random(RandomnessUnavailable)
+        );
+        assert_eq!(
+            AuditError::from(DataRootError::NetworkFilesystem(NetworkFs::Nfs)),
+            AuditError::Root(DataRootError::NetworkFilesystem(NetworkFs::Nfs))
+        );
+        assert_eq!(
+            AuditError::from(DbError::Sqlite { code: 19 }),
+            AuditError::Db(DbError::Sqlite { code: 19 })
         );
         assert_eq!(AuditError::Denied, AuditError::Denied);
         assert_eq!(AuditError::Halted, AuditError::Halted);

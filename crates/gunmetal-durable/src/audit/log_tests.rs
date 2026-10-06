@@ -625,6 +625,15 @@ fn randomness_unavailable_refuses_an_addressed_event() {
         log.append_security_event(at(1), &egress(), None, ORDINARY),
         Err(AuditError::Halted)
     );
+    assert_eq!(
+        log.read_all(&audit_permit(), 1..10),
+        Err(AuditError::Halted)
+    );
+    assert_eq!(
+        log.read_own(&own_permit(account()), 1..10),
+        Err(AuditError::Halted)
+    );
+    assert_eq!(log.head(&audit_permit()), Err(AuditError::Halted));
 }
 
 #[test]
@@ -885,6 +894,77 @@ fn audit_error_maps_io_and_randomness() {
     assert_eq!(
         AuditError::from(gunmetal_secrets::random::RandomnessUnavailable),
         AuditError::Random(gunmetal_secrets::random::RandomnessUnavailable)
+    );
+}
+
+#[test]
+fn open_uses_the_production_limits() {
+    let data = data();
+    let log = AuditLog::open(
+        handle(&data),
+        Arc::new(MixMac::new(0)),
+        Arc::new(MixMac::new(1)),
+        Arc::new(Counted::new()),
+    )
+    .expect("open");
+    assert_eq!(
+        log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY),
+        Ok(1)
+    );
+    assert_eq!(log.verify_audit_log(), Ok(()));
+}
+
+#[test]
+fn a_head_without_first_starts_at_one() {
+    let data = data();
+    let _ = log(&data);
+    data.root
+        .replace(
+            &gunmetal_fs::path::AUDIT_HEAD,
+            br#"{"next":1,"seg":1,"bytes":0,"head":"0000000000000000000000000000000000000000000000000000000000000000"}"#,
+        )
+        .expect("wrote");
+    let opened = AuditLog::open_with(
+        handle(&data),
+        Arc::new(MixMac::new(0)),
+        Arc::new(MixMac::new(1)),
+        Arc::new(Counted::new()),
+        Limits::test(),
+    )
+    .expect("open");
+    assert_eq!(
+        opened.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY),
+        Ok(1)
+    );
+}
+
+#[test]
+fn blank_lines_in_a_segment_are_skipped_on_reload() {
+    let data = data();
+    {
+        let log = log(&data);
+        log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+            .expect("stored");
+    }
+    let path = DataPath::audit_segment(AuditSeg::new(1).expect("1"));
+    let mut text = String::new();
+    data.root
+        .open_read(&path)
+        .expect("open")
+        .read_to_string(&mut text)
+        .expect("read");
+    let with_blank = format!("\n{text}\n");
+    data.root
+        .replace(&path, with_blank.as_bytes())
+        .expect("wrote");
+    let log = limited(&data, Limits::test());
+    assert_eq!(log.verify_audit_log(), Ok(()));
+    assert_eq!(
+        log.read_all(&audit_permit(), 1..10)
+            .expect("read")
+            .records
+            .len(),
+        1
     );
 }
 

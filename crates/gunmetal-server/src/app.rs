@@ -420,6 +420,22 @@ mod tests {
     }
 
     #[test]
+    fn a_malformed_root_secret_refuses_start() {
+        let dir = TempDir::new("app-audit").expect("scratch");
+        arrange(&dir)
+            .replace(&DataPath::constant(DataDir::Secrets, "root.key"), b"x")
+            .expect("wrote");
+        let (started, out) = start(&dir, &local(), &Env::default());
+        let error = started.err().expect("refused");
+        assert!(matches!(error, StartError::Audit(_)));
+        assert_eq!(
+            error.message(dir.path()),
+            "The security audit log could not be opened."
+        );
+        assert_eq!(out, STARTED);
+    }
+
+    #[test]
     fn explains_every_refusal() {
         let dir = PathBuf::from("/data");
         let messages: Vec<String> = [

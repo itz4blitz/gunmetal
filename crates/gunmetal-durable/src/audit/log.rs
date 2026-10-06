@@ -362,12 +362,13 @@ impl AuditLog {
             Some(ctx) => {
                 // Not `[0; N]`: CodeQL's rust/hard-coded-cryptographic-value
                 // treats a repeated literal as a salt source and does not
-                // see `Random::fill` as a barrier. Index bytes XOR a
-                // placeholder are not a constant, and a skipped fill is not
-                // the counting sequence the tests expect.
+                // see `Random::fill` as a barrier. Index bytes are not a
+                // constant, and a skipped fill is not the zeros a literal
+                // would have left. A bitwise mix of the index is omitted
+                // because `fill` overwrites it and the mix's mutants live.
                 let mut salt = core::array::from_fn(|index| {
                     let [b0, ..] = index.to_le_bytes();
-                    b0 ^ 0xA5
+                    b0
                 });
                 self.random.fill(&mut salt)?;
                 let (kid, tag) = addresses::commit(self.address.as_ref(), ctx.addr(), &salt)?;

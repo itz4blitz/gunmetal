@@ -233,11 +233,13 @@ pub(crate) fn fill_truncated(db: &Db, records: &mut [TruncatedRecord]) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        ADDRESSES, all, coarsen, coarsen_ip, commit, commitment_msg, encode_addr, get, open, put,
-        remove, truncated,
+        ADDRESSES, all, checkpoint, coarsen, coarsen_ip, commit, commitment_msg, encode_addr,
+        fill_truncated, get, open, put, remove, truncated,
     };
-    use crate::audit::record::TruncatedAddr;
+    use crate::audit::error::AuditError;
+    use crate::audit::record::{Outcome, TruncatedAddr, TruncatedRecord};
     use crate::audit::testing::{MixMac, data, mix};
+    use gunmetal_core::time::Timestamp;
     use gunmetal_fs::sqlite::{Query, Value};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -247,7 +249,7 @@ mod tests {
     fn salt() -> [u8; 16] {
         core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
-            b0.wrapping_add(9)
+            b0
         })
     }
 
@@ -304,7 +306,7 @@ mod tests {
             &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")
                 .bind(Value::Blob({
                     let mut bytes = vec![6];
-                    bytes.extend_from_slice(&[1_u8; 15]);
+                    bytes.extend((1_u8..=15).collect::<Vec<_>>());
                     bytes
                 }))
                 .bind(Value::Integer(1)),
@@ -320,5 +322,128 @@ mod tests {
         assert_eq!(stored, Some(coarsen_ip(addr)));
         remove(&db, 1).expect("del");
         assert_eq!(get(&db, 1).expect("gone"), None);
+    }
+
+    #[test]
+    fn a_sequence_that_does_not_fit_i64_is_corrupt() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        let db = open(&data.root).expect("db");
+        let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+        let salt = salt();
+        assert_eq!(
+            put(&db, u64::MAX, 10, &salt, addr),
+            Err(AuditError::Corrupt { seq: u64::MAX })
+        );
+        assert_eq!(
+            get(&db, u64::MAX),
+            Err(AuditError::Corrupt { seq: u64::MAX })
+        );
+        assert_eq!(
+            coarsen(&db, u64::MAX, addr),
+            Err(AuditError::Corrupt { seq: u64::MAX })
+        );
+        assert_eq!(
+            remove(&db, u64::MAX),
+            Err(AuditError::Corrupt { seq: u64::MAX })
+        );
+    }
+
+    #[test]
+    fn a_row_with_nulls_wrong_types_or_an_unknown_version_is_still_readable() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        let db = open(&data.root).expect("db");
+        let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+        let salt = salt();
+        put(&db, 1, 10, &salt, addr).expect("put");
+        db.execute(&Query::new(
+            "UPDATE addresses SET addr = NULL, salt = NULL WHERE seq = 1",
+        ))
+        .expect("nulls");
+        assert_eq!(get(&db, 1).expect("nulls"), Some((None, None)));
+        assert_eq!(all(&db).expect("all nulls"), vec![(1, 10, None, None)]);
+        put(&db, 2, 11, &salt, addr).expect("put 2");
+        db.execute(
+            &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")
+                .bind(Value::Integer(1))
+                .bind(Value::Integer(2)),
+        )
+        .expect("int addr");
+        assert_eq!(get(&db, 2), Err(AuditError::Corrupt { seq: 2 }));
+        db.execute(
+            &Query::new("UPDATE addresses SET addr = ?1, salt = ?2 WHERE seq = ?3")
+                .bind(Value::Blob(encode_addr(addr)))
+                .bind(Value::Integer(1))
+                .bind(Value::Integer(2)),
+        )
+        .expect("int salt");
+        assert_eq!(get(&db, 2), Err(AuditError::Corrupt { seq: 2 }));
+        db.execute(
+            &Query::new("UPDATE addresses SET addr = ?1, salt = ?2 WHERE seq = ?3")
+                .bind(Value::Blob(vec![5, 1, 2, 3, 4]))
+                .bind(Value::Blob(salt.to_vec()))
+                .bind(Value::Integer(2)),
+        )
+        .expect("unknown version");
+        assert_eq!(
+            get(&db, 2).expect("unknown"),
+            Some((None, Some(salt.to_vec())))
+        );
+        checkpoint(&db).expect("wal");
+    }
+
+    #[test]
+    fn fill_truncated_applies_the_side_store_to_matching_rows() {
+        let data = data();
+        drop(data.root.create_dir(&gunmetal_fs::path::AUDIT_DIR));
+        let db = open(&data.root).expect("db");
+        let addr = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+        let salt = salt();
+        put(&db, 3, 12, &salt, addr).expect("put 3");
+        let hash = core::array::from_fn(|index| {
+            let [b0, ..] = index.to_le_bytes();
+            b0
+        });
+        let mut records = [
+            TruncatedRecord {
+                seq: 1,
+                ts: Timestamp::from_millis(10).expect("ts"),
+                event: "gm_egress_denied".to_owned(),
+                account: None,
+                addr: None,
+                class: None,
+                outcome: Outcome::Denied,
+                hash,
+            },
+            TruncatedRecord {
+                seq: 99,
+                ts: Timestamp::from_millis(10).expect("ts"),
+                event: "gm_egress_denied".to_owned(),
+                account: None,
+                addr: None,
+                class: None,
+                outcome: Outcome::Denied,
+                hash,
+            },
+        ];
+        fill_truncated(&db, &mut records).expect("fill");
+        assert_eq!(records[0].addr, None);
+        assert_eq!(records[1].addr, None);
+        let mut live = [TruncatedRecord {
+            seq: 3,
+            ts: Timestamp::from_millis(12).expect("ts"),
+            event: "authn_login_success".to_owned(),
+            account: None,
+            addr: None,
+            class: None,
+            outcome: Outcome::Success,
+            hash,
+        }];
+        fill_truncated(&db, &mut live).expect("fill live");
+        assert_eq!(
+            live[0].addr,
+            Some(TruncatedAddr::V4Prefix("203.0.113.0/24".to_owned()))
+        );
     }
 }
