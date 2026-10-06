@@ -73,6 +73,7 @@ test('home library search and settings destinations render fixture chrome', () =
     '1',
   );
   expect(document.querySelector('[data-artist-avatar="1"]')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Security corpus' })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: ' ' });
   expect(screen.getByRole('heading', { name: 'Keratin' }).id).toStrictEqual('destination-headline');
   fireEvent.click(screen.getByRole('button', { name: 'Signal Loss' }));
@@ -81,7 +82,6 @@ test('home library search and settings destinations render fixture chrome', () =
   );
   expect(screen.getByText('Cannot play')).toBeTruthy();
   expect(screen.getByText('Damaged')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
   fireEvent.keyDown(screen.getByRole('button', { name: 'Codec Mirage' }), { key: 'Enter' });
@@ -504,4 +504,64 @@ test('unresolvable album or track play leaves the full player closed', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Orphan Click' }));
   expect(document.querySelector('#player-full')).toBeNull();
   expect(document.querySelector('#player-empty')).toBeTruthy();
+});
+
+test('context menus play next and add to queue without shuffling, and lyrics chrome reads fixture strings', () => {
+  const library = demoLibrary();
+  render(<Shell path="/library" widthPx={1600} library={library} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-02')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect([...document.querySelectorAll('#queue-list [data-queue-line]')].map((node) => node.id)).toStrictEqual(
+    [
+      'queue-line-demo-track-01-01',
+      'queue-line-demo-track-02-01',
+      'queue-line-demo-track-02-02',
+      'queue-line-demo-track-02-03',
+      'queue-line-demo-track-01-02',
+      'queue-line-demo-track-01-03',
+      'queue-line-demo-track-01-04',
+    ],
+  );
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-03')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect([...document.querySelectorAll('#queue-list [data-queue-line]')].map((node) => node.id).slice(-3)).toStrictEqual(
+    [
+      'queue-line-demo-track-03-01',
+      'queue-line-demo-track-03-02',
+      'queue-line-demo-track-03-03',
+    ],
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
+  fireEvent.contextMenu(document.querySelector('#track-row-demo-track-04-03')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(document.querySelectorAll('#queue-list [data-queue-line]')[1]?.id).toStrictEqual(
+    'queue-line-demo-track-04-03',
+  );
+  fireEvent.contextMenu(document.querySelector('#track-row-demo-track-05-04')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect([...document.querySelectorAll('#queue-list [data-queue-line]')].at(-1)?.id).toStrictEqual(
+    'queue-line-demo-track-05-04',
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Albums' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  expect(
+    [...document.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
+  ).toStrictEqual([
+    'The harbour keeps the letter',
+    'folded under glass',
+    'until the tide comes back',
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Night Shift' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Freight Elevator' }));
+  fireEvent.click(document.querySelector('#player-full-lyrics-toggle')!);
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
+  expect(document.querySelector('#player-full-lyrics [data-current="1"]')?.textContent).toStrictEqual(
+    'Floors count themselves in the dark',
+  );
 });

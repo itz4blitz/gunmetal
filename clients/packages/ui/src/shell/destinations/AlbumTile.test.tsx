@@ -10,6 +10,13 @@ const messages = {
   hostileAlbumLabel: 'Hostile metadata (fixture)',
   hostileArtistLabel: 'Hostile artist (fixture)',
   playAlbum: 'Play album',
+  play: 'Play',
+  playNext: 'Play next',
+  addToQueue: 'Add to queue',
+  goToAlbum: 'Go to album',
+  goToArtist: 'Go to artist',
+  moreActions: 'More',
+  contextMenu: 'Actions',
 } as DestinationMessages;
 
 const album: ShellAlbum = {
@@ -105,4 +112,69 @@ test('hostile album uses catalogue labels on the tile', () => {
   expect(screen.getByRole('button', { name: 'Hostile metadata (fixture)' })).toBeTruthy();
   expect(screen.getByText('Hostile artist (fixture)')).toBeTruthy();
   expect(document.querySelector('[data-cover-label]')?.textContent).toStrictEqual('H');
+});
+
+test('stagger slots and go to artist open from context and more', () => {
+  const onOpenArtist = vi.fn();
+  const first = render(
+    <AlbumTile album={album} messages={messages} onOpen={vi.fn()} staggerIndex={3} />,
+  );
+  expect(document.querySelector('[data-tile-stagger="3"]')).toBeTruthy();
+  expect(first.container.querySelector('[data-item-more="1"]')).toBeNull();
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  expect(screen.queryByRole('menuitem', { name: 'Go to artist' })).toBeNull();
+  first.unmount();
+
+  const capped = render(
+    <AlbumTile
+      album={album}
+      messages={messages}
+      onOpen={vi.fn()}
+      onOpenArtist={onOpenArtist}
+      staggerIndex={12}
+    />,
+  );
+  expect(document.querySelector('[data-tile-stagger="6"]')).toBeTruthy();
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
+  expect(onOpenArtist).toHaveBeenCalledWith('keratin');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: 'Escape' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Tab' });
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  capped.unmount();
+});
+
+test('album context menu plays, queues without shuffle, and opens the album', () => {
+  const onOpen = vi.fn();
+  const onPlay = vi.fn();
+  const onPlayNext = vi.fn();
+  const onAddToQueue = vi.fn();
+  render(
+    <AlbumTile
+      album={album}
+      messages={messages}
+      onOpen={onOpen}
+      onPlay={onPlay}
+      onPlayNext={onPlayNext}
+      onAddToQueue={onAddToQueue}
+      onOpenArtist={vi.fn()}
+    />,
+  );
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  const labels = [...document.querySelectorAll('[data-menu-label="1"]')].map((node) => node.textContent);
+  expect(labels).toStrictEqual(['Play', 'Play next', 'Add to queue', 'Go to album', 'Go to artist']);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
+  expect(onPlay).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(onPlayNext).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(onAddToQueue).toHaveBeenCalledWith('demo-album-1');
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+  expect(onOpen).toHaveBeenCalledWith('demo-album-1');
 });

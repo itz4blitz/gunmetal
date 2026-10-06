@@ -9,8 +9,13 @@ export type SearchProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
+  onOpenArtist?: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
+  onPlayNextAlbum?: (albumId: string) => void;
+  onAddAlbumToQueue?: (albumId: string) => void;
+  onPlayNextTrack?: (albumId: string, trackId: string) => void;
+  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
 };
 
 function demoLocalHits(
@@ -75,8 +80,13 @@ export function Search({
   messages,
   library,
   onOpenAlbum,
+  onOpenArtist,
   onPlayAlbum,
   onPlayTrack,
+  onPlayNextAlbum,
+  onAddAlbumToQueue,
+  onPlayNextTrack,
+  onAddTrackToQueue,
 }: SearchProps) {
   const [query, setQuery] = useState('');
   const [showAlbums, setShowAlbums] = useState(true);
@@ -170,13 +180,17 @@ export function Search({
                     {messages.tabAlbums}
                   </Text>
                   <View dataSet={{ searchAlbumGrid: '1' }}>
-                    {visibleAlbums.map((album) => (
+                    {visibleAlbums.map((album, index) => (
                       <AlbumTile
                         key={album.id}
                         album={album}
                         messages={messages}
+                        staggerIndex={index}
                         onOpen={onOpenAlbum}
                         onPlay={onPlayAlbum}
+                        onPlayNext={onPlayNextAlbum}
+                        onAddToQueue={onAddAlbumToQueue}
+                        onOpenArtist={onOpenArtist}
                       />
                     ))}
                   </View>
@@ -196,7 +210,14 @@ export function Search({
                       key={track.id}
                       track={track}
                       messages={messages}
+                      artistKey={
+                        library.albums.find((album) => album.id === track.albumId)?.artistKey
+                      }
                       onPlay={onPlayTrack}
+                      onPlayNext={onPlayNextTrack}
+                      onAddToQueue={onAddTrackToQueue}
+                      onGoToAlbum={onOpenAlbum}
+                      onOpenArtist={onOpenArtist}
                     />
                   ))}
                 </View>

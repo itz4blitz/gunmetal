@@ -232,3 +232,46 @@ test('settings side list, artist wash, menus and lyrics pane are crafted', async
   expect(css.includes('#player-full-lyrics')).toStrictEqual(true);
   expect(css.includes('[data-lyrics-line]')).toStrictEqual(true);
 });
+
+test('every CLI-141 theme sets color-scheme and paints html through :has', async () => {
+  const css = await demoShellCss();
+  expect(css.includes("color-scheme: dark")).toStrictEqual(true);
+  expect(css.includes("color-scheme: light")).toStrictEqual(true);
+  expect(css.includes("html:has(#token-shell[data-theme='light'])")).toStrictEqual(true);
+  expect(css.includes("html:has(#token-shell[data-theme='oled'])")).toStrictEqual(true);
+  expect(css.includes("html:has(#token-shell[data-theme='high-contrast'])")).toStrictEqual(true);
+  expect(css.includes('#token-shell[data-theme=\'light\']')).toStrictEqual(true);
+  const lightShell = css.slice(css.indexOf("#token-shell[data-theme='light']"));
+  expect(lightShell.includes('color-scheme: light')).toStrictEqual(true);
+});
+
+test('wordmark and form controls use theme tokens and Inter, not hardcoded dark ink', async () => {
+  const css = await demoShellCss();
+  const face = css.slice(css.indexOf('@font-face'), css.indexOf('html,'));
+  expect(face.includes("url('/fonts/InterVariable.woff2')")).toStrictEqual(true);
+  expect(css.includes('fonts.googleapis.com') || css.includes('fonts.gstatic.com')).toStrictEqual(
+    false,
+  );
+  const wordmark = css.slice(css.indexOf('#shell-wordmark'), css.indexOf('#nav-sidebar #shell-wordmark'));
+  expect(wordmark.includes('var(--gm-text-primary)')).toStrictEqual(true);
+  expect(wordmark.includes('#e9eef2')).toStrictEqual(false);
+  expect(css.includes('#search-field')).toStrictEqual(true);
+  expect(css.includes('font-family: Inter, system-ui, sans-serif !important')).toStrictEqual(true);
+  expect(css.includes('--gm-text: var(--gm-text-primary)')).toStrictEqual(true);
+  expect(css.includes('--gm-text: var(--gm-text-secondary)')).toStrictEqual(true);
+  expect(css.includes('--gm-text: var(--gm-text-muted)')).toStrictEqual(true);
+});
+
+test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plate', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('--gm-type-display-size: 44px')).toStrictEqual(true);
+  expect(css.includes('--gm-type-title1-size: 30px')).toStrictEqual(true);
+  expect(css.includes('--gm-type-title2-size: 22px')).toStrictEqual(true);
+  expect(css.includes('--gm-art-mix: 48%')).toStrictEqual(true);
+  expect(css.includes('--gm-art-mix: 18%')).toStrictEqual(true);
+  expect(
+    css.includes('color-mix(in srgb, var(--gm-cover-01) var(--gm-art-mix), var(--gm-bg-canvas))'),
+  ).toStrictEqual(true);
+  expect(css.includes('color-mix(in srgb, var(--gm-cover-01) 48%, #0f1317)')).toStrictEqual(false);
+  expect(css.includes('::selection')).toStrictEqual(true);
+});

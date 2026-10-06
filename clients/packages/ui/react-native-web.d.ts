@@ -14,6 +14,7 @@ declare module 'react-native-web' {
     accessibilityState?: AccessibilityState;
     tabIndex?: number;
     onClick?: MouseEventHandler<HTMLElement>;
+    onContextMenu?: MouseEventHandler<HTMLElement>;
     onKeyDown?: KeyboardEventHandler<HTMLElement>;
     dataSet?: Record<string, string>;
     style?: Record<string, string | number>;

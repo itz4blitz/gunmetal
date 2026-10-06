@@ -1,3 +1,15 @@
+export function artistInitial(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return '?';
+  }
+  return trimmed.slice(0, 1).toUpperCase();
+}
+
+export function staggerSlot(index: number): string {
+  return `${Math.min(Math.max(index, 0), 6)}`;
+}
+
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) {
     return '0:00';

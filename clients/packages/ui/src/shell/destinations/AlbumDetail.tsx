@@ -1,8 +1,19 @@
+import { useState } from 'react';
 import { Text, View } from 'react-native-web';
+import { demoLyricsLines, demoLyricsVerse } from '../../../../fake-server/src/lyrics.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import type { ShellAlbum } from '../library-types.ts';
+import type { ShellAlbum, ShellTrack } from '../library-types.ts';
+import { LyricsPane } from '../LyricsPane.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
+
+function albumLyricsTrack(album: ShellAlbum, currentTrackId?: string): ShellTrack | undefined {
+  const current = album.tracks.find((track) => track.id === currentTrackId);
+  if (current !== undefined && (current.lyricsKind === 'plain' || current.lyricsKind === 'synced')) {
+    return current;
+  }
+  return album.tracks.find((track) => track.lyricsKind === 'plain' || track.lyricsKind === 'synced');
+}
 
 export type AlbumDetailProps = {
   album: ShellAlbum | undefined;
@@ -11,6 +22,11 @@ export type AlbumDetailProps = {
   onBack: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
+  onOpenArtist?: (artistKey: string) => void;
+  onPlayNextAlbum?: (albumId: string) => void;
+  onAddAlbumToQueue?: (albumId: string) => void;
+  onPlayNextTrack?: (albumId: string, trackId: string) => void;
+  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
 };
 
 export function AlbumDetail({
@@ -20,7 +36,11 @@ export function AlbumDetail({
   onBack,
   onPlayAlbum,
   onPlayTrack,
+  onOpenArtist,
+  onPlayNextTrack,
+  onAddTrackToQueue,
 }: AlbumDetailProps) {
+  const [lyricsOpen, setLyricsOpen] = useState(false);
   if (album === undefined) {
     return (
       <View id="destination-album-missing">
@@ -48,6 +68,7 @@ export function AlbumDetail({
 
   const title = album.hostile ? messages.hostileAlbumLabel : album.title;
   const artist = album.hostile ? messages.hostileArtistLabel : album.artistName;
+  const lyricsTrack = albumLyricsTrack(album, currentTrackId);
 
   return (
     <View
@@ -84,7 +105,25 @@ export function AlbumDetail({
           <Text id="destination-headline" accessibilityRole="header">
             {title}
           </Text>
-          <Text dataSet={{ albumArtist: '1', type: 'title3' }}>{artist}</Text>
+          <View
+            dataSet={{ albumArtist: '1', type: 'title3' }}
+            accessibilityRole={onOpenArtist === undefined ? undefined : 'button'}
+            accessibilityLabel={onOpenArtist === undefined ? artist : messages.goToArtist}
+            tabIndex={onOpenArtist === undefined ? undefined : 0}
+            onClick={() => {
+              if (onOpenArtist !== undefined) {
+                onOpenArtist(album.artistKey);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (onOpenArtist !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                onOpenArtist(album.artistKey);
+              }
+            }}
+          >
+            <Text>{artist}</Text>
+          </View>
           <Text dataSet={{ albumYear: '1' }}>{`${messages.yearLabel} ${album.year}`}</Text>
           <Text id="album-track-count" dataSet={{ albumTrackCount: '1' }}>
             {`${album.tracks.length} ${messages.trackCountLabel}`}
@@ -107,8 +146,37 @@ export function AlbumDetail({
           >
             <Text>{messages.playAlbum}</Text>
           </View>
+          {lyricsTrack === undefined ? null : (
+            <View
+              id="album-lyrics-toggle"
+              accessibilityRole="button"
+              accessibilityLabel={messages.lyrics}
+              tabIndex={0}
+              dataSet={{ lyricsToggle: lyricsOpen ? '1' : '0' }}
+              onClick={() => {
+                setLyricsOpen((open) => !open);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setLyricsOpen((open) => !open);
+                }
+              }}
+            >
+              <Text>{messages.lyrics}</Text>
+            </View>
+          )}
         </View>
       </View>
+      {lyricsTrack === undefined ? null : (
+        <LyricsPane
+          id="album-lyrics"
+          label={messages.lyricsRegion}
+          lines={demoLyricsLines(demoLyricsVerse(lyricsTrack.id, lyricsTrack.lyricsKind))}
+          synced={lyricsTrack.lyricsKind === 'synced'}
+          open={lyricsOpen}
+        />
+      )}
       {album.discs.length > 1
         ? album.discs.map((disc) => (
             <View key={disc.index} dataSet={{ discBlock: `${disc.index}` }}>
@@ -123,7 +191,11 @@ export function AlbumDetail({
                     track={track}
                     messages={messages}
                     current={track.id === currentTrackId}
+                    artistKey={album.artistKey}
                     onPlay={onPlayTrack}
+                    onPlayNext={onPlayNextTrack}
+                    onAddToQueue={onAddTrackToQueue}
+                    onOpenArtist={onOpenArtist}
                   />
                 ))}
             </View>
@@ -139,7 +211,11 @@ export function AlbumDetail({
                 track={track}
                 messages={messages}
                 current={track.id === currentTrackId}
+                artistKey={album.artistKey}
                 onPlay={onPlayTrack}
+                onPlayNext={onPlayNextTrack}
+                onAddToQueue={onAddTrackToQueue}
+                onOpenArtist={onOpenArtist}
               />
             ))}
           </View>

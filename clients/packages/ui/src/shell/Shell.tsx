@@ -6,7 +6,7 @@ import { pushPath } from '../router/navigate.ts';
 import { Destination } from './destinations/Destination.tsx';
 import type { ShellLibrary } from './library-types.ts';
 import { Nav, navItems } from './Nav.tsx';
-import { applyPlayback } from './demo-play.ts';
+import { applyAlbumQueue, applyPlayback, applyTrackQueue } from './demo-play.ts';
 import {
   emptyPlayback,
   setQueueOpen,
@@ -195,6 +195,22 @@ export function Shell({
     }
   };
 
+  const playNextAlbum = (albumId: string) => {
+    setPlayback((current) => applyAlbumQueue(library, current, albumId, 'next'));
+  };
+
+  const addAlbumToQueue = (albumId: string) => {
+    setPlayback((current) => applyAlbumQueue(library, current, albumId, 'append'));
+  };
+
+  const playNextTrack = (albumId: string, trackId: string) => {
+    setPlayback((current) => applyTrackQueue(library, current, albumId, trackId, 'next'));
+  };
+
+  const addTrackToQueue = (albumId: string, trackId: string) => {
+    setPlayback((current) => applyTrackQueue(library, current, albumId, trackId, 'append'));
+  };
+
   const themeFooter = (
     <ThemeSwitcher messages={messages.shell} theme={theme} onThemeChange={changeTheme} />
   );
@@ -327,9 +343,14 @@ export function Shell({
             theme={theme}
             onThemeChange={changeTheme}
             onOpenAlbum={openAlbum}
+            onOpenArtist={openAlbum}
             onBackFromAlbum={backFromAlbum}
             onPlayAlbum={playAlbum}
             onPlayTrack={playTrack}
+            onPlayNextAlbum={playNextAlbum}
+            onAddAlbumToQueue={addAlbumToQueue}
+            onPlayNextTrack={playNextTrack}
+            onAddTrackToQueue={addTrackToQueue}
             onSeeAll={() => {
               navigate('/library');
             }}

@@ -16,6 +16,7 @@ function playingSnapshot(): PlaybackSnapshot {
     playing: true,
     positionMs: 45_000,
     durationMs: 180_000,
+    lyricsKind: 'none',
     queue: [],
     queueOpen: false,
   };
@@ -129,4 +130,46 @@ test('Escape and scrim dismiss the full player while other keys do not', () => {
   expect(onClose).toHaveBeenCalledTimes(1);
   fireEvent.click(document.querySelector('#player-full-scrim')!);
   expect(onClose).toHaveBeenCalledTimes(2);
+});
+
+test('full player lyrics toggle appears for plain and synced kinds and paints Text lines', () => {
+  const onClose = vi.fn();
+  const { rerender } = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), lyricsKind: 'plain', trackId: 'demo-track-01-03' }}
+      open
+      onClose={onClose}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('0');
+  expect(
+    [...document.querySelectorAll('#player-full-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
+  ).toStrictEqual([
+    'The harbour keeps the letter',
+    'folded under glass',
+    'until the tide comes back',
+  ]);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
+  expect(document.querySelector('#player-full-lyrics')).toBeNull();
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), lyricsKind: 'synced', trackId: 'demo-track-02-02' }}
+      open
+      onClose={onClose}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: ' ' });
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
+  expect(document.querySelector('#player-full-lyrics [data-current="1"]')?.textContent).toStrictEqual(
+    'Floors count themselves in the dark',
+  );
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Tab' });
+  rerender(
+    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={onClose} />,
+  );
+  expect(screen.queryByRole('button', { name: 'Lyrics' })).toBeNull();
+  expect(document.querySelector('#player-full-lyrics')).toBeNull();
 });

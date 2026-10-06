@@ -16,6 +16,7 @@ function playingSnapshot(): PlaybackSnapshot {
     playing: true,
     positionMs: 45_000,
     durationMs: 180_000,
+    lyricsKind: 'none',
     queue: [],
     queueOpen: false,
   };

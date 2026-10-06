@@ -8,7 +8,10 @@ export type HomeProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
+  onOpenArtist?: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
+  onPlayNextAlbum?: (albumId: string) => void;
+  onAddAlbumToQueue?: (albumId: string) => void;
   onSeeAll: () => void;
 };
 
@@ -46,7 +49,10 @@ export function Home({
   messages,
   library,
   onOpenAlbum,
+  onOpenArtist,
   onPlayAlbum,
+  onPlayNextAlbum,
+  onAddAlbumToQueue,
   onSeeAll,
 }: HomeProps) {
   const albums = library.albums.filter((album) => !album.hostile);
@@ -160,13 +166,17 @@ export function Home({
               </View>
             </View>
             <View dataSet={{ albumRow: '1' }}>
-              {albums.map((album) => (
+              {albums.map((album, index) => (
                 <AlbumTile
                   key={album.id}
                   album={album}
                   messages={messages}
+                  staggerIndex={index}
                   onOpen={onOpenAlbum}
                   onPlay={onPlayAlbum}
+                  onPlayNext={onPlayNextAlbum}
+                  onAddToQueue={onAddAlbumToQueue}
+                  onOpenArtist={onOpenArtist}
                 />
               ))}
             </View>

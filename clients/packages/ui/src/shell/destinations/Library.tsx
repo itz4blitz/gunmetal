@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { formatDuration } from '../format.ts';
+import { artistInitial, formatDuration } from '../format.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
@@ -12,24 +12,39 @@ export type LibraryProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
+  onOpenArtist: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
+  onPlayNextAlbum?: (albumId: string) => void;
+  onAddAlbumToQueue?: (albumId: string) => void;
+  onPlayNextTrack?: (albumId: string, trackId: string) => void;
+  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
 };
 
-function artistInitial(name: string): string {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) {
-    return '?';
+function artistRowName(
+  name: string,
+  albumIds: readonly string[],
+  library: ShellLibrary,
+  messages: DestinationMessages,
+): string {
+  const hostile = albumIds.some((id) => library.albums.some((album) => album.id === id && album.hostile));
+  if (hostile) {
+    return messages.hostileArtistLabel;
   }
-  return trimmed.charAt(0).toUpperCase();
+  return name;
 }
 
 export function Library({
   messages,
   library,
   onOpenAlbum,
+  onOpenArtist,
   onPlayAlbum,
   onPlayTrack,
+  onPlayNextAlbum,
+  onAddAlbumToQueue,
+  onPlayNextTrack,
+  onAddTrackToQueue,
 }: LibraryProps) {
   const [tab, setTab] = useState<LibraryTab>('albums');
 
@@ -70,13 +85,17 @@ export function Library({
             {`${library.albums.length} ${messages.artistAlbumCount}`}
           </Text>
           <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
-            {library.albums.map((album) => (
+            {library.albums.map((album, index) => (
               <AlbumTile
                 key={album.id}
                 album={album}
                 messages={messages}
+                staggerIndex={index}
                 onOpen={onOpenAlbum}
                 onPlay={onPlayAlbum}
+                onPlayNext={onPlayNextAlbum}
+                onAddToQueue={onAddAlbumToQueue}
+                onOpenArtist={onOpenArtist}
               />
             ))}
           </View>
@@ -84,39 +103,36 @@ export function Library({
       ) : null}
       {tab === 'artists' ? (
         <View id="library-artist-list">
-          {library.artists.map((artist) => (
-            <View
-              key={artist.key}
-              id={`artist-row-${artist.key}`}
-              dataSet={{ artistRow: artist.key }}
-              accessibilityRole="button"
-              accessibilityLabel={artist.name}
-              tabIndex={0}
-              onClick={() => {
-                const first = artist.albumIds[0];
-                if (first !== undefined) {
-                  onOpenAlbum(first);
-                }
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  const first = artist.albumIds[0];
-                  if (first !== undefined) {
-                    onOpenAlbum(first);
+          {library.artists.map((artist) => {
+            const rowName = artistRowName(artist.name, artist.albumIds, library, messages);
+            return (
+              <View
+                key={artist.key}
+                id={`artist-row-${artist.key}`}
+                dataSet={{ artistRow: artist.key }}
+                accessibilityRole="button"
+                accessibilityLabel={rowName}
+                tabIndex={0}
+                onClick={() => {
+                  onOpenArtist(artist.key);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpenArtist(artist.key);
                   }
-                }
-              }}
-            >
-              <View dataSet={{ artistAvatar: '1' }} aria-hidden="true">
-                <Text dataSet={{ artistInitial: '1' }}>{artistInitial(artist.name)}</Text>
+                }}
+              >
+                <View dataSet={{ artistAvatar: '1' }} aria-hidden="true">
+                  <Text dataSet={{ artistInitial: '1' }}>{artistInitial(rowName)}</Text>
+                </View>
+                <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
+                <Text dataSet={{ artistCount: '1' }}>
+                  {`${artist.albumIds.length} ${messages.artistAlbumCount}`}
+                </Text>
               </View>
-              <Text dataSet={{ artistName: '1' }}>{artist.name}</Text>
-              <Text dataSet={{ artistCount: '1' }}>
-                {`${artist.albumIds.length} ${messages.artistAlbumCount}`}
-              </Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
       ) : null}
       {tab === 'tracks' ? (
@@ -124,7 +140,16 @@ export function Library({
           {library.albums.flatMap((album) =>
             album.tracks.map((track) => (
               <View key={track.id} dataSet={{ libraryTrack: track.id }}>
-                <TrackRow track={track} messages={messages} onPlay={onPlayTrack} />
+                <TrackRow
+                  track={track}
+                  messages={messages}
+                  artistKey={album.artistKey}
+                  onPlay={onPlayTrack}
+                  onPlayNext={onPlayNextTrack}
+                  onAddToQueue={onAddTrackToQueue}
+                  onGoToAlbum={onOpenAlbum}
+                  onOpenArtist={onOpenArtist}
+                />
                 <Text dataSet={{ trackAlbumHint: '1' }}>
                   {`${album.title} · ${formatDuration(track.durationMs)}`}
                 </Text>

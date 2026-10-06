@@ -1,4 +1,10 @@
-import type { ShellAlbum, ShellLibrary, ShellTrack } from './library-types.ts';
+import type {
+  ShellAlbum,
+  ShellArtist,
+  ShellLibrary,
+  ShellLyricsKind,
+  ShellTrack,
+} from './library-types.ts';
 
 export type QueueLine = {
   trackId: string;
@@ -7,6 +13,7 @@ export type QueueLine = {
   artistName: string;
   coverTone: string;
   durationMs: number;
+  lyricsKind: ShellLyricsKind;
 };
 
 export type PlaybackSnapshot = {
@@ -18,6 +25,7 @@ export type PlaybackSnapshot = {
   playing: boolean;
   positionMs: number;
   durationMs: number;
+  lyricsKind: ShellLyricsKind;
   queue: readonly QueueLine[];
   queueOpen: boolean;
 };
@@ -32,6 +40,7 @@ export function emptyPlayback(): PlaybackSnapshot {
     playing: false,
     positionMs: 0,
     durationMs: 0,
+    lyricsKind: 'none',
     queue: [],
     queueOpen: false,
   };
@@ -45,7 +54,12 @@ function lineFrom(album: ShellAlbum, track: ShellTrack): QueueLine {
     artistName: track.artistName,
     coverTone: album.coverTone,
     durationMs: track.durationMs,
+    lyricsKind: track.lyricsKind,
   };
+}
+
+export function queueLineFrom(album: ShellAlbum, track: ShellTrack): QueueLine {
+  return lineFrom(album, track);
 }
 
 function playableTracks(album: ShellAlbum): readonly ShellTrack[] {
@@ -68,6 +82,7 @@ export function playbackFromAlbum(album: ShellAlbum): PlaybackSnapshot {
     playing: true,
     positionMs: 0,
     durationMs: first.durationMs,
+    lyricsKind: first.lyricsKind,
     queue,
     queueOpen: true,
   };
@@ -89,6 +104,7 @@ export function playbackFromTrack(album: ShellAlbum, track: ShellTrack): Playbac
     playing: true,
     positionMs: 0,
     durationMs: active.durationMs,
+    lyricsKind: active.lyricsKind,
     queue,
     queueOpen: true,
   };
@@ -96,6 +112,21 @@ export function playbackFromTrack(album: ShellAlbum, track: ShellTrack): Playbac
 
 export function findAlbum(library: ShellLibrary, id: string): ShellAlbum | undefined {
   return library.albums.find((album) => album.id === id);
+}
+
+export function findArtist(library: ShellLibrary, key: string): ShellArtist | undefined {
+  return library.artists.find((artist) => artist.key === key);
+}
+
+export function albumsForArtist(library: ShellLibrary, artist: ShellArtist): readonly ShellAlbum[] {
+  const albums: ShellAlbum[] = [];
+  for (const id of artist.albumIds) {
+    const album = findAlbum(library, id);
+    if (album !== undefined) {
+      albums.push(album);
+    }
+  }
+  return albums;
 }
 
 export function findTrack(
@@ -136,8 +167,77 @@ export function stepQueue(snapshot: PlaybackSnapshot, direction: -1 | 1): Playba
     coverTone: line.coverTone,
     positionMs: 0,
     durationMs: line.durationMs,
+    lyricsKind: line.lyricsKind,
     playing: true,
   };
+}
+
+export function playFromLine(line: QueueLine): PlaybackSnapshot {
+  return {
+    trackId: line.trackId,
+    albumId: line.albumId,
+    title: line.title,
+    artistName: line.artistName,
+    coverTone: line.coverTone,
+    playing: true,
+    positionMs: 0,
+    durationMs: line.durationMs,
+    lyricsKind: line.lyricsKind,
+    queue: [line],
+    queueOpen: true,
+  };
+}
+
+export function insertPlayNext(snapshot: PlaybackSnapshot, line: QueueLine): PlaybackSnapshot {
+  if (snapshot.trackId === undefined) {
+    return playFromLine(line);
+  }
+  const index = snapshot.queue.findIndex((entry) => entry.trackId === snapshot.trackId);
+  if (index < 0) {
+    return { ...snapshot, queue: [...snapshot.queue, line], queueOpen: true };
+  }
+  return {
+    ...snapshot,
+    queue: [...snapshot.queue.slice(0, index + 1), line, ...snapshot.queue.slice(index + 1)],
+    queueOpen: true,
+  };
+}
+
+export function appendQueue(snapshot: PlaybackSnapshot, line: QueueLine): PlaybackSnapshot {
+  if (snapshot.trackId === undefined) {
+    return playFromLine(line);
+  }
+  return { ...snapshot, queue: [...snapshot.queue, line], queueOpen: true };
+}
+
+export function insertAlbumNext(snapshot: PlaybackSnapshot, album: ShellAlbum): PlaybackSnapshot {
+  const lines = playableTracks(album).map((track) => lineFrom(album, track));
+  if (lines.length === 0) {
+    return snapshot;
+  }
+  if (snapshot.trackId === undefined) {
+    return playbackFromAlbum(album);
+  }
+  let next = snapshot;
+  for (const line of [...lines].reverse()) {
+    next = insertPlayNext(next, line);
+  }
+  return next;
+}
+
+export function appendAlbum(snapshot: PlaybackSnapshot, album: ShellAlbum): PlaybackSnapshot {
+  const lines = playableTracks(album).map((track) => lineFrom(album, track));
+  if (lines.length === 0) {
+    return snapshot;
+  }
+  if (snapshot.trackId === undefined) {
+    return playbackFromAlbum(album);
+  }
+  let next = snapshot;
+  for (const line of lines) {
+    next = appendQueue(next, line);
+  }
+  return next;
 }
 
 export function togglePlaying(snapshot: PlaybackSnapshot): PlaybackSnapshot {

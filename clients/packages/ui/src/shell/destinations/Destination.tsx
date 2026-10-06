@@ -4,8 +4,9 @@ import type { MatchResult } from '../../router/match.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import { findAlbum } from '../playback.ts';
+import { findAlbum, findArtist } from '../playback.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
+import { ArtistDetail } from './ArtistDetail.tsx';
 import { Home } from './Home.tsx';
 import { Library } from './Library.tsx';
 import { Search } from './Search.tsx';
@@ -25,6 +26,10 @@ export type DestinationProps = {
   onSeeAll: () => void;
   currentTrackId?: string;
   width: WidthClass;
+  onPlayNextAlbum?: (albumId: string) => void;
+  onAddAlbumToQueue?: (albumId: string) => void;
+  onPlayNextTrack?: (albumId: string, trackId: string) => void;
+  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
 };
 
 function pageKey(match: MatchResult, itemId: string | undefined): string {
@@ -48,6 +53,10 @@ export function Destination({
   onSeeAll,
   currentTrackId,
   width,
+  onPlayNextAlbum,
+  onAddAlbumToQueue,
+  onPlayNextTrack,
+  onAddTrackToQueue,
 }: DestinationProps) {
   const enterKey = pageKey(match, itemId);
 
@@ -62,6 +71,24 @@ export function Destination({
   }
 
   if (library !== undefined && itemId !== undefined) {
+    const artist = findArtist(library, itemId);
+    if (artist !== undefined) {
+      return (
+        <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
+          <ArtistDetail
+            artist={artist}
+            library={library}
+            messages={messages.destinations}
+            onBack={onBackFromAlbum}
+            onOpenAlbum={onOpenAlbum}
+            onPlayAlbum={onPlayAlbum}
+            onOpenArtist={onOpenAlbum}
+            onPlayNextAlbum={onPlayNextAlbum}
+            onAddAlbumToQueue={onAddAlbumToQueue}
+          />
+        </View>
+      );
+    }
     return (
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <AlbumDetail
@@ -71,6 +98,9 @@ export function Destination({
           onBack={onBackFromAlbum}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
+          onOpenArtist={onOpenAlbum}
+          onPlayNextTrack={onPlayNextTrack}
+          onAddTrackToQueue={onAddTrackToQueue}
         />
       </View>
     );
@@ -93,7 +123,10 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
+          onOpenArtist={onOpenAlbum}
           onPlayAlbum={onPlayAlbum}
+          onPlayNextAlbum={onPlayNextAlbum}
+          onAddAlbumToQueue={onAddAlbumToQueue}
           onSeeAll={onSeeAll}
         />
       </View>
@@ -106,8 +139,13 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
+          onOpenArtist={onOpenAlbum}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
+          onPlayNextAlbum={onPlayNextAlbum}
+          onAddAlbumToQueue={onAddAlbumToQueue}
+          onPlayNextTrack={onPlayNextTrack}
+          onAddTrackToQueue={onAddTrackToQueue}
         />
       </View>
     );
@@ -119,8 +157,13 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           onOpenAlbum={onOpenAlbum}
+          onOpenArtist={onOpenAlbum}
           onPlayAlbum={onPlayAlbum}
           onPlayTrack={onPlayTrack}
+          onPlayNextAlbum={onPlayNextAlbum}
+          onAddAlbumToQueue={onAddAlbumToQueue}
+          onPlayNextTrack={onPlayNextTrack}
+          onAddTrackToQueue={onAddTrackToQueue}
         />
       </View>
     );

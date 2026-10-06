@@ -1,10 +1,15 @@
 import type { ShellLibrary } from './library-types.ts';
 import {
+  appendAlbum,
+  appendQueue,
   emptyPlayback,
   findAlbum,
   findTrack,
+  insertAlbumNext,
+  insertPlayNext,
   playbackFromAlbum,
   playbackFromTrack,
+  queueLineFrom,
   type PlaybackSnapshot,
 } from './playback.ts';
 
@@ -46,4 +51,38 @@ export function applyPlayback(
     return resolveAlbumPlayback(library, albumId) ?? emptyPlayback();
   }
   return resolveTrackPlayback(library, albumId, trackId) ?? emptyPlayback();
+}
+
+export function applyAlbumQueue(
+  library: ShellLibrary | undefined,
+  snapshot: PlaybackSnapshot,
+  albumId: string,
+  mode: 'next' | 'append',
+): PlaybackSnapshot {
+  if (library === undefined) {
+    return snapshot;
+  }
+  const album = findAlbum(library, albumId);
+  if (album === undefined) {
+    return snapshot;
+  }
+  return mode === 'next' ? insertAlbumNext(snapshot, album) : appendAlbum(snapshot, album);
+}
+
+export function applyTrackQueue(
+  library: ShellLibrary | undefined,
+  snapshot: PlaybackSnapshot,
+  albumId: string,
+  trackId: string,
+  mode: 'next' | 'append',
+): PlaybackSnapshot {
+  if (library === undefined) {
+    return snapshot;
+  }
+  const found = findTrack(library, trackId);
+  if (found === undefined || found.album.id !== albumId) {
+    return snapshot;
+  }
+  const line = queueLineFrom(found.album, found.track);
+  return mode === 'next' ? insertPlayNext(snapshot, line) : appendQueue(snapshot, line);
 }

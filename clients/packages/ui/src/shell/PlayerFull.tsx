@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
+import { demoLyricsLines, demoLyricsVerse } from '../../../fake-server/src/lyrics.ts';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
+import { LyricsPane } from './LyricsPane.tsx';
 import type { PlaybackSnapshot } from './playback.ts';
 
 export type PlayerFullProps = {
@@ -24,6 +26,13 @@ export function PlayerFull({
   onPrevious,
   onNext,
 }: PlayerFullProps) {
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  const canLyrics = playback.lyricsKind === 'plain' || playback.lyricsKind === 'synced';
+  useEffect(() => {
+    if (!canLyrics) {
+      setLyricsOpen(false);
+    }
+  }, [canLyrics]);
   useEffect(() => {
     if (!open) {
       return;
@@ -112,6 +121,33 @@ export function PlayerFull({
           />
           <FullControl id="player-full-next" label={messages.next} onPress={onNext} />
         </View>
+        {canLyrics ? (
+          <View
+            id="player-full-lyrics-toggle"
+            accessibilityRole="button"
+            accessibilityLabel={messages.lyrics}
+            tabIndex={0}
+            dataSet={{ lyricsToggle: lyricsOpen ? '1' : '0' }}
+            onClick={() => {
+              setLyricsOpen((open) => !open);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setLyricsOpen((open) => !open);
+              }
+            }}
+          >
+            <Text>{messages.lyrics}</Text>
+          </View>
+        ) : null}
+        <LyricsPane
+          id="player-full-lyrics"
+          label={messages.lyrics}
+          lines={demoLyricsLines(demoLyricsVerse(playback.trackId, playback.lyricsKind))}
+          synced={playback.lyricsKind === 'synced'}
+          open={lyricsOpen && canLyrics}
+        />
       </View>
     </>
   );
