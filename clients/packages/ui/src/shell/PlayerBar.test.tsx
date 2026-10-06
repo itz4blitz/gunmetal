@@ -63,21 +63,22 @@ test('playing bar lays out art, meta, transport, scrubber and actions', () => {
   expect(container.querySelector('#player-progress-fill')?.getAttribute('data-fill')).toStrictEqual(
     '25',
   );
-  fireEvent.click(screen.getAllByRole('button', { name: 'Open full player' })[0]!);
-  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
-    key: 'Enter',
-  });
-  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
-    key: ' ',
-  });
-  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
-    key: ' ',
-  });
-  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[0]!, {
-    key: 'Tab',
-  });
-  fireEvent.keyDown(screen.getAllByRole('button', { name: 'Open full player' })[1]!, {
-    key: 'Tab',
-  });
-  expect(onOpenFull).toHaveBeenCalledTimes(4);
+  expect(container.querySelector('#player-expand')?.getAttribute('data-expand')).toStrictEqual('1');
+  const openers = screen.getAllByRole('button', { name: 'Open full player' });
+  expect(openers.map((node) => node.id)).toStrictEqual([
+    'player-art',
+    'player-meta',
+    'player-expand',
+  ]);
+  fireEvent.click(openers[0]!);
+  fireEvent.keyDown(openers[1]!, { key: 'Enter' });
+  fireEvent.keyDown(openers[0]!, { key: ' ' });
+  fireEvent.keyDown(openers[1]!, { key: ' ' });
+  fireEvent.click(openers[2]!);
+  fireEvent.keyDown(openers[2]!, { key: 'Enter' });
+  fireEvent.keyDown(openers[2]!, { key: ' ' });
+  fireEvent.keyDown(openers[0]!, { key: 'Tab' });
+  fireEvent.keyDown(openers[1]!, { key: 'Tab' });
+  fireEvent.keyDown(openers[2]!, { key: 'Tab' });
+  expect(onOpenFull).toHaveBeenCalledTimes(7);
 });

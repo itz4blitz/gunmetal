@@ -1,5 +1,6 @@
 export type DestinationMessages = {
   homeHeadline: string;
+  featured: string;
   searchHeadline: string;
   libraryHeadline: string;
   settingsHeadline: string;
@@ -48,6 +49,7 @@ export type DestinationMessages = {
 export function destinationMessages(): DestinationMessages {
   return {
     homeHeadline: 'Home',
+    featured: 'Featured',
     searchHeadline: 'Search',
     libraryHeadline: 'Library',
     settingsHeadline: 'Settings',

@@ -180,11 +180,19 @@ export function Shell({
   };
 
   const playAlbum = (albumId: string) => {
-    setPlayback(applyPlayback(library, albumId, undefined));
+    const next = applyPlayback(library, albumId, undefined);
+    setPlayback(next);
+    if (next.trackId !== undefined) {
+      setFullPlayerOpen(true);
+    }
   };
 
   const playTrack = (albumId: string, trackId: string) => {
-    setPlayback(applyPlayback(library, albumId, trackId));
+    const next = applyPlayback(library, albumId, trackId);
+    setPlayback(next);
+    if (next.trackId !== undefined) {
+      setFullPlayerOpen(true);
+    }
   };
 
   const themeFooter = (

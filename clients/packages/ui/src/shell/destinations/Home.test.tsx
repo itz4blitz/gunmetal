@@ -26,11 +26,15 @@ test('spotlight uses the first recently-added fixture with art tone and actions'
   expect(home?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(document.querySelector('#home-spotlight')).toBeTruthy();
   expect(document.querySelector('#cover-spotlight-demo-album-01')).toBeTruthy();
+  expect(
+    document.querySelector('#home-spotlight [data-spotlight-eyebrow="1"]')?.textContent,
+  ).toStrictEqual('Featured');
   expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
   expect(
     document.querySelector('#home-spotlight [data-spotlight-artist="1"]')?.textContent,
   ).toStrictEqual('Mira Sol');
-  expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-headline')).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Home' })).toBeNull();
 
   fireEvent.click(document.querySelector('#home-spotlight-play')!);
   expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
@@ -79,6 +83,7 @@ test('home without browsable albums omits spotlight and art tone', () => {
   );
   expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toBeNull();
   expect(document.querySelector('#home-spotlight')).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   expect(screen.queryByRole('button', { name: 'See all' })).toBeNull();
   expect(screen.getByText('No albums added yet')).toBeTruthy();
 });

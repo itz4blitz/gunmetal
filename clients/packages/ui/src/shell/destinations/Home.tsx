@@ -65,6 +65,7 @@ export function Home({
             coverId={`cover-spotlight-${spotlight.id}`}
           />
           <View dataSet={{ spotlightCopy: '1' }}>
+            <Text dataSet={{ spotlightEyebrow: '1' }}>{messages.featured}</Text>
             <Text
               accessibilityRole="header"
               dataSet={{ spotlightTitle: '1', type: 'display' }}
@@ -112,10 +113,11 @@ export function Home({
             </View>
           </View>
         </View>
-      ) : null}
-      <Text id="destination-headline" accessibilityRole="header">
-        {messages.homeHeadline}
-      </Text>
+      ) : (
+        <Text id="destination-headline" accessibilityRole="header">
+          {messages.homeHeadline}
+        </Text>
+      )}
       <View id="home-row-continue" dataSet={{ homeRow: 'continue' }}>
         <EmptyCard
           state="continue"

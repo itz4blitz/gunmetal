@@ -10,11 +10,14 @@ test('the demo app mounts the shell with fixture home rows and demo data', () =>
   render(<App />);
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
   expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
-  expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-headline')).toBeNull();
   expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual(
     '01',
   );
   expect(document.querySelector('#home-spotlight')).toBeTruthy();
+  expect(
+    document.querySelector('#home-spotlight [data-spotlight-eyebrow="1"]')?.textContent,
+  ).toStrictEqual('Featured');
   expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently played' })).toBeTruthy();
@@ -36,4 +39,6 @@ test('playing a fixture album fills the player bar from demo-local state', () =>
   expect(document.querySelector('#player-artist')?.textContent).toStrictEqual('Mira Sol');
   expect(screen.getByRole('button', { name: 'Pause' }).id).toStrictEqual('shell-play');
   expect(document.querySelector('#queue-line-demo-track-01-01')).toBeTruthy();
+  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
+  expect(document.querySelector('#player-full-title')?.textContent).toStrictEqual('Pier at Dusk');
 });

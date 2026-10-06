@@ -115,6 +115,24 @@ export function PlayerBar({
         </Text>
       </View>
       <View id="player-actions">
+        {empty ? null : (
+          <View
+            id="player-expand"
+            dataSet={{ playerControl: 'plain', expand: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.openFullPlayer}
+            tabIndex={0}
+            onClick={openFull}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openFull();
+              }
+            }}
+          >
+            <Text dataSet={{ controlLabel: '1' }}>{messages.openFullPlayer}</Text>
+          </View>
+        )}
         <ControlButton
           id="player-queue"
           label={messages.queue}

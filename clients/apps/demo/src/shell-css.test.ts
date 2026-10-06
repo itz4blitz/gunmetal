@@ -49,6 +49,9 @@ test('home spotlight wash uses art-surface vars keyed by data-art-tone', async (
   expect(css.includes('#destination-home[data-art-tone]')).toStrictEqual(true);
   expect(css.includes('--art-surface')).toStrictEqual(true);
   expect(css.includes('#home-spotlight')).toStrictEqual(true);
+  const spotlight = css.slice(css.indexOf('#home-spotlight'));
+  expect(spotlight.includes('min-height: 280px')).toStrictEqual(true);
+  expect(css.includes('[data-spotlight-eyebrow]')).toStrictEqual(true);
   expect(css.includes('[data-type=\'display\']') || css.includes('[data-type="display"]')).toStrictEqual(
     true,
   );
@@ -147,6 +150,16 @@ test('album detail wash denser track rows and full player sheet are crafted', as
   );
   expect(css.includes('#player-full')).toStrictEqual(true);
   expect(css.includes('#player-full-scrim')).toStrictEqual(true);
+  const fullOpenMarker = css.includes("#player-full[data-open='1']")
+    ? "#player-full[data-open='1']"
+    : '#player-full[data-open="1"]';
+  const fullOpenStart = css.indexOf(fullOpenMarker);
+  expect(fullOpenStart).toBeGreaterThanOrEqual(0);
+  const fullOpenBlock = css.slice(fullOpenStart, css.indexOf('}', fullOpenStart) + 1);
+  expect(fullOpenBlock.includes('display: flex')).toStrictEqual(true);
+  expect(fullOpenBlock.includes('display: none')).toStrictEqual(false);
+  expect(css.includes('#player-expand')).toStrictEqual(true);
+  expect(css.includes('#player-art') && css.includes('cursor: pointer')).toStrictEqual(true);
   expect(css.includes("[data-size='full']") || css.includes('[data-size="full"]')).toStrictEqual(
     true,
   );

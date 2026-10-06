@@ -36,6 +36,7 @@ test('the catalogue returns trusted shell and destination strings', () => {
     },
     destinations: {
       homeHeadline: 'Home',
+      featured: 'Featured',
       searchHeadline: 'Search',
       libraryHeadline: 'Library',
       settingsHeadline: 'Settings',

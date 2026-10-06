@@ -55,6 +55,19 @@ test('album tile shows title artist hierarchy and opens on activate', () => {
   expect(onOpen).toHaveBeenCalledTimes(3);
 });
 
+test('play control is a sibling of open — never a nested button', () => {
+  const { container } = render(
+    <AlbumTile album={album} messages={messages} onOpen={vi.fn()} onPlay={vi.fn()} />,
+  );
+  expect(container.querySelectorAll('button button')).toHaveLength(0);
+  const open = screen.getByRole('button', { name: 'Harbour Lights' });
+  const play = screen.getByRole('button', { name: 'Play album' });
+  expect(open.contains(play)).toStrictEqual(false);
+  expect(play.contains(open)).toStrictEqual(false);
+  expect(play.closest('[data-album-art="1"]')).toBeTruthy();
+  expect(open.getAttribute('data-album-open')).toStrictEqual('1');
+});
+
 test('play affordance calls onPlay when provided otherwise onOpen', () => {
   const onOpen = vi.fn();
   const onPlay = vi.fn();
