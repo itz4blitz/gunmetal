@@ -58,11 +58,8 @@
 //! hold the name: renaming an entry point without changing the list fails
 //! here, instead of quietly leaving the new name unwatched. The user log's
 //! replay (WP-068) is listed under the name its plan entry gives. The audit
-//! log (WP-069) is not built, and the names its plan entry sketches for its
-//! verifier and its append, `verify` and `append`, are too common for a
-//! textual search to hold to one module. It owes the list an entry for
-//! each, and [`OWED`] makes this test fail the moment its directory holds a
-//! source file and no entry is declared in it.
+//! log (WP-069) lists `append_security_event` and `verify_audit_log`, names
+//! unique enough for a textual search to hold to one module.
 #![expect(
     clippy::disallowed_methods,
     reason = "this test lists and reads the server crate's own source files by path, and writes a fixture tree in a scratch directory, so that a module a later package adds is scanned without anyone listing it; no door module reads a source tree, and a file included at compile time cannot be listed (SEC-TM-024)"
@@ -125,7 +122,7 @@ struct Door {
 ///   store's grant read, the listener's path class and the refusal's event,
 ///   so only the layer may (`access/`, WP-065). It is read on code lines
 ///   only.
-const WRITTEN_LIST: [Door; 9] = [
+const WRITTEN_LIST: [Door; 11] = [
     Door {
         name: "read_pre_principal",
         declared_in: "gunmetal-durable/src/identity",
@@ -180,13 +177,24 @@ const WRITTEN_LIST: [Door; 9] = [
         callers: &["access/"],
         lines: Lines::Code,
     },
+    Door {
+        name: "append_security_event",
+        declared_in: "gunmetal-durable/src/audit",
+        callers: &["audit_sink/"],
+        lines: Lines::All,
+    },
+    Door {
+        name: "verify_audit_log",
+        declared_in: "gunmetal-durable/src/audit",
+        callers: &["audit_cli/"],
+        lines: Lines::All,
+    },
 ];
 
 /// The storage directories below `crates/` whose packages owe the list
-/// entries it cannot hold yet: the audit log's verifier and its append
-/// (WP-069). Once one of them holds a source file, the list must hold an
-/// entry declared in it.
-const OWED: [&str; 1] = ["gunmetal-durable/src/audit"];
+/// entries it cannot hold yet. Empty: the audit log listed its verifier
+/// and its append (WP-069).
+const OWED: [&str; 0] = [];
 
 /// The type whose variants are the identity store's pre-principal lookups.
 const LOOKUP: &str = "PrePrincipal";
@@ -1021,8 +1029,6 @@ fn no_module_of_the_server_goes_round_the_permit_outside_the_written_list() {
     assert_eq!(
         unpaid(&crates, &OWED, &WRITTEN_LIST),
         [""; 0],
-        "the audit log owes the written list its verifier and its append \
-         (WP-069): add an entry for each, declared in its directory, with \
-         fixtures for both"
+        "every store that owed the written list an entry has declared one"
     );
 }

@@ -15,11 +15,13 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
 
+use gunmetal_core::audit_event::SecuritySink;
 use gunmetal_core::time::Clock;
 use gunmetal_fs::dataroot::{DataRoot, DataRootError, Modes, NetworkFilesystems, Policy};
 use gunmetal_fs::host::HostFacts;
 use rustix::io::Errno;
 
+use crate::audit_sink::AuditSink;
 use crate::bus::Bus;
 use crate::config::{Config, ConfigError, Env, load_config};
 use crate::datadir::{self, ConfigFileError};
@@ -39,7 +41,7 @@ pub struct Host {
 }
 
 /// Why the server did not start.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StartError {
     /// The process could not read its own privileges or switch core dumps
     /// off.
@@ -52,6 +54,8 @@ pub enum StartError {
     ConfigFile(ConfigFileError),
     /// The configuration file or the environment was refused.
     Config(ConfigError),
+    /// The audit log or its keys could not be opened.
+    Audit(gunmetal_durable::audit::error::AuditError),
 }
 
 impl StartError {
@@ -67,6 +71,7 @@ impl StartError {
             Self::DataDir(error) => datadir::explain(error, dir),
             Self::ConfigFile(error) => error.message(dir),
             Self::Config(error) => error.message(),
+            Self::Audit(_) => "The security audit log could not be opened.".to_owned(),
         }
     }
 }
@@ -83,7 +88,8 @@ pub struct AppState {
     pub log: Arc<Logger>,
     /// The event bus, which is also the sink for security events.
     pub bus: Arc<Bus>,
-    // One line per module, appended by later packages.
+    /// The security audit log, subscribed to the bus.
+    pub audit: Arc<AuditSink>,
 }
 
 /// Whether the environment accepts a data directory on a network
@@ -130,12 +136,31 @@ impl AppState {
         let config = load_config(&text, env).map_err(StartError::Config)?;
         log.set_base(config.log_level);
         log.log(&LogEvent::SysStartup { version: VERSION });
+        let audit_root = DataRoot::open(
+            dir,
+            &host.facts,
+            Policy {
+                modes: Modes::Refuse,
+                network: network(env),
+            },
+        )
+        .map_err(|refused| StartError::DataDir(refused.error))?
+        .root;
+        let audit = AuditSink::open(audit_root, Arc::clone(&clock)).map_err(StartError::Audit)?;
+        let audit = Arc::new(audit);
+        let bus = Arc::new(Bus::default());
+        {
+            let sink = Arc::clone(&audit);
+            bus.security
+                .subscribe(move |event| sink.record(event.clone()));
+        }
         Ok(Self {
             config,
             data,
             clock,
             log: Arc::new(log),
-            bus: Arc::new(Bus::default()),
+            bus,
+            audit,
         })
     }
 }
@@ -144,11 +169,11 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::datadir::CONFIG_FILE;
-    use crate::testing::{self, Capture, Recording};
-    use gunmetal_core::audit_event::{AuditUnavailable, SecurityEvent, SecuritySink};
+    use crate::testing::{self, Capture};
     use gunmetal_fs::host::{Filesystem, NetworkFs};
     use gunmetal_fs::path::{DataDir, DataPath};
     use gunmetal_testkit::tempdir::TempDir;
+    use std::io::{Read, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::Duration;
@@ -298,10 +323,9 @@ mod tests {
     fn tightens_a_loose_mode_logs_it_and_continues() {
         let dir = TempDir::new("app-repair").expect("scratch");
         let key = DataPath::constant(DataDir::Secrets, "root.key");
-        arrange(&dir)
-            .create_new(&key)
-            .expect("created")
-            .set_permissions(std::fs::Permissions::from_mode(0o640))
+        let mut file = arrange(&dir).create_new(&key).expect("created");
+        file.write_all(&[7_u8; 32]).expect("a root secret");
+        file.set_permissions(std::fs::Permissions::from_mode(0o640))
             .expect("loosened");
         assert!(!layout_is_sound(&dir));
         let (started, out) = start(&dir, &local(), &Env::default());
@@ -376,31 +400,23 @@ mod tests {
         let dir = TempDir::new("app-bus").expect("scratch");
         let (started, _) = start(&dir, &local(), &Env::default());
         let state = started.expect("started");
-        // Nothing stores the record yet, so debug level stays off.
-        assert_eq!(
-            state
-                .log
-                .enable_debug(Duration::from_secs(60), None, &*state.bus),
-            Err(AuditUnavailable)
-        );
-        assert_eq!(state.log.level(), Level::Info);
-        let audit = Arc::new(Recording::new(true));
-        let sink = Arc::clone(&audit);
-        state
-            .bus
-            .security
-            .subscribe(move |event| sink.record(event.clone()));
         assert!(
             state
                 .log
                 .enable_debug(Duration::from_secs(60), None, &*state.bus)
                 .is_ok()
         );
-        assert_eq!(
-            audit.events(),
-            [SecurityEvent::GmDebugLoggingEnabled { account: None }]
-        );
         assert_eq!(state.log.level(), Level::Debug);
+        let mut text = String::new();
+        state
+            .data
+            .open_read(&DataPath::audit_segment(
+                gunmetal_fs::path::AuditSeg::new(1).expect("1"),
+            ))
+            .expect("segment")
+            .read_to_string(&mut text)
+            .expect("read");
+        assert!(text.contains("\"event\":\"gm_debug_logging_enabled\""));
     }
 
     #[test]
@@ -412,6 +428,7 @@ mod tests {
             StartError::DataDir(DataRootError::NetworkFilesystem(NetworkFs::Smb)),
             StartError::ConfigFile(ConfigFileError::TooLarge),
             StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
+            StartError::Audit(gunmetal_durable::audit::error::AuditError::Halted),
         ]
         .iter()
         .map(|error| error.message(&dir))
@@ -424,6 +441,7 @@ mod tests {
                 r#"The data directory "/data" is on a network filesystem (SMB). SQLite cannot lock its databases safely there. Move the data directory to a disk on this machine, or set GUNMETAL_ALLOW_NETWORK_FILESYSTEM=true to accept the risk."#,
                 r#""/data/durable/config.toml" is longer than 65536 bytes, which no Gunmetal configuration needs."#,
                 "The environment variable \"GUNMETAL_X\" is not one Gunmetal reads. Check the spelling, or unset it.",
+                "The security audit log could not be opened.",
             ]
         );
     }

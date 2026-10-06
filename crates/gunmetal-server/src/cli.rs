@@ -229,7 +229,7 @@ impl Exit {
         match error {
             StartError::Os(_) => Self::Os,
             StartError::Privileged(_) => Self::Privileged,
-            StartError::DataDir(_) => Self::DataDir,
+            StartError::DataDir(_) | StartError::Audit(_) => Self::DataDir,
             StartError::ConfigFile(_) | StartError::Config(_) => Self::Config,
         }
     }
@@ -305,7 +305,7 @@ fn dispatch(
         Action::SnapshotRestore => not_built(err, "snapshot restore"),
         Action::Restore => not_built(err, "restore"),
         Action::Service => not_built(err, "service"),
-        Action::AuditVerify => not_built(err, "audit verify"),
+        Action::AuditVerify => crate::audit_cli::verify(command, vars, out, err),
         Action::KeysRotate => not_built(err, "keys rotate"),
         Action::Worker => not_built(err, "worker"),
     }
@@ -355,7 +355,7 @@ fn serve(
 
 /// Starts from already-probed privileges and host facts, so a refused
 /// probe is tested without forcing this process to fail its own syscalls.
-fn start_from_probes(
+pub(crate) fn start_from_probes(
     privileges: Result<Privileges, rustix::io::Errno>,
     facts: Result<HostFacts, gunmetal_fs::dataroot::DataRootError>,
     dir: &std::path::Path,
@@ -652,6 +652,7 @@ Run gunmetal --help for the commands and options.
             StartError::DataDir(DataRootError::NetworkFilesystem(NetworkFs::Nfs)),
             StartError::ConfigFile(ConfigFileError::NotUtf8),
             StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
+            StartError::Audit(gunmetal_durable::audit::error::AuditError::Halted),
         ]
         .map(|error| Exit::of(&error));
         assert_eq!(
@@ -662,7 +663,8 @@ Run gunmetal --help for the commands and options.
                 Exit::Privileged,
                 Exit::DataDir,
                 Exit::Config,
-                Exit::Config
+                Exit::Config,
+                Exit::DataDir
             ]
         );
     }
@@ -874,7 +876,7 @@ Run gunmetal --help for the commands and options.
 
     #[test]
     fn a_subcommand_another_package_builds_says_so_and_exits_unavailable() {
-        let cases: [(&[&str], &str); 10] = [
+        let cases: [(&[&str], &str); 9] = [
             (&["doctor"], "doctor"),
             (&["admin", "recover"], "admin recover"),
             (&["migrate"], "migrate"),
@@ -882,7 +884,6 @@ Run gunmetal --help for the commands and options.
             (&["snapshot", "restore"], "snapshot restore"),
             (&["restore"], "restore"),
             (&["service"], "service"),
-            (&["audit", "verify"], "audit verify"),
             (&["keys", "rotate"], "keys rotate"),
             (&["worker"], "worker"),
         ];
@@ -896,5 +897,13 @@ Run gunmetal --help for the commands and options.
                 )
             );
         }
+    }
+
+    #[test]
+    fn audit_verify_is_part_of_this_build() {
+        let (exit, _, err) = ran(&["audit", "verify", "--data-dir", "/no/such/gunmetal-audit"]);
+        assert_ne!(exit, Exit::Unavailable);
+        assert!(!err.contains("not part of this build"));
+        assert_eq!(exit, Exit::DataDir);
     }
 }
