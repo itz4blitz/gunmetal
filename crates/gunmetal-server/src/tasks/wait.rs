@@ -47,6 +47,7 @@ mod tests {
 
     struct State {
         ready: bool,
+        skip: u8,
         waker: Option<Waker>,
     }
 
@@ -61,6 +62,9 @@ mod tests {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if state.ready {
                 Poll::Ready("ok")
+            } else if state.waker.is_none() && state.skip == 0 {
+                state.skip = 1;
+                Poll::Pending
             } else {
                 state.waker = Some(cx.waker().clone());
                 Poll::Pending
@@ -72,13 +76,14 @@ mod tests {
     fn wait_returns_when_the_waker_runs_without_waiting_out_the_park_timeout() {
         let state = Arc::new(Mutex::new(State {
             ready: false,
+            skip: 0,
             waker: None,
         }));
         let future = ReadyAfterWake {
             state: Arc::clone(&state),
         };
         let worker = thread::spawn(move || wait(future));
-        let deadline = Instant::now() + Duration::from_millis(100);
+        let deadline = Instant::now() + Duration::from_millis(200);
         loop {
             {
                 let state = state.lock().unwrap_or_else(PoisonError::into_inner);

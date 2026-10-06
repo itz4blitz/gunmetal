@@ -177,7 +177,14 @@ impl AppState {
             .map_err(StartError::Cache)?;
         let store = Arc::new(opened.store);
         let tasks = Runner::open(Arc::clone(&store), Arc::clone(&clock), Limits::production())
-            .map_err(cache_open_error)?;
+            .map_err(cache_open_error);
+        #[cfg(test)]
+        let tasks = if fail_runner() {
+            Err(StartError::Cache(StoreError::Closed))
+        } else {
+            tasks
+        };
+        let tasks = tasks?;
         Ok(Self {
             config,
             data,
@@ -225,6 +232,24 @@ fn cache_open_error(error: TaskError) -> StartError {
         | TaskError::Unknown
         | TaskError::PathTooLong { .. } => StartError::Cache(StoreError::Closed),
     }
+}
+
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_RUNNER: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+fn fail_runner() -> bool {
+    FAIL_RUNNER.replace(false)
+}
+
+#[cfg(test)]
+fn arm_runner_fail() {
+    FAIL_RUNNER.set(true);
 }
 
 #[cfg(test)]
@@ -702,9 +727,25 @@ mod tests {
         let cache = DataPath::constant(DataDir::Cache, "library.db");
         arrange(&dir).create_dir(&cache).expect("not a file");
         let (started, out) = start(&dir, &local(), &Env::default());
-        let error = started.err().expect("refused");
-        assert!(matches!(error, StartError::Cache(_)));
-        assert_eq!(error.message(dir.path()), "The cache could not be opened.");
+        let expected = Store::open(
+            &arrange(&dir),
+            &[tasks::SCHEMA],
+            Generation(core::array::from_fn(|index| {
+                let [b0, ..] = index.to_le_bytes();
+                b0
+            })),
+        )
+        .expect_err("same refuse");
+        assert_eq!(started.err(), Some(StartError::Cache(expected)));
+        assert_eq!(out, STARTED);
+    }
+
+    #[test]
+    fn a_task_table_the_runner_cannot_use_refuses_start() {
+        let dir = TempDir::new("app-runner").expect("scratch");
+        super::arm_runner_fail();
+        let (started, out) = start(&dir, &local(), &Env::default());
+        assert_eq!(started.err(), Some(StartError::Cache(StoreError::Closed)));
         assert_eq!(out, STARTED);
     }
 }
