@@ -23,6 +23,8 @@ body,
 #token-shell div,
 #token-shell span {
   box-sizing: border-box;
+  /* RN-web Text sets inline System font; Inter must win for design-language. */
+  font-family: Inter, system-ui, sans-serif !important;
 }
 
 #token-shell {
