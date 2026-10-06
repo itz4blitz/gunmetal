@@ -323,3 +323,115 @@ land. Three things follow that are architecture and not just planning:
   shared packages still hold no browser-only code.
 - If the web gate's mutation run grows past what a pull request can
   wait for, shard it as the Rust gate plans to, not by excluding code.
+
+## Addition, 2026-10-05: how mirror values cross, and the one exception to the coverage and mutation rules
+
+Decisions 13 and 14 stand as written above. This section records what
+building WP-235 found about them and what the owner decided on
+2026-10-05 ([pull request 78](https://github.com/PremierStudio/gunmetal/pull/78),
+owner question 1). It also records, marked as such, two things WP-235
+proposes that the owner has not answered: questions 7 and 3 of that pull
+request.
+
+**What was found.**
+
+- The code `wasm-bindgen` and `tsify` generate builds under
+  `unsafe_code = "forbid"`, for `wasm32` and for the host. The exception
+  decision 14 allows is not needed today: the facade's manifest repeats
+  the workspace's lint tables and lowers nothing, and its
+  `tests/workspace_rules.rs` refuses any lowering.
+- Host coverage does not count that generated code. With `tsify`'s
+  derives on the mirror types, the report holds only the functions
+  written by hand.
+- `tsify` 0.5.8 deprecates the two attributes that let a mirror type be
+  the parameter or the return type of an exported function
+  (`into_wasm_abi` and `from_wasm_abi`), because a value that fails to
+  convert leaks memory. What it offers instead is the wrapper type
+  `tsify::Ts<T>`, converted inside the exported function. That
+  conversion calls into JavaScript, so a function that performs it
+  cannot be called by a test on the host.
+
+**What the owner decided.** In his comment on pull request 78
+(2026-10-05, 17:11 UTC) the owner chose "A: `tsify::Ts<T>` and
+`Result<_, JsError>`, with a one-line `wasm32`-only wrapper per export".
+That decides four things:
+
+1. Mirror values cross as `tsify::Ts<T>`, and an exported function
+   returns `Result<_, JsError>`: a value that does not convert becomes
+   a JavaScript error.
+2. Every export is a plain function, tested on the host under the usual
+   rules (100% coverage and no surviving mutant), and a wrapper compiled
+   only for `wasm32` that converts the types and calls it. In the
+   owner's words, "A wrapper holds no logic: no branch, no arithmetic,
+   no decision."
+3. The wrappers are the one written exception to the coverage and
+   mutation rules in the Rust workspace: host coverage and mutation
+   testing cannot see them. The `wasm32` build compiles them, and the
+   web client's conformance suites (CP-005 and CP-013) are the first to
+   run them.
+4. Option B, running the built module in CI, is decided when WP-088
+   writes its `wasm32` job.
+
+When this addition was written the exception covered two exports:
+`parseLink`, the core's link filter (`links.rs`), and `normaliseText`,
+the core's text normalisation (`text.rs`). Each later export adds one
+wrapper to it.
+
+**Proposed by WP-235, waiting for the owner's answer.** The rest of this
+section is the package's proposal, not a decision. It is built on the
+branch so that it can be judged, and it changes if the owner answers
+otherwise.
+
+- *The wrappers come from one macro and are not written by hand
+  (question 7).* The owner's wording is a one-line wrapper per export.
+  WP-235 found a reason to change its form: by its own documentation,
+  `cargo-mutants` does not understand conditional compilation, mutates
+  a function compiled only for another target and reports each mutant
+  as missed. A wrapper written by hand as an ordinary function behind a
+  `wasm32` gate would therefore fail the gate with a survivor no test
+  can kill. (This was read, not tried.) So the package has one macro,
+  `export!` in `crates/gunmetal-wasm/src/export.rs`, write every wrapper,
+  as the core's `coded!` writes its enumerations: the tool does not read
+  what a macro writes. A line of the macro is given a JavaScript name,
+  two function names, parameter names with their types, a mirror type
+  and doc comments. It cannot be given an expression, so no wrapper can
+  hold a branch, arithmetic or a value of its own, and none can differ
+  from the others. The other answer to question 7 keeps the owner's
+  form: wrappers by hand, left out of the mutation run by name with an
+  exclusion in `scripts/gate.sh`, and a check on the shape of each.
+- *A check holds the facade's own files to the macro (with question 7).*
+  `xtask facade-wrappers` runs against the repository in xtask's own
+  tests, so the gate runs it. It reads text and parses nothing. It fails
+  when the macro's source differs by one character from the copy the
+  check holds; when another Rust source of the facade holds `cfg` on any
+  line but the test gate; when one holds the name `include`, `path` or
+  `wasm_bindgen` in code, so that no other file is brought in as code
+  and no export is written by hand; and when a line of the facade's
+  manifest holds `target`. It does not see what a macro defined in
+  another crate writes where the facade calls it, what another crate
+  exports, the manifest beyond that one word, a value read from the
+  build's environment, a directory reached through a symbolic link, or
+  what a wrapper does when it runs. Its own documentation lists those
+  limits, and its tests pin all but the last two.
+- *The `wasm32` build is a workflow of its own and not a gate step
+  (question 3).* Decision 14 puts the `wasm32` build in the gate.
+  `.github/workflows/wasm.yml` builds the facade for `wasm32` on every
+  pull request, with warnings as errors and under the facade's lint
+  tables, finds both exports in the module, and proves that the same
+  build refuses `unsafe` written by hand. It is not a step of
+  `scripts/gate.sh`, and the job named `gate` does not wait for it.
+  Until the owner answers question 3, that part of decision 14 is not
+  met.
+
+**Other ways WP-235 considered.** These are the package's reasons for not
+taking them, not the owner's; his answer chose option A and no more.
+
+- Keeping `tsify`'s deprecated attributes under `#[expect(deprecated)]`.
+  Exports would stay plain functions that host tests call, as the plan
+  assumed. Not proposed: it builds on an interface its authors are
+  retiring, and keeps the leak.
+- Crossing as JSON text. Every export would return a string and be
+  testable on the host. Not proposed: the client would parse every
+  value a second time, which is the JSON round trip the dependency
+  decision of 2026-10-05 turned down with `tsify`'s `json` feature, and
+  it adds `serde_json` to the facade.
