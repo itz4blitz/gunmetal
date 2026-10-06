@@ -11,6 +11,8 @@ publish = false
 
 [dependencies]
 gunmetal-fuzz = { path = "../gunmetal-fuzz", version = "0.0.0" }
+gunmetal-http = { path = "../gunmetal-http", version = "0.0.0" }
+gunmetal-server = { path = "../gunmetal-server", version = "0.0.0" }
 
 [lints]
 workspace = true
