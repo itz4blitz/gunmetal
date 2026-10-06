@@ -132,6 +132,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the test of the one method that exposes a secret (SEC-OPS-013, WP-047)",
     },
     Exception {
+        path: "crates/gunmetal-server/tests/storage_access.rs",
+        lint: LINTS[1],
+        reason: "the architecture test reads every source file of the server crate by path, so a module a later package adds is scanned without being listed (SEC-TM-024, WP-065)",
+    },
+    Exception {
         path: "crates/gunmetal-testkit/src/library.rs",
         lint: LINTS[1],
         reason: "the synthetic library is written into a test's scratch directory (owner decision 33, WP-119)",
