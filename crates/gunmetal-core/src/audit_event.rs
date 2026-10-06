@@ -343,6 +343,7 @@ mod tests {
     use super::*;
     use crate::client_context::PathClass;
     use crate::id::IdKind;
+    use crate::test_support::is_lower_snake;
     use core::net::{IpAddr, Ipv4Addr};
 
     /// Every event's vocabulary name, in order, written out independently of
@@ -388,10 +389,7 @@ mod tests {
         sorted.dedup();
         assert_eq!(names, sorted, "names must be unique and in sorted order");
         for name in names {
-            let shaped = name.starts_with(|c: char| c.is_ascii_lowercase())
-                && name.ends_with(|c: char| c.is_ascii_lowercase())
-                && name.chars().all(|c| c.is_ascii_lowercase() || c == '_');
-            assert!(shaped, "name {name:?}");
+            assert!(is_lower_snake(name), "name {name:?}");
         }
     }
 

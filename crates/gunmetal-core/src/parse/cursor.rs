@@ -246,6 +246,9 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     const BYTES: [u8; 8] = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0];
 
@@ -698,17 +701,23 @@ mod tests {
         );
     }
 
-    proptest! {
-        /// Verifies: SEC-MED-001, SEC-MED-004, SEC-TM-032
-        #[test]
-        fn never_reads_past_its_slice_for_any_sequence_of_reads(
-            bytes in vec(any::<u8>(), 0..48),
-            base in prop_oneof![0_u64..1_000, any::<u64>()],
-            reads in vec(read(), 0..24),
-        ) {
-            let expected = model(&bytes, base, &reads);
-            let actual = on_small_stack(move || run(&bytes, base, &reads));
-            prop_assert_eq!(actual, expected);
-        }
+    /// Verifies: SEC-MED-001, SEC-MED-004, SEC-TM-032
+    #[test]
+    fn never_reads_past_its_slice_for_any_sequence_of_reads() {
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    vec(any::<u8>(), 0..48),
+                    prop_oneof![0_u64..1_000, any::<u64>()],
+                    vec(read(), 0..24),
+                ),
+                |(bytes, base, reads)| {
+                    let expected = model(&bytes, base, &reads);
+                    let actual = on_small_stack(move || run(&bytes, base, &reads));
+                    prop_assert_eq!(actual, expected);
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }

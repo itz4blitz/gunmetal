@@ -101,6 +101,8 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Direct import: Qodana does not resolve this macro through `prelude::*`.
+    use proptest::proptest;
 
     /// The input every entry in the CRC `RevEng` catalogue gives a check
     /// value for.
