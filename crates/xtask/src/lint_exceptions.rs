@@ -147,6 +147,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "test scratch directories (owner decision 33, WP-007)",
     },
     Exception {
+        path: "crates/gunmetal-worker/src/ipc.rs",
+        lint: LINTS[1],
+        reason: "the worker receives a request's descriptors with recvmsg on the launcher's socket pair, which has no peer address to read; its tests open their in-memory files again through /proc/self/fd (SEC-MED-020, SEC-OPS-037, WP-061)",
+    },
+    Exception {
         path: "crates/gunmetal-worker/src/sandbox/descriptors.rs",
         lint: UNSAFE,
         reason: "the one unsafe block in Gunmetal's crates: borrow a descriptor number listed from /proc/self/fd to set close-on-exec on it (ADR 13, SEC-MED-022, WP-045)",
