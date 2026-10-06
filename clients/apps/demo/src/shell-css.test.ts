@@ -50,7 +50,7 @@ test('home spotlight wash uses art-surface vars keyed by data-art-tone', async (
   expect(css.includes('--art-surface')).toStrictEqual(true);
   expect(css.includes('#home-spotlight')).toStrictEqual(true);
   const spotlight = css.slice(css.indexOf('#home-spotlight'));
-  expect(spotlight.includes('min-height: 280px')).toStrictEqual(true);
+  expect(spotlight.includes('min-height: 360px')).toStrictEqual(true);
   expect(css.includes('[data-spotlight-eyebrow]')).toStrictEqual(true);
   expect(css.includes('[data-type=\'display\']') || css.includes('[data-type="display"]')).toStrictEqual(
     true,
@@ -272,6 +272,38 @@ test('plugin slots and album license chrome use muted tokens, not a host control
   expect(css.includes('[data-album-license]')).toStrictEqual(true);
   expect(css.includes('#search-plugin-notice')).toStrictEqual(true);
   expect(css.includes('#plugin-host') || css.includes('[data-plugin-host]')).toStrictEqual(false);
+});
+
+test('2026 chrome uses icon transport, a compact empty rail, a 360 hero and playing bars', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('#player-next::after') || css.includes('#player-next:after')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('#player-queue::after') || css.includes('#player-queue:after')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('#player-full-prev::after') || css.includes('#player-full-prev:after')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('gm-playing-bars')).toStrictEqual(true);
+  expect(css.includes('#destination-home')).toStrictEqual(true);
+  expect(css.includes('repeat(3, minmax(0, 1fr))')).toStrictEqual(true);
+  const continueRow = css.slice(css.indexOf('#home-row-continue'));
+  expect(continueRow.includes('min-height: 64px') || continueRow.includes('min-height:64px')).toStrictEqual(
+    true,
+  );
+  const spotlight = css.slice(css.indexOf('#home-spotlight'));
+  expect(spotlight.includes('min-height: 360px')).toStrictEqual(true);
+  expect(css.includes('min(400px, 72vw)') || css.includes('min(400px,72vw)')).toStrictEqual(true);
+  expect(css.includes('[data-cover-plate]::after') || css.includes('[data-cover-plate]:after')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('#player-full:has([data-cover=') || css.includes('#player-full:has([data-cover')).toStrictEqual(
+    true,
+  );
 });
 
 test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plate', async () => {
