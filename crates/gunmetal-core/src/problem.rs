@@ -123,6 +123,8 @@ problems! {
     SampleTableDamaged = ("sample_table_damaged", None, "The part of this file that maps play times to positions is damaged, so seeking in it won't work."),
     /// The action needs an administrator session or a fresh check with a passkey first (SEC-IAM-041, SEC-TM-017).
     StepUpRequired = ("step_up_required", Some(403), "Confirm it's you with your passkey, then try again."),
+    /// The request carried no valid credential for a route that needs one: none, a malformed, expired or revoked one, or one for an account that is disabled or gone. All of these get this one answer (SEC-API-003).
+    Unauthenticated = ("unauthenticated", Some(401), "Sign in to continue."),
     /// The request named a host the server does not answer to (SEC-API-007, SEC-NET-014).
     UnknownHost = ("unknown_host", Some(421), "This server doesn't answer to that name."),
     /// A request body was not JSON, or was compressed (SEC-API-035, SEC-API-065).
@@ -169,7 +171,7 @@ mod tests {
 
     /// The whole catalogue, written out independently of the declaration
     /// above: code, status and text of every entry, in order.
-    const CATALOGUE: [(&str, Option<u16>, &str); 32] = [
+    const CATALOGUE: [(&str, Option<u16>, &str); 33] = [
         (
             "aiff_unreadable",
             None,
@@ -301,6 +303,7 @@ mod tests {
             Some(403),
             "Confirm it's you with your passkey, then try again.",
         ),
+        ("unauthenticated", Some(401), "Sign in to continue."),
         (
             "unknown_host",
             Some(421),
