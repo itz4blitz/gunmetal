@@ -5,6 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use gunmetal_core::id::PublicId;
 use gunmetal_core::time::{Clock, Timestamp};
@@ -22,6 +23,10 @@ pub const MAX_PATH: usize = 4_096;
 
 /// How often expiry sweeps run when the caller ticks the runner.
 pub const SWEEP_EVERY_MS: i64 = 3_600_000;
+
+/// Idle wait so a `Runner::wake -> ()` mutant still observes shutdown, and
+/// so tests that require a prompt start can fail it (CONTRIBUTING.md).
+const IDLE: Duration = Duration::from_millis(300);
 
 /// Rotation and sweep limits. Tests shorten the sweep period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,6 +286,26 @@ impl Drop for Runner {
     }
 }
 
+#[cfg(test)]
+impl Runner {
+    pub(crate) fn take_worker(&mut self) -> Option<std::thread::JoinHandle<()>> {
+        self.worker.take()
+    }
+
+    pub(crate) fn run_one(&self, id: TaskId, handler: Arc<dyn Handler>) {
+        run_job(
+            &self.store,
+            &self.clock,
+            &self.inner,
+            Job {
+                id,
+                handler,
+                loaded: None,
+            },
+        );
+    }
+}
+
 fn tick(inner: &Inner, now: Timestamp) {
     let due = {
         let last = recover(inner.last_sweep.lock());
@@ -310,16 +335,17 @@ fn worker_loop(store: &Arc<Store>, clock: &Arc<dyn Clock + Send + Sync>, inner: 
         if let Some(job) = next_job(store, inner) {
             run_job(store, clock, inner, job);
         } else {
-            // Inlined so a `wait_for_work -> false` mutant cannot turn
-            // shutdown into a busy loop that outlives cargo-mutants.
-            let mut guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
-            while !inner.has_work.load(Ordering::SeqCst) && !inner.stopping.load(Ordering::SeqCst) {
-                guard = recover(inner.work.wait(guard));
-            }
-            inner.has_work.store(false, Ordering::SeqCst);
+            // Positive checks, not `while !has_work && !stopping`: deleting
+            // a `!` there was a missed mutant (busy-loop or inverted wait)
+            // that still let every test pass.
+            let guard: MutexGuard<'_, ()> = recover(inner.lock.lock());
             if inner.stopping.load(Ordering::SeqCst) {
                 break;
             }
+            if inner.has_work.swap(false, Ordering::SeqCst) {
+                continue;
+            }
+            drop(recover(inner.work.wait_timeout(guard, IDLE)));
         }
     }
 }
@@ -328,6 +354,13 @@ struct Job {
     id: TaskId,
     handler: Arc<dyn Handler>,
     loaded: Option<Vec<u8>>,
+}
+
+pub(crate) fn take_running(store: &Arc<Store>, now: Timestamp, id: TaskId) -> Option<Timestamp> {
+    match wait::wait(store.write(move |tx| persist::mark_running(tx, id, now))) {
+        Ok(true) => Some(now),
+        Ok(false) | Err(_) => None,
+    }
 }
 
 fn next_job(store: &Arc<Store>, inner: &Inner) -> Option<Job> {
@@ -348,13 +381,8 @@ fn next_job(store: &Arc<Store>, inner: &Inner) -> Option<Job> {
 }
 
 fn run_job(store: &Arc<Store>, clock: &Arc<dyn Clock + Send + Sync>, inner: &Inner, job: Job) {
-    let now = clock.now();
-    let started = match wait::wait(store.write({
-        let id = job.id;
-        move |tx| persist::mark_running(tx, id, now)
-    })) {
-        Ok(true) => now,
-        Ok(false) | Err(_) => return,
+    let Some(started) = take_running(store, clock.now(), job.id) else {
+        return;
     };
     let cancel = Arc::new(AtomicBool::new(false));
     recover(inner.cancel.lock()).insert(job.id, Arc::clone(&cancel));

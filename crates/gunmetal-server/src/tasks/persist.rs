@@ -22,10 +22,8 @@ const FIND_OPEN: Query = Query::new(
 
 const INSERT: Query = Query::new(
     "INSERT INTO tasks (kind, principal, path, status, progress, requested_at) \
-     VALUES (?1, ?2, ?3, 'waiting', 0, ?4)",
+     VALUES (?1, ?2, ?3, 'waiting', 0, ?4) RETURNING id",
 );
-
-const LAST_ID: Query = Query::new("SELECT last_insert_rowid()");
 
 const REQUEUE: Query = Query::new("UPDATE tasks SET status = 'waiting' WHERE status = 'running'");
 
@@ -68,22 +66,27 @@ const CANCEL_WAITING: Query = Query::new(
     "UPDATE tasks SET status = 'cancelled', finished_at = ?1 WHERE id = ?2 AND status = 'waiting'",
 );
 
+#[inline(never)]
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
 }
 
+#[inline(never)]
 fn int(value: i64) -> Value {
     Value::Integer(value)
 }
 
+#[inline(never)]
 fn blob(bytes: &[u8]) -> Value {
     Value::Blob(bytes.to_vec())
 }
 
+#[inline(never)]
 fn opt_text(value: Option<&str>) -> Value {
     value.map_or(Value::Null, text)
 }
 
+#[inline(never)]
 fn opt_int(value: Option<i64>) -> Value {
     value.map_or(Value::Null, int)
 }
@@ -122,20 +125,26 @@ pub(crate) fn insert_or_join(
     if let Some(id) = find_open(tx, kind, principal, path)? {
         return Ok(id);
     }
-    match tx.execute(
+    insert_new(tx, kind, principal, path, now)
+}
+
+fn insert_new(
+    tx: &Transaction<'_>,
+    kind: TaskKind,
+    principal: &str,
+    path: &str,
+    now: Timestamp,
+) -> Result<TaskId, StoreError> {
+    match tx.query(
         &INSERT
             .bind(text(kind.as_str()))
             .bind(text(principal))
             .bind(text(path))
             .bind(int(now.millis())),
     ) {
-        Ok(_) => last_id(tx),
+        Ok(rows) => id_from_rows(&rows),
         Err(error) => on_insert_error(tx, kind, principal, path, error),
     }
-}
-
-fn last_id(tx: &Transaction<'_>) -> Result<TaskId, StoreError> {
-    id_from_rows(&tx.query(&LAST_ID)?)
 }
 
 fn id_from_rows(rows: &[Row]) -> Result<TaskId, StoreError> {
@@ -378,8 +387,9 @@ pub(crate) fn sqlite_constraint() -> i32 {
 #[cfg(test)]
 mod persist_tests {
     use super::{
-        TaskKind, TaskStatus, constraint, find_open, id_from_rows, insert_or_join, last_id,
-        mark_running, on_insert_error, parse_id, parse_row,
+        TaskKind, TaskStatus, all, by_id, cancel_waiting, checkpoint, constraint, find_open,
+        finish, id_from_rows, insert_new, insert_or_join, mark_running, on_insert_error, parse_id,
+        parse_row, requeue_running, set_progress, waiting,
     };
     use crate::tasks::runner::TaskId;
     use crate::tasks::schema::SCHEMA;
@@ -388,8 +398,9 @@ mod persist_tests {
     use gunmetal_core::time::Timestamp;
     use gunmetal_fs::dataroot::{DataRoot, Policy};
     use gunmetal_fs::host::HostFacts;
-    use gunmetal_fs::sqlite::{DbError, Row, Value};
+    use gunmetal_fs::sqlite::{DbError, Query, Row, Value};
     use gunmetal_store::store::{Generation, Store, StoreError};
+    use gunmetal_store::writer::Transaction;
     use gunmetal_testkit::tempdir::TempDir;
     use std::sync::Arc;
 
@@ -490,6 +501,10 @@ mod persist_tests {
         assert_eq!(
             parse_id(&Row(vec![Value::Integer(2)])).expect("id"),
             TaskId(2)
+        );
+        assert_eq!(
+            parse_id(&Row(vec![Value::Integer(-1)])).err(),
+            Some(StoreError::Catalogue)
         );
         assert_eq!(id_from_rows(&[]).err(), Some(StoreError::Catalogue));
         assert_eq!(
@@ -630,8 +645,6 @@ mod persist_tests {
             move |tx| insert_or_join(tx, TaskKind::Backup, &principal, "", now())
         }))
         .expect("insert");
-        let again = wait::wait(store.write(last_id)).expect("last");
-        assert_eq!(again, id);
         let first = wait::wait(store.write(move |tx| mark_running(tx, id, now()))).expect("first");
         assert!(first);
         let second =
@@ -708,5 +721,95 @@ mod persist_tests {
         )
         .expect("none");
         assert_eq!(none, None);
+    }
+
+    fn is_db(error: &StoreError) -> bool {
+        matches!(error, StoreError::Db(_))
+    }
+
+    fn db_after_drop<T: Send + std::fmt::Debug + 'static>(
+        work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError> + Send + 'static,
+    ) -> StoreError {
+        let (_dir, store) = store();
+        wait::wait(store.write(move |tx| {
+            tx.execute(&Query::new("DROP TABLE tasks")).expect("drop");
+            work(tx)
+        }))
+        .expect_err("db")
+    }
+
+    #[test]
+    fn a_dropped_table_fails_each_write() {
+        assert!(!is_db(&StoreError::Catalogue));
+        let principal = user();
+        assert!(is_db(&db_after_drop({
+            let principal = principal.clone();
+            move |tx| find_open(tx, TaskKind::Backup, &principal, "")
+        })));
+        assert!(is_db(&db_after_drop({
+            let principal = principal.clone();
+            move |tx| insert_new(tx, TaskKind::Backup, &principal, "", now())
+        })));
+        assert!(is_db(&db_after_drop({
+            let principal = principal.clone();
+            move |tx| insert_or_join(tx, TaskKind::Backup, &principal, "", now())
+        })));
+        assert!(is_db(&db_after_drop(|tx| checkpoint(
+            tx,
+            TaskId(1),
+            b"x",
+            1
+        ))));
+        assert!(is_db(&db_after_drop(|tx| set_progress(tx, TaskId(1), 1))));
+        assert!(is_db(&db_after_drop(|tx| finish(
+            tx,
+            TaskId(1),
+            TaskStatus::Failed,
+            0,
+            None,
+            now(),
+            Some(now()),
+        ))));
+        assert!(is_db(&db_after_drop(|tx| cancel_waiting(
+            tx,
+            TaskId(1),
+            now()
+        ))));
+        assert!(is_db(&db_after_drop(|tx| mark_running(
+            tx,
+            TaskId(1),
+            now()
+        ))));
+        assert!(is_db(&db_after_drop(requeue_running)));
+        assert!(is_db(&db_after_drop({
+            let principal = principal.clone();
+            move |tx| {
+                on_insert_error(
+                    tx,
+                    TaskKind::Backup,
+                    &principal,
+                    "",
+                    DbError::Sqlite {
+                        code: super::SQLITE_CONSTRAINT,
+                    },
+                )
+            }
+        })));
+    }
+
+    #[test]
+    fn a_dropped_table_fails_each_read() {
+        let (_dir, store) = store();
+        wait::wait(store.write(|tx| {
+            tx.execute(&Query::new("DROP TABLE tasks")).expect("drop");
+            Ok(())
+        }))
+        .expect("dropped");
+        let waiting_rows = wait::wait(store.read(waiting)).expect("waiting reply");
+        assert!(is_db(&waiting_rows.expect_err("waiting")));
+        let by = wait::wait(store.read(|reader| by_id(reader, TaskId(1)))).expect("by_id reply");
+        assert!(is_db(&by.expect_err("by_id")));
+        let listed = wait::wait(store.read(all)).expect("all reply");
+        assert!(is_db(&listed.expect_err("all")));
     }
 }

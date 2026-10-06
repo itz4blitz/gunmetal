@@ -10,7 +10,7 @@ use gunmetal_core::id::{IdKind, PublicId};
 use gunmetal_core::time::Timestamp;
 use gunmetal_fs::dataroot::{DataRoot, Policy};
 use gunmetal_fs::host::HostFacts;
-use gunmetal_store::store::{Generation, Store};
+use gunmetal_store::store::{Generation, Store, StoreError};
 use gunmetal_testkit::clock::ManualClock;
 use gunmetal_testkit::tempdir::TempDir;
 
@@ -21,6 +21,7 @@ use super::kind::TaskKind;
 use super::persist;
 use super::runner::{Limits, MAX_PATH, Runner, TaskHandle, TaskId, TaskSnapshot};
 use super::schema::SCHEMA;
+use super::wait;
 use crate::testing::{self, TestClock};
 
 const BOUND: Duration = Duration::from_millis(400);
@@ -28,6 +29,7 @@ const FIRST: Generation = Generation([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
 
 struct World {
     runner: Runner,
+    store: Arc<Store>,
     clock: Arc<TestClock>,
     manual: Arc<ManualClock>,
     root: DataRoot,
@@ -50,6 +52,7 @@ fn world() -> World {
     let runner = Runner::open(Arc::clone(&store), clock.clone(), Limits::test()).expect("runner");
     World {
         runner,
+        store,
         clock,
         manual,
         root,
@@ -60,6 +63,7 @@ fn world() -> World {
 fn reopen(world: World) -> World {
     let World {
         runner,
+        store: _,
         clock,
         manual,
         root,
@@ -71,6 +75,7 @@ fn reopen(world: World) -> World {
     let runner = Runner::open(Arc::clone(&store), clock.clone(), Limits::test()).expect("runner");
     World {
         runner,
+        store,
         clock,
         manual,
         root,
@@ -151,7 +156,12 @@ impl Handler for Holding {
         self.saw.lock().expect("saw").push(n);
         ctx.checkpoint(&[n.saturating_add(1)], 50)?;
         self.at_checkpoint.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + BOUND;
         while self.hold.load(Ordering::SeqCst) && !ctx.cancelled() && !ctx.stopping() {
+            assert!(
+                Instant::now() < deadline,
+                "handler did not see cancel or stop"
+            );
             thread::sleep(Duration::from_millis(2));
         }
         if ctx.stopping() {
@@ -207,7 +217,9 @@ impl Handler for Watch {
     fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
         ctx.checkpoint(&[1], 10)?;
         self.at_checkpoint.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + BOUND;
         while self.hold.load(Ordering::SeqCst) && !ctx.stopping() {
+            assert!(Instant::now() < deadline, "handler did not see stopping");
             thread::sleep(Duration::from_millis(2));
         }
         self.saw_stop.store(ctx.stopping(), Ordering::SeqCst);
@@ -372,6 +384,31 @@ fn a_kind_with_no_handler_stays_waiting() {
     }));
     let done = settle(&world.runner, handle.id);
     assert_eq!(done.status, TaskStatus::Succeeded);
+}
+
+#[test]
+fn a_registered_handler_starts_the_waiting_job_promptly() {
+    let world = world();
+    let handle = world
+        .runner
+        .request(TaskKind::Backup, user(1), None)
+        .expect("queued");
+    world.runner.register(Arc::new(Completing {
+        kind: TaskKind::Backup,
+        runs: Arc::new(AtomicUsize::new(0)),
+    }));
+    let deadline = Instant::now() + Duration::from_millis(100);
+    loop {
+        let snap = world.runner.snapshot(handle.id).expect("snap");
+        if snap.status != TaskStatus::Waiting {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "job stayed waiting after a handler was registered"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
 }
 
 #[test]
@@ -612,7 +649,12 @@ fn progress_is_stored_before_the_job_finishes() {
         fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
             ctx.progress(40)?;
             self.at.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + BOUND;
             while self.hold.load(Ordering::SeqCst) && !ctx.cancelled() && !ctx.stopping() {
+                assert!(
+                    Instant::now() < deadline,
+                    "handler did not see cancel or stop"
+                );
                 thread::sleep(Duration::from_millis(2));
             }
             Ok(Outcome::Succeeded)
@@ -753,4 +795,263 @@ fn progress_above_one_hundred_is_stored_as_one_hundred() {
 fn a_task_id_that_does_not_fit_i64_is_clamped() {
     assert_eq!(TaskId(u64::MAX).as_i64(), i64::MAX);
     assert_eq!(TaskId(1).as_i64(), 1);
+}
+
+#[test]
+fn a_closed_store_refuses_a_request_and_a_cancel() {
+    let world = world();
+    let store = Arc::clone(&world.store);
+    let _ = wait::wait(store.write(|_tx| -> Result<(), StoreError> {
+        panic!("stop the writer");
+    }));
+    assert_eq!(
+        world.runner.request(TaskKind::Backup, user(1), None).err(),
+        Some(TaskError::Store(StoreError::Closed))
+    );
+    assert_eq!(
+        world.runner.cancel(TaskId(1)).err(),
+        Some(TaskError::Store(StoreError::Closed))
+    );
+    for _ in 0..gunmetal_store::readers::READERS {
+        let _ = wait::wait(store.read(|_reader| panic!("stop a reader")));
+    }
+    assert_eq!(
+        world.runner.snapshot(TaskId(1)).err(),
+        Some(TaskError::Store(StoreError::Closed))
+    );
+    assert_eq!(
+        world.runner.list().err(),
+        Some(TaskError::Store(StoreError::Closed))
+    );
+}
+
+#[test]
+fn a_waiting_row_the_catalogue_rejects_is_skipped() {
+    let world = world();
+    wait::wait(world.store.write(|tx| {
+        tx.execute(&gunmetal_fs::sqlite::Query::new(
+            "INSERT INTO tasks (kind, principal, path, status, progress, requested_at) \
+             VALUES ('backup', 'not-an-id', '', 'waiting', 0, 1)",
+        ))
+        .map(|_| ())
+        .map_err(StoreError::from)
+    }))
+    .expect("planted");
+    world.runner.register(Arc::new(Completing {
+        kind: TaskKind::Backup,
+        runs: Arc::new(AtomicUsize::new(0)),
+    }));
+    thread::sleep(Duration::from_millis(40));
+    assert_eq!(
+        world.runner.list().err(),
+        Some(TaskError::Store(StoreError::Catalogue))
+    );
+}
+
+#[test]
+fn checkpoint_after_cancel_is_cancelled() {
+    struct WaitThenCheckpoint {
+        ready: Arc<AtomicBool>,
+    }
+    impl Handler for WaitThenCheckpoint {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Purge
+        }
+        fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            self.ready.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + BOUND;
+            while !ctx.cancelled() && !ctx.stopping() {
+                assert!(
+                    Instant::now() < deadline,
+                    "handler did not see cancel or stop"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            ctx.checkpoint(&[1], 10)?;
+            Ok(Outcome::Succeeded)
+        }
+    }
+    let world = world();
+    let ready = Arc::new(AtomicBool::new(false));
+    world.runner.register(Arc::new(WaitThenCheckpoint {
+        ready: Arc::clone(&ready),
+    }));
+    let handle = world
+        .runner
+        .request(TaskKind::Purge, user(1), None)
+        .expect("run");
+    let deadline = Instant::now() + BOUND;
+    while !ready.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "handler did not start");
+        thread::sleep(Duration::from_millis(5));
+    }
+    world.runner.cancel(handle.id).expect("cancel");
+    let done = settle(&world.runner, handle.id);
+    assert_eq!(done.status, TaskStatus::Cancelled);
+}
+
+#[test]
+fn progress_after_cancel_is_cancelled() {
+    struct WaitThenProgress {
+        ready: Arc<AtomicBool>,
+    }
+    impl Handler for WaitThenProgress {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Rebuild
+        }
+        fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            self.ready.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + BOUND;
+            while !ctx.cancelled() && !ctx.stopping() {
+                assert!(
+                    Instant::now() < deadline,
+                    "handler did not see cancel or stop"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            ctx.progress(10)?;
+            Ok(Outcome::Succeeded)
+        }
+    }
+    let world = world();
+    let ready = Arc::new(AtomicBool::new(false));
+    world.runner.register(Arc::new(WaitThenProgress {
+        ready: Arc::clone(&ready),
+    }));
+    let handle = world
+        .runner
+        .request(TaskKind::Rebuild, user(1), None)
+        .expect("run");
+    let deadline = Instant::now() + BOUND;
+    while !ready.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "handler did not start");
+        thread::sleep(Duration::from_millis(5));
+    }
+    world.runner.cancel(handle.id).expect("cancel");
+    let done = settle(&world.runner, handle.id);
+    assert_eq!(done.status, TaskStatus::Cancelled);
+}
+
+#[test]
+fn checkpoint_after_stop_is_interrupted() {
+    struct WaitThenCheckpointOnStop {
+        ready: Arc<AtomicBool>,
+    }
+    impl Handler for WaitThenCheckpointOnStop {
+        fn kind(&self) -> TaskKind {
+            TaskKind::PathRefresh
+        }
+        fn run(&self, ctx: &TaskCtx) -> Result<Outcome, TaskError> {
+            self.ready.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + BOUND;
+            while !ctx.stopping() {
+                assert!(Instant::now() < deadline, "handler did not see stopping");
+                thread::sleep(Duration::from_millis(2));
+            }
+            ctx.checkpoint(&[1], 10)?;
+            Ok(Outcome::Succeeded)
+        }
+    }
+    let world = world();
+    let ready = Arc::new(AtomicBool::new(false));
+    world.runner.register(Arc::new(WaitThenCheckpointOnStop {
+        ready: Arc::clone(&ready),
+    }));
+    let handle = world
+        .runner
+        .request(TaskKind::PathRefresh, user(1), None)
+        .expect("run");
+    let deadline = Instant::now() + BOUND;
+    while !ready.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "handler did not start");
+        thread::sleep(Duration::from_millis(5));
+    }
+    drop(world.runner);
+    assert!(ready.load(Ordering::SeqCst));
+    let _ = handle;
+}
+
+#[test]
+fn run_one_skips_a_job_that_is_not_waiting() {
+    let world = world();
+    let handle = world
+        .runner
+        .request(TaskKind::Backup, user(1), None)
+        .expect("queued");
+    world.runner.cancel(handle.id).expect("cancel");
+    let runs = Arc::new(AtomicUsize::new(0));
+    world.runner.run_one(
+        handle.id,
+        Arc::new(Completing {
+            kind: TaskKind::Backup,
+            runs: Arc::clone(&runs),
+        }),
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn dropping_a_runner_without_a_worker_handle_is_quiet() {
+    let world = world();
+    let World {
+        mut runner, store, ..
+    } = world;
+    let worker = runner.take_worker().expect("worker");
+    drop(runner);
+    worker.join().expect("joined");
+    drop(store);
+}
+
+#[test]
+fn a_dropped_table_refuses_open() {
+    let world = world();
+    wait::wait(world.store.write(|tx| {
+        tx.execute(&gunmetal_fs::sqlite::Query::new("DROP TABLE tasks"))
+            .expect("drop");
+        Ok::<(), StoreError>(())
+    }))
+    .expect("dropped");
+    assert_eq!(
+        world
+            .runner
+            .list()
+            .err()
+            .map(|error| matches!(error, TaskError::Store(_))),
+        Some(true)
+    );
+    assert_eq!(
+        world
+            .runner
+            .snapshot(TaskId(1))
+            .err()
+            .map(|error| matches!(error, TaskError::Store(_))),
+        Some(true)
+    );
+    let opened = Runner::open(
+        Arc::clone(&world.store),
+        world.clock.clone(),
+        Limits::test(),
+    );
+    assert_eq!(
+        opened
+            .err()
+            .map(|error| matches!(error, TaskError::Store(_))),
+        Some(true)
+    );
+}
+
+#[test]
+fn mark_running_a_job_that_is_not_waiting_does_not_start() {
+    let world = world();
+    let handle = world
+        .runner
+        .request(TaskKind::Backup, user(1), None)
+        .expect("queued");
+    world.runner.cancel(handle.id).expect("cancel");
+    let started = super::runner::take_running(
+        &world.store,
+        Timestamp::from_millis(testing::NOON).expect("noon"),
+        handle.id,
+    );
+    assert_eq!(started, None);
 }
