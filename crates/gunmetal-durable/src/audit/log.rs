@@ -666,7 +666,7 @@ fn load_segments(root: &DataRoot, state: &mut State) -> Result<(), AuditError> {
                 if line.seq < state.first {
                     continue;
                 }
-                if line.kind == Kind::Checkpoint || line.kind == Kind::Pruned {
+                if matches!(line.kind, Kind::Checkpoint | Kind::Pruned) {
                     state.checkpoint = Some(SignedHead {
                         seq: line.seq,
                         head: line.prev,
@@ -928,7 +928,7 @@ fn verify(state: &State, signing: &dyn MacProvider) -> Result<(), BrokenAt> {
         if chain::digest(&prev, &canonical) != line.hash {
             return Err(BrokenAt { seq: line.seq });
         }
-        if line.kind == Kind::Checkpoint || line.kind == Kind::Pruned {
+        if matches!(line.kind, Kind::Checkpoint | Kind::Pruned) {
             let payload = checkpoint_payload(line.seq, &line.prev);
             let kid = line.kid.unwrap_or(0);
             let Some(mac) = signing.mac(kid, &payload) else {

@@ -712,17 +712,18 @@ fn reopening_after_a_checkpoint_keeps_the_signed_head() {
 #[test]
 fn a_checkpoint_is_due_after_the_time_limit() {
     let data = data();
+    let limits = Limits {
+        segment: 4_096,
+        checkpoint_every: 1_000,
+        checkpoint_ms: 10,
+        reserve: 256,
+    };
     let log = AuditLog::open_with(
         handle(&data),
         Arc::new(MixMac::new(0)),
         Arc::new(MixMac::new(1)),
         Arc::new(Counted::new()),
-        Limits {
-            segment: 4_096,
-            checkpoint_every: 1_000,
-            checkpoint_ms: 10,
-            reserve: 256,
-        },
+        limits,
     )
     .expect("open");
     log.append_security_event(at(1_000), &egress(), None, ORDINARY)
@@ -739,6 +740,12 @@ fn a_checkpoint_is_due_after_the_time_limit() {
     log.append_security_event(at(1_021), &egress(), None, ORDINARY)
         .expect("due again");
     assert_eq!(log.head(&audit_permit()).expect("again").at, at(1_021));
+    log.append_security_event(at(1_022), &egress(), None, ORDINARY)
+        .expect("trail");
+    assert_eq!(log.head(&audit_permit()).expect("trail held").at, at(1_021));
+    drop(log);
+    let log = limited(&data, limits);
+    assert_eq!(log.head(&audit_permit()).expect("reloaded").at, at(1_021));
 }
 
 #[test]
