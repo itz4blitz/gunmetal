@@ -777,6 +777,8 @@ mod tests {
     use super::*;
     use crate::host::Filesystem;
     use proptest::prelude::*;
+    // Direct imports: Qodana does not resolve these macros through `prelude::*`.
+    use proptest::{prop_oneof, proptest};
     use std::io::Read;
 
     const UID: u32 = 1000;
@@ -1063,8 +1065,8 @@ mod tests {
         assert_eq!(settler.repairs, [earlier()]);
     }
 
-    fn read_options() -> cap_std::fs::OpenOptions {
-        let mut options = cap_std::fs::OpenOptions::new();
+    fn read_options() -> OpenOptions {
+        let mut options = OpenOptions::new();
         options.read(true);
         options
     }

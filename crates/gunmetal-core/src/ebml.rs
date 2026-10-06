@@ -294,6 +294,9 @@ mod tests {
     use super::*;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
+    use proptest::test_runner::{Config, TestRunner};
 
     /// Reference encoder used only as a test oracle; it shares no code with
     /// the decoder under test.
@@ -365,110 +368,153 @@ mod tests {
         );
     }
 
-    proptest! {
-        #[test]
-        fn yields_every_element_the_reference_encoder_writes(
-            encoded in vec(encoded_element(), 0..6),
-        ) {
-            let bytes: Vec<u8> = encoded.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
-            let expected: Vec<_> = encoded
-                .iter()
-                .map(|((id, body), _)| Ok(Element { id: ElementId(*id), body }))
-                .collect();
-            prop_assert_eq!(collect_all(&bytes), expected);
-        }
+    #[test]
+    fn yields_every_element_the_reference_encoder_writes() {
+        TestRunner::new(Config::default())
+            .run(&vec(encoded_element(), 0..6), |encoded| {
+                let bytes: Vec<u8> = encoded
+                    .iter()
+                    .flat_map(|(_, bytes)| bytes.clone())
+                    .collect();
+                let expected: Vec<_> = encoded
+                    .iter()
+                    .map(|((id, body), _)| {
+                        Ok(Element {
+                            id: ElementId(*id),
+                            body,
+                        })
+                    })
+                    .collect();
+                prop_assert_eq!(collect_all(&bytes), expected);
+                Ok(())
+            })
+            .unwrap();
+    }
 
-        #[test]
-        fn yields_whole_elements_then_one_error_at_any_cut(
-            encoded in vec(encoded_element(), 1..6),
-            cut_seed in any::<usize>(),
-        ) {
-            let bytes: Vec<u8> = encoded.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
-            let cut = cut_seed % bytes.len();
+    #[test]
+    fn yields_whole_elements_then_one_error_at_any_cut() {
+        TestRunner::new(Config::default())
+            .run(
+                &(vec(encoded_element(), 1..6), any::<usize>()),
+                |(encoded, cut_seed)| {
+                    let bytes: Vec<u8> = encoded
+                        .iter()
+                        .flat_map(|(_, bytes)| bytes.clone())
+                        .collect();
+                    let cut = cut_seed % bytes.len();
 
-            // Work out, independently of the iterator, which elements fit.
-            let mut expected = Vec::new();
-            let mut start = 0;
-            let mut cut_inside_element_at = None;
-            for ((id, body), element_bytes) in &encoded {
-                let end = start + element_bytes.len();
-                if end <= cut {
-                    expected.push(Element { id: ElementId(*id), body });
-                } else if start < cut {
-                    cut_inside_element_at = Some(start);
-                }
-                start = end;
-            }
+                    // Work out, independently of the iterator, which elements fit.
+                    let mut expected = Vec::new();
+                    let mut start = 0;
+                    let mut cut_inside_element_at = None;
+                    for ((id, body), element_bytes) in &encoded {
+                        let end = start + element_bytes.len();
+                        if end <= cut {
+                            expected.push(Element {
+                                id: ElementId(*id),
+                                body,
+                            });
+                        } else if start < cut {
+                            cut_inside_element_at = Some(start);
+                        }
+                        start = end;
+                    }
 
-            let mut results = collect_all(&bytes[..cut]);
-            if let Some(error_offset) = cut_inside_element_at {
-                let last = results.pop().expect("an error for the cut element");
-                prop_assert_eq!(last.as_ref().map_err(ElementError::offset), Err(error_offset));
-            }
-            let expected: Vec<Result<_, ElementError>> = expected.into_iter().map(Ok).collect();
-            prop_assert_eq!(results, expected);
-        }
+                    let mut results = collect_all(&bytes[..cut]);
+                    if let Some(error_offset) = cut_inside_element_at {
+                        let last = results.pop().expect("an error for the cut element");
+                        prop_assert_eq!(
+                            last.as_ref().map_err(ElementError::offset),
+                            Err(error_offset)
+                        );
+                    }
+                    let expected: Vec<Result<_, ElementError>> =
+                        expected.into_iter().map(Ok).collect();
+                    prop_assert_eq!(results, expected);
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn decodes_whatever_the_reference_encoder_writes(
-            width in 1_u8..=8,
-            raw in any::<u64>(),
-            tail in vec(any::<u8>(), 0..4),
-        ) {
-            let value = raw % (1_u64 << (7 * u32::from(width)));
-            let mut bytes = encode_vint(value, width);
-            bytes.extend(tail);
-            prop_assert_eq!(decode_vint(&bytes), Ok(Vint { value, width }));
-        }
+    #[test]
+    fn decodes_whatever_the_reference_encoder_writes() {
+        TestRunner::new(Config::default())
+            .run(
+                &(1_u8..=8, any::<u64>(), vec(any::<u8>(), 0..4)),
+                |(width, raw, tail)| {
+                    let value = raw % (1_u64 << (7 * u32::from(width)));
+                    let mut bytes = encode_vint(value, width);
+                    bytes.extend(tail);
+                    prop_assert_eq!(decode_vint(&bytes), Ok(Vint { value, width }));
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn reports_truncation_for_every_proper_prefix(
-            width in 2_u8..=8,
-            raw in any::<u64>(),
-            keep in 1_usize..8,
-        ) {
-            let value = raw % (1_u64 << (7 * u32::from(width)));
-            let bytes = encode_vint(value, width);
-            let keep = keep.min(usize::from(width) - 1);
-            prop_assert_eq!(
-                decode_vint(&bytes[..keep]),
-                Err(VintError::Truncated { needed: width, available: keep })
-            );
-        }
+    #[test]
+    fn reports_truncation_for_every_proper_prefix() {
+        TestRunner::new(Config::default())
+            .run(
+                &(2_u8..=8, any::<u64>(), 1_usize..8),
+                |(width, raw, keep)| {
+                    let value = raw % (1_u64 << (7 * u32::from(width)));
+                    let bytes = encode_vint(value, width);
+                    let keep = keep.min(usize::from(width) - 1);
+                    prop_assert_eq!(
+                        decode_vint(&bytes[..keep]),
+                        Err(VintError::Truncated {
+                            needed: width,
+                            available: keep
+                        })
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        #[test]
-        fn decodes_any_header_the_reference_encoder_writes(
-            id_width in 1_u8..=4,
-            id_raw in any::<u64>(),
-            size_width in 1_u8..=8,
-            // `None` forces the all-ones "unknown size" pattern, which random
-            // values almost never produce on their own.
-            size_raw in prop_oneof![Just(None), any::<u64>().prop_map(Some)],
-            body in vec(any::<u8>(), 0..4),
-        ) {
-            let id_marker = 1_u64 << (7 * u32::from(id_width));
-            let id_data = id_raw % id_marker;
-            let size_limit = 1_u64 << (7 * u32::from(size_width));
-            let size_data = size_raw.map_or(size_limit - 1, |raw| raw % size_limit);
+    #[test]
+    fn decodes_any_header_the_reference_encoder_writes() {
+        // `None` forces the all-ones "unknown size" pattern, which random
+        // values almost never produce on their own.
+        TestRunner::new(Config::default())
+            .run(
+                &(
+                    1_u8..=4,
+                    any::<u64>(),
+                    1_u8..=8,
+                    prop_oneof![Just(None), any::<u64>().prop_map(Some)],
+                    vec(any::<u8>(), 0..4),
+                ),
+                |(id_width, id_raw, size_width, size_raw, body)| {
+                    let id_marker = 1_u64 << (7 * u32::from(id_width));
+                    let id_data = id_raw % id_marker;
+                    let size_limit = 1_u64 << (7 * u32::from(size_width));
+                    let size_data = size_raw.map_or(size_limit - 1, |raw| raw % size_limit);
 
-            let mut bytes = encode_vint(id_data, id_width);
-            bytes.extend(encode_vint(size_data, size_width));
-            bytes.extend(body);
+                    let mut bytes = encode_vint(id_data, id_width);
+                    bytes.extend(encode_vint(size_data, size_width));
+                    bytes.extend(body);
 
-            let expected_size = if size_data == size_limit - 1 {
-                DataSize::Unknown
-            } else {
-                DataSize::Known(size_data)
-            };
-            prop_assert_eq!(
-                decode_element_header(&bytes),
-                Ok(ElementHeader {
-                    id: ElementId(u32::try_from(id_data | id_marker).unwrap()),
-                    size: expected_size,
-                    header_len: id_width + size_width,
-                })
-            );
-        }
+                    let expected_size = if size_data == size_limit - 1 {
+                        DataSize::Unknown
+                    } else {
+                        DataSize::Known(size_data)
+                    };
+                    prop_assert_eq!(
+                        decode_element_header(&bytes),
+                        Ok(ElementHeader {
+                            id: ElementId(u32::try_from(id_data | id_marker).unwrap()),
+                            size: expected_size,
+                            header_len: id_width + size_width,
+                        })
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 
     #[test]
