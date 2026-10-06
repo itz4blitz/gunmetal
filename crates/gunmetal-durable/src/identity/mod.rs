@@ -5,6 +5,7 @@
 mod columns;
 pub mod error;
 pub mod mapping;
+pub mod permitted;
 pub mod pre_principal;
 pub mod settings;
 pub mod store;
