@@ -494,6 +494,7 @@ mod tests {
                         b"interrupted",
                     )
                     .expect("leftover");
+                    self.write(&[])?;
                 }
                 self.inner.write(bytes)
             }
@@ -507,6 +508,9 @@ mod tests {
             root: Some(arrange(&dir)),
             inner: planted.clone(),
         };
+        let mut planted_out = out;
+        planted_out.flush().expect("flush");
+        let out = planted_out;
         let (clock, _) = testing::clock();
         let started = AppState::start(dir.path(), &local(), &Env::default(), clock, Box::new(out));
         assert_eq!(

@@ -35,6 +35,51 @@ type SourceCommit<'a> = (
     Option<([u8; 16], &'a ClientContext)>,
 );
 
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static FAIL: Cell<u32> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+const FAIL_HEAD: u32 = 1;
+#[cfg(test)]
+const FAIL_WRITE: u32 = 2;
+#[cfg(test)]
+const FAIL_SYNC: u32 = 4;
+#[cfg(test)]
+const FAIL_RESERVE: u32 = 8;
+#[cfg(test)]
+const FAIL_SHRINK: u32 = 16;
+#[cfg(test)]
+const FAIL_COMMIT: u32 = 32;
+#[cfg(test)]
+const FAIL_PUT: u32 = 64;
+#[cfg(test)]
+const FAIL_REMOVE: u32 = 128;
+#[cfg(test)]
+const FAIL_ADDR_CKPT: u32 = 256;
+#[cfg(test)]
+const FAIL_LINE: u32 = 512;
+
+#[cfg(test)]
+fn take_fail(bit: u32) -> bool {
+    let bits = FAIL.get();
+    if bits & bit == 0 {
+        false
+    } else {
+        FAIL.set(bits & !bit);
+        true
+    }
+}
+
+#[cfg(test)]
+fn arm_fail(bit: u32) {
+    FAIL.set(FAIL.get() | bit);
+}
+
 /// Segment size, checkpoint period and reserve of a production log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -375,6 +420,10 @@ impl AuditLog {
                     b0
                 });
                 self.random.fill(&mut salt)?;
+                #[cfg(test)]
+                if take_fail(FAIL_COMMIT) {
+                    return Err(AuditError::MacUnavailable);
+                }
                 let (kid, tag) = addresses::commit(self.address.as_ref(), ctx.addr(), &salt)?;
                 (Some(kid), Some(tag), Some((salt, ctx)))
             }
@@ -397,6 +446,10 @@ impl AuditLog {
         let raw = with_hash(&canonical, &hash);
         write_line(&self.root, state, &self.limits, &raw)?;
         if let Some((salt, ctx)) = salt {
+            #[cfg(test)]
+            if take_fail(FAIL_PUT) {
+                return Err(AuditError::Io(std::io::ErrorKind::Other));
+            }
             addresses::put(&state.db, seq, now.millis(), &salt, ctx.addr())?;
         }
         state.lines.push(Line {
@@ -601,18 +654,40 @@ fn write_line(
         state.bytes = 0;
     }
     let path = DataPath::audit_segment(state.seg);
+    #[cfg(test)]
+    if take_fail(FAIL_LINE) {
+        return Err(AuditError::Io(std::io::ErrorKind::Other));
+    }
     let mut file = if state.bytes == 0 {
         root.create_new(&path)?
     } else {
         root.append(&path)?
     };
-    writeln!(file, "{raw}")?;
-    file.sync_all()?;
+    let wrote = writeln!(file, "{raw}");
+    #[cfg(test)]
+    let wrote = if take_fail(FAIL_WRITE) {
+        Err(std::io::Error::from(std::io::ErrorKind::WriteZero))
+    } else {
+        wrote
+    };
+    wrote?;
+    let synced = file.sync_all();
+    #[cfg(test)]
+    let synced = if take_fail(FAIL_SYNC) {
+        Err(std::io::Error::from(std::io::ErrorKind::WriteZero))
+    } else {
+        synced
+    };
+    synced?;
     state.bytes = state.bytes.saturating_add(add);
     Ok(())
 }
 
 fn persist_head(root: &DataRoot, state: &State) -> Result<(), AuditError> {
+    #[cfg(test)]
+    if take_fail(FAIL_HEAD) {
+        return Err(AuditError::Io(std::io::ErrorKind::Other));
+    }
     let mut text = String::from("{");
     field_u64(&mut text, "next", state.next);
     field_u64(&mut text, "seg", u64::from(state.seg.get()));
@@ -639,8 +714,12 @@ fn load_head(text: &str, db: Db) -> Result<State, AuditError> {
     let bytes = map
         .get("bytes")
         .and_then(Json::num)
-        .and_then(|n| usize::try_from(n).ok())
         .ok_or(AuditError::Corrupt { seq: 0 })?;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a stored segment length is a JSON u64 that fits usize on every architecture this crate builds"
+    )]
+    let bytes = bytes as usize;
     let head = map
         .get("head")
         .and_then(Json::str)
@@ -833,11 +912,19 @@ fn apply_retention(
                 }
             }
             Purge::Remove => {
+                #[cfg(test)]
+                if take_fail(FAIL_REMOVE) {
+                    return Err(AuditError::Io(std::io::ErrorKind::Other));
+                }
                 addresses::remove(&state.db, seq)?;
                 removed = removed.saturating_add(1);
             }
             Purge::Keep => {}
         }
+    }
+    #[cfg(test)]
+    if take_fail(FAIL_ADDR_CKPT) {
+        return Err(AuditError::Io(std::io::ErrorKind::Other));
     }
     addresses::checkpoint(&state.db)?;
     let mut drop_through = 0_u64;
@@ -971,6 +1058,10 @@ fn verify(state: &State, signing: &dyn MacProvider) -> Result<(), BrokenAt> {
 }
 
 fn ensure_reserve(root: &DataRoot, bytes: usize) -> Result<(), AuditError> {
+    #[cfg(test)]
+    if take_fail(FAIL_RESERVE) {
+        return Err(AuditError::Io(std::io::ErrorKind::Other));
+    }
     if root.open_read(&AUDIT_RESERVE).is_ok() {
         Ok(())
     } else {
@@ -981,6 +1072,10 @@ fn ensure_reserve(root: &DataRoot, bytes: usize) -> Result<(), AuditError> {
 }
 
 fn shrink_reserve(root: &DataRoot) -> Result<(), AuditError> {
+    #[cfg(test)]
+    if take_fail(FAIL_SHRINK) {
+        return Err(AuditError::Io(std::io::ErrorKind::Other));
+    }
     root.replace(&AUDIT_RESERVE, &[0_u8; 8])?;
     Ok(())
 }

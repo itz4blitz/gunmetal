@@ -20,8 +20,10 @@ use gunmetal_fs::path::{AUDIT_DIR, AUDIT_HEAD, AUDIT_RESERVE, AuditSeg, DataPath
 use proptest::prelude::*;
 
 use super::{
-    AuditLog, FIRST_SEG, Kind, Limits, checkpoint_mac_from_raw, ensure_reserve, load_head,
-    load_segments, parse_line, persist_head, shrink_reserve, write_line,
+    AuditLog, FAIL_ADDR_CKPT, FAIL_COMMIT, FAIL_HEAD, FAIL_LINE, FAIL_PUT, FAIL_REMOVE,
+    FAIL_RESERVE, FAIL_SHRINK, FAIL_SYNC, FAIL_WRITE, FIRST_SEG, Kind, Limits, arm_fail,
+    checkpoint_mac_from_raw, ensure_reserve, load_head, load_segments, parse_line, persist_head,
+    shrink_reserve, write_line,
 };
 use crate::audit::chain;
 use crate::audit::encode::{hex, unhex32};
@@ -1724,5 +1726,125 @@ fn a_directory_where_the_head_should_be_refuses_a_fresh_open() {
             Limits::test(),
         )
         .is_err()
+    );
+}
+
+fn open_fails(bit: u32) {
+    let data = crate::audit::testing::data();
+    arm_fail(bit);
+    assert!(
+        AuditLog::open_with(
+            handle(&data),
+            Arc::new(MixMac::new(0)),
+            Arc::new(MixMac::new(1)),
+            Arc::new(Counted::new()),
+            Limits::test(),
+        )
+        .is_err()
+    );
+}
+
+fn append_fails(bit: u32) {
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    arm_fail(bit);
+    assert!(
+        opened
+            .append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+            .is_err()
+    );
+}
+
+fn addressed_append_fails(bit: u32) {
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    arm_fail(bit);
+    assert!(
+        opened
+            .append_security_event(
+                at(1_791_028_800_000),
+                &login_ok(),
+                Some(&internet()),
+                ORDINARY
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn injected_io_failures_are_typed_at_each_call_site() {
+    open_fails(FAIL_RESERVE);
+    open_fails(FAIL_HEAD);
+    append_fails(FAIL_HEAD);
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened
+        .append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    arm_fail(FAIL_HEAD);
+    assert!(
+        opened
+            .append_security_event(at(1_791_028_800_001), &egress(), None, ORDINARY)
+            .is_err()
+    );
+    append_fails(FAIL_WRITE);
+    append_fails(FAIL_SYNC);
+    append_fails(FAIL_LINE);
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened.simulate_full_disk();
+    arm_fail(FAIL_SHRINK);
+    assert!(
+        opened
+            .append_security_event(
+                at(1_791_028_800_000),
+                &debug_on(),
+                None,
+                WriteClass::Recovery
+            )
+            .is_err()
+    );
+    addressed_append_fails(FAIL_COMMIT);
+    addressed_append_fails(FAIL_PUT);
+    let t0 = at(1_791_028_800_000);
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened
+        .append_security_event(t0, &login_ok(), Some(&internet()), ORDINARY)
+        .expect("addr");
+    arm_fail(FAIL_REMOVE);
+    assert!(
+        opened
+            .apply_retention(&DEFAULT, at(t0.millis() + 91 * 86_400_000))
+            .is_err()
+    );
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened
+        .append_security_event(t0, &login_ok(), Some(&internet()), ORDINARY)
+        .expect("addr");
+    arm_fail(FAIL_ADDR_CKPT);
+    assert!(opened.apply_retention(&DEFAULT, t0).is_err());
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened
+        .append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("1");
+    arm_fail(FAIL_HEAD);
+    assert!(
+        opened
+            .apply_retention(&DEFAULT, at(t0.millis() + 366 * 86_400_000))
+            .is_err()
+    );
+    let data = crate::audit::testing::data();
+    let opened = log(&data);
+    opened
+        .append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("1");
+    arm_fail(FAIL_LINE);
+    assert!(
+        opened
+            .apply_retention(&DEFAULT, at(t0.millis() + 366 * 86_400_000))
+            .is_err()
     );
 }

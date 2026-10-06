@@ -224,6 +224,7 @@ mod tests {
         assert!(object(r#"{"x":"\u0022"}"#).is_ok());
         assert!(object(r#"{"x":"\q"}"#).is_err());
         assert!(object(r#"{"x":"\u00zz"}"#).is_err());
+        assert!(object("{\"x\":\"\\u").is_err());
         assert!(object(r#"{"x":"\ud800"}"#).is_err());
         assert!(object(r#"{"a":1;}"#).is_err());
         assert!(object("{}").is_ok());
