@@ -84,6 +84,11 @@ pub const EXCEPTIONS: &[Exception] = &[
         reason: "the core's one bounded pre-sizing helper (SEC-MED-003, WP-004)",
     },
     Exception {
+        path: "crates/gunmetal-durable/src/audit/log_tests.rs",
+        lint: LINTS[1],
+        reason: "the audit log's tests chmod the audit directory and scan it as raw bytes for a sentinel address (SEC-OPS-020, SEC-PRV-003, WP-069)",
+    },
+    Exception {
         path: "crates/gunmetal-fs/src/dataroot.rs",
         lint: LINTS[1],
         reason: "the data-root handle, the filesystem door (SEC-MED-033, WP-126)",
