@@ -8,7 +8,7 @@ declare module 'react-native-web' {
 
   export type TextProps = {
     children?: ReactNode;
-    className?: string;
+    id?: string;
     accessibilityRole?: string;
     accessibilityLabel?: string;
   };

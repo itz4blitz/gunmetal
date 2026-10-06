@@ -1,14 +1,22 @@
 import { Text, View } from 'react-native-web';
 import { tokenClass, type ShellProps } from './compose.ts';
 
-// One view and one line of text with a token colour, plus the value that changes at run time.
-export function Shell({ label, count }: ShellProps) {
+export function Shell({ wordmark, title, hint, clock }: ShellProps) {
   return (
     <View id={tokenClass()}>
-      <Text>{label}</Text>
-      <Text accessibilityRole="status" accessibilityLabel={label}>
-        {String(count)}
-      </Text>
+      <View id="shell-header">
+        <Text id="shell-wordmark">{wordmark}</Text>
+        <Text id="shell-clock" accessibilityRole="status" accessibilityLabel="Uptime">
+          {clock}
+        </Text>
+      </View>
+      <View id="shell-main">
+        <Text id="shell-title">{title}</Text>
+        <Text id="shell-hint">{hint}</Text>
+      </View>
+      <View id="shell-bar">
+        <View id="shell-play" />
+      </View>
     </View>
   );
 }

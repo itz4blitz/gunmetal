@@ -6,6 +6,7 @@ test('the shell stylesheet uses the dark canvas and primary text token colours',
   const css = await readFile(join(process.cwd(), 'apps/web/public/shell.css'), 'utf8');
   expect(css.includes('background: #0f1317')).toStrictEqual(true);
   expect(css.includes('color: #e9eef2')).toStrictEqual(true);
+  expect(css.includes('background: #d4952f')).toStrictEqual(true);
   expect(css.includes('url(')).toStrictEqual(false);
 });
 
