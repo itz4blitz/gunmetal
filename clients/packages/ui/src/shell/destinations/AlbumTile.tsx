@@ -1,4 +1,4 @@
-import type { MouseEvent, KeyboardEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellAlbum } from '../library-types.ts';
@@ -44,46 +44,50 @@ export function AlbumTile({ album, messages, onOpen, onPlay }: AlbumTileProps) {
     <View
       id={`album-tile-${album.id}`}
       dataSet={{ albumTile: album.id, hostile: album.hostile ? '1' : '0' }}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      tabIndex={0}
-      onClick={() => {
-        onOpen(album.id);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onOpen(album.id);
-        }
-      }}
     >
-      <View dataSet={{ albumArt: '1' }}>
-        <CoverTile
-          tone={album.coverTone}
-          label={title}
-          size="grid"
-          coverId={`cover-grid-${album.id}`}
-        />
-        <View
-          dataSet={{ albumPlay: '1' }}
-          accessibilityRole="button"
-          accessibilityLabel={messages.playAlbum}
-          tabIndex={0}
-          onClick={(event: MouseEvent<HTMLElement>) => {
+      <View
+        dataSet={{ albumOpen: '1' }}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        tabIndex={0}
+        onClick={() => {
+          onOpen(album.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpen(album.id);
+          }
+        }}
+      >
+        <View dataSet={{ albumArt: '1' }}>
+          <CoverTile
+            tone={album.coverTone}
+            label={title}
+            size="grid"
+            coverId={`cover-grid-${album.id}`}
+          />
+        </View>
+        <Text dataSet={{ albumTitle: '1' }}>{title}</Text>
+        <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
+      </View>
+      <View
+        dataSet={{ albumPlay: '1' }}
+        accessibilityRole="button"
+        accessibilityLabel={messages.playAlbum}
+        tabIndex={0}
+        onClick={(event: MouseEvent<HTMLElement>) => {
+          event.stopPropagation();
+          activatePlay(album.id, onOpen, onPlay);
+        }}
+        onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
             event.stopPropagation();
             activatePlay(album.id, onOpen, onPlay);
-          }}
-          onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              event.stopPropagation();
-              activatePlay(album.id, onOpen, onPlay);
-            }
-          }}
-        />
-      </View>
-      <Text dataSet={{ albumTitle: '1' }}>{title}</Text>
-      <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
+          }
+        }}
+      />
     </View>
   );
 }

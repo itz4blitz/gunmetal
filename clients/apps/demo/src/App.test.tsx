@@ -12,6 +12,8 @@ test('the demo app mounts the shell with fixture home rows and demo data', () =>
   expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Recently played' })).toBeTruthy();
+  expect(screen.getByText('Nothing played yet')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
 });
 

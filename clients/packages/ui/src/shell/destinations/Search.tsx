@@ -39,6 +39,38 @@ function demoLocalHits(
   return { albums, tracks };
 }
 
+function TypeChip({
+  id,
+  label,
+  pressed,
+  onToggle,
+}: {
+  id: string;
+  label: string;
+  pressed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <View
+      id={id}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: pressed }}
+      tabIndex={0}
+      dataSet={{ searchChip: '1', pressed: pressed ? '1' : '0' }}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      <Text>{label}</Text>
+    </View>
+  );
+}
+
 export function Search({
   messages,
   library,
@@ -47,56 +79,101 @@ export function Search({
   onPlayTrack,
 }: SearchProps) {
   const [query, setQuery] = useState('');
+  const [showAlbums, setShowAlbums] = useState(true);
+  const [showTracks, setShowTracks] = useState(true);
   const hits = demoLocalHits(library, query);
   const hasQuery = query.trim().length > 0;
+  const visibleAlbums = showAlbums ? hits.albums : [];
+  const visibleTracks = showTracks ? hits.tracks : [];
+  const noVisibleHits = visibleAlbums.length === 0 && visibleTracks.length === 0;
 
   return (
     <View id="destination-search">
       <Text id="destination-headline" accessibilityRole="header">
         {messages.searchHeadline}
       </Text>
-      <input
-        id="search-field"
-        type="search"
-        value={query}
-        placeholder={messages.searchPlaceholder}
-        aria-label={messages.searchPlaceholder}
-        onChange={(event) => {
-          setQuery(event.target.value);
-        }}
-      />
+      <View id="search-field-wrap">
+        <div id="search-affordance" aria-hidden="true" />
+        <input
+          id="search-field"
+          type="search"
+          value={query}
+          placeholder={messages.searchPlaceholder}
+          aria-label={messages.searchPlaceholder}
+          onChange={(event) => {
+            setQuery(event.target.value);
+          }}
+        />
+      </View>
+      <View
+        id="search-type-chips"
+        accessibilityRole="group"
+        accessibilityLabel={messages.searchTypeFilter}
+      >
+        <TypeChip
+          id="search-chip-albums"
+          label={messages.tabAlbums}
+          pressed={showAlbums}
+          onToggle={() => {
+            if (showAlbums && !showTracks) {
+              return;
+            }
+            setShowAlbums(!showAlbums);
+          }}
+        />
+        <TypeChip
+          id="search-chip-tracks"
+          label={messages.tabTracks}
+          pressed={showTracks}
+          onToggle={() => {
+            if (showTracks && !showAlbums) {
+              return;
+            }
+            setShowTracks(!showTracks);
+          }}
+        />
+      </View>
       {!hasQuery ? (
-        <Text id="search-recent-empty" dataSet={{ emptyState: 'search-recent' }}>
-          {messages.searchRecentEmpty}
-        </Text>
+        <View id="search-recent" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
+          <Text id="search-recent-heading" accessibilityRole="header" dataSet={{ type: 'title2' }}>
+            {messages.searchRecentHeading}
+          </Text>
+          <Text id="search-recent-empty" dataSet={{ emptyState: 'search-recent' }}>
+            {messages.searchRecentEmpty}
+          </Text>
+        </View>
       ) : (
         <View id="search-results">
           <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
-          {hits.albums.length === 0 && hits.tracks.length === 0 ? (
+          {noVisibleHits ? (
             <Text id="search-no-hits">{messages.searchNoHits}</Text>
           ) : (
             <>
-              <View dataSet={{ searchAlbums: '1' }}>
-                {hits.albums.map((album) => (
-                  <AlbumTile
-                    key={album.id}
-                    album={album}
-                    messages={messages}
-                    onOpen={onOpenAlbum}
-                    onPlay={onPlayAlbum}
-                  />
-                ))}
-              </View>
-              <View dataSet={{ searchTracks: '1' }}>
-                {hits.tracks.map((track) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    messages={messages}
-                    onPlay={onPlayTrack}
-                  />
-                ))}
-              </View>
+              {visibleAlbums.length > 0 ? (
+                <View dataSet={{ searchAlbums: '1' }}>
+                  {visibleAlbums.map((album) => (
+                    <AlbumTile
+                      key={album.id}
+                      album={album}
+                      messages={messages}
+                      onOpen={onOpenAlbum}
+                      onPlay={onPlayAlbum}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {visibleTracks.length > 0 ? (
+                <View dataSet={{ searchTracks: '1' }}>
+                  {visibleTracks.map((track) => (
+                    <TrackRow
+                      key={track.id}
+                      track={track}
+                      messages={messages}
+                      onPlay={onPlayTrack}
+                    />
+                  ))}
+                </View>
+              ) : null}
             </>
           )}
         </View>

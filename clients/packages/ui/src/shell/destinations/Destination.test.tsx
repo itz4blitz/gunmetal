@@ -9,13 +9,29 @@ afterEach(cleanup);
 test('home library search and settings destinations render fixture chrome', () => {
   const library = demoLibrary();
   const home = render(<Shell path="/" widthPx={1600} library={library} showDemoLabel />);
+  expect(screen.getByRole('heading', { name: 'Continue listening' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Recently played' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
   expect(screen.getByText('Nothing to continue yet')).toBeTruthy();
+  expect(screen.getByText('Nothing played yet')).toBeTruthy();
   expect(screen.getByText('No loved tracks yet')).toBeTruthy();
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: 'Enter' });
+  expect(document.querySelectorAll('[data-empty-card="1"]').length).toBeGreaterThanOrEqual(3);
+  expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
+  home.rerender(
+    <Shell
+      path="/"
+      widthPx={1600}
+      library={library}
+      showDemoLabel
+      historyState={{ scrollY: 0, itemId: 'demo-album-01' }}
+    />,
+  );
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
     'destination-headline',
   );
+  expect(document.querySelector('[data-album-header-large="1"]')).toBeTruthy();
+  expect(document.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Tracks' })).toBeTruthy();
   home.unmount();
 
   const libraryView = render(<Shell path="/library" widthPx={1200} library={library} />);
@@ -36,11 +52,21 @@ test('home library search and settings destinations render fixture chrome', () =
   libraryView.unmount();
 
   const search = render(<Shell path="/search" widthPx={800} library={library} />);
+  expect(screen.getByRole('heading', { name: 'Recent searches' })).toBeTruthy();
   expect(screen.getByText('No recent searches')).toBeTruthy();
+  expect(document.querySelector('#search-affordance')).toBeTruthy();
+  expect(document.querySelector('#search-field-wrap')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Search albums and tracks'), {
     target: { value: 'Harbour' },
   });
   expect(screen.getByText('Demo-local filter — not CorePort search')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+  expect(document.querySelector('[data-search-albums="1"]')).toBeNull();
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Albums' }), { key: 'Enter' });
+  expect(document.querySelector('[data-search-albums="1"]')).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Tracks' }), { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Albums' }), { key: 'Tab' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Albums' }), { key: ' ' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Harbour Lights' }), { key: ' ' });
   expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
   search.unmount();
@@ -49,18 +75,27 @@ test('home library search and settings destinations render fixture chrome', () =
   fireEvent.change(screen.getByLabelText('Search albums and tracks'), {
     target: { value: 'Pier' },
   });
+  fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+  expect(document.querySelector('[data-search-albums="1"]')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Pier at Dusk' }));
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
   fireEvent.change(screen.getByLabelText('Search albums and tracks'), {
     target: { value: 'zzzz' },
   });
   expect(screen.getByText('No matches for this query in Music')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
   searchTracks.unmount();
 
   const settings = render(<Shell path="/settings" widthPx={1600} library={library} />);
   expect(screen.getByRole('heading', { name: 'Appearance' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Demo data' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Playback' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'About' })).toBeTruthy();
+  expect(screen.getByText(/Stage-A fixture catalogue/)).toBeTruthy();
+  expect(screen.getByText(/arrive with CorePort/)).toBeTruthy();
   expect(screen.getByText(/fixture demo data only/)).toBeTruthy();
+  expect(document.querySelector('#settings-appearance #theme-switcher')).toBeTruthy();
   settings.unmount();
 });
 
@@ -213,4 +248,18 @@ test('hostile fixture album uses catalogue labels instead of corpus text in chro
   );
   expect(screen.getByText('Security corpus')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+});
+
+test('home recently-added empty card appears when every fixture album is hostile', () => {
+  const base = demoLibrary();
+  const hostile = base.albums.find((album) => album.hostile);
+  expect(hostile).toBeTruthy();
+  const library: ShellLibrary = {
+    kind: 'demo-fixtures',
+    albums: [hostile!],
+    artists: base.artists,
+  };
+  render(<Shell path="/" widthPx={1600} library={library} />);
+  expect(screen.getByText('No albums added yet')).toBeTruthy();
+  expect(document.querySelector('#home-row-recent [data-empty-card="1"]')).toBeTruthy();
 });

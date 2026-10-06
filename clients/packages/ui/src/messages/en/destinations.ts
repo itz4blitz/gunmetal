@@ -11,6 +11,7 @@ export type DestinationMessages = {
   emptyContinue: string;
   emptyLoved: string;
   emptyRecentlyPlayed: string;
+  emptyRecentlyAdded: string;
   tabAlbums: string;
   tabArtists: string;
   tabTracks: string;
@@ -55,6 +56,7 @@ export function destinationMessages(): DestinationMessages {
     emptyContinue: 'Nothing to continue yet',
     emptyLoved: 'No loved tracks yet',
     emptyRecentlyPlayed: 'Nothing played yet',
+    emptyRecentlyAdded: 'No albums added yet',
     tabAlbums: 'Albums',
     tabArtists: 'Artists',
     tabTracks: 'Tracks',

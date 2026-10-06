@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import type { ShellAlbum, ShellLibrary } from '../library-types.ts';
+import type { ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 
 export type HomeProps = {
@@ -10,10 +10,6 @@ export type HomeProps = {
   onPlayAlbum: (albumId: string) => void;
 };
 
-function fixtureAlbums(library: ShellLibrary): readonly ShellAlbum[] {
-  return library.albums.filter((album) => !album.hostile);
-}
-
 function EmptyCard({ state, copy }: { state: string; copy: string }) {
   return (
     <View dataSet={{ emptyRow: '1', emptyCard: '1' }}>
@@ -22,34 +18,8 @@ function EmptyCard({ state, copy }: { state: string; copy: string }) {
   );
 }
 
-function AlbumRow({
-  albums,
-  messages,
-  onOpenAlbum,
-  onPlayAlbum,
-}: {
-  albums: readonly ShellAlbum[];
-  messages: DestinationMessages;
-  onOpenAlbum: (albumId: string) => void;
-  onPlayAlbum: (albumId: string) => void;
-}) {
-  return (
-    <View dataSet={{ albumRow: '1' }}>
-      {albums.map((album) => (
-        <AlbumTile
-          key={album.id}
-          album={album}
-          messages={messages}
-          onOpen={onOpenAlbum}
-          onPlay={onPlayAlbum}
-        />
-      ))}
-    </View>
-  );
-}
-
 export function Home({ messages, library, onOpenAlbum, onPlayAlbum }: HomeProps) {
-  const albums = fixtureAlbums(library);
+  const albums = library.albums.filter((album) => !album.hostile);
 
   return (
     <View id="destination-home">
@@ -66,30 +36,26 @@ export function Home({ messages, library, onOpenAlbum, onPlayAlbum }: HomeProps)
         <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
           {messages.recentlyPlayed}
         </Text>
-        {albums.length === 0 ? (
-          <EmptyCard state="played" copy={messages.emptyRecentlyPlayed} />
-        ) : (
-          <AlbumRow
-            albums={albums}
-            messages={messages}
-            onOpenAlbum={onOpenAlbum}
-            onPlayAlbum={onPlayAlbum}
-          />
-        )}
+        <EmptyCard state="played" copy={messages.emptyRecentlyPlayed} />
       </View>
       <View id="home-row-recent" dataSet={{ homeRow: 'recent' }}>
         <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
           {messages.recentlyAdded}
         </Text>
         {albums.length === 0 ? (
-          <EmptyCard state="recent" copy={messages.emptyRecentlyPlayed} />
+          <EmptyCard state="recent" copy={messages.emptyRecentlyAdded} />
         ) : (
-          <AlbumRow
-            albums={albums}
-            messages={messages}
-            onOpenAlbum={onOpenAlbum}
-            onPlayAlbum={onPlayAlbum}
-          />
+          <View dataSet={{ albumRow: '1' }}>
+            {albums.map((album) => (
+              <AlbumTile
+                key={album.id}
+                album={album}
+                messages={messages}
+                onOpen={onOpenAlbum}
+                onPlay={onPlayAlbum}
+              />
+            ))}
+          </View>
         )}
       </View>
       <View id="home-row-loved" dataSet={{ homeRow: 'loved' }}>

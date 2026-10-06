@@ -64,7 +64,7 @@ export function AlbumDetail({
       >
         <Text>{messages.backToLibrary}</Text>
       </View>
-      <View dataSet={{ albumHeader: '1' }}>
+      <View dataSet={{ albumHeader: '1', albumHeaderLarge: '1' }}>
         <CoverTile
           tone={album.coverTone}
           label={title}
@@ -75,13 +75,14 @@ export function AlbumDetail({
           <Text id="destination-headline" accessibilityRole="header">
             {title}
           </Text>
-          <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
+          <Text dataSet={{ albumArtist: '1', type: 'title3' }}>{artist}</Text>
           <Text dataSet={{ albumYear: '1' }}>{`${messages.yearLabel} ${album.year}`}</Text>
           <View
             id="album-play"
             accessibilityRole="button"
             accessibilityLabel={messages.playAlbum}
             tabIndex={0}
+            dataSet={{ brassHex: '1' }}
             onClick={() => {
               onPlayAlbum(album.id);
             }}
@@ -99,7 +100,7 @@ export function AlbumDetail({
       {album.discs.length > 1
         ? album.discs.map((disc) => (
             <View key={disc.index} dataSet={{ discBlock: `${disc.index}` }}>
-              <Text accessibilityRole="header">
+              <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
                 {disc.title === '' ? `${messages.discsHeading} ${disc.index}` : disc.title}
               </Text>
               {album.tracks
@@ -114,9 +115,16 @@ export function AlbumDetail({
                 ))}
             </View>
           ))
-        : album.tracks.map((track) => (
-            <TrackRow key={track.id} track={track} messages={messages} onPlay={onPlayTrack} />
-          ))}
+        : (
+          <View dataSet={{ discBlock: '1' }}>
+            <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
+              {messages.tracksHeading}
+            </Text>
+            {album.tracks.map((track) => (
+              <TrackRow key={track.id} track={track} messages={messages} onPlay={onPlayTrack} />
+            ))}
+          </View>
+        )}
     </View>
   );
 }
