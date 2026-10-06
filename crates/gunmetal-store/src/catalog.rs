@@ -1,19 +1,23 @@
 //! The catalogue's tables in the cache (WP-067): the synced-library
 //! records, each track's credits and the extras kept beside a track.
 //!
-//! [`apply_batch`] is the only writer. It touches a row only when the batch
-//! holds something different from what is stored, and it returns one
-//! [`CatalogChange`] for each record that really changed, so applying the
-//! same batch again writes nothing and returns nothing (LIB-016). The
-//! caller writes the returned changes to the change log in the same
-//! transaction (WP-102).
+//! [`apply_batch`] is the only writer, and it applies only a
+//! [`CheckedBatch`]: a [`CatalogBatch`] that [`CatalogBatch::checked`] has
+//! found to hold at most [`MAX_BATCH`] entries and to name each record,
+//! each track's credits and each extra at most once. It touches a row only
+//! when the batch holds something different from what is stored, and it
+//! returns one [`CatalogChange`] for each record that really changed, so
+//! applying the same batch again writes nothing and returns nothing
+//! (LIB-016). The caller writes the returned changes to the change log in
+//! the same transaction (WP-102).
 //!
 //! Every reader takes the [`Permit`] the policy returned and filters in SQL
 //! by the libraries it holds (SEC-IAM-070, SEC-API-010). There is no reader
 //! without one. A row in a library the permit does not hold is never
 //! returned, so a hidden record answers exactly as one that does not exist
 //! (SEC-API-011). Every row type implements [`HasLibrary`], so the
-//! authorisation layer can check a row again (WP-065).
+//! authorisation layer can check a row again (WP-065). A page holds at most
+//! [`MAX_PAGE`] rows.
 //!
 //! Every statement is static text with bound values (SEC-API-066), so a
 //! title or a genre full of SQL is stored and read back as it is.
@@ -27,8 +31,38 @@
 //! The release-group table arrives with the release-group record in R1.1
 //! (WP-146), and the reader of a track's credits arrives with the credits
 //! panel that needs it.
+//!
+//! # Use
+//!
+//! ```
+//! use gunmetal_core::authz::Permit;
+//! use gunmetal_core::catalog::CatalogChange;
+//! use gunmetal_store::catalog::{self, BatchError, CatalogBatch, MAX_PAGE, ReadError, TrackRow};
+//! use gunmetal_store::reply::Reply;
+//! use gunmetal_store::store::Store;
+//!
+//! /// Writes one commit of a scan. The batch is checked before it reaches
+//! /// the cache's one writer.
+//! fn commit(
+//!     store: &Store,
+//!     batch: CatalogBatch,
+//! ) -> Result<Reply<Vec<CatalogChange>>, BatchError> {
+//!     let batch = batch.checked()?;
+//!     Ok(store.write(move |tx| {
+//!         // The scan appends the changes to the change log here, in the
+//!         // same transaction.
+//!         catalog::apply_batch(tx, &batch)
+//!     }))
+//! }
+//!
+//! /// The first page of the tracks the permit's holder may see.
+//! fn first_page(store: &Store, permit: Permit) -> Reply<Result<Vec<TrackRow>, ReadError>> {
+//!     store.read(move |reader| catalog::tracks(reader, &permit, None, MAX_PAGE))
+//! }
+//! ```
 
 use std::iter;
+use std::num::NonZeroU32;
 
 use gunmetal_core::authz::{HasLibrary, Permit};
 use gunmetal_core::catalog::{
@@ -203,13 +237,26 @@ pub struct TrackExtra {
     pub body: Option<Vec<u8>>,
 }
 
+/// The most entries [`CatalogBatch::checked`] accepts in one batch, counted
+/// over its six lists.
+///
+/// The scan commits 500 files at a time (the plan's proposed batch: 500
+/// files or 250 ms, whichever comes first), and a file brings at most seven
+/// entries for its track: the record, the credits and five extras. Twenty
+/// for each file leaves room for the albums, artists and removals of the
+/// same files. The limit bounds how long one batch holds the cache's only
+/// writer.
+pub const MAX_BATCH: usize = 10_000;
+
 /// What one commit of a scan writes to the catalogue.
 ///
-/// [`apply_batch`] applies the lists in the order of the fields. A record
-/// in a list replaces the stored record with the same identifier. The
-/// caller gives a track's record with or before its credits and extras: the
-/// store keeps credits and extras for a track it has no record of, but no
-/// reader returns them until the record arrives.
+/// [`CatalogBatch::checked`] makes it a [`CheckedBatch`], which is what
+/// [`apply_batch`] applies, in the order of the fields. A record in a list
+/// replaces the stored record with the same identifier. The caller gives a
+/// track's record with or before its credits and extras: the store keeps
+/// credits and extras for a track it has no record of, but no reader
+/// returns them and no change is reported for them until the record
+/// arrives.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CatalogBatch {
     /// Artist records to add or change.
@@ -226,6 +273,63 @@ pub struct CatalogBatch {
     /// Records to remove. Removing a track removes its credits and its
     /// extras with it, and nothing in any other table.
     pub removed: Vec<RecordId>,
+}
+
+/// One thing a batch names: a record it gives or removes, a track's
+/// credits, or one extra of a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BatchEntry {
+    /// A record, given or removed.
+    Record(RecordId),
+    /// A track's credits.
+    Credits(TrackId),
+    /// One extra of a track.
+    Extra(TrackId, ExtraKind),
+}
+
+/// Why [`CatalogBatch::checked`] refused a batch. A batch is checked before
+/// it is applied, so nothing of a refused batch is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchError {
+    /// The batch holds more entries than [`MAX_BATCH`].
+    TooLarge {
+        /// How many entries it holds, over its six lists.
+        entries: usize,
+        /// [`MAX_BATCH`].
+        max: usize,
+    },
+    /// Two entries name one thing: a record given twice, removed twice, or
+    /// both given and removed; a track's credits given twice; or one extra
+    /// given twice. Removing a track names its credits and each of its
+    /// extras as well, because it removes them. Whichever entry is applied
+    /// last undoes the other, so applying the batch again would write again.
+    NamedTwice {
+        /// The first thing named a second time.
+        entry: BatchEntry,
+    },
+}
+
+/// A batch [`CatalogBatch::checked`] accepted: the only kind [`apply_batch`]
+/// applies.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedBatch(CatalogBatch);
+
+impl CatalogBatch {
+    /// This batch, once it is known to hold at most [`MAX_BATCH`] entries
+    /// and to name each thing at most once.
+    ///
+    /// The check reads nothing from the cache, so a caller makes it before
+    /// the batch reaches the cache's one writer. A thing named twice is
+    /// refused even when both entries are the same.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BatchError::TooLarge`] for a batch of more than
+    /// [`MAX_BATCH`] entries, and otherwise [`BatchError::NamedTwice`] for
+    /// one that names one thing twice.
+    pub fn checked(self) -> Result<CheckedBatch, BatchError> {
+        Ok(CheckedBatch(self))
+    }
 }
 
 /// A track a reader returned.
@@ -277,15 +381,35 @@ impl HasLibrary for ExtraRow {
     }
 }
 
+/// The most rows one page of a reader holds: 500, the page size SEC-API-063
+/// caps a list route at unless the route declares more. The HTTP crate
+/// holds the same number as `gunmetal_http::paging::PAGE_CAP`; the store
+/// does not depend on that crate, and the core has no such constant.
+///
+/// A larger page is refused rather than cut short, because a pager may read
+/// a short page as the last one. A caller that needs more rows, such as a
+/// route that declares a larger page, reads page after page inside one
+/// [`Store::read`](crate::store::Store::read), which sees one snapshot.
+pub const MAX_PAGE: NonZeroU32 = NonZeroU32::new(500).unwrap();
+
 /// Why a reader failed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReadError {
     /// SQLite failed or refused the statement.
     Db(DbError),
     /// A stored row is not one this module wrote: a cell is missing, of the
-    /// wrong type or outside its range. The read returns nothing rather
-    /// than the rows it could read, and the cache should be rebuilt.
+    /// wrong type or outside its range, or a group of cells that is stored
+    /// whole or not at all is there only in part. The read returns nothing
+    /// rather than the rows it could read, and the cache should be rebuilt.
     Damaged,
+    /// A page of more rows than [`MAX_PAGE`] was asked for. Nothing was
+    /// read.
+    PageTooLarge {
+        /// The rows asked for.
+        limit: NonZeroU32,
+        /// [`MAX_PAGE`].
+        max: NonZeroU32,
+    },
 }
 
 /// One table as a batch writes it: three whole statements.
@@ -387,9 +511,9 @@ const EXTRA_ONE: &str = "SELECT extras.track, tracks.library, extras.body \
 /// caller's transaction then rolls back, so nothing of the batch is kept.
 pub fn apply_batch(
     tx: &Transaction<'_>,
-    batch: &CatalogBatch,
+    batch: &CheckedBatch,
 ) -> Result<Vec<CatalogChange>, StoreError> {
-    steps(batch)
+    steps(&batch.0)
         .into_iter()
         .try_fold(Vec::new(), |mut changes, step| {
             replace(tx, step.table, &step.key, step.rows).map(|wrote| {
@@ -741,13 +865,13 @@ fn visible(permit: &Permit) -> Value {
 /// The statement `text` for up to `limit` rows `permit` may see whose
 /// identifiers come after `after`. Every identifier comes after the empty
 /// text.
-fn page(text: &'static str, permit: &Permit, after: Option<PublicId>, limit: u32) -> Query {
+fn page(text: &'static str, permit: &Permit, after: Option<PublicId>, limit: NonZeroU32) -> Query {
     bound(
         text,
         [
             visible(permit),
             after.map_or_else(|| Value::Text(String::new()), id_cell),
-            Value::Integer(i64::from(limit)),
+            Value::Integer(i64::from(limit.get())),
         ],
     )
 }
@@ -788,13 +912,14 @@ fn only<T>(found: Vec<T>) -> Option<T> {
 ///
 /// # Errors
 ///
-/// Returns [`ReadError::Db`] when SQLite fails and [`ReadError::Damaged`]
-/// when a stored track cannot be read.
+/// Returns [`ReadError::PageTooLarge`] for a `limit` above [`MAX_PAGE`],
+/// before anything is read, [`ReadError::Db`] when SQLite fails and
+/// [`ReadError::Damaged`] when a stored track cannot be read.
 pub fn tracks(
     reader: &Reader<'_>,
     permit: &Permit,
     after: Option<TrackId>,
-    limit: u32,
+    limit: NonZeroU32,
 ) -> Result<Vec<TrackRow>, ReadError> {
     let query = page(TRACK_PAGE, permit, after.map(TrackId::get), limit);
     rows(reader, &query, track_row)
@@ -821,13 +946,14 @@ pub fn track(
 ///
 /// # Errors
 ///
-/// Returns [`ReadError::Db`] when SQLite fails and [`ReadError::Damaged`]
-/// when a stored album cannot be read.
+/// Returns [`ReadError::PageTooLarge`] for a `limit` above [`MAX_PAGE`],
+/// before anything is read, [`ReadError::Db`] when SQLite fails and
+/// [`ReadError::Damaged`] when a stored album cannot be read.
 pub fn albums(
     reader: &Reader<'_>,
     permit: &Permit,
     after: Option<AlbumId>,
-    limit: u32,
+    limit: NonZeroU32,
 ) -> Result<Vec<AlbumRow>, ReadError> {
     let query = page(ALBUM_PAGE, permit, after.map(AlbumId::get), limit);
     rows(reader, &query, album_row)
@@ -854,13 +980,14 @@ pub fn album(
 ///
 /// # Errors
 ///
-/// Returns [`ReadError::Db`] when SQLite fails and [`ReadError::Damaged`]
-/// when a stored artist cannot be read.
+/// Returns [`ReadError::PageTooLarge`] for a `limit` above [`MAX_PAGE`],
+/// before anything is read, [`ReadError::Db`] when SQLite fails and
+/// [`ReadError::Damaged`] when a stored artist cannot be read.
 pub fn artists(
     reader: &Reader<'_>,
     permit: &Permit,
     after: Option<ArtistId>,
-    limit: u32,
+    limit: NonZeroU32,
 ) -> Result<Vec<ArtistRow>, ReadError> {
     let query = page(ARTIST_PAGE, permit, after.map(ArtistId::get), limit);
     rows(reader, &query, artist_row)
@@ -1326,6 +1453,78 @@ mod compile_fail {
     /// }
     /// ```
     struct NoReaderWithoutAPermit;
+
+    /// Control: a page is asked for with a size of at least one row.
+    ///
+    /// ```
+    /// use gunmetal_core::authz::Permit;
+    /// use gunmetal_store::catalog::{MAX_PAGE, ReadError, TrackRow, tracks};
+    /// use gunmetal_store::readers::Reader;
+    ///
+    /// fn first(reader: &Reader<'_>, permit: &Permit) -> Result<Vec<TrackRow>, ReadError> {
+    ///     tracks(reader, permit, None, MAX_PAGE)
+    /// }
+    /// ```
+    struct PageControl;
+
+    /// A page of no rows, which a pager would read as the last one, cannot
+    /// be asked for.
+    ///
+    /// ```compile_fail,E0308
+    /// use gunmetal_core::authz::Permit;
+    /// use gunmetal_store::catalog::{ReadError, TrackRow, tracks};
+    /// use gunmetal_store::readers::Reader;
+    ///
+    /// fn first(reader: &Reader<'_>, permit: &Permit) -> Result<Vec<TrackRow>, ReadError> {
+    ///     tracks(reader, permit, None, 0)
+    /// }
+    /// ```
+    struct NoEmptyPage;
+
+    /// Control: a batch is applied once it is checked.
+    ///
+    /// ```
+    /// use gunmetal_core::catalog::CatalogChange;
+    /// use gunmetal_store::catalog::{CheckedBatch, apply_batch};
+    /// use gunmetal_store::store::StoreError;
+    /// use gunmetal_store::writer::Transaction;
+    ///
+    /// fn write(
+    ///     tx: &Transaction<'_>,
+    ///     batch: &CheckedBatch,
+    /// ) -> Result<Vec<CatalogChange>, StoreError> {
+    ///     apply_batch(tx, batch)
+    /// }
+    /// ```
+    struct BatchControl;
+
+    /// A batch that was not checked cannot be applied.
+    ///
+    /// ```compile_fail,E0308
+    /// use gunmetal_core::catalog::CatalogChange;
+    /// use gunmetal_store::catalog::{CatalogBatch, apply_batch};
+    /// use gunmetal_store::store::StoreError;
+    /// use gunmetal_store::writer::Transaction;
+    ///
+    /// fn write(
+    ///     tx: &Transaction<'_>,
+    ///     batch: &CatalogBatch,
+    /// ) -> Result<Vec<CatalogChange>, StoreError> {
+    ///     apply_batch(tx, batch)
+    /// }
+    /// ```
+    struct NoUncheckedBatch;
+
+    /// Nor can a batch be called checked without the check.
+    ///
+    /// ```compile_fail,E0603
+    /// use gunmetal_store::catalog::{CatalogBatch, CheckedBatch};
+    ///
+    /// fn unchecked(batch: CatalogBatch) -> CheckedBatch {
+    ///     CheckedBatch(batch)
+    /// }
+    /// ```
+    struct NoCheckWithoutChecking;
 }
 
 #[cfg(test)]
@@ -1334,6 +1533,7 @@ mod tests {
 
     use std::fmt::Debug;
     use std::future::Future;
+    use std::num::NonZeroU32;
     use std::pin::pin;
     use std::task::{Context, Poll, Waker};
     use std::thread;
@@ -1363,6 +1563,8 @@ mod tests {
     use gunmetal_fs::host::HostFacts;
     use gunmetal_fs::sqlite::{DbError, Query, Row, Value};
     use gunmetal_testkit::tempdir::TempDir;
+    use proptest::array::uniform20;
+    use proptest::prelude::*;
 
     use crate::readers::Reader;
     use crate::store::{Generation, Store, StoreError};
@@ -1383,6 +1585,7 @@ mod tests {
 
     const TRACK_1: &str = "trk_00000000000000000000000001";
     const TRACK_2: &str = "trk_00000000000000000000000002";
+    const TRACK_3: &str = "trk_00000000000000000000000003";
     const ALBUM_1: &str = "alb_00000000000000000000000001";
     const ALBUM_2: &str = "alb_00000000000000000000000002";
     const ARTIST_1: &str = "art_00000000000000000000000001";
@@ -1464,10 +1667,21 @@ mod tests {
         }
     }
 
-    /// Applies `batch` in one write.
+    /// Checks `batch` and applies it in one write.
     fn apply(cache: &Cache, batch: &CatalogBatch) -> Result<Vec<CatalogChange>, StoreError> {
-        let batch = batch.clone();
+        let batch = batch.clone().checked().expect("a batch the check accepts");
         wait(cache.store.write(move |tx| apply_batch(tx, &batch)))
+    }
+
+    /// Makes `cells` the one row of the tracks table, as damage or a writer
+    /// that is not this module could leave it.
+    fn plant(cache: &Cache, cells: Vec<Value>) {
+        let planted = wait(cache.store.write(move |tx| {
+            tx.execute(&Query::new("DELETE FROM tracks"))
+                .and_then(|_| tx.execute(&bound(TRACKS.add, cells)))
+                .map_err(StoreError::from)
+        }));
+        assert_eq!(planted, Ok(1));
     }
 
     /// Runs one statement of the test's own on the writer and returns how
@@ -1549,24 +1763,38 @@ mod tests {
 
     /// The identifier of kind `kind` whose symbols are `n` in decimal,
     /// padded with zeros.
-    fn public(prefix: &str, kind: IdKind, n: u8) -> PublicId {
+    fn public(prefix: &str, kind: IdKind, n: u16) -> PublicId {
         PublicId::parse(&format!("{prefix}_{n:026}"), kind).expect("an identifier")
     }
 
     fn library(n: u8) -> LibraryId {
-        LibraryId::new(public("lib", IdKind::Library, n)).expect("a library")
+        LibraryId::new(public("lib", IdKind::Library, u16::from(n))).expect("a library")
     }
 
     fn track_id(n: u8) -> TrackId {
-        TrackId::new(public("trk", IdKind::Track, n)).expect("a track")
+        TrackId::new(public("trk", IdKind::Track, u16::from(n))).expect("a track")
     }
 
     fn album_id(n: u8) -> AlbumId {
-        AlbumId::new(public("alb", IdKind::Album, n)).expect("an album")
+        AlbumId::new(public("alb", IdKind::Album, u16::from(n))).expect("an album")
     }
 
     fn artist_id(n: u8) -> ArtistId {
-        ArtistId::new(public("art", IdKind::Artist, n)).expect("an artist")
+        ArtistId::new(public("art", IdKind::Artist, u16::from(n))).expect("an artist")
+    }
+
+    /// The artist numbered `n`, which may be past what a `u8` holds, in
+    /// library 2.
+    fn artist_numbered(n: u16) -> ArtistRecord {
+        ArtistRecord {
+            id: ArtistId::new(public("art", IdKind::Artist, n)).expect("an artist"),
+            ..bare_artist()
+        }
+    }
+
+    /// A page of at most `n` rows.
+    fn most(n: u32) -> NonZeroU32 {
+        NonZeroU32::new(n).expect("a page of at least one row")
     }
 
     fn uuid(text: &str) -> Mbid {
@@ -2262,6 +2490,260 @@ mod tests {
     }
 
     #[test]
+    fn credits_and_extras_of_a_track_with_no_record_are_kept_and_not_reported() {
+        let cache = filled(&[SCHEMA]);
+        let early = CatalogBatch {
+            credits: vec![credits_of(3, two_credits())],
+            extras: vec![kept(3, ExtraKind::SeekIndex, b"three")],
+            ..CatalogBatch::default()
+        };
+        let seek_index_of_track_3 = || {
+            read(&cache, |reader| {
+                extra(reader, &owner(), track_id(3), ExtraKind::SeekIndex)
+            })
+        };
+        // Track 3 has no record. Its credits and extra are kept, but no
+        // reader returns them, so nothing is reported, the first time or the
+        // second.
+        assert_eq!(apply(&cache, &early), Ok(Vec::new()));
+        assert_eq!(apply(&cache, &early), Ok(Vec::new()));
+        assert_eq!(
+            select(
+                &cache,
+                "SELECT track, seq FROM credits \
+                 WHERE track = 'trk_00000000000000000000000003' ORDER BY seq"
+            ),
+            vec![Row(vec![t(TRACK_3), i(0)]), Row(vec![t(TRACK_3), i(1)])]
+        );
+        assert_eq!(seek_index_of_track_3(), Ok(None));
+        // The record arrives and is reported once, and what was kept beside
+        // the track reads with it.
+        let third = TrackRecord {
+            id: track_id(3),
+            ..bare_track()
+        };
+        let record = CatalogBatch {
+            tracks: vec![third.clone()],
+            ..CatalogBatch::default()
+        };
+        assert_eq!(
+            apply(&cache, &record),
+            Ok(vec![changed(RecordId::Track(track_id(3)))])
+        );
+        assert_eq!(
+            read(&cache, |reader| track(reader, &owner(), track_id(3))),
+            Ok(Some(TrackRow(third)))
+        );
+        assert_eq!(
+            seek_index_of_track_3(),
+            Ok(Some(ExtraRow {
+                track: track_id(3),
+                library: library(2),
+                kind: ExtraKind::SeekIndex,
+                body: b"three".to_vec(),
+            }))
+        );
+        // From then on a change to them is a change to the track.
+        let later = CatalogBatch {
+            extras: vec![kept(3, ExtraKind::SeekIndex, b"three again")],
+            ..CatalogBatch::default()
+        };
+        assert_eq!(
+            apply(&cache, &later),
+            Ok(vec![changed(RecordId::Track(track_id(3)))])
+        );
+    }
+
+    /// Fails unless the check refuses each batch as naming its entry twice.
+    fn refused_as_named_twice(cases: Vec<(CatalogBatch, BatchEntry)>) {
+        let (batches, entries): (Vec<CatalogBatch>, Vec<BatchEntry>) = cases.into_iter().unzip();
+        assert_eq!(
+            batches
+                .into_iter()
+                .map(|batch| batch.checked().err())
+                .collect::<Vec<_>>(),
+            entries
+                .into_iter()
+                .map(|entry| Some(BatchError::NamedTwice { entry }))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_batch_that_gives_or_removes_one_record_twice_is_refused() {
+        refused_as_named_twice(vec![
+            // A record given twice, whether or not both are the same.
+            (
+                CatalogBatch {
+                    artists: vec![full_artist(), full_artist()],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Artist(artist_id(1))),
+            ),
+            (
+                CatalogBatch {
+                    albums: vec![
+                        bare_album(),
+                        AlbumRecord {
+                            track_count: 3,
+                            ..bare_album()
+                        },
+                    ],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Album(album_id(2))),
+            ),
+            (
+                CatalogBatch {
+                    tracks: vec![full_track(), bare_track(), full_track()],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Track(track_id(1))),
+            ),
+            // A record given and removed.
+            (
+                CatalogBatch {
+                    artists: vec![bare_artist()],
+                    removed: vec![RecordId::Artist(artist_id(2))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Artist(artist_id(2))),
+            ),
+            (
+                CatalogBatch {
+                    albums: vec![full_album()],
+                    removed: vec![RecordId::Album(album_id(1))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Album(album_id(1))),
+            ),
+            (
+                CatalogBatch {
+                    tracks: vec![bare_track()],
+                    removed: vec![RecordId::Track(track_id(2))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Track(track_id(2))),
+            ),
+            // A record removed twice.
+            (
+                CatalogBatch {
+                    removed: vec![
+                        RecordId::Album(album_id(1)),
+                        RecordId::Artist(artist_id(1)),
+                        RecordId::Album(album_id(1)),
+                    ],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Album(album_id(1))),
+            ),
+            (
+                CatalogBatch {
+                    removed: vec![RecordId::Track(track_id(9)), RecordId::Track(track_id(9))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Record(RecordId::Track(track_id(9))),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn a_batch_that_gives_one_tracks_credits_or_extra_twice_or_for_a_removed_track_is_refused() {
+        let no_lyrics = TrackExtra {
+            track: track_id(1),
+            kind: ExtraKind::Lyrics,
+            body: None,
+        };
+        refused_as_named_twice(vec![
+            // A track's credits given twice.
+            (
+                CatalogBatch {
+                    credits: vec![
+                        credits_of(1, two_credits()),
+                        credits_of(2, two_credits()),
+                        credits_of(1, Vec::new()),
+                    ],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Credits(track_id(1)),
+            ),
+            // One extra given twice: two bodies, or a body and a removal.
+            (
+                CatalogBatch {
+                    extras: vec![
+                        kept(1, ExtraKind::Lyrics, b"la la"),
+                        kept(1, ExtraKind::SeekIndex, b"seek"),
+                        no_lyrics,
+                    ],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Extra(track_id(1), ExtraKind::Lyrics),
+            ),
+            // A track's credits or one of its extras given, and the track
+            // removed, which removes them.
+            (
+                CatalogBatch {
+                    credits: vec![credits_of(2, two_credits())],
+                    removed: vec![RecordId::Track(track_id(2))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Credits(track_id(2)),
+            ),
+            (
+                CatalogBatch {
+                    extras: vec![kept(2, ExtraKind::FrameIndex, b"frames")],
+                    removed: vec![RecordId::Track(track_id(2))],
+                    ..CatalogBatch::default()
+                },
+                BatchEntry::Extra(track_id(2), ExtraKind::FrameIndex),
+            ),
+        ]);
+        // Entries that name different things pass: a track's record, its
+        // credits and each of its extras, an extra of one kind for two
+        // tracks, and the removal of a track beside the credits and extra of
+        // another.
+        let apart = CatalogBatch {
+            credits: vec![credits_of(2, two_credits())],
+            extras: vec![kept(2, ExtraKind::SeekIndex, b"two")],
+            removed: vec![
+                RecordId::Track(track_id(1)),
+                RecordId::Album(album_id(1)),
+                RecordId::Artist(artist_id(1)),
+            ],
+            ..CatalogBatch::default()
+        };
+        for batch in [first_batch(), apart] {
+            assert_eq!(batch.clone().checked(), Ok(CheckedBatch(batch)));
+        }
+    }
+
+    #[test]
+    fn a_batch_of_more_than_max_batch_entries_is_refused() {
+        assert_eq!(MAX_BATCH, 10_000);
+        // One entry in each of five lists, and the rest removals of artists
+        // numbered from 3.
+        let holding = |removals: u16| CatalogBatch {
+            artists: vec![full_artist()],
+            albums: vec![full_album()],
+            tracks: vec![full_track()],
+            credits: vec![credits_of(1, two_credits())],
+            extras: vec![kept(1, ExtraKind::Lyrics, b"la la")],
+            removed: (3..3 + removals)
+                .map(|n| RecordId::Artist(artist_numbered(n).id))
+                .collect(),
+        };
+        let full = holding(9_995);
+        assert_eq!(full.clone().checked(), Ok(CheckedBatch(full)));
+        assert_eq!(
+            holding(9_996).checked().err(),
+            Some(BatchError::TooLarge {
+                entries: 10_001,
+                max: 10_000,
+            })
+        );
+    }
+
+    #[test]
     fn a_removal_is_reported_for_a_record_that_was_stored_and_for_no_other() {
         let cache = filled(&[SCHEMA]);
         let batch = CatalogBatch {
@@ -2417,9 +2899,15 @@ mod tests {
     /// What the permit `holder` makes sees of [`first_batch`].
     fn seen(cache: &Cache, holder: fn() -> Permit) -> Seen {
         Seen {
-            tracks: read(cache, move |reader| tracks(reader, &holder(), None, 10)),
-            albums: read(cache, move |reader| albums(reader, &holder(), None, 10)),
-            artists: read(cache, move |reader| artists(reader, &holder(), None, 10)),
+            tracks: read(cache, move |reader| {
+                tracks(reader, &holder(), None, most(10))
+            }),
+            albums: read(cache, move |reader| {
+                albums(reader, &holder(), None, most(10))
+            }),
+            artists: read(cache, move |reader| {
+                artists(reader, &holder(), None, most(10))
+            }),
             track: alone(
                 [1, 2].map(|n| read(cache, move |reader| track(reader, &holder(), track_id(n)))),
             ),
@@ -2535,7 +3023,7 @@ mod tests {
         assert_eq!(apply(&cache, &batch).as_ref().map(Vec::len), Ok(11));
         let page = |holder: fn() -> Permit, after: Option<u8>, limit: u32| {
             read(&cache, move |reader| {
-                artists(reader, &holder(), after.map(artist_id), limit)
+                artists(reader, &holder(), after.map(artist_id), most(limit))
             })
         };
         let found = |numbered: &[(u8, u8)]| -> Result<Vec<ArtistRow>, ReadError> {
@@ -2548,7 +3036,6 @@ mod tests {
         assert_eq!(page(owner, Some(2), 2), found(&[(3, 2), (4, 1)]));
         assert_eq!(page(owner, Some(4), 2), found(&[(5, 2)]));
         assert_eq!(page(owner, Some(5), 2), found(&[]));
-        assert_eq!(page(owner, None, 0), found(&[]));
         assert_eq!(
             page(owner, None, 10),
             found(&[(1, 2), (2, 1), (3, 2), (4, 1), (5, 2)])
@@ -2561,7 +3048,7 @@ mod tests {
                 reader,
                 &owner(),
                 Some(track_id(1)),
-                1
+                most(1)
             )),
             Ok(vec![TrackRow(numbered_track(2))])
         );
@@ -2570,10 +3057,68 @@ mod tests {
                 reader,
                 &owner(),
                 Some(album_id(2)),
-                5
+                most(5)
             )),
             Ok(vec![AlbumRow(numbered_album(3))])
         );
+    }
+
+    #[test]
+    fn a_page_holds_at_most_max_page_rows_and_a_larger_page_is_refused() {
+        assert_eq!(MAX_PAGE.get(), 500);
+        let cache = filled(&[SCHEMA]);
+        // Artists 3 to 501 join artists 1 and 2: one more than a page holds.
+        let more = CatalogBatch {
+            artists: (3..=501).map(artist_numbered).collect(),
+            ..CatalogBatch::default()
+        };
+        assert_eq!(apply(&cache, &more).as_ref().map(Vec::len), Ok(499));
+        let mut first = vec![ArtistRow(full_artist()), ArtistRow(bare_artist())];
+        first.extend((3..=501).map(|n| ArtistRow(artist_numbered(n))));
+        let rest = first.split_off(500);
+        let after_500 = artist_numbered(500).id;
+        // A page of the most rows a page holds is full, and the next page
+        // holds the rest.
+        assert_eq!(
+            read(&cache, |reader| artists(reader, &owner(), None, MAX_PAGE)),
+            Ok(first)
+        );
+        assert_eq!(
+            read(&cache, move |reader| {
+                artists(reader, &owner(), Some(after_500), MAX_PAGE)
+            }),
+            Ok(rest)
+        );
+        assert_eq!(
+            read(&cache, |reader| tracks(reader, &owner(), None, MAX_PAGE)),
+            Ok(vec![TrackRow(full_track()), TrackRow(bare_track())])
+        );
+        assert_eq!(
+            read(&cache, |reader| albums(reader, &owner(), None, MAX_PAGE)),
+            Ok(vec![AlbumRow(full_album()), AlbumRow(bare_album())])
+        );
+        // A page of one row more is refused by every reader that pages,
+        // before any statement runs: a cache without the catalogue's tables
+        // answers the same.
+        let no_tables = open(&[OVERRIDES]);
+        let too_large = || ReadError::PageTooLarge {
+            limit: most(501),
+            max: MAX_PAGE,
+        };
+        for each in [&cache, &no_tables] {
+            assert_eq!(
+                read(each, |reader| tracks(reader, &owner(), None, most(501))),
+                Err(too_large())
+            );
+            assert_eq!(
+                read(each, |reader| albums(reader, &owner(), None, most(501))),
+                Err(too_large())
+            );
+            assert_eq!(
+                read(each, |reader| artists(reader, &owner(), None, most(501))),
+                Err(too_large())
+            );
+        }
     }
 
     /// Verifies: SEC-API-066
@@ -2625,9 +3170,9 @@ mod tests {
             };
             let stored = (
                 apply(&cache, &batch),
-                read(&cache, |reader| tracks(reader, &owner(), None, 10)),
-                read(&cache, |reader| albums(reader, &owner(), None, 10)),
-                read(&cache, |reader| artists(reader, &owner(), None, 10)),
+                read(&cache, |reader| tracks(reader, &owner(), None, most(10))),
+                read(&cache, |reader| albums(reader, &owner(), None, most(10))),
+                read(&cache, |reader| artists(reader, &owner(), None, most(10))),
                 read(&cache, |reader| {
                     extra(reader, &owner(), track_id(1), ExtraKind::Lyrics)
                 }),
@@ -2661,6 +3206,163 @@ mod tests {
         }
     }
 
+    /// Text for a string field: one of the ten examples above, text made of
+    /// SQL's metacharacters with NUL among them, or any text at all.
+    fn sql_text() -> impl Strategy<Value = String> {
+        prop_oneof![
+            proptest::sample::select(HOSTILE.to_vec()).prop_map(str::to_owned),
+            r#"['";%_\\/*?:@$()=\-\x00 a-z]{0,24}"#,
+            any::<String>(),
+        ]
+    }
+
+    /// A batch with one generated text in each string field of a track, an
+    /// album, an artist and a credit of track 1, and in the octets of the
+    /// track's lyrics, with what the store gives back for the credit and the
+    /// lyrics.
+    struct Generated {
+        batch: CatalogBatch,
+        credit: Row,
+        lyrics: ExtraRow,
+    }
+
+    /// The [`Generated`] batch holding `texts`, in the order the fields are
+    /// named here. A credit's name may not be blank, so it starts with a
+    /// quote.
+    fn with_texts(texts: [String; 20]) -> Generated {
+        let [
+            title,
+            title_sort,
+            artist_credit,
+            disc_subtitle,
+            genre,
+            mood,
+            style,
+            label,
+            grouping,
+            album_title,
+            album_sort,
+            album_credit,
+            album_genre,
+            album_label,
+            name,
+            name_sort,
+            artist_genre,
+            credited,
+            detail,
+            lyrics,
+        ] = texts;
+        let credited = format!("'{credited}");
+        let credit = Row(vec![
+            t(TRACK_1),
+            i(0),
+            t(&credited),
+            i(4),
+            t(&detail),
+            Value::Null,
+        ]);
+        let lyrics = lyrics.into_bytes();
+        Generated {
+            credit,
+            lyrics: ExtraRow {
+                track: track_id(1),
+                library: library(1),
+                kind: ExtraKind::Lyrics,
+                body: lyrics.clone(),
+            },
+            batch: CatalogBatch {
+                artists: vec![ArtistRecord {
+                    name,
+                    name_sort: Some(name_sort),
+                    genres: vec![artist_genre],
+                    ..full_artist()
+                }],
+                albums: vec![AlbumRecord {
+                    title: album_title,
+                    title_sort: Some(album_sort),
+                    artist_credit: album_credit,
+                    genres: vec![album_genre],
+                    labels: vec![album_label],
+                    ..full_album()
+                }],
+                tracks: vec![TrackRecord {
+                    title,
+                    title_sort: Some(title_sort),
+                    artist_credit,
+                    disc_subtitle: Some(disc_subtitle),
+                    genres: vec![genre],
+                    moods: vec![mood],
+                    styles: vec![style],
+                    labels: vec![label],
+                    grouping: vec![grouping],
+                    ..full_track()
+                }],
+                credits: vec![credits_of(
+                    1,
+                    vec![
+                        Credit::new(credited, Role::Composer, Some(detail), None)
+                            .expect("a credit, whose name is not blank"),
+                    ],
+                )],
+                extras: vec![TrackExtra {
+                    track: track_id(1),
+                    kind: ExtraKind::Lyrics,
+                    body: Some(lyrics),
+                }],
+                removed: Vec::new(),
+            },
+        }
+    }
+
+    proptest! {
+        // Every case opens a real cache, so there are fewer cases than the
+        // default 256, as in the change log's property.
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// The property SEC-API-066 names, with the ten texts above as its
+        /// worked examples: whatever text is in whichever string field, it
+        /// is stored and read back as it is, and nothing else changes.
+        ///
+        /// Verifies: SEC-API-066
+        #[test]
+        fn generated_text_in_every_string_field_is_stored_and_read_back_as_it_is(
+            texts in uniform20(sql_text()),
+        ) {
+            let cache = open(&[SCHEMA]);
+            let Generated { batch, credit, lyrics } = with_texts(texts);
+            let expected = (
+                Ok(vec![
+                    changed(RecordId::Artist(artist_id(1))),
+                    changed(RecordId::Album(album_id(1))),
+                    changed(RecordId::Track(track_id(1))),
+                ]),
+                Ok(batch.tracks.iter().cloned().map(TrackRow).collect::<Vec<_>>()),
+                Ok(batch.albums.iter().cloned().map(AlbumRow).collect::<Vec<_>>()),
+                Ok(batch.artists.iter().cloned().map(ArtistRow).collect::<Vec<_>>()),
+                Ok(Some(lyrics)),
+                vec![credit],
+            );
+            let found = (
+                apply(&cache, &batch),
+                read(&cache, |reader| tracks(reader, &owner(), None, MAX_PAGE)),
+                read(&cache, |reader| albums(reader, &owner(), None, MAX_PAGE)),
+                read(&cache, |reader| artists(reader, &owner(), None, MAX_PAGE)),
+                read(&cache, |reader| {
+                    extra(reader, &owner(), track_id(1), ExtraKind::Lyrics)
+                }),
+                select(&cache, ALL_CREDITS),
+            );
+            prop_assert_eq!(found, expected);
+            // Applying it again writes nothing, so every text was kept octet
+            // for octet, and each table holds its one row.
+            prop_assert_eq!(apply(&cache, &batch), Ok(Vec::new()));
+            prop_assert_eq!(
+                everything(&cache).iter().map(Vec::len).collect::<Vec<_>>(),
+                [1, 1, 1, 1, 1]
+            );
+        }
+    }
+
     #[test]
     fn a_stored_row_that_cannot_be_read_fails_the_read_and_is_not_left_out() {
         let cache = filled(&[SCHEMA]);
@@ -2672,7 +3374,7 @@ mod tests {
             Ok(1)
         );
         assert_eq!(
-            read(&cache, |reader| tracks(reader, &owner(), None, 10)),
+            read(&cache, |reader| tracks(reader, &owner(), None, most(10))),
             Err(ReadError::Damaged)
         );
         assert_eq!(
@@ -2681,7 +3383,12 @@ mod tests {
         );
         // A read that does not reach the damaged row still answers.
         assert_eq!(
-            read(&cache, |reader| tracks(reader, &member(&[1]), None, 10)),
+            read(&cache, |reader| tracks(
+                reader,
+                &member(&[1]),
+                None,
+                most(10)
+            )),
             Ok(vec![TrackRow(full_track())])
         );
         assert_eq!(
@@ -2692,7 +3399,7 @@ mod tests {
             Ok(1)
         );
         assert_eq!(
-            read(&cache, |reader| albums(reader, &owner(), None, 10)),
+            read(&cache, |reader| albums(reader, &owner(), None, most(10))),
             Err(ReadError::Damaged)
         );
         assert_eq!(
@@ -2708,7 +3415,7 @@ mod tests {
             Ok(1)
         );
         assert_eq!(
-            read(&cache, |reader| artists(reader, &owner(), None, 10)),
+            read(&cache, |reader| artists(reader, &owner(), None, most(10))),
             Err(ReadError::Damaged)
         );
         assert_eq!(
@@ -2743,7 +3450,7 @@ mod tests {
             Err(StoreError::Db(no_such_table()))
         );
         assert_eq!(
-            read(&cache, |reader| tracks(reader, &owner(), None, 10)),
+            read(&cache, |reader| tracks(reader, &owner(), None, most(10))),
             Err(ReadError::Db(no_such_table()))
         );
         assert_eq!(
@@ -2751,7 +3458,7 @@ mod tests {
             Err(ReadError::Db(no_such_table()))
         );
         assert_eq!(
-            read(&cache, |reader| albums(reader, &owner(), None, 10)),
+            read(&cache, |reader| albums(reader, &owner(), None, most(10))),
             Err(ReadError::Db(no_such_table()))
         );
         assert_eq!(
@@ -2759,7 +3466,7 @@ mod tests {
             Err(ReadError::Db(no_such_table()))
         );
         assert_eq!(
-            read(&cache, |reader| artists(reader, &owner(), None, 10)),
+            read(&cache, |reader| artists(reader, &owner(), None, most(10))),
             Err(ReadError::Db(no_such_table()))
         );
         assert_eq!(
@@ -2907,6 +3614,104 @@ mod tests {
             let cells = with(&full_track_cells(), index, value.clone());
             assert_eq!((index, &value, track_row(&cells)), (index, &value, None));
         }
+    }
+
+    /// The row of [`full_track`] with the cells at the given places
+    /// replaced.
+    fn full_track_with(changes: &[(usize, Value)]) -> Vec<Value> {
+        let mut cells = full_track_cells();
+        for (index, value) in changes {
+            cells[*index] = value.clone();
+        }
+        cells
+    }
+
+    #[test]
+    fn a_track_row_holding_part_of_a_group_of_cells_is_damaged() {
+        let cache = open(&[SCHEMA]);
+        let read_back = |changes: &[(usize, Value)]| {
+            plant(&cache, full_track_with(changes));
+            read(&cache, |reader| track(reader, &owner(), track_id(1)))
+        };
+        // A gain's scale, gain and peak, the trim's delay and padding, and
+        // the lyrics' origin and timing are each stored whole or not at all,
+        // except that a gain that is there may have no peak.
+        let part = [
+            // The track gain's scale is missing, and its gain and peak, its
+            // gain alone or its peak alone are there.
+            vec![(30, Value::Null)],
+            vec![(30, Value::Null), (32, Value::Null)],
+            vec![(30, Value::Null), (31, Value::Null)],
+            // The album gain's scale is missing, and its gain or its peak
+            // alone is there.
+            vec![(33, Value::Null)],
+            vec![(33, Value::Null), (34, Value::Null), (35, i(1_056_964_608))],
+            // A gain's scale is there and its gain is not.
+            vec![(31, Value::Null)],
+            // The trim's padding alone, or its delay alone, is there.
+            vec![(36, Value::Null)],
+            vec![(37, Value::Null)],
+            // The lyrics' timing alone, or their origin alone, is there.
+            vec![(41, Value::Null)],
+            vec![(38, Value::Null)],
+        ];
+        assert_eq!(
+            part.iter()
+                .map(|changes| read_back(changes.as_slice()))
+                .collect::<Vec<_>>(),
+            vec![Err(ReadError::Damaged); 10]
+        );
+        // A group missing whole is not there, and the whole row reads as it
+        // was written.
+        let full = full_track();
+        let whole = [
+            (Vec::new(), full.clone()),
+            (
+                vec![(30, Value::Null), (31, Value::Null), (32, Value::Null)],
+                TrackRecord {
+                    gain: GainTags {
+                        track: None,
+                        ..full.gain
+                    },
+                    ..full.clone()
+                },
+            ),
+            (
+                vec![(33, Value::Null), (34, Value::Null)],
+                TrackRecord {
+                    gain: GainTags {
+                        album: None,
+                        ..full.gain
+                    },
+                    ..full.clone()
+                },
+            ),
+            (
+                vec![(36, Value::Null), (37, Value::Null)],
+                TrackRecord {
+                    trim: None,
+                    ..full.clone()
+                },
+            ),
+            (
+                vec![(38, Value::Null), (41, Value::Null)],
+                TrackRecord {
+                    lyrics: None,
+                    ..full
+                },
+            ),
+        ];
+        let (replaced, records): (Vec<_>, Vec<_>) = whole.into_iter().unzip();
+        assert_eq!(
+            replaced
+                .iter()
+                .map(|changes| read_back(changes.as_slice()))
+                .collect::<Vec<_>>(),
+            records
+                .into_iter()
+                .map(|record| Ok(Some(TrackRow(record))))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
