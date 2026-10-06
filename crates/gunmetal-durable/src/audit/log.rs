@@ -79,7 +79,6 @@ struct Line {
     event: String,
     account: Option<PublicId>,
     class: Option<PathClass>,
-    via_proxy: Option<bool>,
     commit: Option<[u8; 32]>,
     kid: Option<u8>,
     outcome: Option<Outcome>,
@@ -393,7 +392,6 @@ impl AuditLog {
             event: name.to_owned(),
             account,
             class: source.map(ClientContext::class),
-            via_proxy: source.map(ClientContext::via_proxy),
             commit,
             kid,
             outcome: Some(outcome),
@@ -507,8 +505,7 @@ fn checkpoint_payload(seq: Seq, head: &[u8; 32]) -> Vec<u8> {
 
 fn maybe_checkpoint(log: &AuditLog, state: &mut State, now: Timestamp) -> Result<(), AuditError> {
     let count = state.next.saturating_sub(1);
-    let due_count =
-        count > 0 && log.limits.checkpoint_every != 0 && count % log.limits.checkpoint_every == 0;
+    let due_count = log.limits.checkpoint_every != 0 && count % log.limits.checkpoint_every == 0;
     let due_time = match state.last_checkpoint_at {
         Some(at) => now.millis().saturating_sub(at.millis()) >= log.limits.checkpoint_ms,
         None => state.lines.first().is_some_and(|first| {
@@ -559,7 +556,6 @@ fn write_checkpoint(log: &AuditLog, state: &mut State, now: Timestamp) -> Result
         event: "gm_audit_checkpoint".to_owned(),
         account: None,
         class: None,
-        via_proxy: None,
         commit: None,
         kid: Some(kid),
         outcome: None,
@@ -667,6 +663,9 @@ fn load_segments(root: &DataRoot, state: &mut State) -> Result<(), AuditError> {
                     continue;
                 }
                 let line = parse_line(raw)?;
+                if line.seq < state.first {
+                    continue;
+                }
                 if line.kind == Kind::Checkpoint || line.kind == Kind::Pruned {
                     state.checkpoint = Some(SignedHead {
                         seq: line.seq,
@@ -734,10 +733,6 @@ fn parse_line(raw: &str) -> Result<Line, AuditError> {
         .and_then(|s| s.get("class"))
         .and_then(Json::str)
         .and_then(parse_class);
-    let via_proxy = source
-        .and_then(|s| s.get("via"))
-        .and_then(Json::str)
-        .map(|v| v == "proxy");
     let commit = source
         .and_then(|s| s.get("commit"))
         .and_then(Json::str)
@@ -761,7 +756,6 @@ fn parse_line(raw: &str) -> Result<Line, AuditError> {
         event,
         account,
         class,
-        via_proxy,
         commit,
         kid: key_id,
         outcome,
@@ -886,7 +880,6 @@ fn write_pruned(
         event: "gm_audit_pruned".to_owned(),
         account: None,
         class: None,
-        via_proxy: None,
         commit: None,
         kid: Some(kid),
         outcome: None,
@@ -911,7 +904,7 @@ fn write_pruned(
 
 fn verify(state: &State, signing: &dyn MacProvider) -> Result<(), BrokenAt> {
     let mut prev = [0_u8; 32];
-    if state.first > 1 {
+    if state.first != 1 {
         if let Some(first) = state.lines.first() {
             prev = first.prev;
         }

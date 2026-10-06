@@ -208,16 +208,14 @@ pub(crate) fn encode_addr(addr: IpAddr) -> Vec<u8> {
 
 fn decode_addr(bytes: &[u8]) -> Option<IpAddr> {
     match bytes.split_first() {
-        Some((&4, rest)) if rest.len() == 4 => {
-            let mut o = [0_u8; 4];
-            o.copy_from_slice(rest);
-            Some(IpAddr::V4(Ipv4Addr::from(o)))
-        }
-        Some((&6, rest)) if rest.len() == 16 => {
-            let mut o = [0_u8; 16];
-            o.copy_from_slice(rest);
-            Some(IpAddr::V6(Ipv6Addr::from(o)))
-        }
+        Some((&4, rest)) => rest
+            .try_into()
+            .ok()
+            .map(|o: [u8; 4]| IpAddr::V4(Ipv4Addr::from(o))),
+        Some((&6, rest)) => rest
+            .try_into()
+            .ok()
+            .map(|o: [u8; 16]| IpAddr::V6(Ipv6Addr::from(o))),
         _ => None,
     }
 }
@@ -235,11 +233,12 @@ pub(crate) fn fill_truncated(db: &Db, records: &mut [TruncatedRecord]) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        ADDRESSES, coarsen, coarsen_ip, commitment_msg, encode_addr, get, open, put, remove,
-        truncated,
+        ADDRESSES, all, coarsen, coarsen_ip, commit, commitment_msg, encode_addr, get, open, put,
+        remove, truncated,
     };
     use crate::audit::record::TruncatedAddr;
-    use crate::audit::testing::data;
+    use crate::audit::testing::{MixMac, data, mix};
+    use gunmetal_fs::sqlite::{Query, Value};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -271,6 +270,39 @@ mod tests {
         assert_eq!(
             get(&db, 1).expect("get"),
             Some((Some(addr), Some(vec![9_u8; 16])))
+        );
+        assert_eq!(
+            all(&db).expect("all"),
+            vec![(1, 10, Some(addr), Some(vec![9_u8; 16]))]
+        );
+        let mac = MixMac::new(7);
+        let salt = [9_u8; 16];
+        let (kid, tag) = commit(&mac, addr, &salt).expect("commit");
+        assert_eq!(kid, 7);
+        assert_eq!(tag, mix(7, &commitment_msg(addr, &salt)));
+        db.execute(
+            &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")
+                .bind(Value::Blob(vec![4, 1, 2]))
+                .bind(Value::Integer(1)),
+        )
+        .expect("short v4");
+        assert_eq!(
+            get(&db, 1).expect("short"),
+            Some((None, Some(vec![9_u8; 16])))
+        );
+        db.execute(
+            &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")
+                .bind(Value::Blob({
+                    let mut bytes = vec![6];
+                    bytes.extend_from_slice(&[1_u8; 15]);
+                    bytes
+                }))
+                .bind(Value::Integer(1)),
+        )
+        .expect("short v6");
+        assert_eq!(
+            get(&db, 1).expect("short v6"),
+            Some((None, Some(vec![9_u8; 16])))
         );
         assert_eq!(get(&db, 99).expect("missing"), None);
         coarsen(&db, 1, addr).expect("coarsen");

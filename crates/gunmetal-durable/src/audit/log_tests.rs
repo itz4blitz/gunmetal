@@ -20,11 +20,14 @@ use gunmetal_fs::path::{AUDIT_RESERVE, AuditSeg, DataPath};
 use proptest::prelude::*;
 
 use super::{AuditLog, Limits};
+use crate::audit::chain;
+use crate::audit::encode::{hex, unhex32};
 use crate::audit::error::{AuditError, BrokenAt};
+use crate::audit::parse::{self, Json};
 use crate::audit::record::{Outcome, TruncatedAddr, WriteClass};
 use crate::audit::testing::{
     Counted, FailingMac, FailingRandom, MixMac, ORDINARY, account, data, handle, internet,
-    internet_v6, limited, log, loopback,
+    internet_v6, limited, log, loopback, mix,
 };
 
 fn at(ms: i64) -> Timestamp {
@@ -255,7 +258,34 @@ fn recovery_actions_are_recorded_on_a_simulated_full_disk() {
         ),
         Ok(1)
     );
+    let mut reserve = Vec::new();
+    data.root
+        .open_read(&AUDIT_RESERVE)
+        .expect("reserve")
+        .read_to_end(&mut reserve)
+        .expect("read");
+    assert_eq!(reserve.len(), 8);
     assert_eq!(log.verify_audit_log(), Ok(()));
+}
+
+#[test]
+fn a_recovery_write_on_a_disk_that_is_not_full_leaves_the_reserve() {
+    let data = data();
+    let log = log(&data);
+    log.append_security_event(
+        at(1_791_028_800_000),
+        &debug_on(),
+        None,
+        WriteClass::Recovery,
+    )
+    .expect("stored");
+    let mut reserve = Vec::new();
+    data.root
+        .open_read(&AUDIT_RESERVE)
+        .expect("reserve")
+        .read_to_end(&mut reserve)
+        .expect("read");
+    assert_eq!(reserve.len(), 256);
 }
 
 /// Verifies: SEC-OPS-020, SEC-OPS-023
@@ -274,6 +304,51 @@ fn rotates_at_the_size_limit_and_still_verifies() {
             .open_read(&DataPath::audit_segment(AuditSeg::new(2).expect("2")))
             .is_ok()
     );
+}
+
+#[test]
+fn a_write_that_would_fill_the_segment_exactly_stays_on_it() {
+    let probe = data();
+    let measuring = limited(
+        &probe,
+        Limits {
+            segment: 1_000_000,
+            checkpoint_every: 10_000,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    );
+    measuring
+        .append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("probe");
+    let mut sample = String::new();
+    probe
+        .root
+        .open_read(&DataPath::audit_segment(AuditSeg::new(1).expect("1")))
+        .expect("seg")
+        .read_to_string(&mut sample)
+        .expect("read");
+    let line_len = sample.len();
+    let data = data();
+    let log = limited(
+        &data,
+        Limits {
+            segment: line_len.saturating_mul(2),
+            checkpoint_every: 10_000,
+            checkpoint_ms: 3_600_000,
+            reserve: 256,
+        },
+    );
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("1");
+    log.append_security_event(at(1_791_028_800_000), &egress(), None, ORDINARY)
+        .expect("2");
+    assert!(
+        data.root
+            .open_read(&DataPath::audit_segment(AuditSeg::new(2).expect("2")))
+            .is_err()
+    );
+    assert_eq!(log.verify_audit_log(), Ok(()));
 }
 
 /// Verifies: SEC-OPS-022
@@ -372,6 +447,110 @@ fn retention_coarsens_then_removes_addresses_and_still_verifies() {
     assert_eq!(log.verify_audit_log(), Ok(()));
 }
 
+/// Verifies: SEC-OPS-026, SEC-OPS-023
+#[test]
+fn a_prune_writes_a_pruned_record_and_drops_the_events() {
+    let data = data();
+    let limits = Limits {
+        segment: 4_096,
+        checkpoint_every: 1_000,
+        checkpoint_ms: 3_600_000,
+        reserve: 256,
+    };
+    let log = limited(&data, limits);
+    let t0 = at(1_791_028_800_000);
+    log.append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("1");
+    log.append_security_event(t0, &egress(), None, ORDINARY)
+        .expect("2");
+    let day = 86_400_000_i64;
+    let report = log
+        .apply_retention(&DEFAULT, at(t0.millis() + 366 * day))
+        .expect("prune");
+    assert_eq!(report.pruned, 2);
+    assert_eq!(
+        log.read_all(&audit_permit(), 1..100).expect("live").records,
+        []
+    );
+    let mut text = String::new();
+    data.root
+        .open_read(&DataPath::audit_segment(AuditSeg::new(1).expect("1")))
+        .expect("seg")
+        .read_to_string(&mut text)
+        .expect("read");
+    assert!(text.contains("gm_audit_pruned"));
+    drop(log);
+    let log = limited(&data, limits);
+    assert_eq!(log.verify_audit_log(), Ok(()));
+    let page = log.read_all(&audit_permit(), 1..100).expect("reopen");
+    let names: Vec<&str> = page.records.iter().map(|r| r.event.as_str()).collect();
+    assert_eq!(names, [] as [&str; 0]);
+}
+
+/// Verifies: SEC-OPS-023
+#[test]
+fn a_checkpoint_whose_mac_does_not_match_the_payload_is_detected() {
+    let data = data();
+    let limits = Limits {
+        segment: 4_096,
+        checkpoint_every: 2,
+        checkpoint_ms: 3_600_000,
+        reserve: 256,
+    };
+    {
+        let log = limited(&data, limits);
+        let t = at(1_791_028_800_000);
+        log.append_security_event(t, &egress(), None, ORDINARY)
+            .expect("1");
+        log.append_security_event(t, &egress(), None, ORDINARY)
+            .expect("2");
+    }
+    let path = DataPath::audit_segment(AuditSeg::new(1).expect("1"));
+    let mut text = String::new();
+    data.root
+        .open_read(&path)
+        .expect("open")
+        .read_to_string(&mut text)
+        .expect("read");
+    let mut rewritten = String::new();
+    for line in text.lines() {
+        if !line.contains("gm_audit_checkpoint") {
+            rewritten.push_str(line);
+            rewritten.push('\n');
+            continue;
+        }
+        let map = parse::object(line).expect("object");
+        let prev = map
+            .get("prev")
+            .and_then(Json::str)
+            .and_then(unhex32)
+            .expect("prev");
+        let sig = map.get("sig").and_then(Json::str).expect("sig");
+        let prefix = line.rsplit_once(",\"hash\":").expect("hash").0;
+        let mut canonical = prefix.replacen(sig, &"0".repeat(64), 1);
+        canonical.push('}');
+        let hash = chain::digest(&prev, &canonical);
+        rewritten.push_str(canonical.trim_end_matches('}'));
+        rewritten.push_str(",\"hash\":\"");
+        rewritten.push_str(&hex(&hash));
+        rewritten.push_str("\"}\n");
+    }
+    assert!(
+        rewritten.contains(
+            "\"sig\":\"0000000000000000000000000000000000000000000000000000000000000000\""
+        ),
+        "{rewritten}"
+    );
+    data.root
+        .replace(&path, rewritten.as_bytes())
+        .expect("wrote");
+    let reopened = limited(&data, limits);
+    assert_eq!(
+        reopened.verify_audit_log().expect_err("broken mac"),
+        BrokenAt { seq: 3 }
+    );
+}
+
 fn scan_absent(root: &Path, needle: &[u8]) {
     let mut found = false;
     walk(root, needle, &mut found);
@@ -413,6 +592,10 @@ fn a_checkpoint_is_signed_and_readable_with_the_audit_permit() {
     let head = log.head(&audit_permit()).expect("head");
     assert!(head.seq >= 1);
     assert_eq!(head.kid, 1);
+    let mut payload = Vec::from(b"gunmetal-audit-v1");
+    payload.extend_from_slice(&head.seq.to_be_bytes());
+    payload.extend_from_slice(&head.head);
+    assert_eq!(head.mac, mix(head.kid, &payload));
     assert_eq!(log.verify_audit_log(), Ok(()));
 }
 
@@ -507,6 +690,26 @@ fn reopening_a_sound_log_keeps_verifying_and_appending() {
 }
 
 #[test]
+fn reopening_after_a_checkpoint_keeps_the_signed_head() {
+    let data = data();
+    {
+        let log = log(&data);
+        let t = at(1_791_028_800_000);
+        log.append_security_event(t, &egress(), None, ORDINARY)
+            .expect("1");
+        log.append_security_event(t, &egress(), None, ORDINARY)
+            .expect("2");
+        assert_eq!(log.head(&audit_permit()).expect("live").kid, 1);
+    }
+    let log = limited(&data, Limits::test());
+    assert_eq!(log.head(&audit_permit()).expect("reloaded").kid, 1);
+    let page = log.read_all(&audit_permit(), 1..100).expect("read");
+    let names: Vec<&str> = page.records.iter().map(|r| r.event.as_str()).collect();
+    assert_eq!(names, ["gm_egress_denied", "gm_egress_denied"]);
+    assert_eq!(log.verify_audit_log(), Ok(()));
+}
+
+#[test]
 fn a_checkpoint_is_due_after_the_time_limit() {
     let data = data();
     let log = AuditLog::open_with(
@@ -530,6 +733,12 @@ fn a_checkpoint_is_due_after_the_time_limit() {
         .expect("time due");
     let head = log.head(&audit_permit()).expect("head");
     assert_eq!(head.at, at(1_011));
+    log.append_security_event(at(1_012), &egress(), None, ORDINARY)
+        .expect("not yet");
+    assert_eq!(log.head(&audit_permit()).expect("held").at, at(1_011));
+    log.append_security_event(at(1_021), &egress(), None, ORDINARY)
+        .expect("due again");
+    assert_eq!(log.head(&audit_permit()).expect("again").at, at(1_021));
 }
 
 #[test]

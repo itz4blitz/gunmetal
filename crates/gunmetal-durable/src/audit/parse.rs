@@ -169,6 +169,34 @@ mod tests {
                 .and_then(|n| n.get("a")),
             Some(&Json::Null)
         );
+        assert_eq!(
+            object(r#"{"x":"a\"b\\c"}"#)
+                .expect("escaped")
+                .get("x")
+                .and_then(Json::str),
+            Some(r#"a"b\c"#)
+        );
+        assert_eq!(
+            object(r#"{"x":"\u0061"}"#)
+                .expect("a")
+                .get("x")
+                .and_then(Json::str),
+            Some("a")
+        );
+        assert_eq!(
+            object(r#"{"x":"\u00ab"}"#)
+                .expect("lower")
+                .get("x")
+                .and_then(Json::str),
+            Some("\u{ab}")
+        );
+        assert_eq!(
+            object(r#"{"x":"\u00AB"}"#)
+                .expect("upper")
+                .get("x")
+                .and_then(Json::str),
+            Some("\u{ab}")
+        );
         assert!(object("[]").is_err());
         assert!(object("{").is_err());
         assert!(object(r#"{"a":1}trailing"#).is_err());

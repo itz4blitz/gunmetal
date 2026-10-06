@@ -195,9 +195,12 @@ pub(crate) fn parse_class(text: &str) -> Option<PathClass> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Outcome, Page, TruncatedAddr, TruncatedRecord, class_name, in_range, parse_class};
+    use super::{
+        Outcome, OwnRecord, Page, TruncatedAddr, TruncatedRecord, class_name, in_range, parse_class,
+    };
     use gunmetal_core::client_context::PathClass;
     use gunmetal_core::time::Timestamp;
+    use std::net::{IpAddr, Ipv4Addr};
 
     fn rec(seq: u64) -> TruncatedRecord {
         TruncatedRecord {
@@ -239,7 +242,10 @@ mod tests {
             .map(Outcome::as_str),
             ["success", "fail", "denied", "enabled"]
         );
+        assert_eq!(Outcome::parse("success"), Some(Outcome::Success));
         assert_eq!(Outcome::parse("fail"), Some(Outcome::Fail));
+        assert_eq!(Outcome::parse("denied"), Some(Outcome::Denied));
+        assert_eq!(Outcome::parse("enabled"), Some(Outcome::Enabled));
         assert_eq!(Outcome::parse("nope"), None);
         assert_eq!(
             TruncatedAddr::V4Prefix("203.0.113.0/24".to_owned()),
@@ -260,5 +266,29 @@ mod tests {
                 .collect::<Vec<_>>(),
             [2, 3]
         );
+        let own = Page {
+            records: vec![own_rec(1), own_rec(2), own_rec(3)],
+        };
+        assert_eq!(
+            in_range(own, 2..4)
+                .records
+                .iter()
+                .map(|r| r.seq)
+                .collect::<Vec<_>>(),
+            [2, 3]
+        );
+    }
+
+    fn own_rec(seq: u64) -> OwnRecord {
+        OwnRecord {
+            seq,
+            ts: Timestamp::from_millis(0).expect("epoch"),
+            event: "gm_egress_denied".to_owned(),
+            account: None,
+            addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            class: None,
+            outcome: Outcome::Denied,
+            hash: [0; 32],
+        }
     }
 }
