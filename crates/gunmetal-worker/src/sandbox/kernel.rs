@@ -505,16 +505,148 @@ mod tests {
             .map_err(|error| error.kind())
     }
 
-    /// Whether the running kernel has Landlock active, read from the
-    /// kernel's own list of security modules and not from the code under
-    /// test.
-    fn kernel_has_landlock() -> bool {
+    /// Where the kernel lists its active security modules. The file is on
+    /// securityfs, which a kernel can be built without and a container is
+    /// usually not shown.
+    const MODULE_LIST: &str = "/sys/kernel/security/lsm";
+
+    /// The text of a file the kernel publishes, or `None` where the kernel
+    /// publishes no file by that name. Any other failure to read it is an
+    /// error, never taken for a missing file.
+    fn published(path: &str) -> Result<Option<String>, ErrorKind> {
         #[expect(
             clippy::disallowed_methods,
-            reason = "the test reads the kernel's list of security modules, a fixed path, to know what to expect of Landlock (SEC-MED-024)"
+            reason = "the tests read what the kernel publishes, its list of security modules first, by fixed paths, to know what to expect of Landlock (SEC-MED-024)"
         )]
-        let modules = std::fs::read_to_string("/sys/kernel/security/lsm").unwrap();
-        modules.trim().split(',').any(|name| name == "landlock")
+        let read = std::fs::read_to_string(path);
+        match read {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.kind()),
+        }
+    }
+
+    /// Whether a security module is active on the running kernel. Where
+    /// the kernel publishes the list of its modules, the list decides, and
+    /// a module is one whole name in it. Where it publishes none,
+    /// `answered` decides: what the kernel said when it was asked about
+    /// that module directly.
+    fn active(list: Option<&str>, module: &str, answered: bool) -> bool {
+        list.map_or(answered, |names| {
+            names.trim().split(',').any(|name| name == module)
+        })
+    }
+
+    /// Whether the running kernel answers the Landlock version query with
+    /// a version. The query is `landlock_create_ruleset` with only the
+    /// version flag: it creates no ruleset and restricts nothing. A kernel
+    /// built without Landlock answers `ENOSYS`, and a kernel that has
+    /// Landlock switched off answers `EOPNOTSUPP`.
+    ///
+    /// Making the call needs `unsafe`, which this crate allows in one
+    /// place only (ADR 13), so it is made through the `landlock` crate: a
+    /// builder that is given nothing to restrict and told to leave
+    /// `no_new_privs` alone asks for the version and does nothing else.
+    /// None of the code under test is involved.
+    fn landlock_answers() -> bool {
+        let answer = landlock::RestrictSelf::default()
+            .no_new_privs(false)
+            .apply()
+            .unwrap();
+        landlock::ABI::from(answer.landlock) != landlock::ABI::Unsupported
+    }
+
+    /// Whether the running kernel has Landlock active: read from the
+    /// kernel's own list of security modules, or asked of the kernel
+    /// directly where it publishes no list, and never from the code under
+    /// test.
+    fn kernel_has_landlock() -> bool {
+        let list = published(MODULE_LIST).unwrap();
+        active(list.as_deref(), "landlock", landlock_answers())
+    }
+
+    /// Where the kernel publishes the list of its security modules, the
+    /// list decides and the kernel's direct answer changes nothing; a
+    /// module is a whole name in the list. On a kernel that publishes
+    /// none, as one without securityfs, the direct answer decides.
+    #[test]
+    fn the_module_list_decides_and_without_one_the_kernels_direct_answer_does() {
+        let listed = Some("lockdown,capability,landlock,yama,apparmor\n");
+        assert_eq!(
+            [
+                active(listed, "landlock", false),
+                active(listed, "yama", false),
+                active(listed, "lockdown", false),
+                active(listed, "apparmor", false),
+                active(listed, "selinux", true),
+                active(listed, "lock", true),
+                active(listed, "", true),
+            ],
+            [true, true, true, true, false, false, false]
+        );
+        // One name, as the kernel writes it, with no line end.
+        assert!(active(Some("landlock"), "landlock", false));
+        assert!(!active(Some("capability,yama"), "landlock", true));
+        assert!(!active(Some(""), "landlock", true));
+        assert_eq!(
+            [
+                active(None, "landlock", true),
+                active(None, "landlock", false),
+            ],
+            [true, false]
+        );
+    }
+
+    /// A kernel without securityfs has no file where the list would be.
+    /// Reading it is "no list", not a failure, and that is what sends the
+    /// tests to the kernel's direct answer. A file that is there is read
+    /// whole. Any other failure stays an error, so a list that exists and
+    /// cannot be read is never taken for a kernel without one.
+    #[test]
+    fn a_file_the_kernel_does_not_publish_is_no_list_and_no_other_failure_is() {
+        assert_eq!(
+            published("/proc/sys/kernel/ostype"),
+            Ok(Some("Linux\n".to_owned()))
+        );
+        assert_eq!(published("/sys/kernel/security/no-such-list"), Ok(None));
+        assert_eq!(
+            published("/proc/self/status/lsm"),
+            Err(ErrorKind::NotADirectory)
+        );
+    }
+
+    /// Where the kernel publishes its module list, the list and the
+    /// version query say the same of Landlock, which is what lets the
+    /// query stand in for the list on a kernel that publishes none. On
+    /// such a kernel the two are one answer and this proves nothing.
+    #[test]
+    fn the_version_query_and_the_module_list_say_the_same_of_landlock() {
+        assert_eq!(landlock_answers(), kernel_has_landlock());
+    }
+
+    /// On a kernel without Landlock the version query says so: the three
+    /// Landlock calls answer `ENOSYS` on this thread, as on a kernel built
+    /// without them.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn the_version_query_says_no_on_a_kernel_without_landlock() {
+        let answered = std::thread::spawn(|| {
+            take_away(&[444, 445, 446]);
+            landlock_answers()
+        })
+        .join()
+        .unwrap();
+        assert!(!answered);
+    }
+
+    /// Asking leaves the thread's `no_new_privs` flag as it was. A process
+    /// started afterwards inherits the flag, so a query that set it would
+    /// hide a worker that did not set its own.
+    #[test]
+    fn asking_for_the_landlock_version_leaves_no_new_privs_as_it_was() {
+        let before = rustix::thread::no_new_privs().unwrap();
+        let _answer = landlock_answers();
+        assert_eq!(rustix::thread::no_new_privs().unwrap(), before);
     }
 
     /// Whether the running kernel's Landlock has every rule the worker
@@ -631,34 +763,138 @@ mod tests {
         assert!(!installed);
     }
 
-    /// The `Seccomp:` line of a thread's status: 0 without a filter, 2
-    /// with one.
+    /// What a thread's `/proc` status says of seccomp.
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    fn seccomp_mode(tid: i32) -> Option<String> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the test reads a thread's own /proc status to see the filter the kernel holds for it (SEC-MED-022)"
-        )]
-        let status = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")).unwrap();
-        status
-            .lines()
-            .find_map(|line| line.strip_prefix("Seccomp:"))
-            .map(|mode| mode.trim().to_owned())
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Seccomp {
+        /// The `Seccomp:` line: 0 without a filter, 2 with one or more.
+        mode: u32,
+        /// The `Seccomp_filters:` line: how many filters bind the thread.
+        /// Linux 5.9 added the line; on an older kernel this is `None`.
+        filters: Option<u32>,
     }
 
-    /// A seccomp filter binds the thread that installs it. The helper
-    /// thread installs the worker's filter and then only spins, which
-    /// needs no system call, until this thread has read its status.
-    ///
-    /// Neither thread can wait for ever. This one gives the helper half a
-    /// minute to say how it did, and lets it go when it leaves the scope,
-    /// by a panic as much as by its last line, so a step that fails on
-    /// either side fails the test instead of hanging it.
-    ///
-    /// Verifies: SEC-MED-022
+    /// Reads what the text of a `/proc` status file says of seccomp.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn seccomp_in(status: &str) -> Seccomp {
+        let number = |label: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(label))
+                .map(|value| value.trim().parse::<u32>().unwrap())
+        };
+        Seccomp {
+            mode: number("Seccomp:").unwrap(),
+            filters: number("Seccomp_filters:"),
+        }
+    }
+
+    /// What the kernel says of seccomp for one thread of this process.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn seccomp_of(tid: i32) -> Seccomp {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test reads a thread's own /proc status to see the filters the kernel holds for it (SEC-MED-022)"
+        )]
+        let status = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")).unwrap();
+        seccomp_in(&status)
+    }
+
+    /// How a thread's seccomp state changed: its mode before, its mode
+    /// after, and how many filters it gained where the kernel counts them.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    type Step = (u32, u32, Option<i64>);
+
+    /// The change from one state of a thread to a later one.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn change(before: Seccomp, after: Seccomp) -> Step {
+        let gained = before
+            .filters
+            .zip(after.filters)
+            .map(|(earlier, later)| i64::from(later) - i64::from(earlier));
+        (before.mode, after.mode, gained)
+    }
+
+    /// The status of a process in a container, of one outside any, and of
+    /// one on a kernel older than Linux 5.9, which does not count filters.
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     #[test]
-    fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+    fn a_status_gives_the_seccomp_mode_and_the_filter_count_where_there_is_one() {
+        assert_eq!(
+            seccomp_in(
+                "Name:\tsh\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\n\
+                 Speculation_Store_Bypass:\tthread vulnerable\n"
+            ),
+            Seccomp {
+                mode: 2,
+                filters: Some(1)
+            }
+        );
+        assert_eq!(
+            seccomp_in("NoNewPrivs:\t0\nSeccomp:\t0\nSeccomp_filters:\t0\n"),
+            Seccomp {
+                mode: 0,
+                filters: Some(0)
+            }
+        );
+        assert_eq!(
+            seccomp_in("Seccomp:\t2\nSeccomp_filters:\t12\n"),
+            Seccomp {
+                mode: 2,
+                filters: Some(12)
+            }
+        );
+        assert_eq!(
+            seccomp_in("NoNewPrivs:\t0\nSeccomp:\t2\nSpeculation_Store_Bypass:\tvulnerable\n"),
+            Seccomp {
+                mode: 2,
+                filters: None
+            }
+        );
+    }
+
+    /// A change holds the two modes, and the filters gained only where the
+    /// kernel counted them both times.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn a_change_is_the_two_modes_and_the_filters_gained_where_they_are_counted() {
+        let state = |mode, filters| Seccomp { mode, filters };
+        assert_eq!(
+            [
+                change(state(0, Some(0)), state(2, Some(1))),
+                change(state(2, Some(1)), state(2, Some(2))),
+                change(state(2, Some(3)), state(2, Some(3))),
+                change(state(2, Some(2)), state(2, Some(1))),
+                change(state(0, None), state(2, None)),
+                change(state(2, Some(1)), state(2, None)),
+            ],
+            [
+                (0, 2, Some(1)),
+                (2, 2, Some(1)),
+                (2, 2, Some(0)),
+                (2, 2, Some(-1)),
+                (0, 2, None),
+                (2, 2, None),
+            ]
+        );
+    }
+
+    /// Starts a thread that installs the worker's filter, and returns what
+    /// that thread answered, how the calling thread started, and what the
+    /// kernel showed: the change in the thread that asked, then the change
+    /// in the calling thread, which asked for nothing.
+    ///
+    /// The helper thread reads its own state before it asks. Afterwards it
+    /// only spins, which needs no system call, until the calling thread
+    /// has read its state again.
+    ///
+    /// Neither thread can wait for ever. The calling thread gives the
+    /// helper half a minute to say how it did, and lets it go when it
+    /// leaves the scope, by a panic as much as by its last line, so a step
+    /// that fails on either side fails the test instead of hanging it.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn watch_a_new_thread_install_the_filter() -> (Option<u8>, u8, Seccomp, [Step; 2]) {
+        use std::sync::OnceLock;
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
         use std::time::Duration;
 
@@ -675,18 +911,20 @@ mod tests {
         /// the helper's outcome before it gives up.
         const LOOKS: usize = 30_000;
 
+        let own = rustix::thread::gettid().as_raw_nonzero().get();
+        let started = seccomp_of(own);
         let tid = AtomicI32::new(0);
+        let asked_from = OnceLock::new();
         // 0: not done yet. 1: no filter. 2: installed.
         let outcome = AtomicU8::new(0);
         let seen = AtomicBool::new(false);
         // Both waits run their step at least once, so every line here runs
         // however the two threads are scheduled.
-        let (finished, mode) = std::thread::scope(|scope| {
+        let (finished, asked_into) = std::thread::scope(|scope| {
             scope.spawn(|| {
-                tid.store(
-                    rustix::thread::gettid().as_raw_nonzero().get(),
-                    Ordering::SeqCst,
-                );
+                let helper = rustix::thread::gettid().as_raw_nonzero().get();
+                asked_from.set(seccomp_of(helper)).unwrap();
+                tid.store(helper, Ordering::SeqCst);
                 Linux.no_new_privs().unwrap();
                 let installed = Linux.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
@@ -703,15 +941,128 @@ mod tests {
             })
             .take(LOOKS)
             .find(|&state| state != 0);
-            let mode = seccomp_mode(tid.load(Ordering::SeqCst));
+            let asked_into = seccomp_of(tid.load(Ordering::SeqCst));
             drop(release);
-            (finished, mode)
+            (finished, asked_into)
         });
+        let asked_from = *asked_from.get().unwrap();
+        (
+            finished,
+            outcome.load(Ordering::SeqCst),
+            started,
+            [
+                change(asked_from, asked_into),
+                change(started, seccomp_of(own)),
+            ],
+        )
+    }
+
+    /// A seccomp filter binds the thread that installs it, and no other.
+    /// The kernel shows it as one more filter on the thread that asked and
+    /// none more on this one, and as mode 2 on the thread that asked. No
+    /// start is assumed: what this thread shows before decides which row
+    /// below must hold, and where nothing could show the filter there is
+    /// no row, so the test fails instead of passing on what it cannot see.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_installs_the_filter_on_the_thread_that_asked() {
+        let (finished, outcome, started, changes) = watch_a_new_thread_install_the_filter();
         assert_eq!(finished, Some(2));
-        assert_eq!(outcome.load(Ordering::SeqCst), 2);
-        assert_eq!(mode.as_deref(), Some("2"));
-        let own = rustix::thread::gettid().as_raw_nonzero().get();
-        assert_eq!(seccomp_mode(own).as_deref(), Some("0"));
+        assert_eq!(outcome, 2);
+        // The change in the thread that asked, then in this one, each as
+        // the mode before, the mode after and the filters gained.
+        let expected: [[Option<[Step; 2]>; 2]; 2] = [
+            [
+                // No filter at the start, on a kernel older than Linux 5.9,
+                // which does not count filters: the mode alone shows it.
+                Some([(0, 2, None), (0, 0, None)]),
+                // No filter at the start, as on a hosted runner.
+                Some([(0, 2, Some(1)), (0, 0, Some(0))]),
+            ],
+            [
+                // A filter at the start and no count: one more filter
+                // would not show, so nothing is accepted.
+                None,
+                // A filter at the start, as in a container with a seccomp
+                // profile: the mode is 2 before and after, and only the
+                // count shows the new filter.
+                Some([(2, 2, Some(1)), (2, 2, Some(0))]),
+            ],
+        ];
+        assert_eq!(
+            Some(changes),
+            expected[usize::from(started.mode != 0)][usize::from(started.filters.is_some())],
+            "this thread started as {started:?}"
+        );
+    }
+
+    /// The same on a thread that is filtered before it asks, as every
+    /// thread is in a container with a seccomp profile. This thread first
+    /// takes the Landlock calls away from itself, which the filter's
+    /// installation does not need, and the thread it then starts inherits
+    /// that. The mode is 2 before and after, so only the count can show
+    /// the worker's filter: on a kernel older than Linux 5.9, which has no
+    /// count, this test fails.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn seccomp_adds_its_filter_to_a_thread_that_is_filtered_already() {
+        let (finished, outcome, _, changes) = std::thread::spawn(|| {
+            take_away(&[444, 445, 446]);
+            watch_a_new_thread_install_the_filter()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(finished, Some(2));
+        assert_eq!(outcome, 2);
+        assert_eq!(changes, [(2, 2, Some(1)), (2, 2, Some(0))]);
+    }
+
+    /// The `prctl` call's number on this architecture.
+    #[cfg(target_arch = "x86_64")]
+    const PRCTL_CALL: i64 = 157;
+    #[cfg(target_arch = "aarch64")]
+    const PRCTL_CALL: i64 = 167;
+
+    /// Makes the kernel answer `EINVAL`, 22, to `prctl(PR_SET_NO_NEW_PRIVS)`,
+    /// option 38, on the calling thread from now on, as a kernel older than
+    /// Linux 3.5 does. Every other `prctl` still goes through.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn refuse_no_new_privs() {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+
+        let (arch, _) = super::NATIVE.unwrap();
+        let option =
+            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, 38).unwrap();
+        let rules = [(PRCTL_CALL, vec![SeccompRule::new(vec![option]).unwrap()])].into();
+        let filter =
+            SeccompFilter::new(rules, SeccompAction::Allow, SeccompAction::Errno(22), arch)
+                .unwrap();
+        seccompiler::apply_filter(&BpfProgram::try_from(filter).unwrap()).unwrap();
+    }
+
+    /// The `no_new_privs` step asks the kernel, and a refusal is not taken
+    /// for success: on a thread where the kernel refuses that one `prctl`
+    /// option, the step fails with the kernel's error number, which is
+    /// what stops confinement. The bit cannot be cleared, so in a process
+    /// that starts with it, as every process does in a container run with
+    /// `no-new-privileges`, reading the bit afterwards cannot tell a step
+    /// that asked from one that did not.
+    ///
+    /// Verifies: SEC-MED-022
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn a_kernel_that_refuses_no_new_privs_is_reported_with_its_error() {
+        let refused = std::thread::spawn(|| {
+            refuse_no_new_privs();
+            Linux.no_new_privs().map_err(|error| error.raw_os_error())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(refused, Err(Some(22)));
     }
 
     #[test]

@@ -58,14 +58,31 @@ impl ManualClock {
     ///
     /// Panics when the move would take the reading outside `i64`.
     pub fn advance(&self, ms: i64) {
-        if let Err(from) = self
-            .now_ms
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| {
-                now.checked_add(ms)
-            })
-        {
+        if let Err(from) = self.update(|now| now.checked_add(ms)) {
             panic!("advancing the manual clock by {ms} ms from {from} ms overflows");
         }
+    }
+
+    /// Replaces the reading with what `next` makes of it, starting again
+    /// from the new reading when another holder moved the clock in between,
+    /// so no move is lost. When `next` has no answer the clock is left alone
+    /// and the reading it was asked about comes back as the error.
+    ///
+    /// `fetch_update` is the same loop, and Rust 1.99 renames it to
+    /// `try_update`. This crate's rust-version is 1.85, so the loop is
+    /// written out with `compare_exchange`, which every version has.
+    fn update(&self, mut next: impl FnMut(i64) -> Option<i64>) -> Result<(), i64> {
+        let mut now = self.now_ms.load(Ordering::SeqCst);
+        while let Some(moved) = next(now) {
+            match self
+                .now_ms
+                .compare_exchange(now, moved, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return Ok(()),
+                Err(current) => now = current,
+            }
+        }
+        Err(now)
     }
 }
 
@@ -129,6 +146,47 @@ mod tests {
     )]
     fn refuses_to_step_back_past_the_earliest_time() {
         ManualClock::at(i64::MIN).advance(-1);
+    }
+
+    /// Moves the clock by `ms` while another holder sets it to each of
+    /// `interruptions` in turn, each one landing after the move has read the
+    /// clock and before it writes. Returns the readings the move started
+    /// from and how it ended.
+    fn advance_interrupted(
+        clock: &ManualClock,
+        ms: i64,
+        interruptions: &[i64],
+    ) -> (Vec<i64>, Result<(), i64>) {
+        let mut pending = interruptions.iter();
+        let mut seen = Vec::new();
+        let outcome = clock.update(|now| {
+            seen.push(now);
+            if let Some(&other) = pending.next() {
+                clock.now_ms.store(other, Ordering::SeqCst);
+            }
+            now.checked_add(ms)
+        });
+        (seen, outcome)
+    }
+
+    #[test]
+    fn keeps_a_move_another_holder_made_while_this_one_was_moving() {
+        let clock = ManualClock::at(1_000);
+        assert_eq!(
+            advance_interrupted(&clock, 10, &[5_000, 70_000]),
+            (vec![1_000, 5_000, 70_000], Ok(()))
+        );
+        assert_eq!(clock.now_ms(), 70_010);
+    }
+
+    #[test]
+    fn reports_an_overflow_from_the_reading_another_holder_left() {
+        let clock = ManualClock::at(1_000);
+        assert_eq!(
+            advance_interrupted(&clock, 10, &[i64::MAX - 3]),
+            (vec![1_000, i64::MAX - 3], Err(i64::MAX - 3))
+        );
+        assert_eq!(clock.now_ms(), i64::MAX - 3);
     }
 
     #[test]

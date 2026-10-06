@@ -368,7 +368,10 @@ fn matches_route(route: &str, path: &str) -> bool {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    // Qodana does not expand `proptest!` or resolve `prop_oneof!` through `prelude::*`.
+    use proptest::prop_oneof;
     use proptest::sample::select;
+    use proptest::test_runner::{Config, TestRunner};
 
     fn link(raw: &str) -> Result<Link, LinkError> {
         Link::parse(Untrusted::new(raw))
@@ -802,61 +805,74 @@ mod tests {
             })
     }
 
-    proptest! {
-        /// Verifies: SEC-API-047, SEC-CLI-002, SEC-STD-015
-        #[test]
-        fn refuses_dangerous_and_plain_http_schemes_however_written(
-            raw in prop_oneof![
-                obfuscated("javascript"),
-                obfuscated("data"),
-                obfuscated("vbscript"),
-                obfuscated("file"),
-                obfuscated("intent"),
-                obfuscated("http"),
-            ],
-        ) {
-            prop_assert_eq!(link(&raw), Err(LinkError::NotHttps));
-        }
+    /// Verifies: SEC-API-047, SEC-CLI-002, SEC-STD-015
+    #[test]
+    fn refuses_dangerous_and_plain_http_schemes_however_written() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof![
+                    obfuscated("javascript"),
+                    obfuscated("data"),
+                    obfuscated("vbscript"),
+                    obfuscated("file"),
+                    obfuscated("intent"),
+                    obfuscated("http"),
+                ],
+                |raw| {
+                    prop_assert_eq!(link(&raw), Err(LinkError::NotHttps));
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// Verifies: SEC-API-047, SEC-CLI-002
-        #[test]
-        fn refuses_scheme_relative_and_path_values(
-            raw in "(//|/\\\\|\\\\\\\\|/)[a-z.:@]{0,20}",
-        ) {
-            prop_assert_eq!(link(&raw), Err(LinkError::NotAbsolute));
-        }
+    /// Verifies: SEC-API-047, SEC-CLI-002
+    #[test]
+    fn refuses_scheme_relative_and_path_values() {
+        TestRunner::new(Config::default())
+            .run(&"(//|/\\\\|\\\\\\\\|/)[a-z.:@]{0,20}", |raw| {
+                prop_assert_eq!(link(&raw), Err(LinkError::NotAbsolute));
+                Ok(())
+            })
+            .unwrap();
+    }
 
-        /// Whatever is accepted opens an https URL whose host is the one
-        /// shown, with nothing between the host and the path that another
-        /// URL parser could read differently, and reads back unchanged.
-        /// The host holds only ASCII letters, digits, `-`, `.` and `_`, or
-        /// the brackets and colons of an IPv6 address.
-        ///
-        /// Verifies: SEC-API-047, SEC-CLI-002, SEC-STD-015
-        #[test]
-        fn an_accepted_link_opens_the_host_it_shows(
-            raw in prop_oneof![
-                obfuscated("https"),
-                "[hH][tT][tT][pP][sS]:[/\\\\]{0,3}[a-zA-Z0-9.%-]{1,12}(:[0-9]{0,6})?([/?#\\\\].{0,12})?",
-                ".{0,40}",
-            ],
-        ) {
-            let parsed = link(&raw);
-            let shown = parsed.as_ref().map(|accepted| {
-                let host = accepted.host();
-                let after = accepted.href().strip_prefix("https://").and_then(|rest| rest.strip_prefix(host));
-                let tail = after.map(|after| after.trim_start_matches(|c: char| c == ':' || c.is_ascii_digit()));
-                (
-                    !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:[]".contains(&b)),
-                    tail.is_some_and(|tail| {
-                        tail.starts_with('/')
-                            && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~!$&()*+,;=:@/?#%".contains(&b))
-                    }),
-                    link(accepted.href()) == Ok(accepted.clone()),
-                )
-            });
-            prop_assert!(shown.is_err() || shown == Ok((true, true, true)), "{raw:?} gave {parsed:?}");
-        }
+    /// Whatever is accepted opens an https URL whose host is the one
+    /// shown, with nothing between the host and the path that another
+    /// URL parser could read differently, and reads back unchanged.
+    /// The host holds only ASCII letters, digits, `-`, `.` and `_`, or
+    /// the brackets and colons of an IPv6 address.
+    ///
+    /// Verifies: SEC-API-047, SEC-CLI-002, SEC-STD-015
+    #[test]
+    fn an_accepted_link_opens_the_host_it_shows() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof![
+                    obfuscated("https"),
+                    "[hH][tT][tT][pP][sS]:[/\\\\]{0,3}[a-zA-Z0-9.%-]{1,12}(:[0-9]{0,6})?([/?#\\\\].{0,12})?",
+                    ".{0,40}",
+                ],
+                |raw| {
+                    let parsed = link(&raw);
+                    let shown = parsed.as_ref().map(|accepted| {
+                        let host = accepted.host();
+                        let after = accepted.href().strip_prefix("https://").and_then(|rest| rest.strip_prefix(host));
+                        let tail = after.map(|after| after.trim_start_matches(|c: char| c == ':' || c.is_ascii_digit()));
+                        (
+                            !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:[]".contains(&b)),
+                            tail.is_some_and(|tail| {
+                                tail.starts_with('/')
+                                    && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~!$&()*+,;=:@/?#%".contains(&b))
+                            }),
+                            link(accepted.href()) == Ok(accepted.clone()),
+                        )
+                    });
+                    prop_assert!(shown.is_err() || shown == Ok((true, true, true)), "{raw:?} gave {parsed:?}");
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 
     /// The client routes these tests use.
@@ -942,34 +958,47 @@ mod tests {
         }
     }
 
-    proptest! {
-        /// Verifies: SEC-API-070, SEC-HIS-032
-        #[test]
-        fn sends_hostile_targets_home(
-            raw in prop_oneof![
-                obfuscated("javascript"),
-                obfuscated("data"),
-                obfuscated("https"),
-                "(//|/\\\\|\\\\\\\\|/%2[fF]|/%5[cC])[a-zA-Z0-9.:@%/\\\\]{0,20}",
-                "[/\\\\]?[a-zA-Z]{0,8}:.{0,16}",
-            ],
-        ) {
-            prop_assert_eq!(target(&raw), HOME);
-        }
+    /// Verifies: SEC-API-070, SEC-HIS-032
+    #[test]
+    fn sends_hostile_targets_home() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof![
+                    obfuscated("javascript"),
+                    obfuscated("data"),
+                    obfuscated("https"),
+                    "(//|/\\\\|\\\\\\\\|/%2[fF]|/%5[cC])[a-zA-Z0-9.:@%/\\\\]{0,20}",
+                    "[/\\\\]?[a-zA-Z]{0,8}:.{0,16}",
+                ],
+                |raw| {
+                    prop_assert_eq!(target(&raw), HOME);
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
 
-        /// The result is the value itself or the home route, never
-        /// anything built from it.
-        ///
-        /// Verifies: SEC-API-070, SEC-HIS-032
-        #[test]
-        fn returns_the_value_itself_or_home(
-            raw in prop_oneof![
-                "/(library|albums|settings)(/[a-zA-Z0-9_*.-]{0,6}){0,3}",
-                ".{0,24}",
-            ],
-        ) {
-            let returned = target(&raw);
-            prop_assert!(returned == raw || returned == HOME, "{raw:?} gave {returned:?}");
-        }
+    /// The result is the value itself or the home route, never
+    /// anything built from it.
+    ///
+    /// Verifies: SEC-API-070, SEC-HIS-032
+    #[test]
+    fn returns_the_value_itself_or_home() {
+        TestRunner::new(Config::default())
+            .run(
+                &prop_oneof![
+                    "/(library|albums|settings)(/[a-zA-Z0-9_*.-]{0,6}){0,3}",
+                    ".{0,24}",
+                ],
+                |raw| {
+                    let returned = target(&raw);
+                    prop_assert!(
+                        returned == raw || returned == HOME,
+                        "{raw:?} gave {returned:?}"
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
     }
 }
