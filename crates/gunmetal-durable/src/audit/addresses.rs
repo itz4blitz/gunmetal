@@ -241,21 +241,20 @@ pub(crate) fn fill_truncated(db: &Db, records: &mut [TruncatedRecord]) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        ADDRESSES, all, checkpoint, coarsen, coarsen_ip, commit, commitment_msg, encode_addr,
+        ADDRESSES, all, checkpoint, coarsen, coarsen_ip, commitment_msg, encode_addr,
         fill_truncated, get, int_col, open, put, remove, seq_col, truncated,
     };
     use crate::audit::error::AuditError;
     use crate::audit::record::{Outcome, TruncatedAddr, TruncatedRecord};
-    use crate::audit::testing::{FailingMac, MixMac, data, mix};
+    use crate::audit::testing::{data, mix};
     use gunmetal_core::time::Timestamp;
     use gunmetal_fs::sqlite::{Query, Value};
     use gunmetal_secrets::random::{OsRandom, Random};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-    /// Same construction as the production salt in `log.rs`: index bytes,
-    /// then `&dyn Random::fill`. CodeQL's rust/hard-coded-cryptographic-value
-    /// treats `[0; N]`, a counting fill, a static `OsRandom::fill`, and a
-    /// bitwise mix such as `^ 0xA5` as HMAC sources even after `fill`.
+    // Index bytes, then `&dyn Random::fill`. Not `[0; N]`, a counting fill,
+    // a static fill, or a bitwise mix: those are HMAC sources even after
+    // overwrite.
     fn salt(random: &dyn Random) -> [u8; 16] {
         let mut salt = core::array::from_fn(|index| {
             let [b0, ..] = index.to_le_bytes();
@@ -301,14 +300,6 @@ mod tests {
         assert_eq!(
             all(&db).expect("all"),
             vec![(1, 10, Some(addr), Some(salt.to_vec()))]
-        );
-        let mac = MixMac::new(7);
-        let (kid, tag) = commit(&mac, addr, &salt).expect("commit");
-        assert_eq!(kid, 7);
-        assert_eq!(tag, mix(7, &commitment_msg(addr, &salt)));
-        assert_eq!(
-            commit(&FailingMac, addr, &salt),
-            Err(AuditError::MacUnavailable)
         );
         db.execute(
             &Query::new("UPDATE addresses SET addr = ?1 WHERE seq = ?2")

@@ -141,6 +141,54 @@ fn debug_on() -> SecurityEvent {
     SecurityEvent::GmDebugLoggingEnabled { account: None }
 }
 
+/// Verifies: SEC-PRV-003, SEC-PRV-005
+#[test]
+fn an_addressed_record_stores_an_hmac_commitment_not_the_address() {
+    let data = data();
+    let log = log(&data);
+    let t = at(1_791_028_800_000);
+    log.append_security_event(t, &login_ok(), Some(&internet()), ORDINARY)
+        .expect("stored");
+    let salt: [u8; 16] = core::array::from_fn(|index| u8::try_from(index).unwrap_or(0));
+    let tag = mix(
+        0,
+        &crate::audit::addresses::commitment_msg(internet().addr(), &salt),
+    );
+    let mut text = String::new();
+    data.root
+        .open_read(&DataPath::audit_segment(AuditSeg::new(1).expect("1")))
+        .expect("segment")
+        .read_to_string(&mut text)
+        .expect("read");
+    assert!(
+        text.contains(&format!("\"commit\":\"{}\"", hex(&tag))),
+        "{text}"
+    );
+    assert!(!text.contains("203.0.113.7"), "{text}");
+}
+
+#[test]
+fn a_missing_address_key_refuses_an_addressed_append() {
+    let data = data();
+    let log = AuditLog::open_with(
+        handle(&data),
+        Arc::new(FailingMac),
+        Arc::new(MixMac::new(1)),
+        Arc::new(Counted::new()),
+        Limits::test(),
+    )
+    .expect("open");
+    assert_eq!(
+        log.append_security_event(
+            at(1_791_028_800_000),
+            &login_ok(),
+            Some(&internet()),
+            ORDINARY
+        ),
+        Err(AuditError::MacUnavailable)
+    );
+}
+
 /// Verifies: SEC-OPS-020, SEC-OPS-021
 #[test]
 fn appends_each_catalogue_event_as_a_whole_record() {
