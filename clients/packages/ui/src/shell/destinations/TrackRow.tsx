@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { formatDuration } from '../format.ts';
+import { formatDuration, staggerSlot } from '../format.ts';
 import type { ShellTrack } from '../library-types.ts';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
 
@@ -15,6 +15,8 @@ export type TrackRowProps = {
   albumTitle?: string | undefined;
   /** Hostile albums never render corpus text: safe catalogue labels replace it. */
   hostile?: boolean | undefined;
+  /** Entrance choreography slot (capped); library tables stagger, search does not. */
+  staggerIndex?: number | undefined;
   onPlay: (albumId: string, trackId: string) => void;
   onPlayNext?: ((albumId: string, trackId: string) => void) | undefined;
   onAddToQueue?: ((albumId: string, trackId: string) => void) | undefined;
@@ -29,6 +31,7 @@ export function TrackRow({
   artistKey,
   albumTitle,
   hostile = false,
+  staggerIndex = 0,
   onPlay,
   onPlayNext,
   onAddToQueue,
@@ -58,6 +61,7 @@ export function TrackRow({
         current: current ? '1' : '0',
         hostile: hostile ? '1' : '0',
         flagged: flagLabel === '' ? '0' : '1',
+        rowStagger: staggerSlot(staggerIndex),
       }}
       onContextMenu={
         onOpenArtist !== undefined && artistKey !== undefined

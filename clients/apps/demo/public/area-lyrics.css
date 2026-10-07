@@ -4,6 +4,12 @@
  * Everything is var(--gm-*) tokens: the Inter type ramp (design-language §6),
  * the text steps of §4, and the 160ms motion token of §9. No boxes, no
  * translucency, no assets — lyrics are just well-set text.
+ *
+ * 2026 pass: plain lyrics read a step larger; the synced current line gains
+ * a brass where-you-are bar (2px, the leading edge) beside its weight and
+ * size lift; the column fades faintly at its ends to suggest continuation.
+ * The fade is a static mask — no motion — so reduced motion needs nothing
+ * extra for it; every transition here still dies under prefers-reduced-motion.
  */
 
 /* —— The reading column —— */
@@ -12,27 +18,50 @@
   /* About 70 characters per line (design-language §6 line-length rule). */
   width: min(34em, 100%);
   gap: 12px;
+  /* Faint continuation fade: the column's outer ~8px of first/last line
+     soften into the surface (mask colours carry alpha only; the opaque stop
+     is a token so no raw palette value appears). Static by nature. */
+  padding-block: 12px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--gm-bg-canvas) 20px,
+    var(--gm-bg-canvas) calc(100% - 20px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--gm-bg-canvas) 20px,
+    var(--gm-bg-canvas) calc(100% - 20px),
+    transparent 100%
+  );
 }
 
-[data-lyrics-pane='1'] [data-lyrics-line='1'] {
-  /* type.title3 of the ramp: 16px on phone and wide web, 22px leading. */
-  font-size: var(--gm-type-title3-size);
-  line-height: var(--gm-type-title3-line);
-  /* Plain lyrics are prose: start-aligned reading, never inherited centring. */
+/* Plain lyrics are prose read at leisure: one ramp step above the synced
+   base (title3 + 1px, +4px leading), start-aligned. */
+[data-lyrics-pane='1'][data-synced='0'] [data-lyrics-line='1'] {
+  font-size: calc(var(--gm-type-title3-size) + 1px);
+  line-height: calc(var(--gm-type-title3-line) + 4px);
+  /* type.title3 of the ramp; prose starts at the margin, never inherited
+     centring. */
   text-align: start;
   /* Reflow at 320px (A9) without ever clipping a word. */
   overflow-wrap: anywhere;
 }
 
-/* Synced lyrics read as a lyric sheet: the block centres itself and the
+/* Synced lyrics read as a lyric sheet: a narrower centred column, and the
    lines sit centred, wherever the pane is placed (this targets the lines
    directly, so it also wins over the wide player's inherited alignment). */
 [data-lyrics-pane='1'][data-synced='1'] {
+  width: min(30em, 100%);
   margin-inline: auto;
 }
 
 [data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'] {
   text-align: center;
+  /* Positioning context for the where-you-are bar; no layout effect. */
+  position: relative;
   /* The active-line change animates colour only, at the 160ms motion token.
      Size and weight step instantly — layout is never animated. */
   transition:
@@ -49,6 +78,31 @@
   line-height: calc(var(--gm-type-title3-line) + 4px);
   font-weight: 650;
   color: var(--gm-text-primary);
+}
+
+/* —— The where-you-are bar (synced only) ——
+   A 2px brass line on the leading edge of the column, level with the current
+   line: the same "selected row" grammar the section lists use, so the eye
+   can find the moment without reading. Every synced line owns the slot, so
+   the bar fades out of one line and into the next on the standard curve.
+   Brass marks where you are (§3); the weight and size lift carry the same
+   fact without colour (A3). */
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1']::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
+  opacity: 0;
+  transition: opacity var(--gm-motion);
+}
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-current='1']::before {
+  opacity: 1;
 }
 
 /* —— Soft falloff by distance from the current line (synced only) ——
@@ -98,11 +152,13 @@
 }
 
 /* —— Reduced motion (CLI-140): the highlight itself is information and
-   still applies, but the change is instant. shell.css zeroes --gm-motion;
-   this is the explicit off-switch the surface requires. —— */
+   still applies, but the change is instant — line colour and the where-
+   you-are bar both. shell.css zeroes --gm-motion; this is the explicit
+   off-switch the surface requires. —— */
 
 @media (prefers-reduced-motion: reduce) {
-  [data-lyrics-pane='1'] [data-lyrics-line='1'] {
+  [data-lyrics-pane='1'] [data-lyrics-line='1'],
+  [data-lyrics-pane='1'] [data-lyrics-line='1']::before {
     transition: none;
   }
 }

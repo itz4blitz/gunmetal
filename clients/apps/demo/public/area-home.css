@@ -1,7 +1,12 @@
 /*
- * Gunmetal demo — HOME area styles (SUR-020).
+ * Gunmetal demo — HOME area styles (SUR-020), round 2 (the 2026 pass).
  * Loads after shell.css: equal-specificity overrides win.
  * Tokens only; new raw values are defined once per theme below.
+ *
+ * Round 2: ambient hero bloom, display-ramp title, meta line, quiet hero
+ * kebab, refined shelf headers (count + hairline see-all), art-scaling
+ * hover with an on-art action scrim, machined hex avatars with a brass
+ * where-you-are ring, and compact/medium peek shelves.
  */
 
 /* —— Area tokens (dark-first, one machined highlight + one deep floor) —— */
@@ -9,27 +14,34 @@
 #token-shell {
   /* Motion token for art-only lifts; hover/enter use the standard curve. */
   --gm-home-lift: 160ms cubic-bezier(0.2, 0, 0, 1);
+  /* Display ramp for the one hero on Home — a step above type.display. */
+  --gm-home-hero-size: 48px;
+  --gm-home-hero-line: 54px;
 }
 
 #token-shell[data-theme='dark'] {
   /* Machined edge light (banner frame line) and the shadow floor. */
   --gm-home-highlight: #e8f1f8;
   --gm-home-deep: #000000;
+  --gm-home-bloom: 0.34;
 }
 
 #token-shell[data-theme='light'] {
   --gm-home-highlight: #ffffff;
   --gm-home-deep: #1a2228;
+  --gm-home-bloom: 0.14;
 }
 
 #token-shell[data-theme='oled'] {
   --gm-home-highlight: #e8f1f8;
   --gm-home-deep: #000000;
+  --gm-home-bloom: 0.3;
 }
 
 #token-shell[data-theme='high-contrast'] {
   --gm-home-highlight: #ffffff;
   --gm-home-deep: #000000;
+  --gm-home-bloom: 0;
 }
 
 /* —— Cover tiles: art-first, machined edge (all sizes, every surface) —— */
@@ -98,17 +110,96 @@
   background: var(--gm-bg-canvas);
 }
 
+/* —— Hero: ambient artwork bloom + text scrim (2026) ——
+   A second, blurred, scaled copy of the spotlight cover sits behind the
+   hero as pure decoration: aria-hidden, pointer-events none, masked fade
+   to the canvas. The ::after scrim keeps a canvas gradient over the copy
+   side so every text token keeps its measured contrast. Both layers are
+   z-index -1 inside an isolated spotlight: above the anodised wash,
+   below the cover and the copy. Static paint — no looping motion. */
+
+#home-spotlight {
+  position: relative;
+  isolation: isolate;
+}
+
+#home-spotlight [data-hero-bloom] {
+  position: absolute;
+  z-index: -1;
+  inset: -72px -48px -64px;
+  background-size: cover;
+  background-position: center 32%;
+  filter: blur(72px) saturate(1.35) brightness(1.18);
+  transform: scale(1.12);
+  opacity: var(--gm-home-bloom);
+  pointer-events: none;
+  --gm-home-bloom-mask: radial-gradient(120% 100% at 28% 20%, var(--gm-bg-canvas) 34%, transparent 78%);
+  -webkit-mask-image: var(--gm-home-bloom-mask);
+  mask-image: var(--gm-home-bloom-mask);
+}
+
+#home-spotlight::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -72px -48px -64px;
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    color-mix(in srgb, var(--gm-bg-canvas) 82%, transparent) 72%,
+    var(--gm-bg-canvas) 96%
+  );
+  pointer-events: none;
+}
+
+#token-shell[data-width='medium'] #home-spotlight [data-hero-bloom],
+#token-shell[data-width='medium'] #home-spotlight::after,
+#token-shell[data-width='compact'] #home-spotlight [data-hero-bloom],
+#token-shell[data-width='compact'] #home-spotlight::after {
+  inset: -40px -16px -32px;
+}
+
+/* High contrast: no tint, no bloom — surfaces separate, text on canvas. */
+#token-shell[data-theme='high-contrast'] #home-spotlight [data-hero-bloom],
+#token-shell[data-theme='high-contrast'] #home-spotlight::after {
+  content: none;
+  display: none;
+}
+
 /* —— Hero type and actions —— */
 
-/* Display voice for the one hero on Home (Inter 800, tight). */
+/* Display voice, one step up (Inter 800, tight) on the wide canvas. */
 #home-spotlight [data-spotlight-title] {
+  font-size: var(--gm-home-hero-size);
+  line-height: var(--gm-home-hero-line);
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+#token-shell[data-width='medium'] #home-spotlight [data-spotlight-title] {
+  font-size: 32px;
+  line-height: 38px;
+}
+
+#token-shell[data-width='compact'] #home-spotlight [data-spotlight-title] {
+  font-size: 22px;
+  line-height: 28px;
 }
 
 /* Brass eyebrow: letterspaced caps (type.label voice). */
 [data-spotlight-eyebrow] {
   letter-spacing: 0.14em;
+}
+
+/* Meta line: year · track count — true metadata, muted, tabular. */
+[data-spotlight-meta] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
 /* The quiet action — hairline steel, no fill: the brass hex stays the only
@@ -117,11 +208,127 @@
 [data-spotlight-open] {
   background: transparent;
   box-shadow: none;
+  border: 1px solid var(--gm-line-control);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
 #home-spotlight-open:hover,
 [data-spotlight-open]:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  border-color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* The hero kebab: same catalogue menu as the tiles, at whisper volume —
+   borderless at rest, a hairline plate on hover. */
+[data-spotlight-more] {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  font-size: 0;
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    border-color var(--gm-motion);
+}
+
+[data-spotlight-more]::before {
+  content: '⋮';
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* RN-web Text pins 14px — hide the visible label; the name is the aria-label. */
+[data-spotlight-more] > * {
+  display: none;
+}
+
+[data-spotlight-more]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  border-color: var(--gm-line-subtle);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-spotlight-more]:focus {
+  outline: none;
+}
+
+[data-spotlight-more]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The hero menu drops from the actions row, right-aligned to the kebab.
+   The row must hug its content (a stretched flex item would push the
+   anchored menu to the far edge of the hero). */
+[data-spotlight-actions] {
+  position: relative;
+  align-self: flex-start;
+}
+
+[data-spotlight-actions] [data-item-menu] {
+  top: calc(100% + 8px);
+  right: 0;
+}
+
+/* —— Shelf headers: title · count · hairline see-all (2026) —— */
+
+[data-home-row-head] {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+/* Count chrome: what the shelf shows, in muted tabular figures. */
+[data-shelf-count] {
+  flex: 0 0 auto;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* See all: quiet hairline, steel not brass (brass stays on play and
+   where-you-are); it nudges 2px along the reading direction on hover. */
+[data-home-see-all] {
+  margin-left: auto;
+  padding: 4px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  transition:
+    color var(--gm-motion),
+    border-color var(--gm-motion),
+    transform var(--gm-motion);
+}
+
+[data-home-see-all]:hover {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+  border-bottom-color: var(--gm-line-control);
+  transform: translateX(2px);
+}
+
+[data-home-see-all]:focus {
+  outline: none;
+}
+
+[data-home-see-all]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
 }
 
 /* —— Album shelf: whole tiles, snap, sized per width class —— */
@@ -129,6 +336,20 @@
 #token-shell[data-width='wide'] [data-album-shelf] [data-album-tile] {
   /* Wide three-pane column: 6–8 tiles visible instead of four large ones. */
   flex: 0 0 132px;
+}
+
+/* Compact and medium: whole tiles plus a peek of the next one — the shelf
+   reads as scrollable without a scrollbar. */
+#token-shell[data-width='compact'] [data-album-shelf] {
+  gap: 12px;
+}
+
+#token-shell[data-width='compact'] [data-album-shelf] [data-album-tile] {
+  flex: 0 0 44%;
+}
+
+#token-shell[data-width='medium'] [data-album-shelf] [data-album-tile] {
+  flex: 0 0 29%;
 }
 
 /* Brass where-you-are state (design-language §3: brass marks the playing item). */
@@ -159,6 +380,68 @@
   opacity: 1;
   pointer-events: auto;
   transform: scale(1.06);
+}
+
+/* —— 2026 hover reveal: art scales on the lift, the actions ride a scrim ——
+   Scoped to the Home shelf; other surfaces keep the shell's quiet tile. */
+
+[data-art-scrim] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--gm-radius-s);
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 42%,
+    color-mix(in srgb, var(--gm-bg-canvas) 66%, transparent) 78%,
+    color-mix(in srgb, var(--gm-bg-canvas) 88%, transparent) 100%
+  );
+  transition: opacity var(--gm-motion);
+}
+
+[data-album-shelf] [data-album-tile]:hover [data-size],
+[data-album-shelf] [data-album-tile]:focus-within [data-size] {
+  transform: translateY(-4px) scale(1.03);
+}
+
+[data-album-shelf] [data-album-tile]:active [data-size] {
+  transform: translateY(-1px) scale(0.98);
+}
+
+[data-album-shelf] [data-album-tile]:hover [data-art-scrim],
+[data-album-shelf] [data-album-tile]:focus-within [data-art-scrim] {
+  opacity: 1;
+}
+
+/* Kebab on the art: bottom-start corner of the scrim, opposite the play
+   hex — both actions live on the art, the text below never moves. */
+[data-album-shelf] [data-item-more] {
+  top: auto;
+  right: auto;
+  bottom: 8px;
+  left: 8px;
+  background: color-mix(in srgb, var(--gm-bg-overlay) 72%, transparent);
+}
+
+/* Touch widths: no hover to reveal with — the actions and their scrim are
+   always on, so the shelf has no dead zones and no hidden controls. */
+#token-shell[data-width='compact'] [data-album-shelf] [data-art-scrim],
+#token-shell[data-width='medium'] [data-album-shelf] [data-art-scrim] {
+  opacity: 1;
+}
+
+#token-shell[data-width='compact'] [data-album-shelf] [data-album-play],
+#token-shell[data-width='medium'] [data-album-shelf] [data-album-play] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+#token-shell[data-width='compact'] [data-album-shelf] [data-item-more],
+#token-shell[data-width='medium'] [data-album-shelf] [data-item-more] {
+  opacity: 1;
 }
 
 /* —— Artists shelf: people are nuts — hex avatars, name under (design-language §7) —— */
@@ -197,6 +480,19 @@
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
 }
 
+/* Same whole-tiles-plus-peek rhythm as the album shelf. */
+#token-shell[data-width='compact'] [data-artist-shelf] {
+  gap: 12px;
+}
+
+#token-shell[data-width='compact'] [data-artist-shelf] [data-artist-tile] {
+  flex: 0 0 44%;
+}
+
+#token-shell[data-width='medium'] [data-artist-shelf] [data-artist-tile] {
+  flex: 0 0 29%;
+}
+
 #token-shell[data-width='expanded'] [data-artist-shelf] [data-artist-tile] {
   flex: 0 0 180px;
 }
@@ -214,11 +510,17 @@
   border-radius: var(--gm-radius-m);
 }
 
+/* Machined ring: lit from the top like the nut's edge, floor at the bottom. */
 [data-artist-hex-ring] {
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  background: var(--gm-line-subtle);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-home-highlight) 26%, var(--gm-line-subtle)) 0%,
+    var(--gm-line-subtle) 52%,
+    color-mix(in srgb, var(--gm-home-deep) 24%, var(--gm-line-subtle)) 100%
+  );
   clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
   transition: transform var(--gm-home-lift);
 }
@@ -229,6 +531,16 @@
 
 [data-artist-hex]:active [data-artist-hex-ring] {
   transform: translateY(0) scale(0.98);
+}
+
+/* Where-you-are: the playing release's artist wears the brass ring. */
+[data-artist-tile][data-artist-playing='1'] [data-artist-hex-ring] {
+  background: var(--gm-accent-indicator);
+}
+
+[data-artist-tile][data-artist-playing='1'] [data-artist-tile-name] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
 }
 
 /* Inner hex sits 1px inside the ring: a machined hairline, no shadows
@@ -289,6 +601,12 @@
   border: 1px solid var(--gm-line-control);
 }
 
+/* High contrast: flat steel ring, brass where-you-are stays (it is meaning,
+   not decoration) but the name returns to primary for maximum contrast. */
+#token-shell[data-theme='high-contrast'] [data-artist-hex-ring] {
+  background: var(--gm-line-control);
+}
+
 [data-artist-open] {
   display: flex;
   flex-direction: row;
@@ -342,6 +660,16 @@
   [data-artist-hex]:hover [data-artist-hex-ring],
   [data-artist-hex]:active [data-artist-hex-ring],
   [data-album-play] {
+    transform: none;
+  }
+
+  [data-album-shelf] [data-album-tile]:hover [data-size],
+  [data-album-shelf] [data-album-tile]:focus-within [data-size],
+  [data-album-shelf] [data-album-tile]:active [data-size] {
+    transform: none;
+  }
+
+  [data-home-see-all]:hover {
     transform: none;
   }
 }

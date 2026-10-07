@@ -283,7 +283,8 @@ test('2026 chrome uses icon transport, fills the column, and keeps a composed ho
   expect(css.includes('font-size: 0 !important')).toStrictEqual(true);
   expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(true);
   expect(css.includes('#player-next::after') || css.includes('#player-next:after')).toStrictEqual(true);
-  expect(css.includes('#player-queue::after') || css.includes('#player-queue:after')).toStrictEqual(true);
+  // The queue icon is an inline SVG; the legacy glyph stays gated off.
+  expect(css.includes('#player-queue:not(:has(svg))::after')).toStrictEqual(true);
   expect(css.includes('#player-full-prev::after') || css.includes('#player-full-prev:after')).toStrictEqual(true);
   expect(css.includes('gm-playing-bars')).toStrictEqual(true);
   expect(css.includes('#destination-home')).toStrictEqual(true);
@@ -309,6 +310,12 @@ test('2026 chrome uses icon transport, fills the column, and keeps a composed ho
   // Hex buttons take their focus ring on a square wrapper (clip-path eats outlines).
   expect(css.includes("[data-hex-wrap='1']:focus-within")).toStrictEqual(true);
   expect(css.includes('drop-shadow(0 0 0')).toStrictEqual(false);
+  // The bar is three zones with a capped, centred column; the empty state
+  // sleeps the centre zone instead of unmounting it.
+  expect(css.includes("grid-template-areas: 'left center right'")).toStrictEqual(true);
+  expect(css.includes('#player-bar[data-bar-empty=')).toStrictEqual(true);
+  expect(css.includes("#player-bar[data-bar-empty='1'] #player-center")).toStrictEqual(true);
+  expect(css.includes('#player-art-empty')).toStrictEqual(true);
 });
 
 test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plate', async () => {
@@ -371,4 +378,144 @@ test('home medium stack, track rows, search chips and album chrome keep their si
   const tabs = css.slice(css.indexOf('#library-tabs {'), css.indexOf('#library-tabs {') + 320);
   expect(tabs.includes('var(--gm-bg-canvas)')).toStrictEqual(true);
   expect(tabs.includes('backdrop-filter: blur')).toStrictEqual(false);
+});
+
+test('2026 elevation tokens layer inner strokes and keep soft shadows light-only', async () => {
+  const css = await demoShellCss();
+  // Dark: white inner strokes at 4-5%, and no soft shadow layers.
+  expect(css.includes('--gm-stroke-soft: inset 0 0 0 1px color-mix(in srgb, #ffffff 4%, transparent)')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('--gm-stroke-hover: inset 0 0 0 1px color-mix(in srgb, #ffffff 10%, transparent)')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('--gm-stroke-edge: inset 0 0 0 1px color-mix(in srgb, #ffffff 5%, transparent)')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('--gm-shadow-float: 0 0 0 0 transparent')).toStrictEqual(true);
+  expect(
+    css.includes('--gm-elev-raised: var(--gm-raised-edge), var(--gm-stroke-edge), var(--gm-shadow-surface)'),
+  ).toStrictEqual(true);
+  expect(
+    css.includes('--gm-elev-overlay: var(--gm-raised-edge), var(--gm-stroke-edge), var(--gm-shadow-float)'),
+  ).toStrictEqual(true);
+  // Light: stronger ink strokes, plus the only large soft shadows in the file.
+  expect(css.includes('--gm-stroke-edge: inset 0 0 0 1px color-mix(in srgb, #16202a 8%, transparent)')).toStrictEqual(
+    true,
+  );
+  expect(css.includes('--gm-shadow-float: 0 24px 56px color-mix(in srgb, #1a2228 18%, transparent)')).toStrictEqual(
+    true,
+  );
+  // Menus, sheets and the pane player float on tokens; no hardcoded shadows.
+  expect(css.includes('0 12px 32px')).toStrictEqual(false);
+  expect(css.includes('0 18px 40px')).toStrictEqual(false);
+  // The queue sheet is a raised surface of the overlay class, not a shadowless slab.
+  const sheetStart = css.indexOf('#queue-sheet {', css.indexOf('Queue sheet: a real sheet'));
+  const sheetBlock = css.slice(sheetStart, css.indexOf('}', sheetStart) + 1);
+  expect(sheetBlock.includes('box-shadow: var(--gm-elev-overlay)')).toStrictEqual(true);
+  // High contrast separates with borders: strokes and shadows switch off.
+  expect(css.includes('--gm-stroke-edge: 0 0 0 0 transparent')).toStrictEqual(true);
+});
+
+test('2026 motion tokens: 160 base, 200 sheet, 180 lift, one standard curve', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('--gm-motion: 160ms cubic-bezier(0.2, 0, 0, 1)')).toStrictEqual(true);
+  expect(css.includes('--gm-motion-sheet: 200ms cubic-bezier(0.2, 0, 0, 1)')).toStrictEqual(true);
+  expect(css.includes('--gm-motion-lift: 180ms cubic-bezier(0.2, 0, 0, 1)')).toStrictEqual(true);
+  expect(css.includes('--gm-ease: cubic-bezier(0.2, 0, 0, 1)')).toStrictEqual(true);
+  const reduced = css.slice(css.indexOf('prefers-reduced-motion: reduce'));
+  expect(reduced.includes('--gm-motion-lift: 0ms')).toStrictEqual(true);
+});
+
+test('the now-playing bar carries an ambient artwork wash beneath its content', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#player-bar::after')).toStrictEqual(true);
+  const wash = css.slice(css.indexOf('#player-bar::after'));
+  expect(wash.includes('var(--gm-now-tone')).toStrictEqual(true);
+  expect(wash.includes('var(--gm-bar-wash')).toStrictEqual(true);
+  expect(wash.includes('z-index: 0')).toStrictEqual(true);
+  expect(wash.includes('pointer-events: none')).toStrictEqual(true);
+  // The bar's zones lift above the wash, and the tone lands on the bar itself
+  // so both painted layers read it.
+  expect(css.includes('#player-bar > *')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-art-tone='01'] #player-bar {")).toStrictEqual(true);
+  // High contrast takes no artwork tint at all: both painted layers switch off.
+  const hc = css.indexOf("#token-shell[data-theme='high-contrast'] #player-bar::before");
+  expect(hc).toBeGreaterThanOrEqual(0);
+  const hcBlock = css.slice(hc, css.indexOf('}', hc) + 1);
+  expect(hcBlock.includes('content: none')).toStrictEqual(true);
+});
+
+test('long bar titles marquee only when overflowing, pause on hover, and keep the ellipsis under reduced motion', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('--gm-title-shift')).toStrictEqual(true);
+  expect(css.includes('@keyframes gm-title-marquee')).toStrictEqual(true);
+  const marqueeStart = css.indexOf("#player-title[data-marquee='1']");
+  expect(marqueeStart).toBeGreaterThanOrEqual(0);
+  const marquee = css.slice(marqueeStart);
+  expect(marquee.includes('width: max-content')).toStrictEqual(true);
+  expect(marquee.includes('gm-title-marquee')).toStrictEqual(true);
+  expect(css.includes('#player-meta:hover #player-title[data-marquee')).toStrictEqual(true);
+  expect(css.includes('animation-play-state: paused')).toStrictEqual(true);
+  const reduced = css.slice(css.indexOf('prefers-reduced-motion: reduce'));
+  expect(reduced.includes("data-marquee='1']")).toStrictEqual(true);
+  expect(reduced.includes('text-overflow: ellipsis')).toStrictEqual(true);
+});
+
+test('queue lines reveal a play action that replaces the duration on hover and focus', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('[data-queue-play]')).toStrictEqual(true);
+  const playStart = css.indexOf('[data-queue-play]');
+  const play = css.slice(playStart);
+  expect(play.includes('grid-area: duration')).toStrictEqual(true);
+  expect(play.includes('opacity: 0')).toStrictEqual(true);
+  expect(css.includes('[data-queue-line]:hover [data-queue-play]')).toStrictEqual(true);
+  expect(css.includes('[data-queue-line]:focus-within [data-queue-play]')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-width='compact'] [data-queue-play]")).toStrictEqual(true);
+  expect(css.includes('[data-queue-line]:hover [data-queue-duration]')).toStrictEqual(true);
+});
+
+test('tab underlines slide on transforms and focus rings animate in on focus-visible only', async () => {
+  const css = await demoShellCss();
+  expect(css.includes("#nav-tabs [id^='nav-item-']::after")).toStrictEqual(true);
+  expect(css.includes('transform: scaleX(0)')).toStrictEqual(true);
+  expect(css.includes('transform: scaleX(1)')).toStrictEqual(true);
+  // The compact tab indicator is the sliding underline now, not a box shadow.
+  expect(css.includes('inset 0 -3px 0 var(--gm-accent-indicator)')).toStrictEqual(false);
+  expect(css.includes('@keyframes gm-underline-in')).toStrictEqual(true);
+  // Base focus paints nothing; focus-visible draws and settles the ring.
+  expect(css.includes('outline: 2px solid transparent')).toStrictEqual(true);
+  expect(css.includes('outline-offset: 4px')).toStrictEqual(true);
+  expect(css.includes('outline-color var(--gm-motion),')).toStrictEqual(true);
+  expect(css.includes('outline-offset var(--gm-motion);')).toStrictEqual(true);
+  expect(css.includes(':focus-visible')).toStrictEqual(true);
+});
+
+test('scrubber thumb grows with a brass halo on hover and while dragging', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#player-scrubber:active #player-progress-fill::after')).toStrictEqual(true);
+  expect(css.includes('0 0 0 7px color-mix(in srgb, var(--gm-accent-fill) 18%, transparent)')).toStrictEqual(true);
+});
+
+test('the full player floats over an ambient artwork backdrop under a contrast veil', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('#player-full-ambient')).toStrictEqual(true);
+  const ambient = css.slice(css.indexOf('#player-full-ambient'));
+  expect(ambient.includes('filter: blur(56px)')).toStrictEqual(true);
+  expect(ambient.includes('z-index: 0')).toStrictEqual(true);
+  expect(css.includes('[data-ambient-veil]')).toStrictEqual(true);
+  const veil = css.slice(css.indexOf('[data-ambient-veil]'));
+  expect(veil.includes('var(--gm-bg-canvas) 82%, transparent) 0%')).toStrictEqual(true);
+  expect(veil.includes('var(--gm-bg-canvas) 93%, transparent) 100%')).toStrictEqual(true);
+  expect(css.includes('#player-full > :not(#player-full-ambient)')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-theme='high-contrast'] #player-full-ambient")).toStrictEqual(true);
+});
+
+test('interactive chrome presses at 0.97 with washes, strokes and machined art ring', async () => {
+  const css = await demoShellCss();
+  expect(css.includes('[data-queue-play]:active')).toStrictEqual(true);
+  expect(css.includes('scale(0.97)')).toStrictEqual(true);
+  // The bar's art well carries a machined ring that tints while playing.
+  expect(css.includes("#player-art[data-playing='1'] [data-size='bar']")).toStrictEqual(true);
+  expect(css.includes("#player-art [data-size='bar']") || css.includes('[data-size="bar"]')).toStrictEqual(true);
 });

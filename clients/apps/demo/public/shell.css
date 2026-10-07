@@ -2,6 +2,23 @@
  * Gunmetal demo shell — steel + brass craft.
  * Colour tokens match docs/ui/design-language.md §4.
  * CP-004 will own JSON tokens; this file is the C0 stand-in.
+ *
+ * 2026 pass — depth and motion system:
+ *   Elevation. Dark and OLED themes get depth from surface steps alone:
+ *   canvas → raised → overlay, a machined top-edge light catch
+ *   (--gm-raised-edge), and a consistent 1px inner stroke (--gm-stroke-*)
+ *   on cards, panes and buttons. Large soft shadows exist only in the light
+ *   theme (--gm-shadow-surface, --gm-shadow-float), composed per theme into
+ *   --gm-elev-raised (cards, panes, the bar) and --gm-elev-overlay (menus,
+ *   sheets, the full player). High contrast separates with borders: every
+ *   stroke and shadow layer resolves to a no-op.
+ *   Motion. One standard curve (--gm-ease); durations 160ms base
+ *   (--gm-motion), 180ms lift (--gm-motion-lift), 200ms sheets
+ *   (--gm-motion-sheet). Everything collapses to 0ms under
+ *   prefers-reduced-motion, where state changes stay instant.
+ *   Ambient artwork. The now-playing bar and the full player carry a very
+ *   low-opacity artwork-derived wash above their raised surface and below
+ *   their text; control surfaces themselves stay opaque steel.
  */
 
 @font-face {
@@ -100,8 +117,18 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-radius-xl: 16px;
   --gm-motion: 160ms cubic-bezier(0.2, 0, 0, 1);
   --gm-motion-sheet: 200ms cubic-bezier(0.2, 0, 0, 1);
+  --gm-motion-lift: 180ms cubic-bezier(0.2, 0, 0, 1);
+  --gm-ease: cubic-bezier(0.2, 0, 0, 1);
   --gm-edge-highlight: color-mix(in srgb, #e8f1f8 6%, transparent);
   --gm-raised-edge: inset 0 1px 0 var(--gm-edge-highlight);
+  --gm-stroke-soft: inset 0 0 0 1px color-mix(in srgb, #ffffff 4%, transparent);
+  --gm-stroke-hover: inset 0 0 0 1px color-mix(in srgb, #ffffff 10%, transparent);
+  --gm-stroke-edge: inset 0 0 0 1px color-mix(in srgb, #ffffff 5%, transparent);
+  --gm-shadow-surface: 0 0 0 0 transparent;
+  --gm-shadow-float: 0 0 0 0 transparent;
+  --gm-elev-raised: var(--gm-raised-edge), var(--gm-stroke-edge), var(--gm-shadow-surface);
+  --gm-elev-overlay: var(--gm-raised-edge), var(--gm-stroke-edge), var(--gm-shadow-float);
+  --gm-bar-wash: 7%;
   /* Sticky chrome heights: design-language §8 scroll padding */
   --gm-brand-height: 49px;
   --gm-player-height: 80px;
@@ -197,7 +224,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-focus-ring: #7a4c0c;
   --gm-progress-track: #e3e8ec;
   --gm-edge-highlight: color-mix(in srgb, #ffffff 90%, transparent);
-  --gm-raised-edge: inset 0 1px 0 #ffffff, 0 1px 2px color-mix(in srgb, #1a2228 8%, transparent);
+  --gm-raised-edge: inset 0 1px 0 #ffffff;
+  --gm-stroke-soft: inset 0 0 0 1px color-mix(in srgb, #16202a 7%, transparent);
+  --gm-stroke-hover: inset 0 0 0 1px color-mix(in srgb, #16202a 14%, transparent);
+  --gm-stroke-edge: inset 0 0 0 1px color-mix(in srgb, #16202a 8%, transparent);
+  --gm-shadow-surface: 0 2px 10px color-mix(in srgb, #1a2228 9%, transparent);
+  --gm-shadow-float: 0 24px 56px color-mix(in srgb, #1a2228 18%, transparent);
+  --gm-bar-wash: 6%;
   --gm-cover-01: #3a5a6e;
   --gm-cover-02: #5c4a3a;
   --gm-cover-03: #2f4f4f;
@@ -256,7 +289,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-focus-ring: #ffe9a8;
   --gm-progress-track: #5c5c5c;
   --gm-edge-highlight: transparent;
-  --gm-raised-edge: none;
+  --gm-raised-edge: 0 0 0 0 transparent;
+  --gm-stroke-soft: 0 0 0 0 transparent;
+  --gm-stroke-hover: 0 0 0 0 transparent;
+  --gm-stroke-edge: 0 0 0 0 transparent;
+  --gm-shadow-surface: 0 0 0 0 transparent;
+  --gm-shadow-float: 0 0 0 0 transparent;
+  --gm-bar-wash: 0%;
   --gm-cover-01: #3a5a6e;
   --gm-cover-02: #5c4a3a;
   --gm-cover-03: #2f4f4f;
@@ -365,7 +404,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-brand-height: 0px;
 }
 
-/* —— Raised chrome (machined top edge) —— */
+/* —— Raised chrome (machined top edge, inner stroke, light-only shadow) —— */
 
 #shell-brand,
 #nav-sidebar,
@@ -375,7 +414,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #right-pane,
 #queue-sheet {
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 #shell-brand {
@@ -494,7 +533,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   flex-direction: column;
   gap: 24px;
   padding: 28px 24px;
-  overflow: auto;
+  /* Vertical scroll only: ambient hero layers (blurred artwork) bleed past
+     the column on purpose — they must never turn into a horizontal bar. */
+  overflow-y: auto;
+  overflow-x: clip;
   /* Canvas depth: subtle top vignette — steel falloff, never purple glow. */
   background-color: var(--gm-bg-canvas);
   background-image: linear-gradient(
@@ -596,7 +638,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   cursor: pointer;
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion);
+    color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 /* Simple CSS glyphs — house / loupe / shelf — no emoji, no image assets.
@@ -718,7 +761,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   cursor: pointer;
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion);
+    color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 /* Sidebar labels take the type.small ramp; the Text element carries the
@@ -737,12 +781,14 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-primary);
 }
 
-/* Pressed: a 10% wash of text.primary over the surface (design-language §4). */
+/* Pressed: a 10% wash of text.primary over the surface and a small press
+   scale (design-language §4 states + 2026 micro-interaction pass). */
 #nav-sidebar [id^='nav-item-']:active,
 #nav-rail [id^='nav-item-']:active,
 #nav-tabs [id^='nav-item-']:active,
 #nav-item-settings:active {
   background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  transform: scale(0.98);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
@@ -751,6 +797,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   background: color-mix(in srgb, var(--gm-text-primary) 4%, transparent);
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
+}
+
+#theme-switcher [id^='theme-']:active {
+  transform: scale(0.97);
 }
 
 /* Active nav: brass wash at 14% + a 3px inset indicator on the leading edge
@@ -781,10 +831,30 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   opacity: 1;
 }
 
-/* Compact tabs: the indicator reads as an underline across the tab's foot. */
+/* Compact tabs: the where-you-are indicator is a brass underline that slides
+   in on transforms (2026 pass) — no box-shadow underline, never pills. */
+#nav-tabs [id^='nav-item-']::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 5px;
+  height: 3px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
+  transform: scaleX(0);
+  transform-origin: 50% 50%;
+  transition: transform var(--gm-motion-lift);
+}
+
+#nav-tabs [aria-selected='true']::after,
+#nav-tabs [data-selected='1']::after {
+  transform: scaleX(1);
+}
+
 #nav-tabs [aria-selected='true'],
 #nav-tabs [data-selected='1'] {
-  box-shadow: inset 0 -3px 0 var(--gm-accent-indicator);
+  box-shadow: none;
 }
 
 #theme-switcher [aria-selected='true'] {
@@ -1056,8 +1126,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-primary);
   border: 1px solid var(--gm-line-subtle);
   font-weight: 600;
-  box-shadow: var(--gm-raised-edge);
-  transition: background-color var(--gm-motion);
+  box-shadow: var(--gm-raised-edge), var(--gm-stroke-soft);
+  transition:
+    background-color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #home-spotlight-open:hover,
@@ -1140,7 +1212,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
   border: 1px solid var(--gm-line-subtle);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
   overflow: hidden;
 }
 
@@ -1200,7 +1272,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
   border: 1px solid var(--gm-line-subtle);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 /* Album shelf (Home): one horizontal row, whole tiles, no visible scrollbar. */
@@ -1688,7 +1760,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   background: transparent;
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion);
+    color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #library-tabs [role='tab']:hover {
@@ -1719,6 +1792,18 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   height: 2px;
   background: var(--gm-accent-indicator);
   border-radius: var(--gm-radius-m);
+  transform-origin: left center;
+  animation: gm-underline-in var(--gm-motion-lift) var(--gm-ease) both;
+}
+
+@keyframes gm-underline-in {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
 }
 
 #library-artist-list,
@@ -1790,6 +1875,82 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 [data-queue-line] [data-queue-duration] {
   grid-area: duration;
+  transition: opacity var(--gm-motion);
+}
+
+/* The line's play action shares the duration slot: it slides in on hover or
+   keyboard focus while the duration fades out of the same cell. Touch widths
+   keep it always visible (the [data-item-more] precedent). */
+[data-queue-play] {
+  grid-area: duration;
+  justify-self: end;
+  align-self: center;
+  position: relative;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--gm-radius-m);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: var(--gm-stroke-soft);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    opacity var(--gm-motion),
+    transform var(--gm-motion),
+    background-color var(--gm-motion),
+    box-shadow var(--gm-motion),
+    color var(--gm-motion);
+}
+
+[data-queue-play]::after {
+  content: '';
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+[data-queue-play] > * {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+[data-queue-line]:hover [data-queue-play],
+[data-queue-line]:focus-within [data-queue-play] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+[data-queue-line]:hover [data-queue-duration] {
+  opacity: 0;
+}
+
+[data-queue-line] [data-queue-play]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  box-shadow: var(--gm-stroke-hover);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-queue-play]:active {
+  transform: scale(0.97);
 }
 
 [data-track-play] {
@@ -1863,6 +2024,34 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Long titles (SUR-002): a measured, pausable marquee. The component writes
+   the overflow distance to --gm-title-shift through the CSSOM (jsdom has no
+   layout, so data-marquee stays 0 there); the motion itself is CSS-only and
+   pauses whenever the pointer or keyboard focus rests on the meta block.
+   Reduced motion keeps the plain ellipsis. */
+@keyframes gm-title-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-1 * var(--gm-title-shift, 0px)));
+  }
+}
+
+#player-title[data-marquee='1'] {
+  width: max-content;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  animation: gm-title-marquee 12s linear 600ms infinite alternate;
+}
+
+#player-meta:hover #player-title[data-marquee='1'],
+#player-meta:focus-within #player-title[data-marquee='1'] {
+  animation-play-state: paused;
 }
 
 #token-shell[data-width='compact'] #player-title {
@@ -1975,6 +2164,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #token-shell[data-width='compact'] [data-item-more],
 #token-shell[data-width='medium'] [data-item-more] {
   opacity: 1;
+}
+
+/* Touch widths show the queue line's play action without hover. */
+#token-shell[data-width='compact'] [data-queue-play],
+#token-shell[data-width='medium'] [data-queue-play] {
+  opacity: 1;
+  transform: none;
 }
 
 [data-item-menu] {
@@ -2183,7 +2379,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: none;
   font-size: 13px;
   font-weight: 600;
-  transition: color var(--gm-motion);
+  transition:
+    color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 [data-search-chip][data-pressed='1'] {
@@ -2223,7 +2421,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
   border: 1px solid var(--gm-line-subtle);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 #settings-nav [data-settings-nav-item] {
@@ -2264,7 +2462,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 [data-settings-heading-row] {
@@ -2407,23 +2605,104 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   grid-area: player;
   position: relative;
   display: grid;
-  /* Optical centering: the meta and scrubber flexible tracks are weighted so
-     the transport sits at the bar's visual centre between them. */
-  grid-template-columns: auto minmax(140px, 1.3fr) auto minmax(220px, 1fr) auto;
-  grid-template-areas: 'art meta transport scrubber actions';
+  /* Three zones spanning the full available width — left cluster on the
+     left edge, right cluster on the right edge, and the transport-over-
+     scrubber cluster held at a fixed comfortable width on the bar's optical
+     centre. Symmetric 1fr gutters keep the centre honest at every width. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 760px) minmax(0, 1fr);
+  grid-template-areas: 'left center right';
   align-items: center;
-  column-gap: 16px;
+  column-gap: 24px;
   height: 80px;
   padding: 0 20px;
   z-index: 12;
   border-top: 1px solid var(--gm-line-subtle);
   /* Opaque raised surface — design-language: no translucency, no shadows in dark. */
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
-/* Art-tint hairline on the player's top edge while a track is playing:
-   the anodised cover tone fades out across the bar's width. */
+/* Empty state: the zones stay mounted (nothing moves on first play) but the
+   centre sleeps behind visibility, and the idle play control appears in
+   steel — brass only once a track exists. */
+#player-bar[data-bar-empty='1'] #player-center {
+  visibility: hidden;
+}
+
+#player-left {
+  grid-area: left;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+#player-center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+#player-actions {
+  grid-area: right;
+}
+
+/* Idle art placeholder: the same 56px box the art occupies when playing. */
+#player-art-empty {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--gm-radius-s);
+  background: color-mix(in srgb, var(--gm-text-primary) 4%, var(--gm-bg-inset));
+  box-shadow: inset 0 0 0 1px var(--gm-line-subtle);
+  flex: 0 0 auto;
+}
+
+#player-bar[data-bar-empty='1'] #player-meta {
+  cursor: default;
+}
+
+#player-bar[data-bar-empty='1'] #shell-play {
+  /* Idle play is steel with a hairline; brass arrives with a track. */
+  background: color-mix(in srgb, var(--gm-text-primary) 8%, var(--gm-bg-overlay));
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+/* Art-tint hairline on the player's top edge plus the ambient wash across
+   the raised surface while a track plays: both layers read --gm-now-tone
+   from the bar itself, sit above the raised background and below the bar's
+   content (z-index 0 under the lifted zones), and switch off entirely in
+   high contrast. The control surfaces stay opaque steel. */
+#token-shell[data-art-tone='01'] #player-bar {
+  --gm-now-tone: var(--gm-cover-01);
+}
+#token-shell[data-art-tone='02'] #player-bar {
+  --gm-now-tone: var(--gm-cover-02);
+}
+#token-shell[data-art-tone='03'] #player-bar {
+  --gm-now-tone: var(--gm-cover-03);
+}
+#token-shell[data-art-tone='04'] #player-bar {
+  --gm-now-tone: var(--gm-cover-04);
+}
+#token-shell[data-art-tone='05'] #player-bar {
+  --gm-now-tone: var(--gm-cover-05);
+}
+#token-shell[data-art-tone='06'] #player-bar {
+  --gm-now-tone: var(--gm-cover-06);
+}
+#token-shell[data-art-tone='07'] #player-bar {
+  --gm-now-tone: var(--gm-cover-07);
+}
+#token-shell[data-art-tone='08'] #player-bar {
+  --gm-now-tone: var(--gm-cover-08);
+}
+
 #player-bar::before {
   content: '';
   position: absolute;
@@ -2441,34 +2720,41 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   );
 }
 
-#token-shell[data-art-tone='01'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-01);
+/* Ambient artwork wash: a very low-opacity radial bloom of the cover tone,
+   anchored to the art end of the bar. Above the raised surface, below the
+   text; never a translucent control surface (design-language §4). */
+#player-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      58% 180% at 6% 64%,
+      color-mix(in srgb, var(--gm-now-tone, transparent) var(--gm-bar-wash, 7%), transparent) 0%,
+      transparent 72%
+    ),
+    radial-gradient(
+      46% 150% at 42% 130%,
+      color-mix(in srgb, var(--gm-now-tone, transparent) calc(var(--gm-bar-wash, 7%) / 2), transparent) 0%,
+      transparent 70%
+    );
 }
-#token-shell[data-art-tone='02'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-02);
+
+#player-bar > * {
+  position: relative;
+  z-index: 1;
 }
-#token-shell[data-art-tone='03'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-03);
-}
-#token-shell[data-art-tone='04'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-04);
-}
-#token-shell[data-art-tone='05'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-05);
-}
-#token-shell[data-art-tone='06'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-06);
-}
-#token-shell[data-art-tone='07'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-07);
-}
-#token-shell[data-art-tone='08'] #player-bar::before {
-  --gm-now-tone: var(--gm-cover-08);
+
+#token-shell[data-theme='high-contrast'] #player-bar::before,
+#token-shell[data-theme='high-contrast'] #player-bar::after {
+  content: none;
 }
 
 #token-shell[data-theme='light'] #player-bar {
   background: var(--gm-bg-raised);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+  box-shadow: var(--gm-elev-raised);
 }
 
 #token-shell[data-theme='high-contrast'] #player-bar {
@@ -2481,8 +2767,17 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   height: 64px;
   padding: 0 12px;
   column-gap: 10px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: 'art meta transport actions';
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'left center right';
+}
+
+/* Compact: transport sits inline in the centre zone; the scrubber keeps its
+   top-edge position (absolute against the bar). */
+#token-shell[data-width='compact'] #player-center {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 /* Compact touch floor: every bar control is a 44px target (CLI-142). */
@@ -2521,18 +2816,33 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #player-art {
-  grid-area: art;
   display: flex;
   flex-direction: row;
   align-items: center;
   flex: 0 0 auto;
   cursor: pointer;
-  border-radius: var(--gm-radius-s);
+  border-radius: var(--gm-radius-m);
   transition: background-color var(--gm-motion);
 }
 
+/* Art well: a machined double ring that tints with the cover tone while the
+   track plays and returns to steel when paused. */
+#player-art [data-size='bar'] {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #e8f1f8 14%, transparent),
+    0 0 0 1px var(--gm-line-subtle),
+    0 0 0 3px color-mix(in srgb, #e8f1f8 5%, transparent);
+  transition: box-shadow var(--gm-motion);
+}
+
+#player-art[data-playing='1'] [data-size='bar'] {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #e8f1f8 14%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--gm-now-tone, var(--gm-line-subtle)) 45%, var(--gm-line-subtle)),
+    0 0 0 3px color-mix(in srgb, var(--gm-now-tone, transparent) 12%, transparent);
+}
+
 #player-meta {
-  grid-area: meta;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2541,6 +2851,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-s);
   padding: 4px 8px;
   margin: -4px -8px;
+  /* The meta block clips the title's measured marquee travel. */
+  overflow: hidden;
   transition: background-color var(--gm-motion);
 }
 
@@ -2572,42 +2884,30 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: 0;
 }
 
-#player-expand::after {
-  content: '';
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid var(--gm-text-secondary);
-  border-top: 2px solid var(--gm-text-secondary);
-  transform: rotate(45deg);
-  margin-top: 4px;
-  transition: border-color var(--gm-motion);
+#player-expand,
+#player-lyrics,
+#player-queue {
+  color: var(--gm-text-secondary);
+  transition: color var(--gm-motion);
 }
 
-#player-expand:hover::after {
-  border-color: var(--gm-text-primary);
+#player-expand:hover,
+#player-lyrics:hover,
+#player-queue:hover {
+  color: var(--gm-text-primary);
 }
 
-/* Empty: muted copy left-aligned across the art+meta zone — not a centered void. */
-#player-now {
-  grid-area: art / art / meta / meta;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-#token-shell[data-width='compact'] #player-now {
-  grid-area: art / art / meta / meta;
-}
-
+/* Empty state: idle art placeholder + one quiet line in the left zone. */
 #player-empty {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
   padding: 0;
   text-align: start;
 }
 
 #player-transport {
-  grid-area: transport;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -2616,7 +2916,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #player-actions {
-  grid-area: actions;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -2699,7 +2998,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: 6px 0 0 currentColor;
 }
 
-#player-queue::after {
+#player-queue:not(:has(svg))::after {
   content: '';
   width: 14px;
   height: 10px;
@@ -2713,6 +3012,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #player-actions [data-player-control]:not([data-disabled='1']):hover,
 #player-queue:not([data-disabled='1']):hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-overlay));
+  box-shadow: var(--gm-stroke-hover);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
@@ -2722,8 +3022,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #player-queue:active,
 #theme-switcher [id^='theme-']:active,
 #queue-sheet-close:active,
-#library-tabs [role='tab']:active {
+#library-tabs [role='tab']:active,
+[data-search-chip]:active {
   filter: brightness(0.92);
+  transform: scale(0.97);
 }
 
 /* Hex nut primary play */
@@ -2827,12 +3129,12 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #player-progress {
-  grid-area: scrubber;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas: 'elapsed track total';
   align-items: center;
   column-gap: 10px;
+  width: min(560px, 100%);
   min-width: 200px;
 }
 
@@ -2907,8 +3209,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--gm-accent-fill) 40%, transparent);
 }
 
-/* Scrubber thumb: a machined square nib on the brass edge, growing on
-   hover or keyboard focus of the scrubber. */
+/* Scrubber thumb: a machined square nib on the brass edge. It grows with a
+   soft brass halo on hover and keyboard focus, and grows further while the
+   drag is held (2026 pass). */
 #player-progress-fill::after {
   content: '';
   position: absolute;
@@ -2920,12 +3223,24 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   background: var(--gm-accent-indicator);
   box-shadow: 0 0 0 2px var(--gm-bg-raised);
   transform: translateY(-50%) scale(0);
-  transition: transform var(--gm-motion);
+  transition:
+    transform var(--gm-motion),
+    box-shadow var(--gm-motion);
 }
 
 #player-scrubber:hover #player-progress-fill::after,
 #player-scrubber:focus-visible #player-progress-fill::after {
   transform: translateY(-50%) scale(1);
+  box-shadow:
+    0 0 0 2px var(--gm-bg-raised),
+    0 0 0 7px color-mix(in srgb, var(--gm-accent-fill) 18%, transparent);
+}
+
+#player-scrubber:active #player-progress-fill::after {
+  transform: translateY(-50%) scale(1.2);
+  box-shadow:
+    0 0 0 2px var(--gm-bg-raised),
+    0 0 0 10px color-mix(in srgb, var(--gm-accent-fill) 24%, transparent);
 }
 
 #token-shell[data-width='compact'] #player-progress-fill {
@@ -2961,7 +3276,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-left: 1px solid var(--gm-line-subtle);
   border-radius: 0;
   z-index: 20;
-  box-shadow: none;
+  box-shadow: var(--gm-elev-overlay);
   background: var(--gm-bg-raised);
   opacity: 1;
   transform: translateX(105%);
@@ -3084,9 +3399,12 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
   cursor: pointer;
+  box-shadow: var(--gm-stroke-soft);
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion);
+    color var(--gm-motion),
+    box-shadow var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #queue-sheet-close > * {
@@ -3128,7 +3446,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-primary);
 }
 
-/* —— Focus rings (2px ring, 2px gap; :focus-visible only) —— */
+/* —— Focus rings (2px ring, 2px gap; :focus-visible only) ——
+
+   The resting focused state paints a transparent ring one step further out;
+   :focus-visible animates the colour in and the offset down onto the
+   component. Mouse and touch focus stay invisible (design-language §8). */
 
 #nav-sidebar [id^='nav-item-']:focus,
 #nav-rail [id^='nav-item-']:focus,
@@ -3161,8 +3483,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #skip-to-content:focus,
 #skip-to-player:focus,
 #content:focus,
-#player-bar:focus {
-  outline: none;
+#player-bar:focus,
+[data-queue-play]:focus {
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition:
+    outline-color var(--gm-motion),
+    outline-offset var(--gm-motion);
 }
 
 #nav-sidebar [id^='nav-item-']:focus-visible,
@@ -3197,7 +3524,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #skip-to-content:focus-visible,
 #skip-to-player:focus-visible,
 #content:focus-visible,
-#player-bar:focus-visible {
+#player-bar:focus-visible,
+[data-queue-play]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
 }
@@ -3220,6 +3548,36 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   #token-shell {
     --gm-motion: 0ms;
     --gm-motion-sheet: 0ms;
+    --gm-motion-lift: 0ms;
+  }
+
+  /* The measured marquee resolves to the plain ellipsis: no sideways motion. */
+  #player-title[data-marquee='1'] {
+    animation: none;
+    width: auto;
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: none;
+  }
+
+  #nav-sidebar [id^='nav-item-']:active,
+  #nav-rail [id^='nav-item-']:active,
+  #nav-tabs [id^='nav-item-']:active,
+  #nav-item-settings:active,
+  #theme-switcher [id^='theme-']:active,
+  #queue-sheet-close:active,
+  #library-tabs [role='tab']:active,
+  [data-search-chip]:active,
+  [data-queue-play]:active,
+  [data-queue-play],
+  #player-full-close:active,
+  #player-full-lyrics-toggle:active,
+  #player-full-lyrics-toggle:hover,
+  #player-full-queue:active,
+  #player-full-queue:hover,
+  #player-full-transport [data-player-control]:not([data-player-control='primary']):active {
+    transform: none;
   }
 
   #destination[data-page-enter='1'],
@@ -3483,14 +3841,58 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   height: auto;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
-  box-shadow:
-    var(--gm-raised-edge),
-    0 18px 40px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: var(--gm-elev-overlay);
 }
 
 #token-shell[data-width='medium'] #player-full-scrim,
 #token-shell[data-width='expanded'] #player-full-scrim,
 #token-shell[data-width='wide'] #player-full-scrim {
+  display: none;
+}
+
+/* Ambient artwork backdrop (SUR-010, 2026 pass): the blurred cover sits
+   above the composed tint gradient and below a heavy canvas veil; the veil,
+   not the artwork, guarantees text contrast. Static art — no live blur of
+   moving content — and it switches off entirely in high contrast. */
+#player-full-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+#player-full-ambient [data-ambient-art] {
+  width: 112%;
+  height: 112%;
+  margin: -6%;
+  object-fit: cover;
+  filter: blur(56px) saturate(1.12) brightness(0.5);
+  opacity: 0.55;
+}
+
+#token-shell[data-theme='light'] #player-full-ambient [data-ambient-art] {
+  filter: blur(56px) saturate(1.08) brightness(1.04);
+  opacity: 0.35;
+}
+
+#player-full [data-ambient-veil] {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-bg-canvas) 82%, transparent) 0%,
+    color-mix(in srgb, var(--gm-bg-canvas) 93%, transparent) 100%
+  );
+}
+
+#player-full > :not(#player-full-ambient) {
+  position: relative;
+  z-index: 1;
+}
+
+#token-shell[data-theme='high-contrast'] #player-full-ambient {
   display: none;
 }
 
@@ -3599,10 +4001,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
   border: 1px solid var(--gm-line-subtle);
+  box-shadow: var(--gm-stroke-soft);
   cursor: pointer;
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion);
+    color var(--gm-motion),
+    transform var(--gm-motion),
+    box-shadow var(--gm-motion);
 }
 
 #player-full-close > * {
@@ -3640,6 +4045,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 #player-full-close:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  box-shadow: var(--gm-stroke-hover);
+}
+
+#player-full-close:active {
+  transform: scale(0.97);
 }
 
 #player-full-art {
@@ -3739,12 +4149,23 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   line-height: var(--gm-type-small-line);
   font-weight: 600;
   cursor: pointer;
-  transition: background-color var(--gm-motion);
+  box-shadow: var(--gm-stroke-soft);
+  transition:
+    background-color var(--gm-motion),
+    transform var(--gm-motion-lift),
+    box-shadow var(--gm-motion);
 }
 
 #player-full-lyrics-toggle:hover,
 #player-full-queue:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  box-shadow: var(--gm-stroke-hover);
+  transform: translateY(-1px);
+}
+
+#player-full-lyrics-toggle:active,
+#player-full-queue:active {
+  transform: translateY(0) scale(0.97);
 }
 
 #player-full-lyrics-toggle[data-lyrics-available='0'] {
@@ -3760,7 +4181,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 #player-full-up-next-label {
@@ -3805,21 +4226,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-m);
 }
 
-#player-lyrics > * {
-  position: absolute !important;
-  width: 1px !important;
-  height: 1px !important;
-  overflow: hidden !important;
-  clip: rect(0, 0, 0, 0);
-  font-size: 0 !important;
-}
-
-#player-lyrics::after {
-  content: '♪';
-  font-size: 16px;
-  line-height: 16px;
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
+#player-lyrics svg,
+#player-expand svg,
+#player-queue svg {
+  display: block;
 }
 
 #player-volume,
@@ -3842,8 +4252,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   width: 96px;
   height: 16px;
   margin: 0;
-  accent-color: var(--gm-accent-fill);
+  /* Steel, not brass — volume is neither play, where-you-are nor focus. */
+  accent-color: var(--gm-text-muted);
   cursor: pointer;
+}
+
+#player-full-volume-range {
+  width: 120px;
 }
 
 #player-volume-range:focus-visible,
@@ -3886,11 +4301,14 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: none;
   transition:
     background-color var(--gm-motion),
-    filter var(--gm-motion);
+    box-shadow var(--gm-motion),
+    filter var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #player-full-transport [data-player-control]:not([data-player-control='primary']):hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: var(--gm-stroke-hover);
 }
 
 #player-full-transport [data-player-control]:not([data-player-control='primary']):active {
@@ -4058,7 +4476,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 #settings-nav [role='tab'] {
@@ -4097,7 +4515,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
+  box-shadow: var(--gm-elev-raised);
 }
 
 /* —— Artist page SUR-024 —— */
@@ -4149,9 +4567,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-overlay);
   font-family: Inter, system-ui, sans-serif;
-  box-shadow:
-    var(--gm-raised-edge),
-    0 12px 32px color-mix(in srgb, #000 28%, transparent);
+  box-shadow: var(--gm-elev-overlay);
   animation: gm-menu-enter var(--gm-motion) both;
 }
 

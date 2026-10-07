@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial, staggerSlot } from '../format.ts';
 import type { ShellAlbum, ShellArtist, ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
+import { GoToArtistMenu } from './GoToArtistMenu.tsx';
 
 export type HomeProps = {
   messages: DestinationMessages;
@@ -79,10 +81,12 @@ type ArtistTileProps = {
   tone: string | undefined;
   onOpen: (artistKey: string) => void;
   staggerIndex: number;
+  /** This artist's release is playing — brass where-you-are ring on the hex. */
+  playing: boolean;
 };
 
 /** People are nuts (design-language §7): hex avatar art, name under it. */
-function ArtistTile({ artist, name, tone, onOpen, staggerIndex }: ArtistTileProps) {
+function ArtistTile({ artist, name, tone, onOpen, staggerIndex, playing }: ArtistTileProps) {
   const hasArt = artist.imageUrl !== undefined && artist.imageUrl !== '';
   const art = hasArt
     ? {
@@ -92,7 +96,10 @@ function ArtistTile({ artist, name, tone, onOpen, staggerIndex }: ArtistTileProp
       }
     : undefined;
   return (
-    <View id={`artist-tile-${artist.key}`} dataSet={{ artistTile: artist.key, tileStagger: staggerSlot(staggerIndex) }}>
+    <View
+      id={`artist-tile-${artist.key}`}
+      dataSet={{ artistTile: artist.key, artistPlaying: playing ? '1' : '0', tileStagger: staggerSlot(staggerIndex) }}
+    >
       <View
         dataSet={{ artistHex: '1' }}
         accessibilityRole="button"
@@ -133,6 +140,12 @@ function ArtistTile({ artist, name, tone, onOpen, staggerIndex }: ArtistTileProp
   );
 }
 
+/** "2021 · 4 tracks" — facts from the catalogue, never invented ones. */
+function spotlightMeta(album: ShellAlbum, messages: DestinationMessages): string {
+  const count = `${album.tracks.length} ${messages.trackCountLabel}`;
+  return album.year > 0 ? `${album.year} · ${count}` : count;
+}
+
 export function Home({
   messages,
   library,
@@ -148,11 +161,23 @@ export function Home({
   const spotlight = albums[0];
   const homeData = spotlight === undefined ? undefined : { artTone: spotlight.coverTone };
   const artists = shelfArtists(library, albums);
+  // Where-you-are reaches the artists shelf through the playing release —
+  // no extra wiring beyond the album id the shell already knows (C2).
+  const playingArtistKey = albums.find((album) => album.id === playingAlbumId)?.artistKey;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasArt = spotlight !== undefined && spotlight.coverUrl !== '';
 
   return (
     <View id="destination-home" dataSet={homeData}>
       {spotlight !== undefined ? (
         <View id="home-spotlight" dataSet={{ homeSpotlight: '1' }}>
+          {hasArt ? (
+            <View
+              dataSet={{ heroBloom: '1' }}
+              aria-hidden="true"
+              style={{ backgroundImage: `url("${spotlight.coverUrl}")` }}
+            />
+          ) : null}
           <CoverTile
             tone={spotlight.coverTone}
             label={spotlight.title}
@@ -166,6 +191,7 @@ export function Home({
               {spotlight.title}
             </Text>
             <Text dataSet={{ spotlightArtist: '1', type: 'title3' }}>{spotlight.artistName}</Text>
+            <Text dataSet={{ spotlightMeta: '1' }}>{spotlightMeta(spotlight, messages)}</Text>
             <View dataSet={{ spotlightActions: '1' }}>
               <View dataSet={{ hexWrap: '1' }}>
                 <View
@@ -203,6 +229,47 @@ export function Home({
               >
                 <Text>{messages.goToAlbum}</Text>
               </View>
+              {onOpenArtist === undefined ? null : (
+                <View
+                  dataSet={{ spotlightMore: '1' }}
+                  accessibilityRole="button"
+                  accessibilityLabel={messages.moreActions}
+                  tabIndex={0}
+                  onClick={() => {
+                    setMenuOpen(true);
+                  }}
+                  onKeyDown={(event) => {
+                    activateKey(event, () => {
+                      setMenuOpen(true);
+                    });
+                  }}
+                >
+                  <Text>{messages.moreActions}</Text>
+                </View>
+              )}
+              {onOpenArtist === undefined ? null : (
+                <GoToArtistMenu
+                  open={menuOpen}
+                  artistKey={spotlight.artistKey}
+                  messages={messages}
+                  onOpenArtist={onOpenArtist}
+                  onPlay={() => {
+                    onPlayAlbum(spotlight.id);
+                  }}
+                  onPlayNext={() => {
+                    onPlayNextAlbum?.(spotlight.id);
+                  }}
+                  onAddToQueue={() => {
+                    onAddAlbumToQueue?.(spotlight.id);
+                  }}
+                  onGoToAlbum={() => {
+                    onOpenAlbum(spotlight.id);
+                  }}
+                  onClose={() => {
+                    setMenuOpen(false);
+                  }}
+                />
+              )}
             </View>
           </View>
         </View>
@@ -221,6 +288,9 @@ export function Home({
             <View dataSet={{ homeRowHead: '1' }}>
               <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
                 {messages.recentlyAdded}
+              </Text>
+              <Text dataSet={{ shelfCount: '1' }} aria-hidden="true">
+                {`${albums.length}`}
               </Text>
               <View
                 id="home-see-all-recent"
@@ -261,6 +331,9 @@ export function Home({
             <Text accessibilityRole="header" dataSet={{ homeTitle: '1', type: 'title2' }}>
               {messages.tabArtists}
             </Text>
+            <Text dataSet={{ shelfCount: '1' }} aria-hidden="true">
+              {`${artists.length}`}
+            </Text>
           </View>
           <View dataSet={{ artistShelf: '1' }}>
             {artists.map((artist, index) => (
@@ -271,6 +344,7 @@ export function Home({
                 tone={artistTone(artist, albums)}
                 onOpen={onOpenArtist ?? (() => undefined)}
                 staggerIndex={index}
+                playing={artist.key === playingArtistKey}
               />
             ))}
           </View>

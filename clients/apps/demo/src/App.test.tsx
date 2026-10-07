@@ -34,7 +34,7 @@ test('playing a fixture album fills the player bar from demo-local state', () =>
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
-  expect(document.querySelector('#player-artist')?.textContent).toStrictEqual('Mira Sol');
+  expect(document.querySelector('#player-artist')?.textContent).toStrictEqual('Mira Sol · Harbour Lights');
   expect(document.querySelector('#shell-play')?.getAttribute('aria-label')).toStrictEqual('Pause');
   expect(document.querySelector('#shell-play')?.getAttribute('data-playing')).toStrictEqual('1');
   expect(document.querySelector('#queue-line-demo-track-01-01')).toBeTruthy();

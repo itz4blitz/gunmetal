@@ -258,3 +258,23 @@ test('open full player paints playing-from, remaining time, up next and pane pla
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
 });
+
+test('open full player paints the ambient artwork backdrop under a contrast veil', () => {
+  const { container, rerender } = render(
+    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />,
+  );
+  const ambient = container.querySelector('#player-full-ambient');
+  expect(ambient?.id).toStrictEqual('player-full-ambient');
+  const art = ambient?.querySelector('img[data-ambient-art="1"]');
+  expect(art?.getAttribute('src')).toStrictEqual('/media/covers/fixture.svg');
+  expect(art?.getAttribute('alt')).toStrictEqual('');
+  expect(art?.getAttribute('aria-hidden')).toStrictEqual('true');
+  expect(ambient?.querySelector('[data-ambient-veil="1"]')?.getAttribute('data-ambient-veil')).toStrictEqual('1');
+  rerender(
+    <PlayerFull messages={shellMessages()} playback={{ ...playingSnapshot(), coverUrl: '' }} open onClose={vi.fn()} />,
+  );
+  expect(document.querySelector('#player-full-ambient img')).toBeNull();
+  expect(
+    document.querySelector('#player-full-ambient [data-ambient-veil="1"]')?.getAttribute('data-ambient-veil'),
+  ).toStrictEqual('1');
+});

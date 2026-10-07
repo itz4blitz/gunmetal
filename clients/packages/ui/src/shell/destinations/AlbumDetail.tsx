@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellAlbum, ShellTrack } from '../library-types.ts';
@@ -23,6 +24,41 @@ function albumTotalDuration(album: ShellAlbum): number {
 
 function discHeadingLabel(disc: { index: number; title: string }, messages: DestinationMessages): string {
   return disc.title === '' ? `${messages.discsHeading} ${disc.index}` : disc.title;
+}
+
+/** Same-origin artwork as a CSS background layer; empty URLs paint nothing. */
+function artLayer(url: string | undefined): { backgroundImage: string } | undefined {
+  return url === undefined || url === '' ? undefined : { backgroundImage: `url("${url}")` };
+}
+
+/** The album kebab's actions are listed only when the shell wired them —
+ * an item that opens and does nothing would lie (design-language §3.5). */
+type AlbumMenuAction = { id: 'play' | 'play-next' | 'add-to-queue' | 'go-to-artist'; label: string; run: () => void };
+
+function albumMenuActions(
+  album: ShellAlbum,
+  messages: DestinationMessages,
+  handlers: {
+    onPlayAlbum: (albumId: string) => void;
+    onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+    onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
+    onOpenArtist?: ((artistKey: string) => void) | undefined;
+  },
+): AlbumMenuAction[] {
+  const actions: AlbumMenuAction[] = [
+    { id: 'play', label: messages.playAlbum, run: () => handlers.onPlayAlbum(album.id) },
+  ];
+  const { onPlayNextAlbum, onAddAlbumToQueue, onOpenArtist } = handlers;
+  if (onPlayNextAlbum !== undefined) {
+    actions.push({ id: 'play-next', label: messages.playNext, run: () => onPlayNextAlbum(album.id) });
+  }
+  if (onAddAlbumToQueue !== undefined) {
+    actions.push({ id: 'add-to-queue', label: messages.addToQueue, run: () => onAddAlbumToQueue(album.id) });
+  }
+  if (onOpenArtist !== undefined) {
+    actions.push({ id: 'go-to-artist', label: messages.goToArtist, run: () => onOpenArtist(album.artistKey) });
+  }
+  return actions;
 }
 
 export type AlbumDetailProps = {
@@ -92,10 +128,29 @@ export function AlbumDetail({
   onPlayTrack,
   onOpenArtist,
   onShuffleAlbum,
+  onPlayNextAlbum,
+  onAddAlbumToQueue,
   onPlayNextTrack,
   onAddTrackToQueue,
 }: AlbumDetailProps) {
   const [lyricsOpen, setLyricsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    if (!moreOpen) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMoreOpen(false);
+      }
+    };
+    globalThis.addEventListener('keydown', onKey);
+    return () => {
+      globalThis.removeEventListener('keydown', onKey);
+    };
+  }, [moreOpen]);
+
   if (album === undefined) {
     return (
       <View id="destination-album-missing">
@@ -125,6 +180,15 @@ export function AlbumDetail({
   const artist = album.hostile ? messages.hostileArtistLabel : album.artistName;
   const lyricsTrack = albumLyricsTrack(album, currentTrackId);
   const shuffleWired = onShuffleAlbum !== undefined;
+  const menuActions = albumMenuActions(album, messages, {
+    onPlayAlbum,
+    onPlayNextAlbum,
+    onAddAlbumToQueue,
+    onOpenArtist,
+  });
+  const toggleMore = () => {
+    setMoreOpen((open) => !open);
+  };
 
   const renderTrackRow = (track: ShellTrack) => (
     <View
@@ -156,6 +220,11 @@ export function AlbumDetail({
         artTone: album.coverTone,
       }}
     >
+      {/* Hero bloom: the artwork, blurred and faded into the canvas, sits
+          behind the header; the scrim keeps the display type legible.
+          Both are decoration — aria-hidden, pointer-events none. */}
+      <View dataSet={{ albumBloom: '1' }} aria-hidden={true} style={artLayer(album.coverUrl)} />
+      <View dataSet={{ albumScrim: '1' }} aria-hidden={true} />
       <View
         id="album-back"
         accessibilityRole="button"
@@ -221,75 +290,128 @@ export function AlbumDetail({
               dataSet={{ albumLicense: album.license.spdx }}
             >{`${messages.licenseLabel} ${album.license.spdx} · ${album.license.attribution} · ${album.license.source}`}</Text>
           )}
-          <View dataSet={{ albumActions: '1' }}>
-            <View
-              id="album-play"
-              accessibilityRole="button"
-              accessibilityLabel={messages.playAlbum}
-              tabIndex={0}
-              dataSet={{ brassHex: '1' }}
-              onClick={() => {
-                onPlayAlbum(album.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onPlayAlbum(album.id);
-                }
-              }}
-            >
-              <Text>{messages.playAlbum}</Text>
+        </View>
+      </View>
+      {/* Sticky action rail: the page's Play · Shuffle · Lyrics · More row.
+          It is the header's only action row — compact hexes that pin to the
+          content's top edge while the track list scrolls beneath them. */}
+      <View dataSet={{ albumRail: '1', albumActions: '1' }}>
+        <View
+          id="album-play"
+          accessibilityRole="button"
+          accessibilityLabel={messages.playAlbum}
+          tabIndex={0}
+          dataSet={{ brassHex: '1' }}
+          onClick={() => {
+            onPlayAlbum(album.id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onPlayAlbum(album.id);
+            }
+          }}
+        >
+          <Text>{messages.playAlbum}</Text>
+        </View>
+        <View dataSet={{ shuffleWrap: '1', wired: shuffleWired ? '1' : '0' }}>
+          <View
+            id="album-shuffle"
+            dataSet={{ hexFace: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.shuffle}
+            aria-disabled={shuffleWired ? undefined : true}
+            tabIndex={0}
+            onClick={() => {
+              if (shuffleWired) {
+                onShuffleAlbum(album.id);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (shuffleWired && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                onShuffleAlbum(album.id);
+              }
+            }}
+          >
+            <View dataSet={{ shuffleGlyph: '1' }}>
+              <View dataSet={{ shuffleArm: 'a' }} />
+              <View dataSet={{ shuffleArm: 'b' }} />
             </View>
-            <View dataSet={{ shuffleWrap: '1', wired: shuffleWired ? '1' : '0' }}>
-              <View
-                id="album-shuffle"
-                dataSet={{ hexFace: '1' }}
-                accessibilityRole="button"
-                accessibilityLabel={messages.shuffle}
-                aria-disabled={shuffleWired ? undefined : true}
-                tabIndex={0}
-                onClick={() => {
-                  if (shuffleWired) {
-                    onShuffleAlbum(album.id);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (shuffleWired && (event.key === 'Enter' || event.key === ' ')) {
-                    event.preventDefault();
-                    onShuffleAlbum(album.id);
-                  }
-                }}
-              >
-                <View dataSet={{ shuffleGlyph: '1' }}>
-                  <View dataSet={{ shuffleArm: 'a' }} />
-                  <View dataSet={{ shuffleArm: 'b' }} />
-                </View>
-              </View>
-              <Text dataSet={{ controlHint: '1' }}>
-                {shuffleWired ? messages.shuffle : messages.shuffleUnavailable}
-              </Text>
-            </View>
-            {lyricsTrack === undefined ? null : (
-              <View
-                id="album-lyrics-toggle"
-                accessibilityRole="button"
-                accessibilityLabel={messages.lyrics}
-                tabIndex={0}
-                dataSet={{ lyricsToggle: lyricsOpen ? '1' : '0' }}
-                onClick={() => {
-                  setLyricsOpen((open) => !open);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setLyricsOpen((open) => !open);
-                  }
-                }}
-              >
-                <Text>{messages.lyrics}</Text>
-              </View>
-            )}
           </View>
+          <Text dataSet={{ controlHint: '1' }}>{shuffleWired ? messages.shuffle : messages.shuffleUnavailable}</Text>
+        </View>
+        {lyricsTrack === undefined ? null : (
+          <View
+            id="album-lyrics-toggle"
+            accessibilityRole="button"
+            accessibilityLabel={messages.lyrics}
+            tabIndex={0}
+            dataSet={{ lyricsToggle: lyricsOpen ? '1' : '0' }}
+            onClick={() => {
+              setLyricsOpen((open) => !open);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setLyricsOpen((open) => !open);
+              }
+            }}
+          >
+            <Text>{messages.lyrics}</Text>
+          </View>
+        )}
+        <View dataSet={{ kebabWrap: '1' }}>
+          <View
+            id="album-more"
+            dataSet={{ albumMore: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.moreActions}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen ? 'true' : 'false'}
+            tabIndex={0}
+            onClick={toggleMore}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleMore();
+              }
+            }}
+          >
+            <Text>{messages.moreActions}</Text>
+          </View>
+          {moreOpen ? (
+            <View
+              dataSet={{ albumMenu: '1', contextMenu: '1' }}
+              accessibilityRole="menu"
+              accessibilityLabel={messages.contextMenu}
+            >
+              {menuActions.map((action) => (
+                <View
+                  key={action.id}
+                  dataSet={{ menuItem: action.id }}
+                  accessibilityRole="menuitem"
+                  accessibilityLabel={action.label}
+                  tabIndex={0}
+                  onClick={(event: MouseEvent<HTMLElement>) => {
+                    event.stopPropagation();
+                    action.run();
+                    setMoreOpen(false);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      action.run();
+                      setMoreOpen(false);
+                    }
+                  }}
+                >
+                  <Text dataSet={{ menuLabel: '1' }}>{action.label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       </View>
       {lyricsTrack === undefined ? null : (

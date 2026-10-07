@@ -9,15 +9,27 @@ export type QueuePaneProps = {
   playback: PlayerSnapshot;
   compactSheet: boolean;
   onCloseSheet?: () => void;
+  /** Play this queue line now (wired to the controller's playTrack). */
+  onPlayLine?: ((albumId: string, trackId: string) => void) | undefined;
 };
 
-export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: QueuePaneProps) {
+export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPlayLine }: QueuePaneProps) {
   const closeOnKey = (event: { key: string; preventDefault: () => void }) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       onCloseSheet?.();
     }
   };
+  const playLine = (line: PlayerSnapshot['queue'][number]) => () => {
+    onPlayLine?.(line.albumId, line.trackId);
+  };
+  const playLineOnKey =
+    (line: PlayerSnapshot['queue'][number]) => (event: { key: string; preventDefault: () => void }) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onPlayLine?.(line.albumId, line.trackId);
+      }
+    };
   const body = (
     <View
       id={compactSheet ? 'queue-sheet' : 'right-pane'}
@@ -82,6 +94,17 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
               <Text dataSet={{ queueTitle: '1' }}>{line.title}</Text>
               <Text dataSet={{ queueArtist: '1' }}>{line.artistName}</Text>
               <Text dataSet={{ queueDuration: '1' }}>{formatDuration(line.durationMs)}</Text>
+              <View
+                id={`queue-play-${line.trackId}`}
+                dataSet={{ queuePlay: '1' }}
+                accessibilityRole="button"
+                accessibilityLabel={`${messages.play} ${line.title}`}
+                tabIndex={0}
+                onClick={playLine(line)}
+                onKeyDown={playLineOnKey(line)}
+              >
+                <Text dataSet={{ controlLabel: '1' }}>{messages.play}</Text>
+              </View>
             </View>
           ))}
         </View>

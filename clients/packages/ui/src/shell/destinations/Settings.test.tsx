@@ -95,6 +95,11 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
   );
   expect(document.querySelector('#settings-extensions [data-empty-mark="1"]')).toBeTruthy();
   expect(document.querySelector('#settings-plugin-slots')).toBeTruthy();
+  // The slot list reads as a table: a column head, then hairline rows.
+  expect(document.querySelector('#settings-plugin-slots [data-slot-head="1"]')).toBeTruthy();
+  expect(document.querySelector('[data-slot-head-title]')?.textContent).toStrictEqual('Extension');
+  expect(document.querySelector('[data-slot-head-plane]')?.textContent).toStrictEqual('Runs on');
+  expect(document.querySelector('[data-slot-head-state]')?.textContent).toStrictEqual('Status');
   expect(
     [...document.querySelectorAll('#settings-plugin-slots [data-plugin-slot]')].map((node) => [
       node.getAttribute('data-plugin-slot'),
@@ -112,9 +117,22 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
     ['theme-pack', 'client', '0', 'Themes', 'Client', 'Not loaded'],
     ['home-row', 'client', '0', 'Home rows', 'Client', 'Not loaded'],
   ]);
-  expect(document.querySelector('[data-settings-fact="data"]')?.textContent).toStrictEqual('Demo data');
-  expect(document.querySelector('[data-settings-fact="address"]')?.textContent).toStrictEqual('loopback');
-  expect(document.querySelector('[data-settings-fact="version"]')?.textContent).toStrictEqual('demo');
+  // About is a definition list: muted label, primary value, one row per fact.
+  expect(document.querySelector('#settings-about-facts')?.getAttribute('data-settings-facts')).toStrictEqual('1');
+  expect(document.querySelector('[data-settings-fact="data"] [data-fact-label]')?.textContent).toStrictEqual('Library');
+  expect(document.querySelector('[data-settings-fact="data"] [data-fact-value]')?.textContent).toStrictEqual(
+    'Demo data',
+  );
+  expect(document.querySelector('[data-settings-fact="address"] [data-fact-label]')?.textContent).toStrictEqual(
+    'Address',
+  );
+  expect(document.querySelector('[data-settings-fact="address"] [data-fact-value]')?.textContent).toStrictEqual(
+    'loopback',
+  );
+  expect(document.querySelector('[data-settings-fact="version"] [data-fact-label]')?.textContent).toStrictEqual(
+    'Version',
+  );
+  expect(document.querySelector('[data-settings-fact="version"] [data-fact-value]')?.textContent).toStrictEqual('demo');
   expect(document.querySelector('[data-settings-privacy]')?.textContent).toStrictEqual(
     'History and loves stay on this profile; this demo has no server yet.',
   );
@@ -202,6 +220,17 @@ test('area-settings.css keeps the steel-and-brass contract for settings', async 
   // Keyboard focus rings and reduced-motion handling exist.
   expect(css.includes('outline: 2px solid var(--gm-focus-ring)')).toBe(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toBe(true);
+  // 2026 pass: raised panes carry the machined 1px inner stroke, panes enter
+  // on the standard curve, and swatches lift on hover — all dying instantly
+  // under reduced motion.
+  expect(css.includes('[data-settings-panel]::before')).toBe(true);
+  expect(css.includes('gm-settings-pane-in')).toBe(true);
+  expect(css.includes('translateY(-2px)')).toBe(true);
+  expect(css.includes('animation: none')).toBe(true);
+  // About reads as a definition list with tabular figures on the values.
+  expect(css.includes('[data-fact-label]')).toBe(true);
+  expect(css.includes('[data-fact-value]')).toBe(true);
+  expect(css.includes('tabular-nums')).toBe(true);
   // No external or inline assets: stylesheets stay inside the CSP (SEC-API-044).
   expect(css.includes('url(')).toBe(false);
   expect(css.includes('data:')).toBe(false);

@@ -44,18 +44,23 @@ const album: ShellAlbum = {
   ],
 };
 
-test('album detail paints a full-bleed cover-tone header with meta line and brass play', () => {
-  const onPlayAlbum = vi.fn();
-  const { container } = render(
+function renderAlbum(overrides: Partial<Parameters<typeof AlbumDetail>[0]> = {}): ReturnType<typeof render> {
+  return render(
     <AlbumDetail
       lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       onBack={vi.fn()}
-      onPlayAlbum={onPlayAlbum}
+      onPlayAlbum={vi.fn()}
       onPlayTrack={vi.fn()}
+      {...overrides}
     />,
   );
+}
+
+test('album detail paints a full-bleed cover-tone header with meta line and brass play', () => {
+  const onPlayAlbum = vi.fn();
+  const { container } = renderAlbum({ onPlayAlbum });
   const root = container.querySelector('#destination-album');
   expect(root?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(container.querySelector('[data-album-header-large="1"]')).toBeTruthy();
@@ -76,17 +81,26 @@ test('album detail paints a full-bleed cover-tone header with meta line and bras
   expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
 });
 
-test('shuffle sits beside play, disabled with its hint until the shell wires it', () => {
+test('the hero bloom mirrors the artwork behind an aria-hidden scrim layer', () => {
+  const { container } = renderAlbum();
+  const bloom = container.querySelector('[data-album-bloom="1"]') as HTMLElement;
+  expect(bloom.getAttribute('aria-hidden')).toStrictEqual('true');
+  expect(bloom.style.backgroundImage).toContain('/media/covers/fixture.svg');
+  expect(container.querySelector('[data-album-scrim="1"]')?.getAttribute('aria-hidden')).toStrictEqual('true');
+  // The bloom is decoration: it must never carry readable corpus text.
+  expect(bloom.textContent).toStrictEqual('');
+
+  const bare = renderAlbum({ album: { ...album, coverUrl: '' } });
+  const bareBloom = bare.container.querySelector('[data-album-bloom="1"]') as HTMLElement;
+  expect(bareBloom).toBeTruthy();
+  expect(bareBloom.style.backgroundImage).toStrictEqual('');
+});
+
+test('shuffle sits in the action rail, disabled with its hint until the shell wires it', () => {
   const onShuffleAlbum = vi.fn();
-  const unwired = render(
-    <AlbumDetail
-      album={album}
-      messages={destinationMessages()}
-      onBack={vi.fn()}
-      onPlayAlbum={vi.fn()}
-      onPlayTrack={vi.fn()}
-    />,
-  );
+  const unwired = renderAlbum();
+  const rail = document.querySelector('[data-album-rail="1"]');
+  expect(rail?.getAttribute('data-album-actions')).toStrictEqual('1');
   expect(document.querySelector('[data-shuffle-wrap="1"][data-wired="0"]')).toBeTruthy();
   expect(document.querySelector('#album-shuffle[data-hex-face="1"]')).toBeTruthy();
   expect(screen.getByText('Shuffle is not wired in this demo yet')).toBeTruthy();
@@ -97,16 +111,7 @@ test('shuffle sits beside play, disabled with its hint until the shell wires it'
   expect(onShuffleAlbum).not.toHaveBeenCalled();
   unwired.unmount();
 
-  const wired = render(
-    <AlbumDetail
-      album={album}
-      messages={destinationMessages()}
-      onBack={vi.fn()}
-      onPlayAlbum={vi.fn()}
-      onPlayTrack={vi.fn()}
-      onShuffleAlbum={onShuffleAlbum}
-    />,
-  );
+  const wired = renderAlbum({ onShuffleAlbum });
   expect(document.querySelector('[data-shuffle-wrap="1"][data-wired="1"]')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Shuffle' }).getAttribute('aria-disabled')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Shuffle' }));
@@ -122,19 +127,81 @@ test('shuffle sits beside play, disabled with its hint until the shell wires it'
   expect(wired.container.querySelector('[data-album-actions="1"]')).toBeTruthy();
 });
 
+test('the sticky rail holds play, shuffle, lyrics and the kebab in one reachable row', () => {
+  const onPlayAlbum = vi.fn();
+  const singable: ShellAlbum = {
+    ...album,
+    tracks: album.tracks.map((track, index) => (index === 1 ? { ...track, lyricsKind: 'plain' as const } : track)),
+  };
+  const { container } = renderAlbum({ album: singable, onPlayAlbum });
+  const rail = container.querySelector('[data-album-rail="1"]');
+  expect(rail?.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();
+  expect(rail?.querySelector('[data-shuffle-wrap="1"]')).toBeTruthy();
+  expect(rail?.querySelector('#album-lyrics-toggle')).toBeTruthy();
+  expect(rail?.querySelector('#album-more')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: 'Enter' });
+  expect(onPlayAlbum).toHaveBeenCalledTimes(2);
+});
+
+test('the kebab opens a menu of wired album actions only, and escape closes it', () => {
+  const onOpenArtist = vi.fn();
+  const { container } = renderAlbum({ onOpenArtist });
+  // The kebab is queried by id: every track row also carries a "More" button.
+  const more = container.querySelector('#album-more')!;
+  expect(more.getAttribute('aria-haspopup')).toStrictEqual('menu');
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('false');
+
+  fireEvent.click(more);
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('true');
+  expect(container.querySelector('[data-album-menu="1"]')).toBeTruthy();
+  // Only wired actions render — a menu item that does nothing would lie.
+  expect(screen.getByRole('menuitem', { name: 'Play album' })).toBeTruthy();
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  expect(screen.queryByRole('menuitem', { name: 'Play next' })).toBeNull();
+  expect(screen.queryByRole('menuitem', { name: 'Add to queue' })).toBeNull();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
+  expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
+  expect(container.querySelector('[data-album-menu="1"]')).toBeNull();
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('false');
+
+  fireEvent.keyDown(more, { key: 'Enter' });
+  expect(container.querySelector('[data-album-menu="1"]')).toBeTruthy();
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(container.querySelector('[data-album-menu="1"]')).toBeNull();
+
+  fireEvent.keyDown(more, { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: 'Enter' });
+  expect(onOpenArtist).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(more, { key: 'Enter' });
+  expect(container.querySelector('[data-album-menu="1"]')).toBeTruthy();
+  // Tab through a menu never activates it; the menu stays until Escape.
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: 'Tab' });
+  expect(onOpenArtist).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('[data-album-menu="1"]')).toBeTruthy();
+});
+
+test('album-level queue actions join the kebab once the shell wires them', () => {
+  const onPlayNextAlbum = vi.fn();
+  const onAddAlbumToQueue = vi.fn();
+  const onPlayAlbum = vi.fn();
+  const { container } = renderAlbum({ onPlayNextAlbum, onAddAlbumToQueue, onPlayAlbum });
+  const more = container.querySelector('#album-more')!;
+  fireEvent.click(more);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(onPlayNextAlbum).toHaveBeenCalledWith('demo-album-01');
+  fireEvent.click(more);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(onAddAlbumToQueue).toHaveBeenCalledWith('demo-album-01');
+  fireEvent.keyDown(more, { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Play album' }), { key: ' ' });
+  expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
+});
+
 test('album artist control goes to the artist when the opener is provided', () => {
   const onOpenArtist = vi.fn();
-  render(
-    <AlbumDetail
-      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
-      album={album}
-      messages={destinationMessages()}
-      onBack={vi.fn()}
-      onPlayAlbum={vi.fn()}
-      onPlayTrack={vi.fn()}
-      onOpenArtist={onOpenArtist}
-    />,
-  );
+  renderAlbum({ onOpenArtist });
   fireEvent.click(screen.getByRole('button', { name: 'Go to artist' }));
   expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Go to artist' }), { key: 'Enter' });
@@ -304,7 +371,7 @@ test('album lyrics fall back to the first plain or synced track when the current
   ).toStrictEqual('Hello, hello through the static');
 });
 
-test('multi-disc albums keep disc headers with titles and a per-disc play affordance', () => {
+test('multi-disc albums keep sticky disc headers with titles and a per-disc play affordance', () => {
   const staged: ShellAlbum = {
     ...album,
     id: 'demo-album-05',
@@ -337,6 +404,9 @@ test('multi-disc albums keep disc headers with titles and a per-disc play afford
   );
   expect(screen.getByRole('heading', { name: 'Act One' })).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Discs 2' })).toBeTruthy();
+  // Both disc headers carry the sticky row marker; the rail pins above them.
+  expect(document.querySelectorAll('[data-disc-header-row="1"]')).toHaveLength(2);
+  expect(document.querySelector('[data-album-rail="1"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Play disc · Act One' }));
   expect(onPlayTrack).toHaveBeenCalledWith('demo-album-05', 'demo-track-05-01');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play disc 2' }), { key: 'Enter' });

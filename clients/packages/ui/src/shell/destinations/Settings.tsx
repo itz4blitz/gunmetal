@@ -183,6 +183,12 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
               <Text dataSet={{ emptyState: 'extensions' }}>{messages.settingsExtensionsBody}</Text>
             </View>
             <View id="settings-plugin-slots">
+              <View dataSet={{ slotHead: '1' }}>
+                <View dataSet={{ slotHeadLead: '1' }} />
+                <Text dataSet={{ slotHeadTitle: '1' }}>{messages.settingsSlotColumnSlot}</Text>
+                <Text dataSet={{ slotHeadPlane: '1' }}>{messages.settingsSlotColumnPlane}</Text>
+                <Text dataSet={{ slotHeadState: '1' }}>{messages.settingsSlotColumnState}</Text>
+              </View>
               {pluginSlots.map((slot) => (
                 <View
                   key={slot.id}
@@ -203,9 +209,20 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
         ) : null}
         {visible.includes('about') ? (
           <SettingsPane id="settings-about" section="about" messages={messages}>
-            <Text dataSet={{ settingsFact: 'data' }}>{messages.settingsAboutData}</Text>
-            <Text dataSet={{ settingsFact: 'address' }}>{messages.settingsAboutAddress}</Text>
-            <Text dataSet={{ settingsFact: 'version' }}>{messages.settingsAboutVersion}</Text>
+            <View id="settings-about-facts" dataSet={{ settingsFacts: '1' }}>
+              <View dataSet={{ settingsFact: 'data' }}>
+                <Text dataSet={{ factLabel: '1' }}>{messages.settingsAboutDataLabel}</Text>
+                <Text dataSet={{ factValue: '1' }}>{messages.settingsAboutData}</Text>
+              </View>
+              <View dataSet={{ settingsFact: 'address' }}>
+                <Text dataSet={{ factLabel: '1' }}>{messages.settingsAboutAddressLabel}</Text>
+                <Text dataSet={{ factValue: '1' }}>{messages.settingsAboutAddress}</Text>
+              </View>
+              <View dataSet={{ settingsFact: 'version' }}>
+                <Text dataSet={{ factLabel: '1' }}>{messages.settingsAboutVersionLabel}</Text>
+                <Text dataSet={{ factValue: '1' }}>{messages.settingsAboutVersion}</Text>
+              </View>
+            </View>
           </SettingsPane>
         ) : null}
         {visible.includes('privacy') ? (

@@ -203,7 +203,102 @@ test('home without browsable albums omits spotlight, art tone and shelves', () =
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   expect(screen.queryByRole('button', { name: 'See all' })).toBeNull();
   expect(screen.getByText('No albums added yet')).toBeTruthy();
+  // No browsable release → no spotlight at all, so no bloom and no kebab.
+  expect(document.querySelector('[data-hero-bloom="1"]')).toBeNull();
+  expect(document.querySelector('[data-spotlight-more="1"]')).toBeNull();
   // No shelf and no hostile-artist leak when nothing is browsable.
   expect(document.querySelector('#home-row-artists')).toBeNull();
   expect(screen.queryByText('Security corpus')).toBeNull();
+});
+
+test('spotlight carries the ambient bloom, meta line and a quiet album menu', () => {
+  const library = demoLibrary();
+  const onOpenAlbum = vi.fn();
+  const onPlayNextAlbum = vi.fn();
+  const onAddAlbumToQueue = vi.fn();
+  const onOpenArtist = vi.fn();
+  render(
+    <Home
+      messages={destinationMessages()}
+      library={library}
+      onOpenAlbum={onOpenAlbum}
+      onOpenArtist={onOpenArtist}
+      onPlayAlbum={vi.fn()}
+      onPlayNextAlbum={onPlayNextAlbum}
+      onAddAlbumToQueue={onAddAlbumToQueue}
+      onSeeAll={vi.fn()}
+    />,
+  );
+
+  // Ambient bloom: a decorative second copy of the spotlight cover — no
+  // control role, painted from the same same-origin URL.
+  const bloom = document.querySelector('#home-spotlight [data-hero-bloom="1"]');
+  expect(bloom).toBeTruthy();
+  expect(bloom?.getAttribute('role')).toStrictEqual(null);
+  expect(bloom?.getAttribute('style')).toContain('url("/media/covers/demo-album-01.svg")');
+
+  // Meta line under the artist: year and track count from the catalogue,
+  // drawn as a real text node (untrusted-text rule, design-language §6).
+  expect(document.querySelector('#home-spotlight [data-spotlight-meta="1"]')?.textContent).toStrictEqual(
+    '2021 · 4 tracks',
+  );
+
+  // The quiet kebab opens the same catalogue menu the tiles use. Shelf tiles
+  // also carry a More button, so the hero one is addressed by its hook.
+  const more = document.querySelector('[data-spotlight-more="1"]');
+  expect(more).toBeTruthy();
+  expect(screen.queryByRole('menuitem', { name: 'Play next' })).toBeNull();
+  fireEvent.click(more!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(onPlayNextAlbum).toHaveBeenCalledWith('demo-album-01');
+  fireEvent.click(document.querySelector('[data-spotlight-more="1"]')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(onAddAlbumToQueue).toHaveBeenCalledWith('demo-album-01');
+  // Escape closes it without firing the focused item.
+  fireEvent.click(document.querySelector('[data-spotlight-more="1"]')!);
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: 'Escape' });
+  expect(screen.queryByRole('menuitem', { name: 'Go to album' })).toBeNull();
+  fireEvent.click(document.querySelector('[data-spotlight-more="1"]')!);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
+  expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
+  // Opening and using the menu never opens the album itself.
+  expect(onOpenAlbum).not.toHaveBeenCalled();
+});
+
+test('shelf headers count what they show, in muted tabular chrome', () => {
+  const library = demoLibrary();
+  render(
+    <Home
+      messages={destinationMessages()}
+      library={library}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onSeeAll={vi.fn()}
+    />,
+  );
+  const recentCount = document.querySelector('#home-row-recent [data-shelf-count="1"]');
+  expect(recentCount?.textContent).toStrictEqual('14');
+  // Count chrome carries no role: the accessible header stays the bare title
+  // (RN-web strips aria-hidden, so the bare number is the pinned contract).
+  expect(recentCount?.getAttribute('role')).toStrictEqual(null);
+  const artistCount = document.querySelector('#home-row-artists [data-shelf-count="1"]');
+  expect(artistCount?.textContent).toStrictEqual('10');
+  expect(artistCount?.getAttribute('role')).toStrictEqual(null);
+});
+
+test('the playing release rings its artist hex with the where-you-are state', () => {
+  const library = demoLibrary();
+  render(
+    <Home
+      messages={destinationMessages()}
+      library={library}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onSeeAll={vi.fn()}
+      playingAlbumId="demo-album-01"
+    />,
+  );
+  expect(document.querySelector('#artist-tile-mira-sol')?.getAttribute('data-artist-playing')).toStrictEqual('1');
+  expect(document.querySelector('#artist-tile-keratin')?.getAttribute('data-artist-playing')).toStrictEqual('0');
+  expect(document.querySelectorAll('[data-artist-playing="1"]')).toHaveLength(1);
 });

@@ -29,8 +29,14 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   expect(root?.getAttribute('data-artist-key')).toStrictEqual('mira-sol');
   expect(root?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(container.querySelector('[data-artist-hero="1"]')).toBeTruthy();
-  // The generated artist image fills the nut-shaped hero; the initial stays as fallback.
+  // The generated artist image fills the nut-shaped hero and blooms behind
+  // the header as aria-hidden ambient colour.
   expect(container.querySelector('[data-artist-avatar-nut="1"]')).toBeTruthy();
+  const bloom = container.querySelector('[data-artist-bloom="1"]') as HTMLElement;
+  expect(bloom.getAttribute('aria-hidden')).toStrictEqual('true');
+  expect(bloom.style.backgroundImage).toContain('/media/artists/mira-sol.svg');
+  expect(bloom.textContent).toStrictEqual('');
+  expect(container.querySelector('[data-artist-scrim="1"]')?.getAttribute('aria-hidden')).toStrictEqual('true');
   const hero = container.querySelector('[data-artist-avatar="hero"]') as HTMLElement;
   expect(hero.getAttribute('data-artist-image')).toStrictEqual('1');
   expect(hero.style.backgroundImage).toContain('/media/artists/mira-sol.svg');
@@ -59,6 +65,15 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   const songs = container.querySelector('#artist-all-songs');
   expect(songs).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'All songs' })).toBeTruthy();
+  // The table head is presentational chrome over the row grid: title,
+  // album, time — hidden from assistive tech, aligned with the columns.
+  const tableHead = container.querySelector('[data-artist-table-head="1"]');
+  expect(tableHead?.getAttribute('aria-hidden')).toStrictEqual('true');
+  expect([...(tableHead?.querySelectorAll('*') ?? [])].map((node) => node.textContent)).toStrictEqual([
+    'Title',
+    'Album',
+    'Time',
+  ]);
   expect(container.querySelectorAll('[data-artist-song-list="1"] [data-track-row]')).toHaveLength(7);
   expect(
     [...container.querySelectorAll('[data-artist-song-list="1"] [data-track-album]')].map((node) => node.textContent),
@@ -145,6 +160,9 @@ test('missing artist and an artist with no albums stay on chrome without a wash'
     />,
   );
   expect(empty.container.querySelector('#destination-artist')?.getAttribute('data-art-tone')).toBeNull();
+  // No artist image means no ambient bloom — the nut and initial stand alone.
+  expect(empty.container.querySelector('[data-artist-bloom="1"]')).toBeNull();
+  expect(empty.container.querySelector('[data-artist-scrim="1"]')).toBeNull();
   const hero = empty.container.querySelector('[data-artist-avatar="hero"]') as HTMLElement;
   expect(hero.getAttribute('data-artist-image')).toStrictEqual('0');
   expect(hero.textContent).toStrictEqual('?');

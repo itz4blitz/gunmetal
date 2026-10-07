@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { catalogue } from '../messages/catalogue.ts';
 import { emptySnapshot, queuedSnapshot } from './test-playback.ts';
 import { QueuePane } from './QueuePane.tsx';
@@ -27,4 +27,32 @@ test('queue pane sheet close is optional and ignores non-activation keys', () =>
   const closed = render(<QueuePane messages={messages} playback={{ ...playback, queueOpen: false }} compactSheet />);
   expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
   closed.unmount();
+});
+
+test('queue lines reveal a play action that plays that line through the handler', () => {
+  const messages = catalogue().shell;
+  const playback = queuedSnapshot();
+  const onPlayLine = vi.fn();
+  const view = render(
+    <QueuePane messages={messages} playback={playback} compactSheet={false} onPlayLine={onPlayLine} />,
+  );
+  const salt = screen.getByRole('button', { name: 'Play Salt Window' });
+  expect(salt.getAttribute('data-queue-play')).toStrictEqual('1');
+  expect(salt.id).toStrictEqual('queue-play-demo-track-01-02');
+  fireEvent.click(salt);
+  expect(onPlayLine).toHaveBeenCalledTimes(1);
+  expect(onPlayLine).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-02');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Play Pier at Dusk' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Play Low Tide Letter' }), { key: ' ' });
+  expect(onPlayLine).toHaveBeenCalledTimes(3);
+  expect(onPlayLine).toHaveBeenLastCalledWith('demo-album-01', 'demo-track-01-03');
+  fireEvent.keyDown(salt, { key: 'Tab' });
+  expect(onPlayLine).toHaveBeenCalledTimes(3);
+  view.unmount();
+
+  // The wiring is optional: without a handler the action stays inert.
+  const idle = render(<QueuePane messages={messages} playback={queuedSnapshot(1)} compactSheet />);
+  fireEvent.click(screen.getByRole('button', { name: 'Play Salt Window' }));
+  expect(document.querySelector('#queue-sheet')?.id).toStrictEqual('queue-sheet');
+  idle.unmount();
 });

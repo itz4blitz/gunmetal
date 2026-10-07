@@ -104,6 +104,28 @@ test('the results meta line counts what is shown, per group, from the filter', (
   expect(document.querySelector('[data-search-query-echo="1"]')).toBeNull();
 });
 
+test('a non-empty query offers a clear control that empties the field and refocuses it', () => {
+  renderSearch();
+  expect(document.querySelector('#search-clear')).toBeNull();
+
+  typeQuery('Cylinder');
+  const clear = screen.getByRole('button', { name: 'Clear search' });
+  expect(clear.getAttribute('tabindex')).toStrictEqual('0');
+
+  const field = screen.getByLabelText('Search albums and tracks') as HTMLInputElement;
+  fireEvent.click(clear);
+  expect(field.value).toStrictEqual('');
+  // Clearing lands the person back in the empty state, field still focused.
+  expect(document.querySelector('#search-results')).toBeNull();
+  expect(document.querySelector('#search-recent')?.textContent).toContain('No recent searches');
+  expect(document.activeElement).toStrictEqual(field);
+
+  typeQuery('zzquadrazz');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Clear search' }), { key: 'Enter' });
+  expect((screen.getByLabelText('Search albums and tracks') as HTMLInputElement).value).toStrictEqual('');
+  expect(document.querySelector('[data-search-query-echo="1"]')).toBeNull();
+});
+
 test('type toggles are quiet: each hides its group, and one type always stays on', () => {
   renderSearch();
   typeQuery('Cylinder');

@@ -75,6 +75,26 @@ test('play control is a sibling of open — never a nested button', () => {
   expect(open.getAttribute('data-album-open')).toStrictEqual('1');
 });
 
+test('2026 art actions: a scrim carries the controls, kebab rides the art', () => {
+  const onOpen = vi.fn();
+  render(<AlbumTile album={album} messages={messages} onOpen={onOpen} onOpenArtist={vi.fn()} />);
+  const art = document.querySelector('[data-album-art="1"]');
+  // The scrim is the fade the controls sit on — decorative, never a control.
+  const scrim = art?.querySelector(':scope > [data-art-scrim="1"]');
+  expect(scrim).toBeTruthy();
+  expect(scrim?.getAttribute('role')).toStrictEqual(null);
+  // The kebab is anchored to the art (it sits on the scrim), not the tile text.
+  expect(screen.getByRole('button', { name: 'More' }).closest('[data-album-art="1"]')).toStrictEqual(art);
+  // It still opens the catalogue menu without opening the album underneath.
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  expect(onOpen).not.toHaveBeenCalled();
+  // Play stays a sibling of open, above the scrim.
+  const play = screen.getByRole('button', { name: 'Play album' });
+  expect(art?.contains(play)).toStrictEqual(true);
+  expect(scrim?.contains(play)).toStrictEqual(false);
+});
+
 test('play affordance calls onPlay when provided otherwise onOpen', () => {
   const onOpen = vi.fn();
   const onPlay = vi.fn();

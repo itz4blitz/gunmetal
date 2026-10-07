@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
@@ -83,8 +83,13 @@ export function Search({
   const [query, setQuery] = useState('');
   const [showAlbums, setShowAlbums] = useState(true);
   const [showTracks, setShowTracks] = useState(true);
+  const fieldRef = useRef<HTMLInputElement | null>(null);
   const hits = searchLibrary(library, query);
   const hasQuery = query.trim().length > 0;
+  const clearQuery = () => {
+    setQuery('');
+    fieldRef.current?.focus();
+  };
   const visibleAlbums = showAlbums ? hits.albums : [];
   const visibleTracks = showTracks ? hits.tracks : [];
   const noVisibleHits = visibleAlbums.length === 0 && visibleTracks.length === 0;
@@ -99,6 +104,7 @@ export function Search({
         <div id="search-affordance" aria-hidden="true" />
         <input
           id="search-field"
+          ref={fieldRef}
           type="search"
           value={query}
           placeholder={messages.searchPlaceholder}
@@ -107,6 +113,24 @@ export function Search({
             setQuery(event.target.value);
           }}
         />
+        {hasQuery ? (
+          <View
+            id="search-clear"
+            dataSet={{ searchClear: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.searchClear}
+            tabIndex={0}
+            onClick={clearQuery}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                clearQuery();
+              }
+            }}
+          >
+            <Text>{messages.searchClear}</Text>
+          </View>
+        ) : null}
       </View>
       <View id="search-type-chips" accessibilityRole="group" accessibilityLabel={messages.searchTypeFilter}>
         <TypeChip

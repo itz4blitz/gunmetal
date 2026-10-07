@@ -2,8 +2,14 @@
    Gunmetal — Settings (SUR-073) area styles.
    Loads after shell.css, so rules here refine its settings chrome.
    Tokens only (--gm-*); no external assets of any kind — SEC-API-044.
-   Brass is scarce (design-language §3): the R2 badge and the selected
-   theme swatch outline are the only brass on this page.
+   Brass is scarce (design-language §3): the R2 badge, the section list's
+   where-you-are bar and the selected theme swatch outline are the only
+   brass on this page.
+
+   2026 pass: raised panes carry a machined 1px inner stroke; panes enter on
+   the 160ms standard curve; the section list gains the hover wash; theme
+   swatches get larger previews with a hover lift; plugin slots read as a
+   table; About is a definition list. Everything dies under reduced motion.
    ========================================================================== */
 
 /* —— Page rhythm: stacked panes on compact, list + pane on expanded/wide —— */
@@ -18,10 +24,23 @@
   gap: 16px;
 }
 
-/* Section cards: raised, machined top edge (from shell), slightly roomier. */
+/* Section cards: raised, machined top edge (from shell), slightly roomier,
+   and keyed by a 1px inner stroke one step inside the border — the recessed
+   keyline of the 2026 card treatment. Drawn by a pseudo-element so it never
+   clips or overlaps content (padding sits well inside the 5px inset). */
 #destination-settings [data-settings-panel] {
-  gap: 16px;
-  padding: 22px 24px;
+  position: relative;
+  gap: 18px;
+  padding: 24px 26px;
+}
+
+#destination-settings [data-settings-panel]::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--gm-line-subtle) 72%, transparent);
+  border-radius: calc(var(--gm-radius-l) - 5px);
+  pointer-events: none;
 }
 
 #token-shell[data-width='compact'] #destination-settings [data-settings-panel],
@@ -29,8 +48,28 @@
   padding: 16px;
 }
 
+/* Pane transition: a section change is a change of place, so the pane
+   settles in over the standard curve. Fill mode both keeps the pre-animation
+   frame from flashing. */
+@keyframes gm-settings-pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#destination-settings [data-settings-panel] {
+  animation: gm-settings-pane-in var(--gm-motion) both;
+}
+
 #destination-settings [data-settings-heading-row] {
-  padding-bottom: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-subtle) 60%, transparent);
 }
 
 /* —— Honest release badges: R1 steel, R2 the one brass badge —— */
@@ -86,7 +125,11 @@
 }
 
 @media (hover: hover) {
+  /* Hover wash plus a text lift: the row answers the pointer without
+     moving (calm by default, §9). */
   #destination-settings #settings-nav [role='tab']:hover {
+    --gm-text: var(--gm-text-primary);
+    color: var(--gm-text-primary);
     background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
   }
 
@@ -100,7 +143,7 @@
 #settings-theme-preview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 #token-shell[data-width='compact'] #settings-theme-preview {
@@ -110,14 +153,16 @@
 #destination-settings [data-theme-swatch] {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-height: 44px;
-  padding: 7px;
+  padding: 8px;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-m);
   background: var(--gm-bg-inset);
   cursor: pointer;
+  /* The hover lift moves on transform only, at the standard curve. */
   transition:
+    transform var(--gm-motion),
     background-color var(--gm-motion),
     border-color var(--gm-motion);
 }
@@ -130,16 +175,24 @@
 
 @media (hover: hover) {
   #destination-settings [data-theme-swatch]:hover {
+    transform: translateY(-2px);
     background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-inset));
+    border-color: color-mix(in srgb, var(--gm-line-control) 55%, var(--gm-line-subtle));
   }
 
   #destination-settings [data-theme-swatch][data-selected='1']:hover {
+    transform: translateY(-2px);
     background: color-mix(in srgb, var(--gm-accent-fill) 12%, var(--gm-bg-inset));
+    border-color: var(--gm-accent-indicator);
   }
 }
 
-/* Per-theme preview values: the token file's own values for each theme,
-   so a swatch shows its theme honestly whatever theme is active. */
+/* Per-theme preview values: the token file's own values for each theme, so
+   a swatch shows its theme honestly whatever theme is active. THIS BLOCK IS
+   THE ONE PLACE those values live: they mirror the §4 token table in
+   docs/ui/design-language.md. If shell.css tunes the live tokens this
+   round, the swatches still tell the truth per theme — retune both places
+   together, never one. */
 #destination-settings [data-theme-swatch='dark'] {
   --sw-canvas: #0f1317;
   --sw-raised: #161c21;
@@ -176,10 +229,11 @@
   --sw-edge: transparent;
 }
 
-/* The miniature: canvas sky, two text bars, raised bar with a brass nut. */
+/* The miniature, 2026 size: taller canvas sky, two text bars, raised bar
+   with a brass nut. */
 #destination-settings [data-swatch-stage] {
   position: relative;
-  height: 68px;
+  height: 88px;
   overflow: hidden;
   border: 1px solid var(--sw-line);
   border-radius: var(--gm-radius-s);
@@ -188,10 +242,10 @@
 
 #destination-settings [data-swatch-lines] {
   position: absolute;
-  top: 11px;
-  inset-inline-start: 10px;
-  width: 46%;
-  height: 5px;
+  top: 14px;
+  inset-inline-start: 12px;
+  width: 52%;
+  height: 6px;
   border-radius: var(--gm-radius-xs);
   background: var(--sw-text);
   opacity: 0.85;
@@ -200,10 +254,10 @@
 #destination-settings [data-swatch-lines]::before {
   content: '';
   position: absolute;
-  top: 9px;
+  top: 11px;
   inset-inline-start: 0;
   width: 64%;
-  height: 4px;
+  height: 5px;
   border-radius: var(--gm-radius-xs);
   background: var(--sw-text);
   opacity: 0.4;
@@ -213,7 +267,7 @@
   position: absolute;
   inset-inline: 0;
   bottom: 0;
-  height: 32px;
+  height: 42px;
   background: var(--sw-raised);
   box-shadow: inset 0 1px 0 var(--sw-edge);
 }
@@ -221,9 +275,9 @@
 #destination-settings [data-swatch-dot] {
   position: absolute;
   top: 50%;
-  inset-inline-start: 10px;
-  width: 15px;
-  height: 13px;
+  inset-inline-start: 12px;
+  width: 19px;
+  height: 16px;
   transform: translateY(-50%);
   /* The mark: flat-topped hexagon, brass bore. */
   clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
@@ -313,10 +367,42 @@
   overflow-wrap: anywhere;
 }
 
-/* —— Plugin slot list: nut bullet, name, plane tag, honest state —— */
+/* —— Plugin slots: one clean table, hairline rows, honest chips ——
+
+   A card holds a column head (Extension / Runs on / Status) and one row per
+   slot. Rows are flat and separated by hairlines instead of floating as
+   separate boxes: the list reads as a table of what would load, and the
+   NOT LOADED chip carries the honesty. Nothing here is interactive, so
+   nothing answers hover (calm by default, §9). —— */
 
 #destination-settings #settings-plugin-slots {
-  gap: 8px;
+  gap: 0;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+  overflow: hidden;
+}
+
+#destination-settings #settings-plugin-slots [data-slot-head] {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  grid-template-areas: 'lead title plane state';
+  gap: 12px;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, transparent);
+}
+
+#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-title],
+#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-plane],
+#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-state] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
 #destination-settings #settings-plugin-slots [data-plugin-slot] {
@@ -325,7 +411,13 @@
   gap: 12px;
   min-height: 44px;
   padding: 10px 14px;
-  border-radius: var(--gm-radius-m);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] + [data-plugin-slot] {
+  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 55%, transparent);
 }
 
 #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark] {
@@ -366,19 +458,22 @@
   text-transform: uppercase;
 }
 
+/* Plane tag: quiet steel — the plane is metadata, not a state. */
 #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane] {
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
   border: 1px solid color-mix(in srgb, var(--gm-line-control) 45%, transparent);
 }
 
+/* Honest state chip: the truth, in muted steel, never a spinner or a promise. */
 #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
   border: 1px solid var(--gm-line-subtle);
 }
 
-/* Compact: name keeps its line, the tags wrap below it. */
+/* Compact: name keeps its line, the tags wrap below it; the column head
+   would misalign against wrapped rows, so it steps aside. */
 #token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-plugin-slot],
 #token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-plugin-slot] {
   display: flex;
@@ -392,22 +487,54 @@
   flex: 1 1 auto;
 }
 
-/* —— About + Privacy: quiet fact rows, readable sentences —— */
+#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-slot-head],
+#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-slot-head] {
+  display: none;
+}
+
+/* —— About: a definition list ——
+
+   Each fact is one row: the label rests muted, the value carries the
+   primary voice with tabular figures so technical values align. Values are
+   server-shaped strings, so they still wrap anywhere. —— */
+
+#destination-settings [data-settings-facts] {
+  gap: 0;
+}
 
 #destination-settings [data-settings-fact] {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
+  column-gap: 18px;
   align-items: baseline;
-  gap: 10px;
+  padding: 10px 0;
+}
+
+#destination-settings [data-settings-fact] + [data-settings-fact] {
+  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 55%, transparent);
 }
 
 #destination-settings [data-settings-fact]::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 3px;
-  height: 3px;
-  align-self: center;
-  background: var(--gm-line-control);
+  content: none;
 }
+
+#destination-settings [data-fact-label] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#destination-settings [data-fact-value] {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* —— Privacy: readable sentence, quiet voice —— */
 
 #destination-settings [data-settings-privacy] {
   max-width: 36rem;
@@ -434,11 +561,20 @@
   min-height: 44px;
 }
 
-/* —— Reduced motion: transitions resolve to instant (CLI-140) —— */
+/* —— Reduced motion (CLI-140): every transition and the pane entrance
+      resolve to instant; the hover lift stops moving. —— */
 
 @media (prefers-reduced-motion: reduce) {
   #destination-settings #settings-nav [role='tab'],
   #destination-settings [data-theme-swatch] {
     transition: none;
+  }
+
+  #destination-settings [data-settings-panel] {
+    animation: none;
+  }
+
+  #destination-settings [data-theme-swatch]:hover {
+    transform: none;
   }
 }

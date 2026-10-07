@@ -82,6 +82,18 @@ export type DestinationMessages = {
   playDisc: string;
   allSongsHeading: string;
   hostileTrackHidden: string;
+  densityLabel: string;
+  densityComfortable: string;
+  densityCompact: string;
+  searchClear: string;
+  /* Appended for the 2026 settings pass (SUR-073): About definition-list
+     labels and the Extensions plugin-table column heads. Append-only. */
+  settingsAboutDataLabel: string;
+  settingsAboutAddressLabel: string;
+  settingsAboutVersionLabel: string;
+  settingsSlotColumnSlot: string;
+  settingsSlotColumnPlane: string;
+  settingsSlotColumnState: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -169,5 +181,16 @@ export function destinationMessages(): DestinationMessages {
     playDisc: 'Play disc',
     allSongsHeading: 'All songs',
     hostileTrackHidden: 'Track title hidden (hostile metadata)',
+    densityLabel: 'Row density',
+    densityComfortable: 'Comfortable',
+    densityCompact: 'Compact',
+    searchClear: 'Clear search',
+    /* 2026 settings pass (SUR-073). Append-only. */
+    settingsAboutDataLabel: 'Library',
+    settingsAboutAddressLabel: 'Address',
+    settingsAboutVersionLabel: 'Version',
+    settingsSlotColumnSlot: 'Extension',
+    settingsSlotColumnPlane: 'Runs on',
+    settingsSlotColumnState: 'Status',
   };
 }

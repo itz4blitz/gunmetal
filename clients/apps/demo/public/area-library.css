@@ -7,7 +7,7 @@
  * and where you are (§3). Sticky bars use the canvas, never translucency.
  */
 
-/* —— SUR-022 Library frame —— */
+/* —— SUR-022 Library header: headline, live totals, density —— */
 
 #destination-library {
   display: flex;
@@ -15,9 +15,84 @@
   gap: 16px;
 }
 
-/* Segmented tabs: 44px targets on the canvas, brass underline for the
-   selected section. The underline draws in from its start edge (a transform,
-   not a layout read) so switching feels like it slides into place. */
+#library-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 24px;
+}
+
+[data-library-heading] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The counts line reads the catalogue it was handed — albums · artists ·
+   tracks in tabular figures so the columns of a growing library stay put. */
+#library-totals {
+  font-size: 13px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* Density: a quiet segmented steel control. Where-you-are is the raised
+   plate, not brass — brass stays scarce (§3). */
+#library-density {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  margin-inline-start: auto;
+  padding: 2px;
+  background: var(--gm-bg-inset);
+  border-radius: var(--gm-radius-m);
+}
+
+[data-density-option] {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 14px;
+  border-radius: var(--gm-radius-s);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+[data-density-option]:hover {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-density-option][data-selected='1'] {
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-raised-edge);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-density-option]:focus {
+  outline: none;
+}
+
+[data-density-option]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— Segmented tabs: sticky, brass underline slides in, roving arrows —— */
+
 #library-tabs {
   position: sticky;
   top: 0;
@@ -37,6 +112,16 @@
   border-radius: var(--gm-radius-m);
   font-size: 14px;
   font-weight: 600;
+}
+
+#library-tabs [role='tab']:focus {
+  outline: none;
+}
+
+/* Inside a scrolling list the ring is drawn 2px inside (design-language §8). */
+#library-tabs [role='tab']:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
 }
 
 #library-tabs [data-tab-label] {
@@ -88,14 +173,49 @@
   }
 }
 
-/* Fluid album grid — the tile agent owns the tile; this is the shelf. */
+/* —— Album grid: fluid card shelf, art-first with a control scrim —— */
+
+/* minmax sweeps 150–180px with the window, so a growing catalogue reflows
+   instead of leaving dead columns. */
 #library-album-grid {
-  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 18vw, 180px), 1fr));
   gap: 20px 16px;
   padding-top: 4px;
 }
 
-/* —— Artist rows: nut photo, name, album count —— */
+/* Hover scrim behind the on-art controls (play hex, kebab): the same
+   pattern as Home, canvas-gradient, never a blur. It sits under the
+   controls (z-index 2 < play 4 < kebab 5) and only ever covers art. */
+#library-album-grid [data-album-art]::after,
+[data-search-album-grid] [data-album-art]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gm-bg-canvas) 55%, transparent) 0%, transparent 28%),
+    linear-gradient(0deg, color-mix(in srgb, var(--gm-bg-canvas) 72%, transparent) 0%, transparent 40%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--gm-motion);
+}
+
+#library-album-grid [data-album-tile]:hover [data-album-art]::after,
+#library-album-grid [data-album-tile]:focus-within [data-album-art]::after,
+[data-search-album-grid] [data-album-tile]:hover [data-album-art]::after,
+[data-search-album-grid] [data-album-tile]:focus-within [data-album-art]::after {
+  opacity: 1;
+}
+
+/* Two-line title clamp, artist muted — text carries the tile, not chrome. */
+#library-album-grid [data-album-artist],
+[data-search-album-grid] [data-album-artist] {
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* —— Artist rows: nut photo, name, album count, play affordance —— */
 
 #library-artist-list {
   gap: 4px;
@@ -103,7 +223,7 @@
 }
 
 [data-artist-row] {
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
   gap: 14px;
   min-height: 56px;
   padding: 6px 12px;
@@ -141,20 +261,86 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* —— Track table: header chrome, 52px rows, honest flags —— */
+/* Play affordance: the brass hex, revealed on row hover or keyboard focus.
+   It plays the artist's first album and never swallows the row's open. */
+[data-artist-row] [data-artist-play] {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0;
+  background: var(--gm-accent-fill);
+  --gm-text: var(--gm-accent-on);
+  color: var(--gm-accent-on);
+  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.94);
+  transition:
+    opacity var(--gm-motion),
+    transform var(--gm-motion),
+    filter var(--gm-motion);
+}
+
+[data-artist-row] [data-artist-play]::after {
+  content: '';
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-style: solid;
+  border-width: 6px 0 6px 10px;
+  border-color: transparent transparent transparent var(--gm-accent-on);
+}
+
+[data-artist-row]:hover [data-artist-play],
+[data-artist-row]:focus-within [data-artist-play],
+[data-artist-row] [data-artist-play]:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+[data-artist-row] [data-artist-play]:hover {
+  filter: brightness(1.06);
+}
+
+[data-artist-row] [data-artist-play]:active {
+  filter: brightness(0.92);
+}
+
+/* The hex clip eats outlines, so keyboard focus draws the ring on the row. */
+[data-artist-row]:has([data-artist-play]:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--gm-focus-ring);
+}
+
+/* Always reachable on touch widths where hover does not exist. */
+#token-shell[data-width='compact'] [data-artist-row] [data-artist-play],
+#token-shell[data-width='medium'] [data-artist-row] [data-artist-play] {
+  opacity: 1;
+  transform: none;
+}
+
+/* —— Track table: sticky header under the tab bar, honest flags —— */
 
 #library-track-list {
   gap: 2px;
   padding-top: 4px;
 }
 
+/* Sticky under the 49px tab bar (4 + 44 + hairline). The persistent bottom
+   hairline is the stuck affordance — no scroll-driven class exists. */
 [data-track-table-head] {
+  position: sticky;
+  top: 49px;
+  z-index: 5;
   display: grid;
   grid-template-columns: 32px minmax(0, 1.8fr) minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   min-height: 28px;
-  padding: 0 56px 6px 12px;
+  padding: 6px 56px 6px 12px;
+  background: var(--gm-bg-canvas);
   border-bottom: 1px solid var(--gm-line-subtle);
 }
 
@@ -325,6 +511,73 @@
   padding-right: 48px;
 }
 
+/* —— Compact density (the toggle): 44px rows, tighter shelf —— */
+
+#destination-library[data-density='compact'] [data-track-row] {
+  min-height: 44px;
+  padding: 5px 12px;
+}
+
+#destination-library[data-density='compact'] [data-track-row] [data-track-play] {
+  min-height: 34px;
+}
+
+#destination-library[data-density='compact'] [data-artist-row] {
+  min-height: 48px;
+  padding: 4px 12px;
+}
+
+#destination-library[data-density='compact'] #library-album-grid {
+  gap: 16px 12px;
+}
+
+/* —— Entrance choreography: rows rise in, capped at seven slots —— */
+
+#library-artist-list [data-artist-row],
+#library-track-list [data-track-row] {
+  animation: gm-row-enter var(--gm-motion) both;
+}
+
+[data-row-stagger='0'] {
+  animation-delay: 0ms;
+}
+
+[data-row-stagger='1'] {
+  animation-delay: 20ms;
+}
+
+[data-row-stagger='2'] {
+  animation-delay: 40ms;
+}
+
+[data-row-stagger='3'] {
+  animation-delay: 60ms;
+}
+
+[data-row-stagger='4'] {
+  animation-delay: 80ms;
+}
+
+[data-row-stagger='5'] {
+  animation-delay: 100ms;
+}
+
+[data-row-stagger='6'] {
+  animation-delay: 120ms;
+}
+
+@keyframes gm-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* —— SUR-032 Search —— */
 
 #destination-search {
@@ -338,23 +591,89 @@
 }
 
 #search-field {
-  padding: 17px 16px 17px 48px;
+  padding: 17px 44px 17px 48px;
   caret-color: var(--gm-accent-fill);
 }
 
-/* Quiet type toggles: a hairline when off, primary text and the brass
-   underline (shell chrome) when on. Radius m — never pills. */
+/* The browser's own cancel glyph stands down; the machined × below owns it. */
+#search-field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Machined focus: the control-line border warms toward the focus brass and
+   one hairline of it wraps the inset — focus, not decoration. */
+#search-field:focus {
+  border-color: color-mix(in srgb, var(--gm-focus-ring) 55%, var(--gm-line-control));
+  box-shadow:
+    var(--gm-raised-edge),
+    0 0 0 1px color-mix(in srgb, var(--gm-focus-ring) 40%, transparent);
+}
+
+[data-search-clear] {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  font-size: 0;
+  cursor: pointer;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+[data-search-clear]::before {
+  content: '×';
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* RN-web Text pins 14px — hide the visible label; the name is the aria-label. */
+[data-search-clear] > * {
+  display: none;
+}
+
+[data-search-clear]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-search-clear]:focus {
+  outline: none;
+}
+
+[data-search-clear]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Quiet type toggles: hairline when off, primary text plus the brass
+   underline when on. Radius m — never pills. */
 #search-type-chips {
   gap: 8px;
 }
 
 [data-search-chip] {
+  position: relative;
   min-height: 36px;
   padding: 8px 14px;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-m);
+  background: transparent;
   font-size: 13px;
   font-weight: 600;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
   transition:
     color var(--gm-motion),
     border-color var(--gm-motion),
@@ -378,6 +697,22 @@
 
 [data-search-chip][data-pressed='1'] {
   border-color: transparent;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* Active filter = where you are: the brass underline, same grammar as tabs. */
+[data-search-chip][data-pressed='1']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
+  transform-origin: left center;
+  animation: gm-tab-underline var(--gm-motion) cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /* Results meta: the count, then the honest demo-local notice as a quiet
@@ -425,6 +760,8 @@
   flex-direction: row;
   align-items: baseline;
   gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gm-line-subtle);
 }
 
 [data-search-group-count] {
@@ -438,32 +775,46 @@
 
 [data-search-album-grid] {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 18vw, 180px), 1fr));
   gap: 20px 16px;
 }
 
 [data-search-query-echo] {
   font-size: 13px;
   line-height: 18px;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
 /* —— Reduced motion (CLI-140): everything resolves to instant —— */
 
 @media (prefers-reduced-motion: reduce) {
   #library-tabs [data-selected='1']::after,
-  #library-tabs [aria-selected='true']::after {
+  #library-tabs [aria-selected='true']::after,
+  [data-search-chip][data-pressed='1']::after {
     animation: none;
     transform: none;
   }
 
+  #library-artist-list [data-artist-row],
+  #library-track-list [data-track-row] {
+    animation: none;
+  }
+
   [data-artist-photo],
+  [data-artist-row] [data-artist-play],
   [data-track-row] [data-track-number],
   [data-track-row] [data-track-number]::after,
   [data-track-row][data-current='1'] [data-now-playing='1'],
   [data-track-row][data-flagged='1'] [data-track-play],
-  [data-search-chip] {
+  [data-search-chip],
+  [data-search-clear],
+  #library-album-grid [data-album-art]::after,
+  [data-search-album-grid] [data-album-art]::after {
     transition: none;
+  }
+
+  [data-artist-row] [data-artist-play] {
+    transform: none;
   }
 }

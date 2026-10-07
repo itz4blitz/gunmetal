@@ -61,6 +61,70 @@ test('segmented tabs carry live counts derived from whatever catalogue arrives',
   expect(screen.getByRole('tab', { name: 'Albums' }).getAttribute('data-selected')).toStrictEqual('1');
 });
 
+test('the header totals line re-derives albums · artists · tracks from any catalogue', () => {
+  const library = demoLibrary();
+  renderLibrary(library);
+  const trackTotal = library.albums.reduce((total, album) => total + album.tracks.length, 0);
+  expect(document.querySelector('#library-totals')?.textContent).toStrictEqual(
+    `${library.albums.length} albums · ${library.artists.length} artists · ${trackTotal} tracks`,
+  );
+  // A different catalogue size reports exactly that — never a pinned figure.
+  cleanup();
+  const shrunk = { albums: library.albums.slice(0, 3), artists: library.artists.slice(0, 2) };
+  const shrunkTracks = shrunk.albums.reduce((total, album) => total + album.tracks.length, 0);
+  renderLibrary(shrunk);
+  expect(document.querySelector('#library-totals')?.textContent).toStrictEqual(
+    `3 albums · 2 artists · ${shrunkTracks} tracks`,
+  );
+});
+
+test('tabs follow a roving tabindex: arrows move focus and selection, wrapping at the ends', () => {
+  renderLibrary();
+  const albums = screen.getByRole('tab', { name: 'Albums' });
+  const artists = screen.getByRole('tab', { name: 'Artists' });
+  const tracks = screen.getByRole('tab', { name: 'Tracks' });
+  // The selected tab is the only tab stop.
+  expect(albums.getAttribute('tabindex')).toStrictEqual('0');
+  expect(artists.getAttribute('tabindex')).toStrictEqual('-1');
+  expect(tracks.getAttribute('tabindex')).toStrictEqual('-1');
+
+  fireEvent.keyDown(albums, { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(artists);
+  expect(artists.getAttribute('data-selected')).toStrictEqual('1');
+  expect(albums.getAttribute('data-selected')).toStrictEqual('0');
+  expect(document.querySelector('#library-artist-list')).not.toBeNull();
+
+  fireEvent.keyDown(artists, { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(tracks);
+  expect(document.querySelector('#library-track-list')).not.toBeNull();
+
+  // Wraps forward and backward; Home and End jump to the ends.
+  fireEvent.keyDown(tracks, { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(albums);
+  fireEvent.keyDown(albums, { key: 'ArrowLeft' });
+  expect(document.activeElement).toStrictEqual(tracks);
+  fireEvent.keyDown(tracks, { key: 'Home' });
+  expect(document.activeElement).toStrictEqual(albums);
+  fireEvent.keyDown(albums, { key: 'End' });
+  expect(document.activeElement).toStrictEqual(tracks);
+  // Other keys are left alone.
+  fireEvent.keyDown(tracks, { key: 'ArrowDown' });
+  expect(document.activeElement).toStrictEqual(tracks);
+});
+
+test('the density toggle switches comfortable and compact locally and survives tab switches', () => {
+  renderLibrary();
+  const root = document.querySelector('#destination-library');
+  expect(root?.getAttribute('data-density')).toStrictEqual('comfortable');
+  fireEvent.click(screen.getByRole('button', { name: 'Compact' }));
+  expect(root?.getAttribute('data-density')).toStrictEqual('compact');
+  // The chosen density persists across tab switches — local state, no reset.
+  fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
+  expect(root?.getAttribute('data-density')).toStrictEqual('compact');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Comfortable' }), { key: 'Enter' });
+  expect(root?.getAttribute('data-density')).toStrictEqual('comfortable');
+});
+
 test('tabs switch by pointer and by keyboard', () => {
   renderLibrary();
   fireEvent.keyDown(screen.getByRole('tab', { name: 'Artists' }), { key: 'Enter' });
@@ -108,6 +172,10 @@ test('artist rows show photo or initial, the album count, and open the artist', 
   const rows = document.querySelectorAll('[data-artist-row]');
   expect(rows.length).toStrictEqual(library.artists.length);
 
+  // Rows enter with a capped stagger slot for the choreography.
+  expect(rows[0]?.getAttribute('data-row-stagger')).toStrictEqual('0');
+  expect(rows[3]?.getAttribute('data-row-stagger')).toStrictEqual('3');
+
   // Artists with images get the same-origin photo; the hostile fixture
   // artist deliberately has none and falls back to the initial glyph.
   expect(document.querySelectorAll('[data-artist-photo="1"]').length).toBeGreaterThan(0);
@@ -129,6 +197,42 @@ test('artist rows show photo or initial, the album count, and open the artist', 
   expect(handlers.onOpenArtist).toHaveBeenCalledWith('keratin');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Mira Sol' }), { key: ' ' });
   expect(handlers.onOpenArtist).toHaveBeenCalledTimes(3);
+});
+
+test('the artist row play affordance plays the first album without opening the row', () => {
+  const library = demoLibrary();
+  const handlers = renderLibrary(library);
+  selectTab('Artists');
+  const mira = library.artists.find((artist) => artist.key === 'mira-sol');
+  if (mira === undefined) {
+    throw new Error('fixture artist mira-sol missing');
+  }
+  const firstAlbum = mira.albumIds[0];
+  if (firstAlbum === undefined) {
+    throw new Error('fixture artist mira-sol has no albums');
+  }
+  const play = screen.getByRole('button', { name: `Play ${mira.name}` });
+  fireEvent.click(play);
+  expect(handlers.onPlayAlbum).toHaveBeenCalledTimes(1);
+  expect(handlers.onPlayAlbum).toHaveBeenCalledWith(firstAlbum);
+  // The row stays closed: the affordance stops propagation.
+  expect(handlers.onOpenArtist).not.toHaveBeenCalled();
+  fireEvent.keyDown(play, { key: 'Enter' });
+  expect(handlers.onPlayAlbum).toHaveBeenCalledTimes(2);
+  // Other keys do nothing.
+  fireEvent.keyDown(play, { key: 'Escape' });
+  expect(handlers.onPlayAlbum).toHaveBeenCalledTimes(2);
+});
+
+test('an artist with no albums offers no play affordance — nothing dishonest', () => {
+  renderLibrary({
+    albums: [],
+    artists: [{ key: 'lonely', name: 'Lonely Artist', albumIds: [] }],
+  });
+  selectTab('Artists');
+  expect(document.querySelectorAll('[data-artist-row]').length).toStrictEqual(1);
+  expect(document.querySelector('[data-artist-play="1"]')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Play Lonely Artist' })).toBeNull();
 });
 
 test('track table lists every track with its album, header chrome and honest flags', () => {
@@ -163,6 +267,16 @@ test('track table lists every track with its album, header chrome and honest fla
   expect(damaged?.querySelector('[data-track-flag]')?.textContent).toStrictEqual('Damaged');
   expect(healthy?.getAttribute('data-flagged')).toStrictEqual('0');
   expect(healthy?.querySelector('[data-track-flag]')).toBeNull();
+
+  // Entrance stagger: the first row starts at slot 0 and any row's slot is
+  // its capped list position — fluid for whatever catalogue arrives.
+  const allRows = [...document.querySelectorAll('[data-track-row]')];
+  expect(firstRow?.getAttribute('data-row-stagger')).toStrictEqual('0');
+  if (damaged === null) {
+    throw new Error('fixture damaged row missing');
+  }
+  const expectedSlot = `${Math.min(Math.max(allRows.indexOf(damaged), 0), 6)}`;
+  expect(damaged.getAttribute('data-row-stagger')).toStrictEqual(expectedSlot);
 });
 
 test('hostile album tracks render safe catalogue labels only', () => {
@@ -230,15 +344,34 @@ test('area-library.css stays on tokens: no raw colours, no pills, no translucenc
   // Motion uses the token, and reduced motion resolves it to instant.
   expect(css.includes('var(--gm-motion)')).toStrictEqual(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
-  // Sticky tab bar under the content top edge with the brass indicator.
+  // Sticky tab bar with the brass indicator; the track header sticks under it.
   expect(css.includes('#library-tabs')).toStrictEqual(true);
   expect(css.includes('position: sticky')).toStrictEqual(true);
   expect(css.includes('var(--gm-accent-indicator)')).toStrictEqual(true);
-  // Density contract: 44px tab and kebab targets, 52px rows, hover wash.
+  expect(css.includes('[data-track-table-head]')).toStrictEqual(true);
+  expect(css.includes('top: 49px')).toStrictEqual(true);
+  // Density contract: 44px tab and kebab targets, 52px comfortable rows, and
+  // the compact toggle tightening rows to 44px.
   expect(css.includes('min-height: 44px')).toStrictEqual(true);
   expect(css.includes('min-height: 52px')).toStrictEqual(true);
+  expect(css.includes("data-density='compact'] [data-track-row]")).toStrictEqual(true);
   expect(css.includes('44px')).toStrictEqual(true);
   expect(css.includes('color-mix(in srgb, var(--gm-text-primary) 6%, transparent)')).toStrictEqual(true);
-  // Fluid grid.
-  expect(css.includes('minmax(164px, 1fr)')).toStrictEqual(true);
+  // Fluid grid sweeping 150–180px with the window.
+  expect(css.includes('minmax(clamp(150px, 18vw, 180px), 1fr)')).toStrictEqual(true);
+  // The 2026 additions: header totals, density control, artist play hex,
+  // on-art control scrim, row entrance stagger, search clear affordance.
+  expect(css.includes('#library-totals')).toStrictEqual(true);
+  expect(css.includes('[data-density-option]')).toStrictEqual(true);
+  expect(css.includes('[data-artist-play]')).toStrictEqual(true);
+  expect(css.includes('[data-album-art]::after')).toStrictEqual(true);
+  expect(css.includes('gm-row-enter')).toStrictEqual(true);
+  expect(css.includes('[data-search-clear]')).toStrictEqual(true);
+  // Machined focus on the search field warms toward the focus ring token.
+  expect(css.includes('#search-field:focus')).toStrictEqual(true);
+  expect(css.includes('var(--gm-focus-ring)')).toStrictEqual(true);
+  // Reduced motion resolves every new entrance and transition to instant.
+  const reduced = css.slice(css.indexOf('prefers-reduced-motion: reduce'));
+  expect(reduced.includes('animation: none')).toStrictEqual(true);
+  expect(reduced.includes('[data-artist-play]')).toStrictEqual(true);
 });

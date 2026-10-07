@@ -122,6 +122,20 @@ test('the catalogue returns trusted shell and destination strings', () => {
       playDisc: 'Play disc',
       allSongsHeading: 'All songs',
       hostileTrackHidden: 'Track title hidden (hostile metadata)',
+      /* 2026 library/search pass (SUR-022/SUR-032): density toggle, search
+         clear. Append-only. */
+      densityLabel: 'Row density',
+      densityComfortable: 'Comfortable',
+      densityCompact: 'Compact',
+      searchClear: 'Clear search',
+      /* 2026 settings pass (SUR-073): About definition-list labels and the
+         Extensions plugin-table column heads. Append-only. */
+      settingsAboutDataLabel: 'Library',
+      settingsAboutAddressLabel: 'Address',
+      settingsAboutVersionLabel: 'Version',
+      settingsSlotColumnSlot: 'Extension',
+      settingsSlotColumnPlane: 'Runs on',
+      settingsSlotColumnState: 'Status',
     },
   });
 });

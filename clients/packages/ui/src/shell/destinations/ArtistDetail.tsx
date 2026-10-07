@@ -130,6 +130,16 @@ export function ArtistDetail({
         <Text>{messages.backToLibrary}</Text>
       </View>
       <View dataSet={{ artistHeader: '1' }}>
+        {/* Ambient bloom of the artist image behind the hero — the album
+            page's move, same tokens, aria-hidden and pointer-transparent. */}
+        {artist.imageUrl === undefined ? null : (
+          <View
+            dataSet={{ artistBloom: '1' }}
+            aria-hidden={true}
+            style={{ backgroundImage: `url("${artist.imageUrl}")` }}
+          />
+        )}
+        {artist.imageUrl === undefined ? null : <View dataSet={{ artistScrim: '1' }} aria-hidden={true} />}
         <View
           dataSet={{
             artistHero: '1',
@@ -137,7 +147,7 @@ export function ArtistDetail({
             artistAvatarNut: '1',
             artistImage: artist.imageUrl === undefined ? '0' : '1',
           }}
-          aria-hidden="true"
+          aria-hidden={true}
           style={
             artist.imageUrl === undefined
               ? undefined
@@ -199,6 +209,13 @@ export function ArtistDetail({
           <Text accessibilityRole="header" dataSet={{ sectionHeading: '1', type: 'title2' }}>
             {messages.allSongsHeading}
           </Text>
+          {/* Presentational column chrome; the rows stay buttons, so the
+              head is aria-hidden and carries the labels for the eye only. */}
+          <View dataSet={{ artistTableHead: '1' }} aria-hidden={true}>
+            <Text>{messages.columnTitle}</Text>
+            <Text>{messages.columnAlbum}</Text>
+            <Text>{messages.columnTime}</Text>
+          </View>
           <View dataSet={{ artistSongList: '1' }}>
             {songs.map(({ album, track }) => (
               <TrackRow

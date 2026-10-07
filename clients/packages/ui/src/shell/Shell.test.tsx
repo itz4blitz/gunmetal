@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
-import { stubPlayback } from './test-playback.ts';
+import { stubPlayback, queuedSnapshot } from './test-playback.ts';
 import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
@@ -232,4 +232,12 @@ test('skip links are the first focusable items and move focus to content and pla
   expect(document.activeElement).toBe(player);
   fireEvent.keyDown(skipPlayer, { key: 'Escape' });
   expect(document.activeElement).toBe(player);
+});
+
+test('queue line play actions route through the playback controller', () => {
+  const queued = queuedSnapshot();
+  const { calls, controller } = stubPlayback(queued);
+  render(<Shell playback={controller} path="/" widthPx={1600} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Play Salt Window' }));
+  expect(calls).toStrictEqual(['playTrack']);
 });

@@ -346,9 +346,15 @@ export function Shell({
           />
         </View>
         {showWideQueue ? (
-          <QueuePane messages={messages.shell} playback={state} compactSheet={false} />
+          <QueuePane messages={messages.shell} playback={state} compactSheet={false} onPlayLine={playback.playTrack} />
         ) : (
-          <QueuePane messages={messages.shell} playback={state} compactSheet onCloseSheet={playback.closeQueue} />
+          <QueuePane
+            messages={messages.shell}
+            playback={state}
+            compactSheet
+            onCloseSheet={playback.closeQueue}
+            onPlayLine={playback.playTrack}
+          />
         )}
         <PlayerBar
           messages={messages.shell}
@@ -359,6 +365,12 @@ export function Shell({
           onVolume={playback.setVolume}
           onSeek={playback.seek}
           onPlayPause={playback.playPause}
+          onPlayFirst={() => {
+            const featured = library?.albums.find((album) => !album.hostile);
+            if (featured !== undefined) {
+              playback.playAlbum(featured.id);
+            }
+          }}
           onPrevious={playback.previous}
           onNext={playback.next}
           onToggleQueue={playback.toggleQueue}

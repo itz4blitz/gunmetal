@@ -102,6 +102,9 @@ export function AlbumTile({
           coverId={`cover-grid-${album.id}`}
           artUrl={album.coverUrl}
         />
+        {/* 2026 pattern: the hover scrim the controls sit on. Decorative —
+            the play hex and kebab above it are the real controls. */}
+        <View dataSet={{ artScrim: '1' }} aria-hidden="true" />
         <View
           dataSet={{ albumPlay: '1' }}
           accessibilityRole="button"
@@ -119,6 +122,24 @@ export function AlbumTile({
             }
           }}
         />
+        {onOpenArtist === undefined ? null : (
+          <View
+            dataSet={{ itemMore: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.moreActions}
+            tabIndex={0}
+            onClick={(event: MouseEvent<HTMLElement>) => {
+              openMenu(event);
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                openMenu(event);
+              }
+            }}
+          >
+            <Text>{messages.moreActions}</Text>
+          </View>
+        )}
       </View>
       <View
         dataSet={{ albumOpen: '1' }}
@@ -136,45 +157,27 @@ export function AlbumTile({
         <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
       </View>
       {onOpenArtist === undefined ? null : (
-        <>
-          <View
-            dataSet={{ itemMore: '1' }}
-            accessibilityRole="button"
-            accessibilityLabel={messages.moreActions}
-            tabIndex={0}
-            onClick={(event: MouseEvent<HTMLElement>) => {
-              openMenu(event);
-            }}
-            onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                openMenu(event);
-              }
-            }}
-          >
-            <Text>{messages.moreActions}</Text>
-          </View>
-          <GoToArtistMenu
-            open={menuOpen}
-            artistKey={album.artistKey}
-            messages={messages}
-            onOpenArtist={onOpenArtist}
-            onPlay={() => {
-              activatePlay(album.id, onOpen, onPlay);
-            }}
-            onPlayNext={() => {
-              onPlayNext?.(album.id);
-            }}
-            onAddToQueue={() => {
-              onAddToQueue?.(album.id);
-            }}
-            onGoToAlbum={() => {
-              onOpen(album.id);
-            }}
-            onClose={() => {
-              setMenuOpen(false);
-            }}
-          />
-        </>
+        <GoToArtistMenu
+          open={menuOpen}
+          artistKey={album.artistKey}
+          messages={messages}
+          onOpenArtist={onOpenArtist}
+          onPlay={() => {
+            activatePlay(album.id, onOpen, onPlay);
+          }}
+          onPlayNext={() => {
+            onPlayNext?.(album.id);
+          }}
+          onAddToQueue={() => {
+            onAddToQueue?.(album.id);
+          }}
+          onGoToAlbum={() => {
+            onOpen(album.id);
+          }}
+          onClose={() => {
+            setMenuOpen(false);
+          }}
+        />
       )}
     </View>
   );

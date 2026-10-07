@@ -119,6 +119,13 @@ test('area-lyrics.css draws the pane from type and colour tokens only', async ()
   expect(css.includes('var(--gm-text-primary)')).toStrictEqual(true);
   expect(css.includes('var(--gm-text-secondary)')).toStrictEqual(true);
   expect(css.includes('var(--gm-text-muted)')).toStrictEqual(true);
+  // 2026 pass: plain lyrics read one ramp step above the synced base.
+  expect(css.includes('calc(var(--gm-type-title3-size) + 1px)')).toStrictEqual(true);
+  // The synced current line carries a brass where-you-are bar (§3: where you are).
+  expect(css.includes('var(--gm-accent-indicator)')).toStrictEqual(true);
+  // The column fades faintly at its ends to suggest continuation — a mask,
+  // drawn from token colours, never an image.
+  expect(css.includes('mask-image')).toStrictEqual(true);
   // No raw palette values, no assets, no emoji: tokens and text only.
   expect(/#[0-9a-fA-F]{3,8}\b/.test(css)).toStrictEqual(false);
   expect(css.includes('url(')).toStrictEqual(false);
@@ -130,4 +137,7 @@ test('the active-line change runs on the motion token and stops under reduced mo
   expect(css.includes('var(--gm-motion)')).toStrictEqual(true);
   expect(css.includes('@media (prefers-reduced-motion: reduce)')).toStrictEqual(true);
   expect(css.includes('transition: none')).toStrictEqual(true);
+  // The where-you-are bar fades on the same token and dies with it.
+  expect(css.includes("[data-lyrics-line='1']::before")).toStrictEqual(true);
+  expect(css.includes("[data-lyrics-line='1']::before {\n    transition: none")).toStrictEqual(true);
 });

@@ -1,12 +1,16 @@
 import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { artistInitial } from '../format.ts';
+import { artistInitial, staggerSlot } from '../format.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
 export type LibraryTab = 'albums' | 'artists' | 'tracks';
+
+/** Comfortable is the survey default; compact tightens the table to 44px rows. */
+export type LibraryDensity = 'comfortable' | 'compact';
 
 export type LibraryProps = {
   messages: DestinationMessages;
@@ -40,6 +44,11 @@ function trackTotal(library: ShellLibrary): number {
   return library.albums.reduce((total, album) => total + album.tracks.length, 0);
 }
 
+/** Whatever catalogue arrives, the header counts it — never a hard-coded figure. */
+function totalsLine(library: ShellLibrary, messages: DestinationMessages): string {
+  return `${library.albums.length} ${messages.artistAlbumCount} · ${library.artists.length} ${messages.artistCountLabel} · ${trackTotal(library)} ${messages.trackCountLabel}`;
+}
+
 /** Whatever catalogue arrives, the tabs count it — never a hard-coded figure. */
 function tabCount(tab: LibraryTab, library: ShellLibrary): number {
   if (tab === 'albums') {
@@ -50,6 +59,8 @@ function tabCount(tab: LibraryTab, library: ShellLibrary): number {
   }
   return trackTotal(library);
 }
+
+const TABS: readonly LibraryTab[] = ['albums', 'artists', 'tracks'];
 
 export function Library({
   messages,
@@ -65,20 +76,81 @@ export function Library({
   onAddTrackToQueue,
 }: LibraryProps) {
   const [tab, setTab] = useState<LibraryTab>('albums');
-  const tabs: readonly LibraryTab[] = ['albums', 'artists', 'tracks'];
+  const [density, setDensity] = useState<LibraryDensity>('comfortable');
   const tabLabels: Record<LibraryTab, string> = {
     albums: messages.tabAlbums,
     artists: messages.tabArtists,
     tracks: messages.tabTracks,
   };
+  const selectAndFocus = (entry: LibraryTab) => {
+    setTab(entry);
+    document.getElementById(`library-tab-${entry}`)?.focus();
+  };
+  // Roving tabindex with automatic activation: the arrows move both focus and
+  // the selected section, wrapping at the ends (design-language §8).
+  const onTablistKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    const key = event.key;
+    if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'Home' && key !== 'End') {
+      return;
+    }
+    event.preventDefault();
+    const current = TABS.indexOf(tab);
+    let next = current;
+    if (key === 'ArrowRight') {
+      next = (current + 1) % TABS.length;
+    }
+    if (key === 'ArrowLeft') {
+      next = (current + TABS.length - 1) % TABS.length;
+    }
+    if (key === 'Home') {
+      next = 0;
+    }
+    if (key === 'End') {
+      next = TABS.length - 1;
+    }
+    const entry = TABS[next];
+    if (entry !== undefined) {
+      selectAndFocus(entry);
+    }
+  };
 
   return (
-    <View id="destination-library">
-      <Text id="destination-headline" accessibilityRole="header">
-        {messages.libraryHeadline}
-      </Text>
-      <View id="library-tabs" accessibilityRole="tablist" accessibilityLabel={messages.libraryHeadline}>
-        {tabs.map((entry) => (
+    <View id="destination-library" dataSet={{ density }}>
+      <View id="library-header">
+        <View dataSet={{ libraryHeading: '1' }}>
+          <Text id="destination-headline" accessibilityRole="header">
+            {messages.libraryHeadline}
+          </Text>
+          <Text id="library-totals" dataSet={{ libraryTotals: '1' }}>
+            {totalsLine(library, messages)}
+          </Text>
+        </View>
+        <View id="library-density" accessibilityRole="group" accessibilityLabel={messages.densityLabel}>
+          <DensityButton
+            id="library-density-comfortable"
+            label={messages.densityComfortable}
+            selected={density === 'comfortable'}
+            onSelect={() => {
+              setDensity('comfortable');
+            }}
+          />
+          <DensityButton
+            id="library-density-compact"
+            label={messages.densityCompact}
+            selected={density === 'compact'}
+            onSelect={() => {
+              setDensity('compact');
+            }}
+          />
+        </View>
+      </View>
+      <View
+        id="library-tabs"
+        accessibilityRole="tablist"
+        accessibilityLabel={messages.libraryHeadline}
+        onKeyDown={onTablistKeyDown}
+      >
+        {TABS.map((entry) => (
           <TabButton
             key={entry}
             id={`library-tab-${entry}`}
@@ -110,14 +182,15 @@ export function Library({
       ) : null}
       {tab === 'artists' ? (
         <View id="library-artist-list">
-          {library.artists.map((artist) => {
+          {library.artists.map((artist, index) => {
             const rowName = artistRowName(artist.name, artist.albumIds, library, messages);
             const photo = artist.imageUrl === undefined || artist.imageUrl === '' ? null : artist.imageUrl;
+            const firstAlbumId = artist.albumIds[0];
             return (
               <View
                 key={artist.key}
                 id={`artist-row-${artist.key}`}
-                dataSet={{ artistRow: artist.key }}
+                dataSet={{ artistRow: artist.key, rowStagger: staggerSlot(index) }}
                 accessibilityRole="button"
                 accessibilityLabel={rowName}
                 tabIndex={0}
@@ -142,6 +215,27 @@ export function Library({
                   <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
                 </View>
                 <Text dataSet={{ artistCount: '1' }}>{`${artist.albumIds.length} ${messages.artistAlbumCount}`}</Text>
+                {firstAlbumId === undefined ? null : (
+                  <View
+                    dataSet={{ artistPlay: '1' }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${messages.play} ${rowName}`}
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPlayAlbum(firstAlbumId);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onPlayAlbum(firstAlbumId);
+                      }
+                    }}
+                  >
+                    <Text>{messages.play}</Text>
+                  </View>
+                )}
               </View>
             );
           })}
@@ -155,8 +249,9 @@ export function Library({
             <Text dataSet={{ trackHeadAlbum: '1' }}>{messages.columnAlbum}</Text>
             <Text dataSet={{ trackHeadTime: '1' }}>{messages.columnTime}</Text>
           </View>
-          {library.albums.flatMap((album) =>
-            album.tracks.map((track) => (
+          {library.albums
+            .flatMap((album) => album.tracks.map((track) => ({ album, track })))
+            .map(({ album, track }, index) => (
               <TrackRow
                 key={track.id}
                 track={track}
@@ -165,14 +260,14 @@ export function Library({
                 albumTitle={album.title}
                 hostile={album.hostile}
                 current={track.id === currentTrackId}
+                staggerIndex={index}
                 onPlay={onPlayTrack}
                 onPlayNext={onPlayNextTrack}
                 onAddToQueue={onAddTrackToQueue}
                 onGoToAlbum={onOpenAlbum}
                 onOpenArtist={onOpenArtist}
               />
-            )),
-          )}
+            ))}
         </View>
       ) : null}
     </View>
@@ -195,7 +290,8 @@ function TabButton({ id, label, count, selected, onSelect }: TabButtonProps) {
       accessibilityLabel={label}
       accessibilityState={{ selected }}
       dataSet={{ selected: selected ? '1' : '0' }}
-      tabIndex={0}
+      // Roving tabindex: the selected tab is the only tab stop.
+      tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -209,6 +305,35 @@ function TabButton({ id, label, count, selected, onSelect }: TabButtonProps) {
       <Text dataSet={{ tabCount: '1' }} aria-hidden="true">
         {`${count}`}
       </Text>
+    </View>
+  );
+}
+
+type DensityButtonProps = {
+  id: string;
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+};
+
+function DensityButton({ id, label, selected, onSelect }: DensityButtonProps) {
+  return (
+    <View
+      id={id}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      dataSet={{ densityOption: '1', selected: selected ? '1' : '0' }}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <Text>{label}</Text>
     </View>
   );
 }

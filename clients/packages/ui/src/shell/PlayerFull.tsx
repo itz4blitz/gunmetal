@@ -88,6 +88,15 @@ export function PlayerFull({
         accessibilityLabel={messages.playerFullRegion}
         dataSet={{ open: '1', placement }}
       >
+        {/* Ambient artwork backdrop: the blurred cover sits under a heavy
+            canvas veil, and the veil — not the artwork — carries the text
+            contrast (design-language §5, scrim rule). */}
+        <View id="player-full-ambient">
+          {playback.coverUrl === '' ? null : (
+            <img alt="" aria-hidden="true" data-ambient-art="1" src={playback.coverUrl} />
+          )}
+          <View dataSet={{ ambientVeil: '1' }} />
+        </View>
         <View id="player-full-chrome">
           <Text id="player-full-heading" accessibilityRole="header">
             {messages.playerRegion}

@@ -113,6 +113,25 @@ test('durations render as tabular m:ss text', () => {
   expect(container.querySelector('[data-track-duration="1"]')?.textContent).toStrictEqual('3:34');
 });
 
+test('the stagger slot is the capped list position, whatever the table length', () => {
+  const first = render(<TrackRow track={track} messages={destinationMessages()} staggerIndex={0} onPlay={vi.fn()} />);
+  expect(first.container.querySelector('[data-track-row]')?.getAttribute('data-row-stagger')).toStrictEqual('0');
+  first.unmount();
+
+  const mid = render(<TrackRow track={track} messages={destinationMessages()} staggerIndex={4} onPlay={vi.fn()} />);
+  expect(mid.container.querySelector('[data-track-row]')?.getAttribute('data-row-stagger')).toStrictEqual('4');
+  mid.unmount();
+
+  // Deep rows clamp to the last choreography slot.
+  const deep = render(<TrackRow track={track} messages={destinationMessages()} staggerIndex={41} onPlay={vi.fn()} />);
+  expect(deep.container.querySelector('[data-track-row]')?.getAttribute('data-row-stagger')).toStrictEqual('6');
+  deep.unmount();
+
+  // Default is slot 0 (search tables pass no index and stay still).
+  const quiet = render(<TrackRow track={track} messages={destinationMessages()} onPlay={vi.fn()} />);
+  expect(quiet.container.querySelector('[data-track-row]')?.getAttribute('data-row-stagger')).toStrictEqual('0');
+});
+
 test('go to artist context is only armed when both the key and the opener exist', () => {
   const messages = destinationMessages();
   const none = render(<TrackRow track={track} messages={messages} onPlay={vi.fn()} />);
