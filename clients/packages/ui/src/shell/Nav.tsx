@@ -1,17 +1,19 @@
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
+import { Icon, type IconName } from './Icon.tsx';
 
 export type NavItem = {
   path: string;
   label: string;
+  icon: IconName;
 };
 
 export function navItems(messages: ShellMessages): readonly NavItem[] {
   return [
-    { path: '/', label: messages.navHome },
-    { path: '/search', label: messages.navSearch },
-    { path: '/library', label: messages.navLibrary },
+    { path: '/', label: messages.navHome, icon: 'home' },
+    { path: '/search', label: messages.navSearch, icon: 'search' },
+    { path: '/library', label: messages.navLibrary, icon: 'library' },
   ];
 }
 
@@ -55,6 +57,7 @@ export function Nav({ id, label, items, activePath, onNavigate, brand, footer }:
               }
             }}
           >
+            <Icon name={item.icon} />
             <Text dataSet={{ navLabel: '1' }}>{item.label}</Text>
           </View>
         );

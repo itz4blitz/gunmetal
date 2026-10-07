@@ -259,7 +259,9 @@ test('unresolvable album or track play leaves the full player closed', () => {
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Silent Shelf' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
+  // The page's own play, in the action rail (the artist's other release is
+  // listed below with a play of its own).
+  fireEvent.click(document.querySelector('#album-play') as HTMLElement);
   expect(document.querySelector('#player-full')).toBeNull();
   expect(document.querySelector('#player-empty')).toBeTruthy();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' });
@@ -267,4 +269,96 @@ test('unresolvable album or track play leaves the full player closed', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Orphan Click' }));
   expect(document.querySelector('#player-full')).toBeNull();
   expect(document.querySelector('#player-empty')).toBeTruthy();
+});
+
+test('an album page lists other releases by its artist, and nothing for a one-release artist', () => {
+  const library = demoLibrary();
+  const { calls, controller } = stubPlayback();
+  const view = render(
+    <Shell
+      playback={controller}
+      searchLibrary={demoLocalFilter}
+      path="/library"
+      widthPx={1600}
+      library={library}
+      historyState={{ itemId: 'demo-album-01' }}
+    />,
+  );
+  // Mira Sol has Harbour Lights (this page) and Night Shift: only the other one is listed.
+  expect(screen.getByRole('heading', { name: 'More by Mira Sol' }).getAttribute('data-section-heading')).toStrictEqual(
+    '1',
+  );
+  expect([...document.querySelectorAll('#album-more-by [data-album-tile]')].map((tile) => tile.id)).toStrictEqual([
+    'album-tile-demo-album-02',
+  ]);
+  // The tile's menu reaches the album-level queue actions the shell wired.
+  fireEvent.click(document.querySelector('#album-more-by [data-item-more="1"]') as HTMLElement);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
+  fireEvent.click(document.querySelector('#album-more-by [data-item-more="1"]') as HTMLElement);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+  expect(calls).toStrictEqual(['playNextAlbum', 'addAlbumToQueue']);
+  // Opening it moves to that album, whose own "more" is the first one.
+  fireEvent.click(screen.getByRole('button', { name: 'Night Shift' }));
+  expect(screen.getByRole('heading', { name: 'Night Shift' }).id).toStrictEqual('destination-headline');
+  expect([...document.querySelectorAll('#album-more-by [data-album-tile]')].map((tile) => tile.id)).toStrictEqual([
+    'album-tile-demo-album-01',
+  ]);
+  view.unmount();
+
+  // The Compound has one release in the fixture: no section at all.
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      searchLibrary={demoLocalFilter}
+      path="/library"
+      widthPx={1600}
+      library={library}
+      historyState={{ itemId: 'demo-album-05' }}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Stages' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#album-more-by')).toStrictEqual(null);
+});
+
+test('a hostile album recommends nothing and is never recommended', () => {
+  const base = demoLibrary();
+  const hostile = base.albums.find((album) => album.hostile);
+  const clean = base.albums.find((album) => !album.hostile);
+  expect(hostile?.id).toStrictEqual('demo-album-08');
+  expect(clean?.id).toStrictEqual('demo-album-01');
+  // Put a clean album under the hostile album's artist key: a shared key must
+  // not surface either one beside the other.
+  const library: ShellLibrary = {
+    ...base,
+    albums: base.albums.map((album) =>
+      album.id === 'demo-album-01' ? { ...album, artistKey: 'hostile-artist' } : album,
+    ),
+  };
+  expect(library.albums.find((album) => album.id === 'demo-album-08')?.artistKey).toStrictEqual('hostile-artist');
+  const onHostile = render(
+    <Shell
+      playback={stubPlayback().controller}
+      searchLibrary={demoLocalFilter}
+      path="/library"
+      widthPx={1600}
+      library={library}
+      historyState={{ itemId: 'demo-album-08' }}
+    />,
+  );
+  expect(document.querySelector('#destination-album')?.getAttribute('data-hostile')).toStrictEqual('1');
+  expect(document.querySelector('#album-more-by')).toStrictEqual(null);
+  onHostile.unmount();
+
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      searchLibrary={demoLocalFilter}
+      path="/library"
+      widthPx={1600}
+      library={library}
+      historyState={{ itemId: 'demo-album-01' }}
+    />,
+  );
+  expect(document.querySelector('#destination-album')?.getAttribute('data-hostile')).toStrictEqual('0');
+  expect(document.querySelector('#album-more-by')).toStrictEqual(null);
 });

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { formatDuration, staggerSlot } from '../format.ts';
 import type { ShellTrack } from '../library-types.ts';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+import { Icon } from '../Icon.tsx';
 
 export type TrackRowProps = {
   track: ShellTrack;
@@ -47,11 +48,18 @@ export function TrackRow({
       : track.flag === 'damaged'
         ? messages.trackFlagDamaged
         : '';
+  const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
     event.preventDefault();
     event.stopPropagation();
     setMenuOpen(true);
+  };
+  /* The kebab is a toggle: a second press on it closes the menu it opened. */
+  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenuOpen((open) => !open);
   };
   return (
     <View
@@ -102,20 +110,24 @@ export function TrackRow({
             dataSet={{ itemMore: '1' }}
             accessibilityRole="button"
             accessibilityLabel={messages.moreActions}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen ? 'true' : 'false'}
+            aria-controls={menuId}
             tabIndex={0}
             onClick={(event: MouseEvent<HTMLElement>) => {
-              openMenu(event);
+              toggleMenu(event);
             }}
             onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
               if (event.key === 'Enter' || event.key === ' ') {
-                openMenu(event);
+                toggleMenu(event);
               }
             }}
           >
-            <Text>{messages.moreActions}</Text>
+            <Icon name="more" size={18} />
           </View>
           <GoToArtistMenu
             open={menuOpen}
+            menuId={menuId}
             artistKey={artistKey}
             messages={messages}
             onOpenArtist={onOpenArtist}

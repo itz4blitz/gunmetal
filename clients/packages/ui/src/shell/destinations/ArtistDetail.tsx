@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial } from '../format.ts';
+import { Icon } from '../Icon.tsx';
 import type { ShellAlbum, ShellArtist, ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
@@ -101,6 +102,7 @@ export function ArtistDetail({
             activateKey(event, onBack);
           }}
         >
+          <Icon name="back" size={18} />
           <Text>{messages.backToLibrary}</Text>
         </View>
       </View>
@@ -127,6 +129,7 @@ export function ArtistDetail({
           activateKey(event, onBack);
         }}
       >
+        <Icon name="back" size={18} />
         <Text>{messages.backToLibrary}</Text>
       </View>
       <View dataSet={{ artistHeader: '1' }}>
@@ -157,6 +160,7 @@ export function ArtistDetail({
           <Text dataSet={{ artistInitial: '1' }}>{artistInitial(heading)}</Text>
         </View>
         <View dataSet={{ artistHeaderText: '1' }}>
+          <Text dataSet={{ detailEyebrow: '1' }}>{messages.artistEyebrow}</Text>
           <Text id="destination-headline" accessibilityRole="header">
             {heading}
           </Text>
@@ -165,7 +169,11 @@ export function ArtistDetail({
               {artist.key}
             </Text>
           ) : null}
-          <Text dataSet={{ artistAlbumCount: '1' }}>{`${albums.length} ${messages.artistAlbumCount}`}</Text>
+          <View dataSet={{ artistMeta: '1' }}>
+            <Text dataSet={{ artistAlbumCount: '1' }}>{`${albums.length} ${messages.artistAlbumCount}`}</Text>
+            <Text dataSet={{ metaSeparator: '1' }}>·</Text>
+            <Text dataSet={{ artistSongCount: '1' }}>{`${songs.length} ${messages.artistSongCount}`}</Text>
+          </View>
           <View
             id="artist-play"
             accessibilityRole="button"
@@ -189,6 +197,9 @@ export function ArtistDetail({
           </View>
         </View>
       </View>
+      <Text accessibilityRole="header" dataSet={{ sectionHeading: '1', type: 'title2' }}>
+        {messages.tabAlbums}
+      </Text>
       <View id="artist-album-grid" dataSet={{ albumGrid: '1' }}>
         {albums.map((album, index) => (
           <AlbumTile
@@ -212,6 +223,7 @@ export function ArtistDetail({
           {/* Presentational column chrome; the rows stay buttons, so the
               head is aria-hidden and carries the labels for the eye only. */}
           <View dataSet={{ artistTableHead: '1' }} aria-hidden={true}>
+            <Text>{messages.columnNumber}</Text>
             <Text>{messages.columnTitle}</Text>
             <Text>{messages.columnAlbum}</Text>
             <Text>{messages.columnTime}</Text>

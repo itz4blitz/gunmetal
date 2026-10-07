@@ -99,7 +99,7 @@ export function settingsSlotPlaneLabel(plane: PluginPlane, messages: Destination
   return messages.settingsSlotClient;
 }
 
-/** The switcher's label for a theme; the preview strip captions use the same words. */
+/** A theme's catalogue label: the name on its preview card. */
 export function settingsThemeLabel(id: ThemeId, messages: ShellMessages): string {
   if (id === 'dark') {
     return messages.themeDark;
@@ -113,7 +113,42 @@ export function settingsThemeLabel(id: ThemeId, messages: ShellMessages): string
   return messages.themeHighContrast;
 }
 
-/** The theme preview strip: the same four themes as the switcher, in switcher order. */
+/** The theme preview cards: the four themes, in theme order. */
 export function settingsSwatchLabels(messages: ShellMessages): readonly { id: ThemeId; label: string }[] {
   return themes().map((id) => ({ id, label: settingsThemeLabel(id, messages) }));
+}
+
+/**
+ * Radio-group arrows for the theme cards: the theme the key moves to, wrapping
+ * at both ends. Any other key answers undefined and leaves the choice alone.
+ */
+export function settingsThemeForKey(current: ThemeId, key: string): ThemeId | undefined {
+  const order = themes();
+  if (key === 'ArrowRight' || key === 'ArrowDown') {
+    return order[(order.indexOf(current) + 1) % order.length];
+  }
+  if (key === 'ArrowLeft' || key === 'ArrowUp') {
+    return order[(order.indexOf(current) + order.length - 1) % order.length];
+  }
+  return undefined;
+}
+
+/** One setting row's words: what the setting is called and what it does. */
+export type SettingsRowCopy = { id: string; label: string; hint: string };
+
+/** Playback settings that arrive with the playback controller; none is wired yet. */
+export function settingsPlaybackRows(messages: DestinationMessages): readonly SettingsRowCopy[] {
+  return [
+    { id: 'levelling', label: messages.settingsPlaybackLevelling, hint: messages.settingsPlaybackLevellingHint },
+    { id: 'crossfade', label: messages.settingsPlaybackCrossfade, hint: messages.settingsPlaybackCrossfadeHint },
+    { id: 'output', label: messages.settingsPlaybackOutput, hint: messages.settingsPlaybackOutputHint },
+  ];
+}
+
+/** Services a person links for themselves once signed plugins exist; none is wired yet. */
+export function settingsConnectedRows(messages: DestinationMessages): readonly SettingsRowCopy[] {
+  return [
+    { id: 'scrobble', label: messages.settingsConnectedScrobble, hint: messages.settingsConnectedScrobbleHint },
+    { id: 'lyrics', label: messages.settingsSlotLyrics, hint: messages.settingsConnectedLyricsHint },
+  ];
 }

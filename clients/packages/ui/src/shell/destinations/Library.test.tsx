@@ -59,6 +59,12 @@ test('segmented tabs carry live counts derived from whatever catalogue arrives',
   expect(screen.getByRole('tab', { name: 'Artists' })).not.toBeNull();
   expect(screen.getByRole('tab', { name: 'Tracks' })).not.toBeNull();
   expect(screen.getByRole('tab', { name: 'Albums' }).getAttribute('data-selected')).toStrictEqual('1');
+  // The selected tab is exposed to assistive technology, not only painted.
+  const selection = () =>
+    [...document.querySelectorAll('#library-tabs [role="tab"]')].map((tab) => tab.getAttribute('aria-selected'));
+  expect(selection()).toStrictEqual(['true', 'false', 'false']);
+  fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
+  expect(selection()).toStrictEqual(['false', 'false', 'true']);
 });
 
 test('the header totals line re-derives albums · artists · tracks from any catalogue', () => {
@@ -76,6 +82,51 @@ test('the header totals line re-derives albums · artists · tracks from any cat
   expect(document.querySelector('#library-totals')?.textContent).toStrictEqual(
     `3 albums · 2 artists · ${shrunkTracks} tracks`,
   );
+  // One of a thing is counted in the singular.
+  cleanup();
+  const first = library.albums[0];
+  const firstTrack = first?.tracks[0];
+  if (first === undefined || firstTrack === undefined) {
+    throw new Error('fixture album missing');
+  }
+  renderLibrary({
+    albums: [{ ...first, tracks: [firstTrack] }],
+    artists: [{ key: first.artistKey, name: first.artistName, albumIds: [first.id] }],
+  });
+  expect(document.querySelector('#library-totals')?.textContent).toStrictEqual('1 album · 1 artist · 1 track');
+  // An empty library still counts, in the plural.
+  cleanup();
+  renderLibrary({ albums: [], artists: [] });
+  expect(document.querySelector('#library-totals')?.textContent).toStrictEqual('0 albums · 0 artists · 0 tracks');
+});
+
+test('the header is one toolbar: the title and counts lead, the density control trails', () => {
+  renderLibrary();
+  const header = document.querySelector('#library-header');
+  expect(
+    [...(header?.children ?? [])].map((node) => node.id || node.getAttribute('data-library-heading')),
+  ).toStrictEqual(['1', 'library-density']);
+  expect(header?.querySelector('[data-library-heading] #destination-headline')?.textContent).toStrictEqual('Library');
+  expect(header?.querySelector('[data-library-heading] #library-totals')).not.toBeNull();
+  const group = screen.getByRole('group', { name: 'Row density' });
+  expect(group.id).toStrictEqual('library-density');
+  // Each option carries an icon and its words, and says whether it is on.
+  expect(
+    [...group.querySelectorAll('[data-density-option]')].map((option) => [
+      option.id,
+      option.getAttribute('aria-label'),
+      option.getAttribute('aria-pressed'),
+      option.querySelector('svg')?.getAttribute('data-icon'),
+      option.querySelector('[data-density-label]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['library-density-comfortable', 'Comfortable', 'true', 'rows', 'Comfortable'],
+    ['library-density-compact', 'Compact', 'false', 'rowsDense', 'Compact'],
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: 'Compact' }));
+  expect(
+    [...group.querySelectorAll('[data-density-option]')].map((option) => option.getAttribute('aria-pressed')),
+  ).toStrictEqual(['false', 'true']);
 });
 
 test('tabs follow a roving tabindex: arrows move focus and selection, wrapping at the ends', () => {
@@ -123,6 +174,11 @@ test('the density toggle switches comfortable and compact locally and survives t
   expect(root?.getAttribute('data-density')).toStrictEqual('compact');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Comfortable' }), { key: 'Enter' });
   expect(root?.getAttribute('data-density')).toStrictEqual('comfortable');
+  // Space presses as Enter does; any other key is left alone.
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Compact' }), { key: ' ' });
+  expect(root?.getAttribute('data-density')).toStrictEqual('compact');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Comfortable' }), { key: 'Tab' });
+  expect(root?.getAttribute('data-density')).toStrictEqual('compact');
 });
 
 test('tabs switch by pointer and by keyboard', () => {
@@ -190,7 +246,12 @@ test('artist rows show photo or initial, the album count, and open the artist', 
     throw new Error('fixture artist mira-sol missing');
   }
   const miraRow = document.querySelector('#artist-row-mira-sol');
-  expect(miraRow?.textContent).toContain(`${mira.albumIds.length} albums`);
+  expect(mira.albumIds.length).toStrictEqual(2);
+  expect(miraRow?.querySelector('[data-artist-count]')?.textContent).toStrictEqual('2 albums');
+  // An artist with one album is counted in the singular.
+  const keratin = library.artists.find((artist) => artist.key === 'keratin');
+  expect(keratin?.albumIds.length).toStrictEqual(1);
+  expect(document.querySelector('#artist-row-keratin [data-artist-count]')?.textContent).toStrictEqual('1 album');
   fireEvent.click(screen.getByRole('button', { name: 'Mira Sol' }));
   expect(handlers.onOpenArtist).toHaveBeenCalledWith('mira-sol');
   fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: 'Enter' });
@@ -309,11 +370,45 @@ test('the playing row paints the current state and playing a row reports album a
   expect(handlers.onPlayTrack).toHaveBeenCalledWith('demo-album-02', 'demo-track-02-02');
 });
 
-test('an empty library renders the tabs at zero and no crash', () => {
+test('an empty library keeps its tabs at zero and says what is missing instead of drawing an empty list', () => {
   renderLibrary({ albums: [], artists: [] });
   const counts = [...document.querySelectorAll('#library-tabs [data-tab-count="1"]')].map((node) => node.textContent);
   expect(counts).toStrictEqual(['0', '0', '0']);
-  expect(document.querySelector('#library-album-grid')?.children.length).toStrictEqual(0);
+  const emptyState = () => {
+    const empty = document.querySelector('#library-empty');
+    return [
+      empty?.getAttribute('data-library-empty'),
+      empty?.querySelector('[data-library-empty-text]')?.textContent,
+      empty?.querySelector('[data-library-empty-mark] svg')?.getAttribute('data-icon'),
+    ];
+  };
+  // No grid, no list and no table head over nothing — one statement per tab.
+  expect(emptyState()).toStrictEqual(['albums', 'No albums in this library yet.', 'library']);
+  expect(document.querySelector('#library-album-grid')).toBeNull();
+  selectTab('Artists');
+  expect(emptyState()).toStrictEqual(['artists', 'No artists in this library yet.', 'library']);
+  expect(document.querySelector('#library-artist-list')).toBeNull();
+  selectTab('Tracks');
+  expect(emptyState()).toStrictEqual(['tracks', 'No tracks in this library yet.', 'library']);
+  expect(document.querySelector('#library-track-list')).toBeNull();
+  expect(document.querySelector('[data-track-table-head]')).toBeNull();
+});
+
+test('a library with content never shows the empty statement', () => {
+  renderLibrary();
+  expect(document.querySelector('#library-empty')).toBeNull();
+  selectTab('Artists');
+  expect(document.querySelector('#library-empty')).toBeNull();
+  selectTab('Tracks');
+  expect(document.querySelector('#library-empty')).toBeNull();
+  // A tab with nothing in it says so even when the other tabs have content.
+  cleanup();
+  const library = demoLibrary();
+  renderLibrary({ albums: library.albums.slice(0, 1), artists: [] });
+  expect(document.querySelector('#library-empty')).toBeNull();
+  expect(document.querySelectorAll('[data-album-tile]').length).toStrictEqual(1);
+  selectTab('Artists');
+  expect(document.querySelector('#library-empty')?.getAttribute('data-library-empty')).toStrictEqual('artists');
 });
 
 test('a hostile-only library stays usable and never renders corpus text', () => {
@@ -357,14 +452,43 @@ test('area-library.css stays on tokens: no raw colours, no pills, no translucenc
   expect(css.includes("data-density='compact'] [data-track-row]")).toStrictEqual(true);
   expect(css.includes('44px')).toStrictEqual(true);
   expect(css.includes('color-mix(in srgb, var(--gm-text-primary) 6%, transparent)')).toStrictEqual(true);
-  // Fluid grid sweeping 150–180px with the window.
-  expect(css.includes('minmax(clamp(150px, 18vw, 180px), 1fr)')).toStrictEqual(true);
-  // The 2026 additions: header totals, density control, artist play hex,
+  // Album grid: tiles from 160px on a 24px gap, filling the column
+  // (design-language §7), and two tiles on a 12px gap in a phone-wide column.
+  const grid = css.slice(css.indexOf('#token-shell #library-album-grid,'), css.indexOf('/* The on-art controls'));
+  expect(grid.includes('grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));')).toStrictEqual(true);
+  expect(grid.includes('gap: 24px;')).toStrictEqual(true);
+  expect(grid.includes('grid-template-columns: repeat(2, minmax(0, 1fr));')).toStrictEqual(true);
+  expect(grid.includes('gap: 20px 12px;')).toStrictEqual(true);
+  // The layout answers the width of its own column, never the window: the
+  // sidebar and the queue are resizable.
+  expect(css.includes('container-type: inline-size')).toStrictEqual(true);
+  expect(css.includes('@container gm-page')).toStrictEqual(true);
+  expect(/\d(vw|vh)\b/.test(css)).toStrictEqual(false);
+  // Every hexagon and play glyph is the shared shape; no surface redraws one.
+  expect(css.includes('clip-path: var(--gm-nut)')).toStrictEqual(true);
+  expect(css.includes('clip-path: var(--gm-glyph-play)')).toStrictEqual(true);
+  expect(css.includes('polygon(')).toStrictEqual(false);
+  // Shared rows and tiles are styled only inside these two surfaces: every
+  // rule that names one starts from a container this file owns.
+  const selectors = css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    // A comma inside :is(...) does not end a selector.
+    .flatMap((block) => (block.split('{')[0] ?? '').split(/,(?![^()]*\))/))
+    .map((selector) => selector.trim())
+    .filter((selector) => /\[data-(track-row|track-play|album-tile|item-more|artist-avatar|cover)\b/.test(selector));
+  expect(selectors.length).toBeGreaterThan(0);
+  expect(
+    selectors.filter(
+      (selector) => !/#(destination-library|destination-search|library-[a-z-]+|search-[a-z-]+)\b/.test(selector),
+    ),
+  ).toStrictEqual([]);
+  // The 2026 additions: header totals, density control, artist play nut,
   // on-art control scrim, row entrance stagger, search clear affordance.
   expect(css.includes('#library-totals')).toStrictEqual(true);
   expect(css.includes('[data-density-option]')).toStrictEqual(true);
   expect(css.includes('[data-artist-play]')).toStrictEqual(true);
-  expect(css.includes('[data-album-art]::after')).toStrictEqual(true);
+  expect(css.includes('[data-album-tile]:hover [data-art-scrim]')).toStrictEqual(true);
   expect(css.includes('gm-row-enter')).toStrictEqual(true);
   expect(css.includes('[data-search-clear]')).toStrictEqual(true);
   // Machined focus on the search field warms toward the focus ring token.

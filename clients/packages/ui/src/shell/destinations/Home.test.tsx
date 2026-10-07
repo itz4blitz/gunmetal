@@ -263,6 +263,33 @@ test('spotlight carries the ambient bloom, meta line and a quiet album menu', ()
   expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
   // Opening and using the menu never opens the album itself.
   expect(onOpenAlbum).not.toHaveBeenCalled();
+
+  // The kebab is the shared "more" icon, a toggle wired to its menu: a second
+  // press closes it, Enter opens it, and a press anywhere else closes it.
+  const kebab = document.querySelector('[data-spotlight-more="1"]') as HTMLElement;
+  expect(kebab.querySelector('svg')?.getAttribute('data-icon')).toStrictEqual('more');
+  expect(kebab.textContent).toStrictEqual('');
+  expect(kebab.getAttribute('aria-haspopup')).toStrictEqual('menu');
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  fireEvent.click(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  expect(screen.getByRole('menu', { name: 'Actions' }).getAttribute('data-menu-id')).toStrictEqual(
+    kebab.getAttribute('aria-controls'),
+  );
+  fireEvent.click(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
+  fireEvent.keyDown(kebab, { key: 'Enter' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.keyDown(kebab, { key: 'Tab' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(document.querySelector('#home-spotlight') as HTMLElement);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
+  fireEvent.keyDown(kebab, { key: ' ' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.keyDown(kebab, { key: ' ' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
 });
 
 test('shelf headers count what they show, in muted tabular chrome', () => {

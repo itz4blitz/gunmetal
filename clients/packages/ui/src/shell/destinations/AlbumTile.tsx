@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
@@ -6,6 +6,7 @@ import { staggerSlot } from '../format.ts';
 import type { ShellAlbum } from '../library-types.ts';
 import { CoverTile } from './CoverTile.tsx';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+import { Icon } from '../Icon.tsx';
 
 export type AlbumTileProps = {
   album: ShellAlbum;
@@ -66,11 +67,18 @@ export function AlbumTile({
 }: AlbumTileProps) {
   const title = displayTitle(album, messages);
   const artist = displayArtist(album, messages);
+  const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
     event.preventDefault();
     event.stopPropagation();
     setMenuOpen(true);
+  };
+  /* The kebab is a toggle: a second press on it closes the menu it opened. */
+  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenuOpen((open) => !open);
   };
   return (
     <View
@@ -127,17 +135,20 @@ export function AlbumTile({
             dataSet={{ itemMore: '1' }}
             accessibilityRole="button"
             accessibilityLabel={messages.moreActions}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen ? 'true' : 'false'}
+            aria-controls={menuId}
             tabIndex={0}
             onClick={(event: MouseEvent<HTMLElement>) => {
-              openMenu(event);
+              toggleMenu(event);
             }}
             onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
               if (event.key === 'Enter' || event.key === ' ') {
-                openMenu(event);
+                toggleMenu(event);
               }
             }}
           >
-            <Text>{messages.moreActions}</Text>
+            <Icon name="more" size={18} />
           </View>
         )}
       </View>
@@ -159,6 +170,7 @@ export function AlbumTile({
       {onOpenArtist === undefined ? null : (
         <GoToArtistMenu
           open={menuOpen}
+          menuId={menuId}
           artistKey={album.artistKey}
           messages={messages}
           onOpenArtist={onOpenArtist}

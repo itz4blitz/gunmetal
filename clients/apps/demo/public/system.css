@@ -1,0 +1,628 @@
+/*
+ * Gunmetal demo — shared primitives, loaded last.
+ *
+ * One definition each for the things every surface repeats:
+ *   1. Shape tokens: the nut (the brand's rounded flat-topped hexagon,
+ *      design-language §7) and the play / pause glyphs cut from it.
+ *   2. The nut button: the brass primary play control on every surface.
+ *   3. Icons: sizing for the inline SVG set (packages/ui Icon.tsx).
+ *   4. Pane resizers: the draggable edges of the sidebar and the queue.
+ *
+ * Surfaces size and place a nut; they never redraw it. Colour comes from
+ * tokens only.
+ */
+
+/* —— 1. Shape tokens —— */
+
+#token-shell {
+  /* A regular flat-topped hexagon with machined (rounded) corners. The
+     points are percentages, so one token fits every size from a 14px
+     swatch to a 200px artist portrait. */
+  --gm-nut: polygon(
+    3.03% 55.25%,
+    1.98% 52.72%,
+    1.62% 50%,
+    1.98% 47.28%,
+    3.03% 44.75%,
+    21.97% 11.95%,
+    23.64% 9.77%,
+    25.81% 8.11%,
+    28.34% 7.06%,
+    31.06% 6.7%,
+    68.94% 6.7%,
+    71.66% 7.06%,
+    74.19% 8.11%,
+    76.36% 9.77%,
+    78.03% 11.95%,
+    96.97% 44.75%,
+    98.02% 47.28%,
+    98.38% 50%,
+    98.02% 52.72%,
+    96.97% 55.25%,
+    78.03% 88.05%,
+    76.36% 90.23%,
+    74.19% 91.89%,
+    71.66% 92.94%,
+    68.94% 93.3%,
+    31.06% 93.3%,
+    28.34% 92.94%,
+    25.81% 91.89%,
+    23.64% 90.23%,
+    21.97% 88.05%
+  );
+  /* Rounded play triangle, optically centred in its box. */
+  --gm-glyph-play: polygon(
+    25% 23.12%,
+    26.33% 18.14%,
+    29.96% 14.49%,
+    34.93% 13.12%,
+    39.91% 14.41%,
+    87.56% 41.29%,
+    91.28% 44.96%,
+    92.65% 50%,
+    91.28% 55.04%,
+    87.56% 58.71%,
+    39.91% 85.59%,
+    34.93% 86.88%,
+    29.96% 85.51%,
+    26.33% 81.86%,
+    25% 76.88%
+  );
+  /* Two rounded bars. */
+  --gm-glyph-pause: polygon(
+    14% 14%,
+    14.94% 10.5%,
+    17.5% 7.94%,
+    21% 7%,
+    34% 7%,
+    37.5% 7.94%,
+    40.06% 10.5%,
+    41% 14%,
+    41% 86%,
+    40.06% 89.5%,
+    37.5% 92.06%,
+    34% 93%,
+    21% 93%,
+    17.5% 92.06%,
+    14.94% 89.5%,
+    14% 86%,
+    14% 14%,
+    59% 14%,
+    59.94% 10.5%,
+    62.5% 7.94%,
+    66% 7%,
+    79% 7%,
+    82.5% 7.94%,
+    85.06% 10.5%,
+    86% 14%,
+    86% 86%,
+    85.06% 89.5%,
+    82.5% 92.06%,
+    79% 93%,
+    66% 93%,
+    62.5% 92.06%,
+    59.94% 89.5%,
+    59% 86%,
+    59% 14%,
+    14% 14%
+  );
+  /* The nut's face: brass, lit from above like the mark. */
+  --gm-nut-face: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-accent-fill) 84%, white) 0%,
+    var(--gm-accent-fill) 42%,
+    color-mix(in srgb, var(--gm-accent-fill) 88%, black) 100%
+  );
+  /* Pane widths: the defaults; the shell overwrites them on this element
+     when a pane is resized or a stored layout is read. */
+  --gm-sidebar-w: 256px;
+  --gm-queue-w: 340px;
+}
+
+#token-shell[data-theme='high-contrast'] {
+  --gm-nut-face: var(--gm-accent-fill);
+}
+
+/* —— 2. The nut button —— */
+
+#token-shell
+  :is(
+    #shell-play[data-player-control='primary'],
+    #player-full-play[data-player-control='primary'],
+    #home-spotlight-play,
+    #album-play,
+    #artist-play,
+    [data-brass-hex='1'],
+    [data-album-play],
+    [data-artist-play]
+  ) {
+  flex: 0 0 auto;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gm-nut-face);
+  clip-path: var(--gm-nut);
+  cursor: pointer;
+  transition:
+    filter var(--gm-motion),
+    transform var(--gm-motion),
+    opacity var(--gm-motion);
+}
+
+#token-shell
+  :is(
+    #shell-play[data-player-control='primary'],
+    #player-full-play[data-player-control='primary'],
+    #home-spotlight-play,
+    #album-play,
+    #artist-play,
+    [data-brass-hex='1'],
+    [data-album-play],
+    [data-artist-play]
+  )::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 38%;
+  height: 38%;
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+  background: var(--gm-accent-on);
+  clip-path: var(--gm-glyph-play);
+}
+
+#token-shell
+  :is(
+    #shell-play[data-player-control='primary'],
+    #player-full-play[data-player-control='primary']
+  )[data-playing='1']::after {
+  width: 34%;
+  height: 34%;
+  background: var(--gm-accent-on);
+  clip-path: var(--gm-glyph-pause);
+}
+
+#token-shell
+  :is(
+    #shell-play[data-player-control='primary'],
+    #player-full-play[data-player-control='primary'],
+    #home-spotlight-play,
+    #album-play,
+    #artist-play,
+    [data-brass-hex='1'],
+    [data-album-play],
+    [data-artist-play]
+  ):not([data-disabled='1']):hover {
+  filter: brightness(1.08);
+  transform: scale(1.05);
+}
+
+#token-shell
+  :is(
+    #shell-play[data-player-control='primary'],
+    #player-full-play[data-player-control='primary'],
+    #home-spotlight-play,
+    #album-play,
+    #artist-play,
+    [data-brass-hex='1'],
+    [data-album-play],
+    [data-artist-play]
+  ):not([data-disabled='1']):active {
+  filter: brightness(0.94);
+  transform: scale(0.96);
+}
+
+/* People are nuts too (design-language §7): every artist portrait and the
+   hexagon mark on a cover placeholder take the same rounded shape as the
+   play button, whatever older sheets drew. */
+#token-shell [data-artist-avatar],
+#token-shell [data-artist-hero],
+#token-shell [data-artist-hex-ring],
+#token-shell [data-cover-plate]::after {
+  clip-path: var(--gm-nut);
+}
+
+/* Sizes, by surface. The hit area is the full square (design-language §7). */
+#token-shell #shell-play[data-player-control='primary'] {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+}
+
+#token-shell #player-full-play[data-player-control='primary'] {
+  width: 68px;
+  height: 68px;
+}
+
+#token-shell :is(#home-spotlight-play, #album-play, #artist-play, [data-brass-hex='1']) {
+  width: 56px;
+  height: 56px;
+}
+
+#token-shell [data-album-play] {
+  width: 48px;
+  height: 48px;
+}
+
+#token-shell [data-artist-play] {
+  width: 40px;
+  height: 40px;
+}
+
+/* Nothing loaded yet: a steel nut that warms to brass under the pointer. */
+#token-shell #shell-play[data-idle='1'] {
+  background: var(--gm-progress-track);
+}
+
+#token-shell #shell-play[data-idle='1']::after {
+  background: var(--gm-text-secondary);
+}
+
+#token-shell #shell-play[data-idle='1']:not([data-disabled='1']):hover,
+#token-shell [data-hex-wrap='1']:has(:focus-visible) #shell-play[data-idle='1'] {
+  background: var(--gm-nut-face);
+  filter: none;
+}
+
+#token-shell #shell-play[data-idle='1']:not([data-disabled='1']):hover::after,
+#token-shell [data-hex-wrap='1']:has(:focus-visible) #shell-play[data-idle='1']::after {
+  background: var(--gm-accent-on);
+}
+
+#token-shell #shell-play[data-disabled='1'] {
+  background: var(--gm-progress-track);
+  cursor: default;
+}
+
+#token-shell #shell-play[data-disabled='1']::after {
+  background: var(--gm-text-disabled);
+}
+
+/* The focus plate follows the nut instead of boxing it: the wrapper is not
+   clipped, so its drop-shadows trace the hexagon's own outline. */
+#token-shell [data-hex-wrap='1'] {
+  display: inline-flex;
+  border-radius: 0;
+}
+
+#token-shell [data-hex-wrap='1']:has(:focus-visible) {
+  outline: none;
+  filter: drop-shadow(0 2px 0 var(--gm-focus-ring)) drop-shadow(0 -2px 0 var(--gm-focus-ring))
+    drop-shadow(2px 0 0 var(--gm-focus-ring)) drop-shadow(-2px 0 0 var(--gm-focus-ring));
+}
+
+/* —— 3. Icons —— */
+
+#token-shell svg[data-icon] {
+  flex: 0 0 auto;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+#token-shell [data-nav-glyph] svg[data-icon] {
+  width: 18px;
+  height: 18px;
+  opacity: 0.92;
+}
+
+#token-shell #nav-rail [data-nav-glyph] svg[data-icon],
+#token-shell #nav-tabs [data-nav-glyph] svg[data-icon] {
+  width: 22px;
+  height: 22px;
+}
+
+/* Skip controls: solid glyphs, so they read at a glance beside the nut. */
+#token-shell :is(#player-prev, #player-next) svg[data-icon] {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke-width: 1.6;
+}
+
+/* Nothing loaded: the skips and the scrubber stay in place, visibly asleep. */
+#token-shell #player-bar[data-bar-empty='1'] #player-progress {
+  opacity: 0.45;
+}
+
+/* —— 4. Pane resizers —— */
+
+#token-shell[data-width='expanded'] #shell-frame {
+  grid-template-columns: var(--gm-sidebar-w) minmax(0, 1fr);
+}
+
+#token-shell[data-width='wide'] #shell-frame {
+  grid-template-columns: var(--gm-sidebar-w) minmax(0, 1fr) var(--gm-queue-w);
+}
+
+[data-pane-resizer] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 40;
+  width: 11px;
+  display: flex;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+[data-pane-resizer='sidebar'] {
+  left: calc(var(--gm-sidebar-w) - 6px);
+}
+
+/* The queue's edge stops at the player bar, which spans under the queue. */
+[data-pane-resizer='queue'] {
+  right: calc(var(--gm-queue-w) - 5px);
+  bottom: var(--gm-player-height);
+}
+
+[data-pane-resizer-grip] {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color var(--gm-motion);
+}
+
+[data-pane-resizer]:hover [data-pane-resizer-grip] {
+  background: var(--gm-line-control);
+  transition-delay: 120ms;
+}
+
+[data-pane-resizer][data-dragging='1'] [data-pane-resizer-grip],
+[data-pane-resizer]:focus-visible [data-pane-resizer-grip] {
+  background: var(--gm-accent-indicator);
+  transition-delay: 0ms;
+}
+
+/* While an edge is dragged the whole shell keeps the resize cursor and
+   nothing selects or animates under the pointer. */
+#token-shell:has([data-pane-resizer][data-dragging='1']) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+#token-shell:has([data-pane-resizer][data-dragging='1']) #shell-frame > * {
+  pointer-events: none;
+}
+
+#token-shell:has([data-pane-resizer][data-dragging='1']) #shell-frame > [data-pane-resizer] {
+  pointer-events: auto;
+}
+
+/* —— 5. The kebab ("more") is an icon everywhere —— */
+
+#token-shell [data-item-more]::before {
+  content: none;
+}
+
+#token-shell [data-item-more] > svg[data-icon] {
+  display: block;
+}
+
+/* —— 6. Phone mini player —— */
+
+/* What is playing gets the room; the transport hugs the trailing edge. The
+   thin scrubber along the bar's top edge has no space for time labels. */
+#token-shell[data-width='compact'] #player-bar {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+#token-shell[data-width='compact'] #player-bar [data-scrubber-time] {
+  display: none;
+}
+
+#token-shell[data-width='compact'] #player-left {
+  min-width: 0;
+}
+
+/* —— 7. An open menu clears everything around it —— */
+
+/* React Native for Web gives every View its own stacking context (position
+   relative, z-index 0), so a menu's z-index only ranks it inside its own row
+   or tile — the next row, tile or section then paints over it. Lifting every
+   ancestor of an open menu inside the content pane lets it clear them all. */
+#token-shell #content :has([data-context-menu]) {
+  z-index: 30;
+}
+
+#token-shell [data-context-menu] {
+  z-index: 31;
+}
+
+/* The spotlight kebab on Home is the same icon as every other kebab. */
+#token-shell [data-spotlight-more]::before {
+  content: none;
+}
+
+#token-shell [data-spotlight-more] > svg[data-icon] {
+  display: block;
+}
+
+/* —— 8. One horizon across the bottom of the window —— */
+
+/* The sidebar's footer is exactly as tall as the player bar beside it and
+   sits flush on the window's bottom edge, so its divider and the bar's top
+   border read as one continuous line instead of two near-misses. */
+#token-shell:is([data-width='expanded'], [data-width='wide']) #nav-sidebar,
+#token-shell[data-width='medium'] #nav-rail {
+  padding-bottom: 0;
+}
+
+#token-shell:is([data-width='expanded'], [data-width='wide']) #nav-sidebar #nav-footer,
+#token-shell[data-width='medium'] #nav-rail #nav-footer {
+  flex: 0 0 var(--gm-player-height);
+  box-sizing: border-box;
+  height: var(--gm-player-height);
+  margin: auto -12px 0;
+  padding: 0 12px;
+  justify-content: center;
+  gap: 0;
+  border-top: 1px solid var(--gm-line-subtle);
+}
+
+#token-shell[data-width='medium'] #nav-rail #nav-footer {
+  margin: auto -6px 0;
+  padding: 0 6px;
+}
+
+/* —— 9. The bar's artwork opens the big player —— */
+
+/* Hovering or focusing the artwork shows where it leads: an expand glyph on
+   a scrim over the cover. The control itself is the artwork button. */
+#token-shell #player-art {
+  position: relative;
+}
+
+#token-shell #player-art [data-art-expand='1'] {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--gm-radius-s);
+  background: color-mix(in srgb, var(--gm-bg-canvas) 62%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--gm-motion);
+}
+
+#token-shell #player-art:hover [data-art-expand='1'],
+#token-shell #player-art:focus-visible [data-art-expand='1'] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #token-shell #player-art [data-art-expand='1'] {
+    transition: none;
+  }
+}
+
+/* —— 10. The speaker is a button: it mutes and unmutes —— */
+
+/* Speaker and slider sit on one line (a View is a column unless told). */
+#token-shell #player-volume {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+}
+
+#token-shell #player-volume-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--gm-radius-m);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#token-shell #player-volume-icon:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 8%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #player-volume-icon[data-muted='1'] {
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #player-volume-icon:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— 11. Focus: nothing flashes on a mouse click —— */
+
+/* Every focusable control rests with a transparent 2px outline. Without it,
+   focusing a control (any click does) starts its outline at the browser's
+   initial colour, the text colour, and the focus rules' outline-color
+   transition then fades that near-white ring out over 160ms: a flash on
+   every click, drawn 4px outside the control (so the content pane's flash
+   landed on the sidebar and the player bar). Resting transparent means a
+   click changes nothing; only :focus-visible brings the ring in.
+   :where() keeps this at zero specificity so every real ring still wins. */
+:where(#token-shell) :where([tabindex], input, button, select, textarea) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+/* Keyboard focus always shows a ring, including on controls no sheet
+   styled individually. */
+:where(#token-shell) :is([tabindex], input, button, select, textarea):focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The two landmarks the skip links land on are whole panes: their ring sits
+   inside the pane instead of over its neighbours. */
+#token-shell #content:focus-visible,
+#token-shell #player-bar:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The pane edge shows focus on its grip, not as a box. */
+#token-shell [data-pane-resizer]:focus-visible {
+  outline: none;
+}
+
+/* —— 12. The bar gives way gracefully as its own width shrinks —— */
+
+/* The bar's width depends on the sidebar the listener sized, so it adapts
+   to its own measure, not the window's. What is playing and the transport
+   always keep their room; the right-hand extras fold away first. */
+#token-shell:is([data-width='expanded'], [data-width='wide']) #player-bar {
+  container: player-bar / inline-size;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+#token-shell:is([data-width='expanded'], [data-width='wide']) #player-center {
+  justify-self: center;
+  width: 100%;
+  max-width: 760px;
+}
+
+#token-shell #player-actions {
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+@container player-bar (max-width: 1040px) {
+  /* The artwork already opens the full player. */
+  #token-shell #player-expand {
+    display: none;
+  }
+
+  #token-shell #player-volume-range {
+    width: 72px;
+  }
+}
+
+@container player-bar (max-width: 880px) {
+  #token-shell #player-volume-range {
+    display: none;
+  }
+}
+
+@container player-bar (max-width: 760px) {
+  #token-shell #player-lyrics {
+    display: none;
+  }
+}

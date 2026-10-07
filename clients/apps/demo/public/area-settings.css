@@ -1,56 +1,99 @@
 /* ==========================================================================
    Gunmetal — Settings (SUR-073) area styles.
-   Loads after shell.css, so rules here refine its settings chrome.
+   Loads after shell.css and refines its settings chrome; every rule here is
+   prefixed with #token-shell so it outranks the legacy rules it replaces.
    Tokens only (--gm-*); no external assets of any kind — SEC-API-044.
-   Brass is scarce (design-language §3): the R2 badge, the section list's
-   where-you-are bar and the selected theme swatch outline are the only
-   brass on this page.
 
-   2026 pass: raised panes carry a machined 1px inner stroke; panes enter on
-   the 160ms standard curve; the section list gains the hover wash; theme
-   swatches get larger previews with a hover lift; plugin slots read as a
-   table; About is a definition list. Everything dies under reduced motion.
+   Layout pass:
+   - The page answers the width of its own column through container queries.
+     The sidebar and the queue are resizable, so nothing here reads the
+     window width.
+   - Wide column: a flat, left-aligned section list beside one pane.
+     Narrow column: the same list as a scrolling strip above the pane.
+     Stacked (phone, rail): every pane in one column, hairline between.
+   - A pane is flat. Its content is one pattern: a raised group of rows,
+     label and description on the leading side, value or status on the
+     trailing side, hairlines between rows.
+   - The theme is chosen once, in a radio group of preview cards.
+   - Brass (design-language §3) marks only where you are: the selected
+     section and the checked theme card.
    ========================================================================== */
 
-/* —— Page rhythm: stacked panes on compact, list + pane on expanded/wide —— */
+/* —— Containers: the page column, and the pane column inside it —— */
 
-#destination-settings[data-settings-layout='side'] {
-  grid-template-columns: minmax(184px, 232px) minmax(0, 1fr);
-  gap: 28px;
+#destination:has(> #destination-settings) {
+  container-type: inline-size;
+  container-name: gm-settings;
 }
 
-#token-shell[data-width='compact'] #destination-settings,
-#token-shell[data-width='medium'] #destination-settings {
-  gap: 16px;
+#token-shell #settings-panels {
+  container-type: inline-size;
+  container-name: gm-settings-pane;
 }
 
-/* Section cards: raised, machined top edge (from shell), slightly roomier,
-   and keyed by a 1px inner stroke one step inside the border — the recessed
-   keyline of the 2026 card treatment. Drawn by a pseudo-element so it never
-   clips or overlaps content (padding sits well inside the 5px inset). */
-#destination-settings [data-settings-panel] {
+/* —— Page rhythm —— */
+
+#token-shell #destination-settings {
+  width: 100%;
+  max-width: 1120px;
+  gap: 24px;
+}
+
+#token-shell #destination-settings[data-settings-layout='stack'] {
+  max-width: 760px;
+}
+
+#token-shell #destination-settings[data-settings-layout='side'] {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  grid-template-areas:
+    'head head'
+    'nav panes';
+  column-gap: 40px;
+  row-gap: 20px;
+  align-items: start;
+}
+
+#token-shell #destination-settings[data-settings-layout='side'] #destination-headline {
+  grid-area: head;
+}
+
+#token-shell #destination-settings[data-settings-layout='side'] #settings-nav {
+  grid-area: nav;
+}
+
+#token-shell #destination-settings[data-settings-layout='side'] #settings-panels {
+  grid-area: panes;
+}
+
+#token-shell #destination-settings #settings-panels {
+  min-width: 0;
+  gap: 32px;
+}
+
+/* —— Panes: flat, with one heading row —— */
+
+#token-shell #destination-settings [data-settings-panel] {
   position: relative;
-  gap: 18px;
-  padding: 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: gm-settings-pane-in var(--gm-motion) both;
 }
 
-#destination-settings [data-settings-panel]::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border: 1px solid color-mix(in srgb, var(--gm-line-subtle) 72%, transparent);
-  border-radius: calc(var(--gm-radius-l) - 5px);
-  pointer-events: none;
+/* Stacked panes are separated by a hairline and air, not by boxes. */
+#token-shell #destination-settings[data-settings-layout='stack'] [data-settings-panel] + [data-settings-panel] {
+  padding-top: 32px;
+  border-top: 1px solid var(--gm-line-subtle);
 }
 
-#token-shell[data-width='compact'] #destination-settings [data-settings-panel],
-#token-shell[data-width='medium'] #destination-settings [data-settings-panel] {
-  padding: 16px;
-}
-
-/* Pane transition: a section change is a change of place, so the pane
-   settles in over the standard curve. Fill mode both keeps the pre-animation
-   frame from flashing. */
+/* A section change is a change of place, so the pane settles in over the
+   standard curve. Fill mode both keeps the first frame from flashing. */
 @keyframes gm-settings-pane-in {
   from {
     opacity: 0;
@@ -63,518 +106,687 @@
   }
 }
 
-#destination-settings [data-settings-panel] {
-  animation: gm-settings-pane-in var(--gm-motion) both;
+#token-shell #destination-settings [data-settings-heading-row] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0;
+  border: 0;
 }
 
-#destination-settings [data-settings-heading-row] {
-  padding-bottom: 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-subtle) 60%, transparent);
-}
+/* —— Release badges: quiet steel tags beside the heading —— */
 
-/* —— Honest release badges: R1 steel, R2 the one brass badge —— */
-
-#destination-settings [data-settings-badge] {
-  padding: 1px 7px;
+#token-shell #destination-settings [data-settings-badge] {
+  align-self: center;
+  padding: 1px 6px;
+  border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-xs);
-  font-size: var(--gm-type-label-size);
-  line-height: var(--gm-type-label-line);
-  font-weight: 700;
+  background: transparent;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
   letter-spacing: 0.06em;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-#destination-settings [data-settings-badge='R1'] {
+#token-shell #destination-settings [data-settings-badge='R1'] {
+  border-color: var(--gm-line-subtle);
+}
+
+/* Later release: a firmer edge, still steel. */
+#token-shell #destination-settings [data-settings-badge='R2'] {
+  border-color: color-mix(in srgb, var(--gm-line-control) 60%, transparent);
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
 }
 
-#destination-settings [data-settings-badge='R2'] {
-  --gm-text: var(--gm-accent-text);
-  color: var(--gm-accent-text);
-  background: transparent;
-  border: 1px solid var(--gm-accent-text);
-}
+/* —— Section list: flat, left-aligned, brass bar on the selected row —— */
 
-/* —— Section list (side layout): selected item = brass leading bar —— */
-
-#destination-settings[data-settings-layout='side'] #settings-nav {
-  gap: 2px;
-  padding: 6px;
+#token-shell #destination-settings #settings-nav {
   position: sticky;
-  top: 4px;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-#destination-settings #settings-nav [role='tab'] {
+#token-shell #destination-settings #settings-nav [role='tab'] {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  min-height: 44px;
-  padding: 10px 12px;
+  justify-content: flex-start;
+  min-height: 40px;
+  padding: 8px 12px 8px 16px;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
   transition:
     background-color var(--gm-motion),
     color var(--gm-motion);
 }
 
-#destination-settings #settings-nav [data-selected='1'] {
-  --gm-text: var(--gm-text-primary);
-  color: var(--gm-text-primary);
+#token-shell #destination-settings #settings-nav [role='tab'] > * {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  text-align: start;
+}
+
+/* Selected (design-language §4): 14% brass wash and a 3px leading bar. */
+#token-shell #destination-settings #settings-nav [data-selected='1'] {
   background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
   box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-settings #settings-nav [data-selected='1'] > * {
+  font-weight: 600;
 }
 
 @media (hover: hover) {
-  /* Hover wash plus a text lift: the row answers the pointer without
-     moving (calm by default, §9). */
-  #destination-settings #settings-nav [role='tab']:hover {
+  #token-shell #destination-settings #settings-nav [role='tab']:hover {
+    background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
     --gm-text: var(--gm-text-primary);
     color: var(--gm-text-primary);
-    background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
   }
 
-  #destination-settings #settings-nav [data-selected='1']:hover {
+  #token-shell #destination-settings #settings-nav [data-selected='1']:hover {
     background: color-mix(in srgb, var(--gm-accent-fill) 18%, transparent);
   }
 }
 
-/* —— Theme preview strip: four swatch cards, the current theme in brass —— */
+/* Narrow column: the list becomes a strip above the pane. It scrolls on its
+   own axis; the page never scrolls sideways. */
+@container gm-settings (max-width: 719px) {
+  #token-shell #destination-settings[data-settings-layout='side'] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'nav'
+      'panes';
+    row-gap: 16px;
+  }
 
-#settings-theme-preview {
+  #token-shell #destination-settings[data-settings-layout='side'] #settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 4px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--gm-line-subtle);
+    border-radius: 0;
+  }
+
+  #token-shell #destination-settings[data-settings-layout='side'] #settings-nav [role='tab'] {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: var(--gm-radius-m) var(--gm-radius-m) 0 0;
+    white-space: nowrap;
+  }
+
+  #token-shell #destination-settings[data-settings-layout='side'] #settings-nav [data-selected='1'] {
+    box-shadow: inset 0 -2px 0 var(--gm-accent-indicator);
+  }
+}
+
+/* —— Group heading: a title and one line of help above a control —— */
+
+#token-shell #destination-settings [data-settings-group] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#token-shell #destination-settings [data-settings-group-title] {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-settings [data-settings-group-hint] {
+  max-width: 70ch;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* —— Theme cards: a radio group of miniatures, the checked one in brass —— */
+
+#token-shell #settings-theme-preview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 20px 16px;
+  padding-top: 4px;
 }
 
-#token-shell[data-width='compact'] #settings-theme-preview {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+@container gm-settings-pane (max-width: 439px) {
+  #token-shell #settings-theme-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-#destination-settings [data-theme-swatch] {
+#token-shell #destination-settings [data-theme-swatch] {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
   min-height: 44px;
-  padding: 8px;
-  border: 1px solid var(--gm-line-subtle);
+  padding: 0;
+  border: 0;
   border-radius: var(--gm-radius-m);
-  background: var(--gm-bg-inset);
+  background: transparent;
   cursor: pointer;
-  /* The hover lift moves on transform only, at the standard curve. */
-  transition:
-    transform var(--gm-motion),
-    background-color var(--gm-motion),
-    border-color var(--gm-motion);
-}
-
-#destination-settings [data-theme-swatch][data-selected='1'] {
-  /* Brass marks where you are: the current theme's card. */
-  background: color-mix(in srgb, var(--gm-accent-fill) 8%, var(--gm-bg-inset));
-  border-color: var(--gm-accent-indicator);
-}
-
-@media (hover: hover) {
-  #destination-settings [data-theme-swatch]:hover {
-    transform: translateY(-2px);
-    background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-inset));
-    border-color: color-mix(in srgb, var(--gm-line-control) 55%, var(--gm-line-subtle));
-  }
-
-  #destination-settings [data-theme-swatch][data-selected='1']:hover {
-    transform: translateY(-2px);
-    background: color-mix(in srgb, var(--gm-accent-fill) 12%, var(--gm-bg-inset));
-    border-color: var(--gm-accent-indicator);
-  }
 }
 
 /* Per-theme preview values: the token file's own values for each theme, so
-   a swatch shows its theme honestly whatever theme is active. THIS BLOCK IS
-   THE ONE PLACE those values live: they mirror the §4 token table in
-   docs/ui/design-language.md. If shell.css tunes the live tokens this
-   round, the swatches still tell the truth per theme — retune both places
-   together, never one. */
-#destination-settings [data-theme-swatch='dark'] {
+   a card shows its theme honestly whatever theme is active. THIS BLOCK IS
+   THE ONE PLACE raw values live in this file: they mirror the §4 token
+   table in docs/ui/design-language.md. Retune both places together. */
+#token-shell #destination-settings [data-theme-swatch='dark'] {
   --sw-canvas: #0f1317;
   --sw-raised: #161c21;
   --sw-line: #262e36;
   --sw-accent: #d4952f;
   --sw-text: #e9eef2;
-  --sw-edge: color-mix(in srgb, #e8f1f8 14%, transparent);
 }
 
-#destination-settings [data-theme-swatch='light'] {
+#token-shell #destination-settings [data-theme-swatch='light'] {
   --sw-canvas: #f3f5f7;
   --sw-raised: #ffffff;
   --sw-line: #dde3e8;
   --sw-accent: #b8781a;
   --sw-text: #11161b;
-  --sw-edge: transparent;
 }
 
-#destination-settings [data-theme-swatch='oled'] {
+#token-shell #destination-settings [data-theme-swatch='oled'] {
   --sw-canvas: #000000;
   --sw-raised: #0c1013;
   --sw-line: #1f262d;
   --sw-accent: #d4952f;
   --sw-text: #e9eef2;
-  --sw-edge: color-mix(in srgb, #e8f1f8 14%, transparent);
 }
 
-#destination-settings [data-theme-swatch='high-contrast'] {
+#token-shell #destination-settings [data-theme-swatch='high-contrast'] {
   --sw-canvas: #000000;
   --sw-raised: #000000;
   --sw-line: #ffffff;
   --sw-accent: #ffc857;
   --sw-text: #ffffff;
-  --sw-edge: transparent;
 }
 
-/* The miniature, 2026 size: taller canvas sky, two text bars, raised bar
-   with a brass nut. */
-#destination-settings [data-swatch-stage] {
+/* The miniature is the app itself: sidebar, a headline over three tiles,
+   and the player bar with its brass nut. All sizes are fractions of the
+   stage, so one drawing fits every card width. */
+#token-shell #destination-settings [data-swatch-stage] {
+  --sw-dim: color-mix(in srgb, var(--sw-text) 36%, transparent);
+  --sw-tile: color-mix(in srgb, var(--sw-text) 14%, var(--sw-canvas));
   position: relative;
-  height: 88px;
+  aspect-ratio: 16 / 10;
+  height: auto;
   overflow: hidden;
   border: 1px solid var(--sw-line);
-  border-radius: var(--gm-radius-s);
+  border-radius: var(--gm-radius-m);
   background: var(--sw-canvas);
+  transition:
+    transform var(--gm-motion),
+    border-color var(--gm-motion);
 }
 
-#destination-settings [data-swatch-lines] {
-  position: absolute;
-  top: 14px;
-  inset-inline-start: 12px;
-  width: 52%;
-  height: 6px;
-  border-radius: var(--gm-radius-xs);
-  background: var(--sw-text);
-  opacity: 0.85;
-}
-
-#destination-settings [data-swatch-lines]::before {
+/* Sidebar: three nav bars, the first one selected with its brass tick. */
+#token-shell #destination-settings [data-swatch-stage]::before {
   content: '';
   position: absolute;
-  top: 11px;
-  inset-inline-start: 0;
-  width: 64%;
+  inset: 0 auto 22% 0;
+  width: 28%;
+  border-inline-end: 1px solid var(--sw-line);
+  background:
+    linear-gradient(var(--sw-accent), var(--sw-accent)) 0 20% / 2px 13% no-repeat,
+    linear-gradient(var(--sw-text), var(--sw-text)) 50% 22% / 52% 3px no-repeat,
+    linear-gradient(var(--sw-dim), var(--sw-dim)) 50% 42% / 52% 3px no-repeat,
+    linear-gradient(var(--sw-dim), var(--sw-dim)) 36% 62% / 38% 3px no-repeat,
+    var(--sw-raised);
+}
+
+/* Content: three album tiles. */
+#token-shell #destination-settings [data-swatch-stage]::after {
+  content: '';
+  position: absolute;
+  top: 38%;
+  inset-inline-start: 36%;
+  width: 56%;
+  height: 28%;
+  background:
+    linear-gradient(var(--sw-tile), var(--sw-tile)) 0 0 / 28% 100% no-repeat,
+    linear-gradient(var(--sw-tile), var(--sw-tile)) 50% 0 / 28% 100% no-repeat,
+    linear-gradient(var(--sw-tile), var(--sw-tile)) 100% 0 / 28% 100% no-repeat;
+}
+
+/* Content: the page headline. */
+#token-shell #destination-settings [data-swatch-lines] {
+  position: absolute;
+  top: 16%;
+  inset-inline-start: 36%;
+  width: 30%;
   height: 5px;
   border-radius: var(--gm-radius-xs);
   background: var(--sw-text);
-  opacity: 0.4;
+  opacity: 0.92;
 }
 
-#destination-settings [data-swatch-panel] {
+/* The player bar, with the brass nut at its centre. */
+#token-shell #destination-settings [data-swatch-panel] {
   position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: 42px;
+  inset: auto 0 0 0;
+  height: 22%;
+  border-top: 1px solid var(--sw-line);
   background: var(--sw-raised);
-  box-shadow: inset 0 1px 0 var(--sw-edge);
 }
 
-#destination-settings [data-swatch-dot] {
+#token-shell #destination-settings [data-swatch-dot] {
   position: absolute;
   top: 50%;
-  inset-inline-start: 12px;
-  width: 19px;
-  height: 16px;
-  transform: translateY(-50%);
-  /* The mark: flat-topped hexagon, brass bore. */
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  inset-inline-start: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  clip-path: var(--gm-nut);
   background: var(--sw-accent);
 }
 
-#destination-settings [data-swatch-name] {
-  font-size: var(--gm-type-label-size);
-  line-height: var(--gm-type-label-line);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
+#token-shell #destination-settings [data-swatch-name] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   text-align: center;
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  transition: color var(--gm-motion);
 }
 
-#destination-settings [data-theme-swatch][data-selected='1'] [data-swatch-name] {
+/* The checked mark: a brass nut carrying a tick, on the card's corner. The
+   fill is accent.fill, the one brass accent.on is measured against (§4). */
+#token-shell #destination-settings [data-swatch-check] {
+  position: absolute;
+  top: -8px;
+  inset-inline-end: -8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  clip-path: var(--gm-nut);
+  background: var(--gm-accent-fill);
+  --gm-text: var(--gm-accent-on);
+  color: var(--gm-accent-on);
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  transition:
+    opacity var(--gm-motion),
+    transform var(--gm-motion);
+}
+
+#token-shell #destination-settings [data-swatch-check] svg[data-icon] {
+  stroke-width: 3;
+}
+
+/* Brass marks where you are: the current theme's card. */
+#token-shell #destination-settings [data-theme-swatch][data-selected='1'] [data-swatch-stage] {
+  outline: 2px solid var(--gm-accent-indicator);
+  outline-offset: 2px;
+}
+
+#token-shell #destination-settings [data-theme-swatch][data-selected='1'] [data-swatch-check] {
+  opacity: 1;
+  transform: none;
+}
+
+#token-shell #destination-settings [data-theme-swatch][data-selected='1'] [data-swatch-name] {
+  font-weight: 600;
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-/* —— Playback: an honest quiet notice, not an empty box —— */
+@media (hover: hover) {
+  /* The hover lift moves on transform only, at the standard curve. */
+  #token-shell #destination-settings [data-theme-swatch]:hover [data-swatch-stage] {
+    transform: translateY(-2px);
+  }
 
-#destination-settings [data-settings-stub] {
-  position: relative;
+  #token-shell #destination-settings [data-theme-swatch]:hover [data-swatch-name] {
+    --gm-text: var(--gm-text-primary);
+    color: var(--gm-text-primary);
+  }
+}
+
+/* Focus: 2px ring with a 2px gap, keyboard only (CLI-138). It is drawn on
+   the miniature, where the checked ring sits, so the two never double up. */
+#token-shell #destination-settings [data-theme-swatch]:focus {
+  outline: none;
+}
+
+#token-shell #destination-settings [data-theme-swatch]:focus-visible {
+  outline: none;
+}
+
+#token-shell #destination-settings [data-theme-swatch]:focus-visible [data-swatch-stage] {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— Row groups: the one pattern every other pane uses ——
+
+   A raised group holds rows. A row puts its label and description on the
+   leading side and its value or status on the trailing side; a hairline
+   separates rows. When the column is too narrow for both, the trailing side
+   drops under the text instead of squeezing it. Nothing here is
+   interactive, so nothing answers hover (calm by default, §9). */
+
+#token-shell #destination-settings [data-settings-rows],
+#token-shell #destination-settings [data-settings-facts],
+#token-shell #destination-settings #settings-plugin-slots {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 16px 18px 16px 24px;
+  gap: 0;
+  padding: 0;
   border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-m);
-  background: var(--gm-bg-inset);
-  box-shadow: none;
+  border-radius: var(--gm-radius-l);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-elev-raised);
   overflow: hidden;
 }
 
-#destination-settings [data-settings-stub]::before {
-  content: '';
-  position: absolute;
-  inset-block: 12px;
-  inset-inline-start: 9px;
-  width: 2px;
-  background: var(--gm-line-control);
-  opacity: 0.65;
+#token-shell #destination-settings [data-settings-row],
+#token-shell #destination-settings [data-settings-fact] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  min-height: 56px;
+  padding: 14px 18px;
 }
 
-#destination-settings [data-settings-placeholder='playback'] {
-  max-width: none;
-  font-size: var(--gm-type-small-size);
-  line-height: var(--gm-type-small-line);
-  /* A sentence someone needs to read: secondary, not muted. */
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
-  overflow-wrap: anywhere;
+#token-shell #destination-settings [data-settings-row] + [data-settings-row],
+#token-shell #destination-settings [data-settings-fact] + [data-settings-fact] {
+  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, transparent);
 }
 
-/* —— Connected + Extensions: empty cards with the hex mark —— */
-
-#destination-settings [data-empty-card] {
-  border-radius: var(--gm-radius-m);
-}
-
-/* The quiet mark becomes the identity shape: a hollow machined nut. */
-#destination-settings [data-empty-mark] {
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  border: 0;
-  background: color-mix(in srgb, var(--gm-line-control) 55%, var(--gm-line-subtle));
-}
-
-#destination-settings [data-empty-mark]::before {
-  content: '';
-  position: absolute;
-  inset: 1.5px;
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  background: var(--gm-bg-raised);
-}
-
-#destination-settings [data-empty-mark]::after {
+#token-shell #destination-settings [data-settings-fact]::before {
   content: none;
 }
 
-#destination-settings [data-empty-state] {
+#token-shell #destination-settings [data-settings-row-text] {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#token-shell #destination-settings [data-settings-row-label],
+#token-shell #destination-settings [data-fact-label] {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  font-weight: 500;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-settings [data-settings-row-hint] {
   font-size: var(--gm-type-small-size);
   line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
   overflow-wrap: anywhere;
 }
 
-/* —— Plugin slots: one clean table, hairline rows, honest chips ——
-
-   A card holds a column head (Extension / Runs on / Status) and one row per
-   slot. Rows are flat and separated by hairlines instead of floating as
-   separate boxes: the list reads as a table of what would load, and the
-   NOT LOADED chip carries the honesty. Nothing here is interactive, so
-   nothing answers hover (calm by default, §9). —— */
-
-#destination-settings #settings-plugin-slots {
-  gap: 0;
+/* The status of a setting that is not wired: words in a quiet steel tag.
+   It is not a control and does not look like one. */
+#token-shell #destination-settings [data-settings-row-status] {
+  flex: 0 0 auto;
+  padding: 3px 8px;
   border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-m);
+  border-radius: var(--gm-radius-xs);
   background: var(--gm-bg-inset);
-  overflow: hidden;
-}
-
-#destination-settings #settings-plugin-slots [data-slot-head] {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto auto;
-  grid-template-areas: 'lead title plane state';
-  gap: 12px;
-  align-items: center;
-  padding: 9px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, transparent);
-}
-
-#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-title],
-#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-plane],
-#destination-settings #settings-plugin-slots [data-slot-head] > [data-slot-head-state] {
   font-size: var(--gm-type-label-size);
   line-height: var(--gm-type-label-line);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 500;
+  white-space: nowrap;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
-#destination-settings #settings-plugin-slots [data-plugin-slot] {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: 'mark title plane state';
-  gap: 12px;
-  min-height: 44px;
-  padding: 10px 14px;
+/* A fact's value: the trailing side, in tabular figures so technical
+   values line up. Values are server-shaped strings, so they wrap anywhere. */
+#token-shell #destination-settings [data-fact-label] {
+  flex: 0 0 auto;
+}
+
+#token-shell #destination-settings [data-fact-value] {
+  flex: 1 1 120px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+/* A note under or above a group: one readable sentence, quiet voice. */
+#token-shell #destination-settings [data-settings-note] {
+  max-width: 70ch;
+  padding: 0 2px;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  text-align: start;
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* A statement: one sentence someone needs to read, inside its group
+   (Privacy, Extensions). */
+#token-shell #destination-settings [data-settings-statement] {
+  max-width: 70ch;
+  padding: 16px 18px;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+/* —— Plugin slots: the same group, as a three-column table ——
+
+   A column head (Extension / Runs on / Status), then one row per slot. The
+   plane and the state share fixed columns so every row lines up under its
+   head. */
+
+#token-shell #destination-settings #settings-plugin-slots [data-slot-head],
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 72px 96px;
+  column-gap: 14px;
+  align-items: center;
+  /* A View starts its content at the top; the one row sits mid-height. */
+  align-content: center;
+  padding: 0 18px;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
-#destination-settings #settings-plugin-slots [data-plugin-slot] + [data-plugin-slot] {
-  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 55%, transparent);
+#token-shell #destination-settings #settings-plugin-slots [data-slot-head] {
+  min-height: 36px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, transparent);
+  background: color-mix(in srgb, var(--gm-bg-inset) 45%, transparent);
 }
 
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark] {
-  grid-area: mark;
-  position: relative;
-  align-self: center;
-  width: 18px;
-  height: 16px;
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  background: color-mix(in srgb, var(--gm-line-control) 60%, var(--gm-line-subtle));
-}
-
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark]::before {
-  content: '';
-  position: absolute;
-  inset: 1.5px;
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  background: var(--gm-bg-inset);
-}
-
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
-  grid-area: title;
-  font-size: var(--gm-type-body-size);
-  line-height: var(--gm-type-body-line);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane],
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
-  align-self: center;
-  padding: 2px 7px;
-  border-radius: var(--gm-radius-xs);
+#token-shell #destination-settings #settings-plugin-slots [data-slot-head] > * {
   font-size: var(--gm-type-label-size);
   line-height: var(--gm-type-label-line);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-/* Plane tag: quiet steel — the plane is metadata, not a state. */
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane] {
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
-  border: 1px solid color-mix(in srgb, var(--gm-line-control) 45%, transparent);
-}
-
-/* Honest state chip: the truth, in muted steel, never a spinner or a promise. */
-#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-  border: 1px solid var(--gm-line-subtle);
-}
-
-/* Compact: name keeps its line, the tags wrap below it; the column head
-   would misalign against wrapped rows, so it steps aside. */
-#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-plugin-slot],
-#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-plugin-slot] {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 10px;
-}
-
-#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title],
-#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
-  flex: 1 1 auto;
-}
-
-#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-slot-head],
-#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-slot-head] {
-  display: none;
-}
-
-/* —— About: a definition list ——
-
-   Each fact is one row: the label rests muted, the value carries the
-   primary voice with tabular figures so technical values align. Values are
-   server-shaped strings, so they still wrap anywhere. —— */
-
-#destination-settings [data-settings-facts] {
-  gap: 0;
-}
-
-#destination-settings [data-settings-fact] {
-  display: grid;
-  grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
-  column-gap: 18px;
-  align-items: baseline;
-  padding: 10px 0;
-}
-
-#destination-settings [data-settings-fact] + [data-settings-fact] {
-  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 55%, transparent);
-}
-
-#destination-settings [data-settings-fact]::before {
-  content: none;
-}
-
-#destination-settings [data-fact-label] {
-  font-size: var(--gm-type-small-size);
-  line-height: var(--gm-type-small-line);
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
-#destination-settings [data-fact-value] {
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] {
+  min-height: 52px;
+}
+
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] + [data-plugin-slot] {
+  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, transparent);
+}
+
+/* The slot mark is the identity shape: a hollow machined nut. */
+#token-shell #destination-settings #settings-plugin-slots [data-slot-mark] {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  clip-path: var(--gm-nut);
+  background: color-mix(in srgb, var(--gm-line-control) 60%, var(--gm-line-subtle));
+}
+
+#token-shell #destination-settings #settings-plugin-slots [data-slot-mark]::before {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  clip-path: var(--gm-nut);
+  background: var(--gm-bg-raised);
+}
+
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
+  min-width: 0;
   font-size: var(--gm-type-body-size);
   line-height: var(--gm-type-body-line);
+  font-weight: 500;
+  overflow-wrap: anywhere;
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
-/* —— Privacy: readable sentence, quiet voice —— */
-
-#destination-settings [data-settings-privacy] {
-  max-width: 36rem;
+/* Plane: metadata in plain words, not a state. */
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane] {
+  padding: 0;
+  border: 0;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
-  overflow-wrap: anywhere;
 }
 
-/* —— Focus: 2px ring with a 2px gap, keyboard only (CLI-138) —— */
-
-#destination-settings [data-theme-swatch]:focus {
-  outline: none;
+/* State: the truth, in the same quiet steel tag as a setting's status —
+   never a spinner or a promise. */
+#token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
+  justify-self: start;
+  padding: 3px 8px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-bg-inset);
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-#destination-settings [data-theme-swatch]:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
-}
+/* Narrow pane: the name keeps its line and the plane and state sit under
+   it; a column head would no longer line up, so it steps aside. */
+@container gm-settings-pane (max-width: 479px) {
+  #token-shell #destination-settings #settings-plugin-slots [data-slot-head] {
+    display: none;
+  }
 
-/* —— Targets: 44px touch minimum on compact (CLI-142) —— */
+  #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'mark title title'
+      '. plane state';
+    row-gap: 6px;
+    padding: 12px 16px;
+  }
 
-#token-shell[data-width='compact'] #settings-appearance #theme-switcher [id^='theme-'],
-#token-shell[data-width='medium'] #settings-appearance #theme-switcher [id^='theme-'] {
-  min-height: 44px;
+  #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark] {
+    grid-area: mark;
+  }
+
+  #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
+    grid-area: title;
+  }
+
+  #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane] {
+    grid-area: plane;
+  }
+
+  #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
+    grid-area: state;
+    justify-self: end;
+  }
+
+  #token-shell #destination-settings [data-settings-row],
+  #token-shell #destination-settings [data-settings-fact] {
+    padding: 12px 16px;
+  }
+
+  #token-shell #destination-settings [data-settings-statement] {
+    padding: 14px 16px;
+  }
 }
 
 /* —— Reduced motion (CLI-140): every transition and the pane entrance
       resolve to instant; the hover lift stops moving. —— */
 
 @media (prefers-reduced-motion: reduce) {
-  #destination-settings #settings-nav [role='tab'],
-  #destination-settings [data-theme-swatch] {
+  #token-shell #destination-settings #settings-nav [role='tab'],
+  #token-shell #destination-settings [data-swatch-stage],
+  #token-shell #destination-settings [data-swatch-name],
+  #token-shell #destination-settings [data-swatch-check] {
     transition: none;
   }
 
-  #destination-settings [data-settings-panel] {
+  #token-shell #destination-settings [data-settings-panel] {
     animation: none;
   }
 
-  #destination-settings [data-theme-swatch]:hover {
+  #token-shell #destination-settings [data-theme-swatch]:hover [data-swatch-stage] {
+    transform: none;
+  }
+
+  #token-shell #destination-settings [data-swatch-check] {
     transform: none;
   }
 }

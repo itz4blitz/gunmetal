@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
 import type { MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { catalogueMenuActions, type CatalogueMenuActionId } from '../menu-actions.ts';
+import { useMenuDismiss } from '../menu-dismiss.ts';
 
 export type CatalogueMenuHandlers = {
   onPlay?: (() => void) | undefined;
@@ -14,6 +14,8 @@ export type CatalogueMenuHandlers = {
 
 export type GoToArtistMenuProps = CatalogueMenuHandlers & {
   open: boolean;
+  /** Names this menu; its opener points at it with aria-controls. */
+  menuId: string;
   artistKey: string;
   messages: DestinationMessages;
   onClose: () => void;
@@ -41,6 +43,7 @@ function runAction(id: CatalogueMenuActionId, artistKey: string, handlers: Catal
 
 export function GoToArtistMenu({
   open,
+  menuId,
   artistKey,
   messages,
   onOpenArtist,
@@ -50,20 +53,7 @@ export function GoToArtistMenu({
   onAddToQueue,
   onGoToAlbum,
 }: GoToArtistMenuProps) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-    globalThis.addEventListener('keydown', onKey);
-    return () => {
-      globalThis.removeEventListener('keydown', onKey);
-    };
-  }, [open, onClose]);
+  useMenuDismiss(open, menuId, onClose);
 
   if (!open) {
     return null;
@@ -73,7 +63,7 @@ export function GoToArtistMenu({
 
   return (
     <View
-      dataSet={{ itemMenu: '1', contextMenu: '1' }}
+      dataSet={{ itemMenu: '1', contextMenu: '1', menuId }}
       accessibilityRole="menu"
       accessibilityLabel={messages.contextMenu}
     >

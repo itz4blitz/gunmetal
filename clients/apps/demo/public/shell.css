@@ -642,59 +642,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
     transform var(--gm-motion);
 }
 
-/* Simple CSS glyphs — house / loupe / shelf — no emoji, no image assets.
-   One grid: a 16px box on a 1.6px stroke (design-language §10 scaled down). */
-[data-nav-glyph]::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  opacity: 0.9;
-  box-sizing: border-box;
-}
-
-/* Home: peaked roof + doorway via clip-path. */
-[data-nav-glyph='home']::before {
-  background: currentColor;
-  clip-path: polygon(50% 6%, 94% 42%, 94% 94%, 62% 94%, 62% 62%, 38% 62%, 38% 94%, 6% 94%, 6% 42%);
-}
-
-/* Search: 12px ring + 5px handle on a 1.6px stroke. */
-[data-nav-glyph='search']::before {
-  width: 12px;
-  height: 12px;
-  margin: 0 1px 1px 0;
-  border: 1.6px solid currentColor;
-  border-radius: 999px;
-  background: transparent;
-  box-shadow: 4px 4px 0 -3.4px currentColor;
-  transform: rotate(-28deg);
-}
-
-/* Library: spine + three shelf lines on a 1.6px stroke. */
-[data-nav-glyph='library']::before {
-  width: 15px;
-  height: 14px;
-  border-left: 1.6px solid currentColor;
-  background:
-    linear-gradient(currentColor, currentColor) 3.2px 1px / 11.4px 1.6px no-repeat,
-    linear-gradient(currentColor, currentColor) 3.2px 6px / 10.4px 1.6px no-repeat,
-    linear-gradient(currentColor, currentColor) 3.2px 11px / 9.4px 1.6px no-repeat;
-}
-
-/* Settings: two slider tracks with knobs — machined, no gear cliché. */
-[data-nav-glyph='settings']::before {
-  width: 15px;
-  height: 15px;
-  background:
-    linear-gradient(currentColor, currentColor) 2px 0 / 1.6px 15px no-repeat,
-    linear-gradient(currentColor, currentColor) 11.4px 0 / 1.6px 15px no-repeat,
-    linear-gradient(currentColor, currentColor) 0 4px / 6px 1.6px no-repeat,
-    linear-gradient(currentColor, currentColor) 0 10px / 6px 1.6px no-repeat,
-    linear-gradient(currentColor, currentColor) 9.4px 4px / 6px 1.6px no-repeat,
-    linear-gradient(currentColor, currentColor) 9.4px 10px / 6px 1.6px no-repeat;
-}
-
 /* Compact + medium put Settings in the brand bar, right-aligned. */
 #shell-brand #nav-item-settings {
   margin-left: auto;
@@ -2622,11 +2569,12 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: var(--gm-elev-raised);
 }
 
-/* Empty state: the zones stay mounted (nothing moves on first play) but the
-   centre sleeps behind visibility, and the idle play control appears in
-   steel — brass only once a track exists. */
+/* Empty state: the zones stay mounted and visible (nothing moves on first
+   play). The centre goes quiet rather than away: the skips and scrubber are
+   disabled steel and the idle play control waits in steel — brass only once
+   a track exists. */
 #player-bar[data-bar-empty='1'] #player-center {
-  visibility: hidden;
+  visibility: visible;
 }
 
 #player-left {
@@ -2961,9 +2909,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   overflow: hidden;
 }
 
-#player-prev > *,
-#player-next > *,
-#player-queue > * {
+#player-prev > [data-control-label],
+#player-next > [data-control-label],
+#player-queue > [data-control-label] {
   position: absolute !important;
   width: 1px !important;
   height: 1px !important;
@@ -2978,21 +2926,21 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: transparent !important;
 }
 
-#player-prev::after,
-#player-next::after {
+#player-prev:not(:has(svg))::after,
+#player-next:not(:has(svg))::after {
   content: '';
   width: 0;
   height: 0;
   border-style: solid;
 }
 
-#player-prev::after {
+#player-prev:not(:has(svg))::after {
   border-width: 6px 9px 6px 0;
   border-color: transparent currentColor transparent transparent;
   box-shadow: -6px 0 0 currentColor;
 }
 
-#player-next::after {
+#player-next:not(:has(svg))::after {
   border-width: 6px 0 6px 9px;
   border-color: transparent transparent transparent currentColor;
   box-shadow: 6px 0 0 currentColor;

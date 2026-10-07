@@ -20,3 +20,8 @@ export function formatDuration(ms: number): string {
   const padded = seconds < 10 ? `0${seconds}` : `${seconds}`;
   return `${minutes}:${padded}`;
 }
+
+/** A count with its noun: the singular for exactly one, the plural otherwise. */
+export function countNoun(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}

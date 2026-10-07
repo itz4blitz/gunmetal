@@ -22,6 +22,17 @@ function findArtist(library: ShellLibrary, key: string): ShellArtist | undefined
   return library.artists.find((artist) => artist.key === key);
 }
 
+/** The album artist's other releases, in library order. A hostile album
+ * recommends nothing, and is never recommended. */
+function otherAlbumsByArtist(library: ShellLibrary, album: ShellAlbum | undefined): readonly ShellAlbum[] {
+  if (album === undefined || album.hostile) {
+    return [];
+  }
+  return library.albums.filter(
+    (other) => other.artistKey === album.artistKey && other.id !== album.id && !other.hostile,
+  );
+}
+
 export type DestinationProps = {
   searchLibrary: LibrarySearch;
   lyricsFor: LyricsResolver;
@@ -109,11 +120,16 @@ export function Destination({
         </View>
       );
     }
+    const album = findAlbum(library, itemId);
+    const others = otherAlbumsByArtist(library, album);
     return (
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <AlbumDetail
           lyricsFor={lyricsFor}
-          album={findAlbum(library, itemId)}
+          album={album}
+          moreBy={others.length === 0 ? undefined : { albums: others, onOpenAlbum }}
+          onPlayNextAlbum={onPlayNextAlbum}
+          onAddAlbumToQueue={onAddAlbumToQueue}
           messages={messages.destinations}
           currentTrackId={currentTrackId}
           onBack={onBackFromAlbum}

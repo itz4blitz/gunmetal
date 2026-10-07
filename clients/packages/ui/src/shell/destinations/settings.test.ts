@@ -3,14 +3,17 @@ import { destinationMessages } from '../../messages/en/destinations.ts';
 import { shellMessages } from '../../messages/en/shell.ts';
 import {
   defaultSettingsSection,
+  settingsConnectedRows,
   settingsLayout,
   settingsNavItems,
+  settingsPlaybackRows,
   settingsRelease,
   settingsSectionTitle,
   settingsSections,
   settingsSlotPlaneLabel,
   settingsSlotTitle,
   settingsSwatchLabels,
+  settingsThemeForKey,
   settingsThemeLabel,
 } from './settings.ts';
 
@@ -75,4 +78,39 @@ test('the theme preview strip lists the four switcher themes with catalogue labe
   ]);
   expect(settingsThemeLabel('dark', shell)).toStrictEqual('Dark');
   expect(settingsThemeLabel('high-contrast', shell)).toStrictEqual('High contrast');
+});
+
+test('radio-group arrows step through the themes in order and wrap at both ends', () => {
+  expect(settingsThemeForKey('dark', 'ArrowRight')).toStrictEqual('light');
+  expect(settingsThemeForKey('light', 'ArrowDown')).toStrictEqual('oled');
+  expect(settingsThemeForKey('oled', 'ArrowRight')).toStrictEqual('high-contrast');
+  expect(settingsThemeForKey('high-contrast', 'ArrowRight')).toStrictEqual('dark');
+  expect(settingsThemeForKey('dark', 'ArrowLeft')).toStrictEqual('high-contrast');
+  expect(settingsThemeForKey('high-contrast', 'ArrowUp')).toStrictEqual('oled');
+  expect(settingsThemeForKey('light', 'ArrowLeft')).toStrictEqual('dark');
+  // Every other key leaves the choice alone.
+  expect(settingsThemeForKey('dark', 'Enter')).toStrictEqual(undefined);
+  expect(settingsThemeForKey('dark', 'Tab')).toStrictEqual(undefined);
+  expect(settingsThemeForKey('dark', 'a')).toStrictEqual(undefined);
+});
+
+test('playback and connected rows name what is coming, with the catalogue words', () => {
+  const messages = destinationMessages();
+  expect(settingsPlaybackRows(messages)).toStrictEqual([
+    {
+      id: 'levelling',
+      label: 'Volume levelling',
+      hint: 'Plays tracks at a consistent loudness, from the tags in your files.',
+    },
+    { id: 'crossfade', label: 'Crossfade', hint: 'Blends the end of one track into the start of the next.' },
+    { id: 'output', label: 'Output device', hint: 'Chooses the speakers or headphones this device plays through.' },
+  ]);
+  expect(settingsConnectedRows(messages)).toStrictEqual([
+    {
+      id: 'scrobble',
+      label: 'Scrobbling',
+      hint: 'Sends what you play to a listening-history service you link yourself.',
+    },
+    { id: 'lyrics', label: 'Lyrics lookup', hint: 'Finds lyrics for tracks whose files have none.' },
+  ]);
 });

@@ -7,6 +7,8 @@ import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
 import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import { hostileCorpus } from '../../../../fake-server/src/hostile.ts';
 import { destinationMessages } from '../../messages/en/destinations.ts';
+import type { LibrarySearch } from '../content.ts';
+import type { ShellLibrary } from '../library-types.ts';
 import { Search } from './Search.tsx';
 
 afterEach(cleanup);
@@ -26,6 +28,38 @@ function renderSearch() {
     />,
   );
   return { library, rendered };
+}
+
+type WiredHandlers = {
+  onOpenAlbum: (albumId: string) => void;
+  onOpenArtist: (artistKey: string) => void;
+  onPlayAlbum: (albumId: string) => void;
+  onPlayTrack: (albumId: string, trackId: string) => void;
+};
+
+/** The surface as the shell mounts it: every handler wired, artists openable. */
+function renderWired(
+  library: ShellLibrary = demoLibrary(),
+  searchLibrary: LibrarySearch = demoLocalFilter,
+): WiredHandlers {
+  const handlers: WiredHandlers = {
+    onOpenAlbum: vi.fn(),
+    onOpenArtist: vi.fn(),
+    onPlayAlbum: vi.fn(),
+    onPlayTrack: vi.fn(),
+  };
+  render(
+    <Search
+      searchLibrary={searchLibrary}
+      messages={destinationMessages()}
+      library={library}
+      onOpenAlbum={handlers.onOpenAlbum}
+      onOpenArtist={handlers.onOpenArtist}
+      onPlayAlbum={handlers.onPlayAlbum}
+      onPlayTrack={handlers.onPlayTrack}
+    />,
+  );
+  return handlers;
 }
 
 function typeQuery(value: string): void {
@@ -83,11 +117,74 @@ test('search lookup stays on the local fixture set and does not fetch a third pa
   expect(source.includes('WebAssembly')).toStrictEqual(false);
 });
 
-test('an empty query shows the recent state and no results chrome', () => {
+test('an empty query is a calm hint: no results chrome, no filters, no always-empty recents card', () => {
   renderSearch();
-  expect(document.querySelector('#search-recent')?.textContent).toContain('No recent searches');
+  expect(document.querySelector('#search-idle #search-hint')?.textContent).toStrictEqual(
+    'Search by album, track or artist name.',
+  );
   expect(document.querySelector('#search-results')).toBeNull();
   expect(document.querySelector('#search-results-count')).toBeNull();
+  // The type filter belongs to results; before a query it has nothing to filter.
+  expect(document.querySelector('#search-type-chips')).toBeNull();
+  // Nothing records searches in this build, so no recents block is drawn.
+  expect(document.querySelector('#search-recent')).toBeNull();
+  expect(document.body.textContent).not.toContain('No recent searches');
+  // The loupe is a real icon, not a drawn pseudo-element.
+  expect(document.querySelector('#search-affordance svg')?.getAttribute('data-icon')).toStrictEqual('search');
+  // Without a way to open an artist, no browse tiles are offered.
+  expect(document.querySelector('#search-browse')).toBeNull();
+});
+
+test('before a query the page offers browse-by-artist tiles built from the library it was handed', () => {
+  const library = demoLibrary();
+  const handlers = renderWired(library);
+  expect(screen.getByRole('heading', { name: 'Browse artists' }).getAttribute('data-search-group')).toStrictEqual(
+    'artists',
+  );
+  expect(document.querySelector('#search-browse [data-search-group-count]')?.textContent).toStrictEqual(
+    `${library.artists.length}`,
+  );
+  const tiles = [...document.querySelectorAll('#search-browse [data-search-artist]')];
+  expect(tiles.map((tile) => tile.getAttribute('data-search-artist'))).toStrictEqual(
+    library.artists.map((artist) => artist.key),
+  );
+  // Every tile is a keyboard-reachable button named by the artist.
+  expect(tiles.map((tile) => [tile.getAttribute('role'), tile.getAttribute('tabindex')])).toStrictEqual(
+    library.artists.map(() => ['button', '0']),
+  );
+  const mira = document.querySelector('[data-search-artist="mira-sol"]');
+  expect(mira?.getAttribute('aria-label')).toStrictEqual('Mira Sol');
+  expect(mira?.querySelector('[data-search-artist-name]')?.textContent).toStrictEqual('Mira Sol');
+  expect(mira?.querySelector('[data-artist-photo="1"]')).not.toBeNull();
+  // The hostile fixture artist keeps its safe label and has no photo.
+  const hostile = document.querySelector('[data-search-artist="hostile-artist"]');
+  expect(hostile?.getAttribute('aria-label')).toStrictEqual('Security corpus');
+  expect(hostile?.querySelector('[data-search-artist-name]')?.textContent).toStrictEqual('Security corpus');
+  expect(hostile?.querySelector('[data-artist-initial="1"]')?.textContent).toStrictEqual('S');
+  expect(hostile?.querySelector('[data-artist-photo="1"]')).toBeNull();
+  expect(document.body.textContent).not.toContain(hostileCorpus());
+
+  fireEvent.click(screen.getByRole('button', { name: 'Mira Sol' }));
+  expect(handlers.onOpenArtist).toHaveBeenCalledWith('mira-sol');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: 'Enter' });
+  expect(handlers.onOpenArtist).toHaveBeenCalledWith('keratin');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: ' ' });
+  expect(handlers.onOpenArtist).toHaveBeenCalledTimes(3);
+  // Other keys do nothing.
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Keratin' }), { key: 'Tab' });
+  expect(handlers.onOpenArtist).toHaveBeenCalledTimes(3);
+
+  // Typing replaces the browse tiles with results.
+  typeQuery('Cylinder');
+  expect(document.querySelector('#search-browse')).toBeNull();
+  expect(document.querySelector('#search-idle')).toBeNull();
+});
+
+test('a library with no artists offers the hint alone — nothing is invented to browse', () => {
+  renderWired({ albums: [], artists: [] });
+  expect(document.querySelector('#search-hint')?.textContent).toStrictEqual('Search by album, track or artist name.');
+  expect(document.querySelector('#search-browse')).toBeNull();
+  expect(document.querySelectorAll('[data-search-artist]').length).toStrictEqual(0);
 });
 
 test('the results meta line counts what is shown, per group, from the filter', () => {
@@ -99,9 +196,122 @@ test('the results meta line counts what is shown, per group, from the filter', (
   expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual(`${expectedTotal} results`);
   expect(document.querySelector('[data-search-group="albums"]')?.textContent).toStrictEqual('Albums');
   expect(document.querySelector('[data-search-group="tracks"]')?.textContent).toStrictEqual('Tracks');
-  const groupCounts = [...document.querySelectorAll('[data-search-group-count="1"]')].map((node) => node.textContent);
+  const groupCounts = [...document.querySelectorAll('#search-results [data-search-group-count="1"]')].map(
+    (node) => node.textContent,
+  );
   expect(groupCounts).toStrictEqual([`${hits.albums.length}`, `${hits.tracks.length}`]);
   expect(document.querySelector('[data-search-query-echo="1"]')).toBeNull();
+  // Sections arrive in one order: top result, albums, tracks, then the notices.
+  expect(
+    [...(document.querySelector('#search-results')?.children ?? [])].map(
+      (node) =>
+        node.id ||
+        (node.hasAttribute('data-search-albums') ? 'albums' : node.hasAttribute('data-search-tracks') ? 'tracks' : ''),
+    ),
+  ).toStrictEqual(['search-results-bar', 'search-top', 'albums', 'tracks', 'search-notices']);
+});
+
+test('a single match is counted in the singular', () => {
+  const library = demoLibrary();
+  const harbour = library.albums[0];
+  if (harbour === undefined) {
+    throw new Error('fixture album missing');
+  }
+  renderWired(library, () => ({ albums: [harbour], tracks: [] }));
+  typeQuery('anything');
+  expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual('1 result');
+});
+
+test('the top result is the first album hit: it opens the album and its nut plays it', () => {
+  const handlers = renderWired();
+  typeQuery('Cylinders');
+  const top = document.querySelector('#search-top');
+  expect(top?.getAttribute('data-search-top')).toStrictEqual('album');
+  expect(screen.getByRole('heading', { name: 'Top result' }).getAttribute('data-search-group')).toStrictEqual('top');
+  expect(top?.querySelector('[data-search-top-title]')?.textContent).toStrictEqual('Cylinders');
+  expect(top?.querySelector('[data-search-top-byline]')?.textContent).toStrictEqual('Album · Chris Zabriskie');
+  expect(top?.querySelector('#search-top-cover')?.getAttribute('aria-label')).toStrictEqual('Cylinders');
+
+  const open = screen.getByRole('button', { name: 'Top result: Cylinders' });
+  fireEvent.click(open);
+  expect(handlers.onOpenAlbum).toHaveBeenCalledWith('demo-album-09');
+  fireEvent.keyDown(open, { key: 'Enter' });
+  expect(handlers.onOpenAlbum).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(open, { key: 'Escape' });
+  expect(handlers.onOpenAlbum).toHaveBeenCalledTimes(2);
+
+  // The play control is the shared brass nut inside its focus plate.
+  const play = screen.getByRole('button', { name: 'Play Cylinders' });
+  expect(play.getAttribute('data-brass-hex')).toStrictEqual('1');
+  expect(play.parentElement?.getAttribute('data-hex-wrap')).toStrictEqual('1');
+  fireEvent.click(play);
+  expect(handlers.onPlayAlbum).toHaveBeenCalledWith('demo-album-09');
+  fireEvent.keyDown(play, { key: ' ' });
+  expect(handlers.onPlayAlbum).toHaveBeenCalledTimes(2);
+  expect(handlers.onPlayTrack).not.toHaveBeenCalled();
+});
+
+test('with no album hit the top result is the first track: it opens its album and plays the track', () => {
+  const handlers = renderWired();
+  typeQuery('Cylinder Seven');
+  expect(demoLocalFilter(demoLibrary(), 'Cylinder Seven').albums.length).toStrictEqual(0);
+  const top = document.querySelector('#search-top');
+  expect(top?.getAttribute('data-search-top')).toStrictEqual('track');
+  expect(top?.querySelector('[data-search-top-title]')?.textContent).toStrictEqual('Cylinder Seven');
+  expect(top?.querySelector('[data-search-top-byline]')?.textContent).toStrictEqual('Track · Chris Zabriskie');
+  // The card borrows the cover of the album the track is on.
+  expect(top?.querySelector('#search-top-cover')?.getAttribute('data-cover-art')).toStrictEqual('1');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Top result: Cylinder Seven' }));
+  expect(handlers.onOpenAlbum).toHaveBeenCalledWith('demo-album-09');
+  fireEvent.click(screen.getByRole('button', { name: 'Play Cylinder Seven' }));
+  expect(handlers.onPlayTrack).toHaveBeenCalledWith('demo-album-09', 'demo-track-09-07');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Play Cylinder Seven' }), { key: 'Enter' });
+  expect(handlers.onPlayTrack).toHaveBeenCalledTimes(2);
+  expect(handlers.onPlayAlbum).not.toHaveBeenCalled();
+});
+
+test('a top result from a hostile album shows the safe labels, as an album and as a track', () => {
+  const library = demoLibrary();
+  const hostileAlbum = library.albums.find((album) => album.hostile);
+  const hostileTrack = hostileAlbum?.tracks[0];
+  if (hostileAlbum === undefined || hostileTrack === undefined) {
+    throw new Error('fixture hostile album missing');
+  }
+  renderWired(library, () => ({ albums: [hostileAlbum], tracks: [hostileTrack] }));
+  typeQuery('anything');
+  expect(document.querySelector('#search-top')?.getAttribute('data-search-top')).toStrictEqual('album');
+  expect(document.querySelector('[data-search-top-title]')?.textContent).toStrictEqual('Hostile metadata (fixture)');
+  expect(document.querySelector('[data-search-top-byline]')?.textContent).toStrictEqual('Album · Security corpus');
+  expect(screen.getByRole('button', { name: 'Top result: Hostile metadata (fixture)' })).not.toBeNull();
+  expect(document.body.textContent).not.toContain(hostileCorpus());
+
+  cleanup();
+  renderWired(library, () => ({ albums: [], tracks: [hostileTrack] }));
+  typeQuery('anything');
+  expect(document.querySelector('#search-top')?.getAttribute('data-search-top')).toStrictEqual('track');
+  expect(document.querySelector('[data-search-top-title]')?.textContent).toStrictEqual('Hostile metadata (fixture)');
+  expect(document.querySelector('[data-search-top-byline]')?.textContent).toStrictEqual('Track · Security corpus');
+  expect(document.body.textContent).not.toContain(hostileCorpus());
+});
+
+test('a track whose album is not in the library still tops the results, on the plain tone plate', () => {
+  const library = demoLibrary();
+  const track = library.albums[0]?.tracks[0];
+  if (track === undefined) {
+    throw new Error('fixture track missing');
+  }
+  const handlers = renderWired({ albums: [], artists: [] }, () => ({ albums: [], tracks: [track] }));
+  typeQuery('pier');
+  const top = document.querySelector('#search-top');
+  expect(top?.getAttribute('data-search-top')).toStrictEqual('track');
+  expect(top?.querySelector('[data-search-top-title]')?.textContent).toStrictEqual('Pier at Dusk');
+  expect(top?.querySelector('[data-search-top-byline]')?.textContent).toStrictEqual('Track · Mira Sol');
+  const cover = top?.querySelector('#search-top-cover');
+  expect(cover?.getAttribute('data-cover')).toStrictEqual('');
+  expect(cover?.getAttribute('data-cover-art')).toStrictEqual('0');
+  fireEvent.click(screen.getByRole('button', { name: 'Play Pier at Dusk' }));
+  expect(handlers.onPlayTrack).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
 });
 
 test('a non-empty query offers a clear control that empties the field and refocuses it', () => {
@@ -111,13 +321,18 @@ test('a non-empty query offers a clear control that empties the field and refocu
   typeQuery('Cylinder');
   const clear = screen.getByRole('button', { name: 'Clear search' });
   expect(clear.getAttribute('tabindex')).toStrictEqual('0');
+  // The control is the close icon; its name lives on the button.
+  expect(clear.querySelector('svg')?.getAttribute('data-icon')).toStrictEqual('close');
+  expect(clear.textContent).toStrictEqual('');
 
   const field = screen.getByLabelText('Search albums and tracks') as HTMLInputElement;
   fireEvent.click(clear);
   expect(field.value).toStrictEqual('');
-  // Clearing lands the person back in the empty state, field still focused.
+  // Clearing lands the person back in the idle state, field still focused.
   expect(document.querySelector('#search-results')).toBeNull();
-  expect(document.querySelector('#search-recent')?.textContent).toContain('No recent searches');
+  expect(document.querySelector('#search-idle #search-hint')?.textContent).toStrictEqual(
+    'Search by album, track or artist name.',
+  );
   expect(document.activeElement).toStrictEqual(field);
 
   typeQuery('zzquadrazz');
@@ -131,14 +346,33 @@ test('type toggles are quiet: each hides its group, and one type always stays on
   typeQuery('Cylinder');
   expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
   expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
+  // Each toggle says how many hits its type has and whether it is on.
+  const all = demoLocalFilter(demoLibrary(), 'Cylinder');
+  const chipState = () =>
+    [...document.querySelectorAll('#search-type-chips [data-search-chip]')].map((chip) => [
+      chip.getAttribute('aria-label'),
+      chip.getAttribute('aria-pressed'),
+      chip.querySelector('[data-search-chip-count]')?.textContent,
+    ]);
+  expect(chipState()).toStrictEqual([
+    ['Albums', 'true', `${all.albums.length}`],
+    ['Tracks', 'true', `${all.tracks.length}`],
+  ]);
 
   fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
   expect(document.querySelector('[data-search-albums="1"]')).toBeNull();
   expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
+  // A hidden type keeps its count: the toggle still says what it would show.
+  expect(chipState()).toStrictEqual([
+    ['Albums', 'false', `${all.albums.length}`],
+    ['Tracks', 'true', `${all.tracks.length}`],
+  ]);
   const tracksOnly = demoLocalFilter(demoLibrary(), 'Cylinder');
   expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual(
     `${tracksOnly.tracks.length} results`,
   );
+  // With albums hidden, the top result falls to the first track.
+  expect(document.querySelector('#search-top')?.getAttribute('data-search-top')).toStrictEqual('track');
 
   // Turning Albums back on works; with Albums on, Tracks may turn off — but
   // the last-on type refuses, so one type always stays on.
@@ -153,16 +387,48 @@ test('type toggles are quiet: each hides its group, and one type always stays on
   fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
   expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
   expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
+
+  // The same holds the other way round: Tracks turns off while Albums is on,
+  // and then Albums — the last type on — refuses to turn off.
+  fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
+  expect(document.querySelector('[data-search-tracks="1"]')).toBeNull();
+  expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
+  expect(chipState()).toStrictEqual([
+    ['Albums', 'true', `${all.albums.length}`],
+    ['Tracks', 'false', `${all.tracks.length}`],
+  ]);
+  expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual('1 result');
+  fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+  expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
+  expect(chipState()).toStrictEqual([
+    ['Albums', 'true', `${all.albums.length}`],
+    ['Tracks', 'false', `${all.tracks.length}`],
+  ]);
+  // Space toggles as Enter does; any other key is left alone.
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Tracks' }), { key: ' ' });
+  expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Tracks' }), { key: 'Tab' });
+  expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
 });
 
-test('no matches echo the query as an isolated text node', () => {
+test('no matches say so, echo the query as an isolated text node, and say what to try', () => {
   renderSearch();
   typeQuery('zzquadrazz');
-  expect(document.querySelector('#search-no-hits')?.textContent).toContain('No matches for this query in Music');
+  expect(screen.getByRole('heading', { name: 'No matches for this query in Music' })).not.toBeNull();
   const echo = document.querySelector('[data-search-query-echo="1"]');
   expect(echo?.textContent).toStrictEqual('“zzquadrazz”');
   expect(echo?.getAttribute('dir')).toStrictEqual('auto');
+  expect(document.querySelector('#search-no-hits [data-search-empty-hint]')?.textContent).toStrictEqual(
+    'Check the spelling, or try a shorter word.',
+  );
+  expect(
+    document.querySelector('#search-no-hits [data-search-empty-mark] svg')?.getAttribute('data-icon'),
+  ).toStrictEqual('search');
   expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual('0 results');
+  // No hits means no top result and no groups — only the statement.
+  expect(document.querySelector('#search-top')).toBeNull();
+  expect(document.querySelector('[data-search-albums]')).toBeNull();
+  expect(document.querySelector('[data-search-tracks]')).toBeNull();
 });
 
 test('hostile corpus matches stay labelled: no fixture text reaches any tree', () => {
@@ -201,4 +467,19 @@ test('the playing row is marked inside search results', () => {
   expect(row?.querySelector('[data-now-playing="1"]')).not.toBeNull();
   expect(row?.querySelector('[data-track-album="1"]')?.textContent).toStrictEqual('Cylinders');
   fireEvent.click(screen.getByRole('button', { name: 'Cylinder Seven' }));
+});
+
+test('without a lookup the surface answers every query with no matches', () => {
+  render(
+    <Search
+      messages={destinationMessages()}
+      library={demoLibrary()}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  typeQuery('Cylinder');
+  expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual('0 results');
+  expect(screen.getByRole('heading', { name: 'No matches for this query in Music' })).not.toBeNull();
 });

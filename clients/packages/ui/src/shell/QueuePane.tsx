@@ -1,6 +1,8 @@
+import { Fragment } from 'react';
 import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
+import { Icon } from './Icon.tsx';
 import { formatDuration } from './format.ts';
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
@@ -30,6 +32,9 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPl
         onPlayLine?.(line.albumId, line.trackId);
       }
     };
+  /* The first line of the playing track carries the "Now playing" label; the
+     stylesheet sets it apart from the lines that follow. */
+  const playingIndex = playback.queue.findIndex((line) => line.trackId === playback.trackId);
   const body = (
     <View
       id={compactSheet ? 'queue-sheet' : 'right-pane'}
@@ -46,7 +51,7 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPl
         {playback.queue.length === 0 ? null : <Text dataSet={{ queueCount: '1' }}>{playback.queue.length}</Text>}
         {compactSheet ? (
           <View
-            id="queue-sheet-close"
+            id="queue-close"
             accessibilityRole="button"
             accessibilityLabel={messages.queueClose}
             tabIndex={playback.queueOpen ? 0 : -1}
@@ -60,52 +65,55 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPl
               }
             }}
           >
-            <Text>{messages.queueClose}</Text>
+            <Icon name="close" size={18} />
           </View>
         ) : null}
       </View>
       {playback.queue.length === 0 ? (
-        <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-          <View dataSet={{ emptyMark: '1' }} />
-          <Text dataSet={{ emptyTitle: '1' }}>{messages.queue}</Text>
+        <View dataSet={{ queueEmpty: '1' }}>
+          <View dataSet={{ queueEmptyMark: '1' }}>
+            <Icon name="queue" size={24} />
+          </View>
           <Text id="queue-empty" dataSet={{ emptyState: 'queue' }}>
             {messages.queueEmpty}
           </Text>
         </View>
       ) : (
         <View id="queue-list">
-          {playback.queue.map((line) => (
-            <View
-              key={line.trackId}
-              id={`queue-line-${line.trackId}`}
-              dataSet={{
-                queueLine: line.trackId,
-                current: line.trackId === playback.trackId ? '1' : '0',
-              }}
-            >
-              <CoverTile
-                tone={line.coverTone}
-                label={line.title}
-                size="row"
-                coverId={`queue-art-${line.trackId}`}
-                artUrl={line.coverUrl}
-              />
-              <View dataSet={{ nowPlaying: line.trackId === playback.trackId && playback.playing ? '1' : '0' }} />
-              <Text dataSet={{ queueTitle: '1' }}>{line.title}</Text>
-              <Text dataSet={{ queueArtist: '1' }}>{line.artistName}</Text>
-              <Text dataSet={{ queueDuration: '1' }}>{formatDuration(line.durationMs)}</Text>
+          {playback.queue.map((line, index) => (
+            <Fragment key={line.trackId}>
+              {index === playingIndex ? <Text dataSet={{ queueLabel: 'now' }}>{messages.playerRegion}</Text> : null}
               <View
-                id={`queue-play-${line.trackId}`}
-                dataSet={{ queuePlay: '1' }}
-                accessibilityRole="button"
-                accessibilityLabel={`${messages.play} ${line.title}`}
-                tabIndex={0}
-                onClick={playLine(line)}
-                onKeyDown={playLineOnKey(line)}
+                id={`queue-line-${line.trackId}`}
+                dataSet={{
+                  queueLine: line.trackId,
+                  current: line.trackId === playback.trackId ? '1' : '0',
+                }}
               >
-                <Text dataSet={{ controlLabel: '1' }}>{messages.play}</Text>
+                <CoverTile
+                  tone={line.coverTone}
+                  label={line.title}
+                  size="row"
+                  coverId={`queue-art-${line.trackId}`}
+                  artUrl={line.coverUrl}
+                />
+                <View dataSet={{ nowPlaying: line.trackId === playback.trackId && playback.playing ? '1' : '0' }} />
+                <Text dataSet={{ queueTitle: '1' }}>{line.title}</Text>
+                <Text dataSet={{ queueArtist: '1' }}>{line.artistName}</Text>
+                <Text dataSet={{ queueDuration: '1' }}>{formatDuration(line.durationMs)}</Text>
+                <View
+                  id={`queue-play-${line.trackId}`}
+                  dataSet={{ queuePlay: '1' }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${messages.play} ${line.title}`}
+                  tabIndex={0}
+                  onClick={playLine(line)}
+                  onKeyDown={playLineOnKey(line)}
+                >
+                  <Text dataSet={{ controlLabel: '1' }}>{messages.play}</Text>
+                </View>
               </View>
-            </View>
+            </Fragment>
           ))}
         </View>
       )}

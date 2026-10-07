@@ -32,6 +32,10 @@ export type ShellMessages = {
   lyrics: string;
   playingFrom: string;
   lyricsUnavailable: string;
+  resizeSidebar: string;
+  resizeQueue: string;
+  mute: string;
+  unmute: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -69,5 +73,9 @@ export function shellMessages(): ShellMessages {
     lyrics: 'Lyrics',
     playingFrom: 'Playing from',
     lyricsUnavailable: 'This file has no lyrics.',
+    resizeSidebar: 'Resize sidebar',
+    resizeQueue: 'Resize queue',
+    mute: 'Mute',
+    unmute: 'Unmute',
   };
 }

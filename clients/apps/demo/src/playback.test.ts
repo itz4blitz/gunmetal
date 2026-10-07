@@ -4,6 +4,7 @@ import {
   albumsForArtist,
   appendAlbum,
   appendQueue,
+  carryQueueOpen,
   emptyPlayback,
   findAlbum,
   findArtist,
@@ -35,7 +36,8 @@ test('playing an album fills the bar from the first playable fixture track', () 
     'demo-track-01-03',
     'demo-track-01-04',
   ]);
-  expect(snapshot.queueOpen).toStrictEqual(true);
+  // Playing does not put the queue on screen; only the queue control does.
+  expect(snapshot.queueOpen).toStrictEqual(false);
 });
 
 test('playing skips unplayable and damaged fixture tracks when building the queue', () => {
@@ -161,11 +163,43 @@ test('play next inserts after the current row and add to queue only appends', ()
   const orphan = { ...snapshot, trackId: 'missing' };
   const afterOrphan = insertPlayNext(orphan, queueLineFrom(harbour, harbour.tracks[0]!));
   expect(afterOrphan.queue.map((line) => line.trackId).at(-1)).toStrictEqual('demo-track-01-01');
-  expect(afterOrphan.queueOpen).toStrictEqual(true);
+  // Queuing leaves the sheet as it was: shut stays shut, open stays open.
+  expect(afterOrphan.queueOpen).toStrictEqual(false);
+  const shown = { ...snapshot, queueOpen: true };
+  const line = snapshot.queue.find((entry) => entry.trackId === 'demo-track-01-02');
+  if (line === undefined) {
+    throw new Error('the fixture queue lost its second line');
+  }
+  expect(insertPlayNext(shown, line).queueOpen).toStrictEqual(true);
+  expect(insertPlayNext({ ...shown, trackId: 'missing' }, line).queueOpen).toStrictEqual(true);
+  expect(appendQueue(shown, line).queueOpen).toStrictEqual(true);
+  expect(insertPlayNext(snapshot, line).queueOpen).toStrictEqual(false);
+  expect(appendQueue(snapshot, line).queueOpen).toStrictEqual(false);
 
   const idleLine = playFromLine(queueLineFrom(harbour, harbour.tracks[2]!));
   expect(idleLine.trackId).toStrictEqual('demo-track-01-03');
   expect(idleLine.lyricsKind).toStrictEqual('plain');
   expect(insertPlayNext(emptyPlayback(), idleLine.queue[0]!).trackId).toStrictEqual('demo-track-01-03');
   expect(appendQueue(emptyPlayback(), idleLine.queue[0]!).queue).toStrictEqual(idleLine.queue);
+});
+
+test('a new play keeps the queue sheet as the listener left it', () => {
+  const library = demoLibrary();
+  const harbour = findAlbum(library, 'demo-album-01');
+  const night = findAlbum(library, 'demo-album-02');
+  if (harbour === undefined || night === undefined) {
+    throw new Error('the fixture library lost an album');
+  }
+  const playing = playbackFromAlbum(harbour);
+  const next = playbackFromAlbum(night);
+  // Shut stays shut.
+  const stillShut = carryQueueOpen(playing, next);
+  expect(stillShut.queueOpen).toStrictEqual(false);
+  expect(stillShut.trackId).toStrictEqual('demo-track-02-01');
+  // Open stays open, and nothing else is carried over from the old snapshot.
+  const stillOpen = carryQueueOpen(setQueueOpen(playing, true), next);
+  expect(stillOpen).toStrictEqual({ ...next, queueOpen: true });
+  expect(stillOpen.albumId).toStrictEqual('demo-album-02');
+  // The inputs are not changed.
+  expect(next.queueOpen).toStrictEqual(false);
 });

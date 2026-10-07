@@ -1,0 +1,920 @@
+/*
+ * Gunmetal demo — full player (SUR-010) and queue (SUR-011) area.
+ * Loaded after shell.css and the other area sheets, before system.css.
+ * Tokens only; the nut and its glyphs come from system.css.
+ *
+ * shell.css still carries the first paint of both surfaces; every rule here
+ * is prefixed with #token-shell so it wins over that paint without touching
+ * it. Colour reaches text through --gm-text: the shell forces
+ * `color: var(--gm-text)` on every div and span, so states set that
+ * property. Buttons and headings are other elements; they take `color` here.
+ *
+ *   1. Full player: frame, open and close motion, chrome, stage, console.
+ *   2. Full player: the wide composition (a container query on the sheet's
+ *      own size, because the panes beside it are resizable).
+ *   3. Queue: pane and sheet, header, lines, empty state.
+ */
+
+/* —— 1. Full player —— */
+
+/* The sheet is the query container: its box is always definite (fixed to
+   the viewport on a phone, pinned to the content cell everywhere else). */
+#token-shell #player-full,
+#token-shell #player-full[data-open='1'] {
+  container: player-full / size;
+  display: block;
+  padding: 0;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gm-line-control) 45%, transparent) transparent;
+}
+
+/* Medium and wider: the Now Playing view fills the content pane, edge to
+   edge (player.md, "The full-screen player") — no card floating over the
+   page it covers. */
+#token-shell:is([data-width='medium'], [data-width='expanded'], [data-width='wide']) #player-full {
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#token-shell[data-width='compact'] #player-full {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Opening grows the view out of the player bar it stands on: the sheet is
+   revealed from its bottom edge up while its content rises into place, and
+   closing runs the same motion back. Each way is one sheet-motion token
+   (200ms); PlayerFull.tsx keeps the view mounted that long while it leaves.
+   Opening holds no end state, so nothing stays clipped or transformed, and
+   the rise is no taller than the body's bottom padding, so it never makes
+   the sheet scroll. */
+@keyframes gm-player-full-grow {
+  from {
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes gm-player-full-fold {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(100% 0 0 0);
+  }
+}
+
+@keyframes gm-player-full-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gm-player-full-sink {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+#token-shell #player-full[data-open='1'] {
+  animation: gm-player-full-grow var(--gm-motion-sheet) backwards;
+}
+
+#token-shell #player-full[data-open='1'] #player-full-body > * {
+  animation: gm-player-full-rise var(--gm-motion-sheet) backwards;
+}
+
+#token-shell #player-full[data-open='0'] {
+  display: block;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: none;
+  animation: gm-player-full-fold var(--gm-motion-sheet) both;
+}
+
+#token-shell #player-full[data-open='0'] #player-full-body > * {
+  animation: gm-player-full-sink var(--gm-motion-sheet) both;
+}
+
+/* One column by default: chrome, stage, console. The artwork is as large as
+   the column allows and gives way to height first, so the core controls of
+   a 360–430px phone stay on screen without scrolling. */
+#token-shell #player-full-body {
+  --pf-pad: 24px;
+  --pf-col: min(100cqw - 2 * var(--pf-pad), 440px);
+  --pf-art: clamp(168px, 100cqh - 410px, var(--pf-col));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: auto;
+  justify-items: center;
+  align-content: start;
+  row-gap: 16px;
+  min-height: 100%;
+  padding: 8px var(--pf-pad) 16px;
+}
+
+/* Chrome: the view's label and the control that puts it away. */
+#token-shell #player-full-chrome {
+  justify-self: stretch;
+  width: auto;
+  min-height: 44px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#token-shell #player-full-heading {
+  min-width: 0;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  /* A heading element, so the shell's --gm-text rule does not reach it. */
+  color: var(--gm-text-secondary);
+}
+
+/* A phone sheet collapses from its leading corner; the label sits centred
+   between that control and an equal empty slot. */
+#token-shell #player-full[data-placement='overlay'] #player-full-collapse {
+  order: -1;
+  margin-inline-start: -11px;
+}
+
+#token-shell #player-full[data-placement='overlay'] #player-full-heading {
+  flex: 1 1 auto;
+  padding-inline-end: 33px;
+  text-align: center;
+}
+
+#token-shell #player-full[data-placement='pane'] #player-full-collapse {
+  margin-inline-end: -9px;
+}
+
+/* Icon buttons: the collapse control, the lyrics and queue toggles and the
+   queue sheet's close. Steel, never brass. They are button elements, which
+   the shell's --gm-text rule does not reach, so they read it themselves. */
+#token-shell :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close) {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text);
+  cursor: pointer;
+  transform: none;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition:
+    background-color var(--gm-motion),
+    outline-color var(--gm-motion),
+    outline-offset var(--gm-motion);
+}
+
+#token-shell :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close):hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: none;
+  --gm-text: var(--gm-text-primary);
+  transform: none;
+}
+
+#token-shell :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close):active {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  transform: none;
+}
+
+#token-shell :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close):focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Touch targets (design-language §7: 44 on a phone). */
+#token-shell[data-width='compact']
+  :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close) {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+}
+
+/* Lyrics showing: the pressed state of the selected-row grammar, in steel. */
+#token-shell #player-full-lyrics-toggle[data-lyrics-toggle='1'] {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  --gm-text: var(--gm-text-primary);
+}
+
+/* No lyrics in this file: the control keeps its place and goes quiet. */
+#token-shell #player-full-lyrics-toggle[data-lyrics-available='0'],
+#token-shell #player-full-lyrics-toggle[data-lyrics-available='0']:hover,
+#token-shell #player-full-lyrics-toggle[data-lyrics-available='0']:active {
+  background: transparent;
+  --gm-text: var(--gm-text-disabled);
+  opacity: 1;
+  cursor: default;
+}
+
+/* Stage: the artwork, or the lyrics that take its place. */
+#token-shell #player-full-stage {
+  width: var(--pf-art);
+  height: var(--pf-art);
+}
+
+#token-shell #player-full-art {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+#token-shell #player-full-art [data-size='full'] {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+#token-shell #player-full-stage[data-stage='lyrics'] #player-full-art {
+  display: none;
+}
+
+/* The lyric sheet scrolls inside the stage and fades at the stage's own
+   edges, wherever it is scrolled to (the mask carries alpha only). */
+#token-shell #player-full-stage[data-stage='lyrics'] {
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gm-line-control) 45%, transparent) transparent;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--gm-bg-canvas) 24px,
+    var(--gm-bg-canvas) calc(100% - 32px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--gm-bg-canvas) 24px,
+    var(--gm-bg-canvas) calc(100% - 32px),
+    transparent 100%
+  );
+}
+
+#token-shell #player-full-stage #player-full-lyrics {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 24px 12px 40px 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* Console: title block, scrubber, transport, secondary row, what is next. */
+#token-shell #player-full-console {
+  width: var(--pf-col);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#token-shell #player-full-console > * {
+  align-self: stretch;
+}
+
+#token-shell #player-full-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#token-shell #player-full-from {
+  margin-bottom: 4px;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two lines, then an ellipsis: never a sideways scroll (design-language §6). */
+#token-shell #player-full-title {
+  max-width: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--gm-type-title1-size);
+  line-height: var(--gm-type-title1-line);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: start;
+  --gm-text: var(--gm-text-primary);
+}
+
+#token-shell #player-full-artist {
+  font-size: calc(var(--gm-type-body-size) + 1px);
+  line-height: 24px;
+  text-align: start;
+  --gm-text: var(--gm-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#token-shell #player-full-progress {
+  width: auto;
+  margin: 0;
+  gap: 0;
+}
+
+/* The scrubber: a 4px track inside a 20px target. */
+#token-shell #player-full-scrubber {
+  height: 20px;
+  justify-content: center;
+  border-radius: var(--gm-radius-xs);
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition:
+    outline-color var(--gm-motion),
+    outline-offset var(--gm-motion);
+}
+
+#token-shell #player-full-scrubber[data-seekable='1'] {
+  cursor: pointer;
+}
+
+#token-shell #player-full-scrubber:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell #player-full-progress-track {
+  height: 4px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-progress-track);
+  overflow: visible;
+}
+
+#token-shell #player-full-progress-fill {
+  position: relative;
+  height: 100%;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
+}
+
+/* The thumb is the bar's machined nib; it shows only where the scrubber
+   can be moved, under the pointer or the keyboard. */
+#token-shell #player-full-scrubber[data-seekable='1'] #player-full-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
+  transform: translateY(-50%) scale(0);
+  transition: transform var(--gm-motion);
+}
+
+#token-shell #player-full-scrubber[data-seekable='1']:hover #player-full-progress-fill::after,
+#token-shell #player-full-scrubber[data-seekable='1']:focus-visible #player-full-progress-fill::after {
+  transform: translateY(-50%) scale(1);
+}
+
+#token-shell #player-full-time {
+  margin-top: -4px;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  --gm-text: var(--gm-text-muted);
+}
+
+/* Elapsed on the left, time left on the right, marked as such. */
+#token-shell #player-full-remaining::before {
+  content: '\2212';
+}
+
+/* Transport: previous · the nut · next, centred on the console. */
+#token-shell #player-full-transport {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin: 0;
+}
+
+#token-shell #player-full-transport [data-player-control='plain'] {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: var(--gm-radius-m);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text);
+  cursor: pointer;
+}
+
+#token-shell #player-full-transport svg[data-icon] {
+  fill: currentColor;
+  stroke-width: 1.6;
+}
+
+/* Secondary row: volume at the start, lyrics and queue at the end. */
+#token-shell #player-full-footer {
+  width: auto;
+  min-height: 40px;
+  margin: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+#token-shell #player-full-volume {
+  flex: 0 1 196px;
+  min-width: 0;
+  height: 40px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+#token-shell #player-full-volume-icon {
+  flex: 0 0 auto;
+  --gm-text: var(--gm-text-secondary);
+}
+
+#token-shell #player-full-volume-range {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+#token-shell #player-full-footer-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+
+/* The reason the lyrics control is quiet, said once, under that control. */
+#token-shell #player-full-lyrics-unavailable {
+  margin-top: -8px;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  text-align: end;
+  --gm-text: var(--gm-text-muted);
+}
+
+/* What plays next: one quiet line under a hairline, not a card. */
+#token-shell #player-full-up-next {
+  width: auto;
+  margin-top: 4px;
+  padding: 16px 0 0;
+  gap: 10px;
+  border: 0;
+  border-top: 1px solid var(--gm-line-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#token-shell #player-full-up-next-label,
+#token-shell [data-queue-label] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-muted);
+}
+
+#token-shell #player-full-up-next-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'art title duration'
+    'art artist duration';
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+}
+
+#token-shell #player-full-up-next-line > [data-size='row'] {
+  grid-area: art;
+  width: 44px;
+  height: 44px;
+}
+
+#token-shell #player-full-up-next-title,
+#token-shell [data-queue-line] [data-queue-title] {
+  align-self: end;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#token-shell #player-full-up-next-artist,
+#token-shell [data-queue-line] [data-queue-artist] {
+  align-self: start;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#token-shell #player-full-up-next-title {
+  grid-area: title;
+  --gm-text: var(--gm-text-primary);
+}
+
+#token-shell #player-full-up-next-artist {
+  grid-area: artist;
+}
+
+#token-shell #player-full-up-next-duration,
+#token-shell [data-queue-line] [data-queue-duration] {
+  grid-area: duration;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+}
+
+/* —— 2. Full player, wide: artwork beside the console —— */
+
+@container player-full (min-width: 680px) {
+  /* Two content-sized columns, centred as one block: the artwork takes six
+     elevenths of the room up to 480px (and never more than the height
+     allows), the console takes the rest up to 520px. A very wide pane gets
+     a centred composition about 1100px across, never a stray column. */
+  #token-shell #player-full-body {
+    --pf-pad: clamp(28px, 5cqw, 72px);
+    --pf-gap: clamp(32px, 5.5cqw, 96px);
+    --pf-room: calc(100cqw - 2 * var(--pf-pad) - var(--pf-gap));
+    --pf-art: clamp(200px, min(100cqh - 160px, var(--pf-room) * 6 / 11), 480px);
+    --pf-console: min(var(--pf-room) - var(--pf-art), 520px);
+    grid-template-columns: var(--pf-art) var(--pf-console);
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-content: center;
+    align-items: center;
+    column-gap: var(--pf-gap);
+    row-gap: 16px;
+    padding: 12px var(--pf-pad) 32px;
+  }
+
+  #token-shell #player-full-chrome {
+    grid-column: 1 / -1;
+  }
+
+  #token-shell #player-full-console {
+    justify-self: stretch;
+    width: auto;
+    gap: 20px;
+  }
+
+  /* Lyrics get a taller window to read in than the square they replace. */
+  #token-shell #player-full-stage[data-stage='lyrics'] {
+    height: clamp(var(--pf-art), 100cqh - 136px, 1.5 * var(--pf-art));
+  }
+
+  #token-shell #player-full-transport {
+    gap: 32px;
+  }
+}
+
+@container player-full (min-width: 1040px) {
+  #token-shell #player-full-title {
+    font-size: var(--gm-type-display-size);
+    line-height: var(--gm-type-display-line);
+  }
+}
+
+/* —— 3. Queue —— */
+
+/* The queue sheet opens over the Now Playing view, never behind it. The
+   sheet and its scrim live in one layer that is its own stacking context,
+   so the layer is what rises. While the scrim is up, the player bar and a
+   phone's tabs step above it, as they always have: lit and in reach. */
+#token-shell [data-queue-layer] {
+  z-index: 30;
+}
+
+#token-shell:has(#queue-scrim) :is(#player-bar, #nav-tabs) {
+  z-index: 31;
+}
+
+/* A phone's full player covers the bar and the tabs. A queue that playback
+   opened on its own stays under it; one asked for from the player rises
+   over it, from the very bottom of the screen. */
+#token-shell[data-width='compact']:has(#player-full[data-queue-sheet='over']) [data-queue-layer] {
+  z-index: 46;
+}
+
+#token-shell[data-width='compact']:has(#player-full[data-queue-sheet='over']) #queue-sheet {
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Pane and sheet share one body: a pinned header over a scrolling list.
+   Nothing here assumes a width — the pane is resizable (--gm-queue-w). */
+#token-shell :is(#right-pane, #queue-sheet) {
+  gap: 0;
+  padding: 0;
+  overflow: hidden auto;
+}
+
+#token-shell [data-queue-header] {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  min-height: 56px;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 17px 12px 0 20px;
+  border-bottom: 1px solid var(--gm-line-subtle);
+  background: var(--gm-bg-raised);
+}
+
+#token-shell [data-queue-heading] {
+  font-size: var(--gm-type-title3-size);
+  line-height: var(--gm-type-title3-line);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  /* A heading element, so the shell's --gm-text rule does not reach it. */
+  color: var(--gm-text-primary);
+}
+
+/* The count is a quiet figure beside the heading, not a badge. */
+#token-shell [data-queue-count] {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-title3-line);
+  font-weight: 500;
+  text-align: start;
+  --gm-text: var(--gm-text-muted);
+}
+
+#token-shell #queue-close {
+  align-self: center;
+  margin: -17px 0 0 auto;
+}
+
+#token-shell #queue-list {
+  gap: 2px;
+  padding: 8px 8px 20px;
+}
+
+/* "Now playing" sits over the current line; the lines after it start
+   under a hairline, so what is playing is set apart from what follows. */
+#token-shell [data-queue-label] {
+  padding: 10px 12px 6px;
+}
+
+#token-shell [data-queue-line] {
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'art title now duration'
+    'art artist now duration';
+  column-gap: 12px;
+  row-gap: 2px;
+  min-height: 56px;
+  padding: 6px 12px 6px 8px;
+  border-radius: var(--gm-radius-s);
+}
+
+#token-shell [data-queue-line] > [data-size='row'] {
+  grid-area: art;
+  width: 44px;
+  height: 44px;
+}
+
+#token-shell [data-queue-line] [data-queue-title] {
+  grid-area: title;
+}
+
+#token-shell [data-queue-line] [data-queue-artist] {
+  grid-area: artist;
+}
+
+#token-shell [data-queue-line] [data-now-playing] {
+  grid-area: now;
+}
+
+/* Only the current line owns the equaliser slot. */
+#token-shell [data-queue-line]:not([data-current='1']) [data-now-playing] {
+  display: none;
+}
+
+/* The duration stays put on hover: the play action lives on the artwork. */
+#token-shell [data-queue-line]:hover [data-queue-duration] {
+  opacity: 1;
+}
+
+#token-shell [data-queue-line][data-current='1']:not(:last-child) {
+  margin-bottom: 17px;
+}
+
+#token-shell [data-queue-line][data-current='1']:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  inset: auto 4px -9px 4px;
+  height: 1px;
+  background: var(--gm-line-subtle);
+  pointer-events: none;
+}
+
+/* Lines already played read a step quieter; their artwork is untouched
+   (dimmed art means "unavailable", design-language §4). */
+#token-shell [data-queue-line]:has(~ [data-queue-line][data-current='1']) [data-queue-title] {
+  --gm-text: var(--gm-text-secondary);
+}
+
+#token-shell [data-queue-line]:has(~ [data-queue-line][data-current='1']) [data-queue-artist] {
+  --gm-text: var(--gm-text-muted);
+}
+
+/* Play this line: a steel glyph over the line's artwork, on hover or focus. */
+#token-shell [data-queue-play] {
+  grid-area: art;
+  justify-self: stretch;
+  align-self: stretch;
+  z-index: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  border-radius: var(--gm-radius-s);
+  background: color-mix(in srgb, var(--gm-bg-canvas) 64%, transparent);
+  box-shadow: none;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text);
+  opacity: 0;
+  transform: none;
+  transition: opacity var(--gm-motion);
+}
+
+#token-shell [data-queue-play]::after {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 0;
+  background: currentColor;
+  clip-path: var(--gm-glyph-play);
+}
+
+#token-shell [data-queue-line]:hover [data-queue-play],
+#token-shell [data-queue-line]:focus-within [data-queue-play] {
+  opacity: 1;
+  transform: none;
+}
+
+#token-shell [data-queue-line] [data-queue-play]:hover {
+  background: color-mix(in srgb, var(--gm-bg-canvas) 64%, transparent);
+  box-shadow: none;
+  --gm-text: var(--gm-text-primary);
+}
+
+#token-shell [data-queue-play]:active {
+  transform: none;
+  background: color-mix(in srgb, var(--gm-bg-canvas) 78%, transparent);
+}
+
+/* Touch widths: the whole line is the play action — no glyph to aim for
+   and nothing drawn over the duration, only a pressed state on the line. */
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-line] {
+  min-height: 60px;
+}
+
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-play] {
+  position: absolute;
+  inset: 0;
+  grid-area: auto;
+  background: transparent;
+  opacity: 1;
+}
+
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-play]::after {
+  content: none;
+}
+
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-play]:hover {
+  background: transparent;
+}
+
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-play]:active {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+}
+
+/* Empty: the queue's own glyph over one quiet sentence, centred in the
+   space the list would fill. No card. */
+#token-shell [data-queue-empty] {
+  flex: 1 1 auto;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 24px 64px;
+}
+
+#token-shell [data-queue-empty-mark] {
+  width: 56px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--gm-radius-l);
+  background: color-mix(in srgb, var(--gm-text-primary) 4%, transparent);
+  box-shadow: var(--gm-stroke-soft);
+  --gm-text: var(--gm-text-muted);
+}
+
+#token-shell #queue-empty {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  text-align: center;
+  --gm-text: var(--gm-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #token-shell #player-full[data-open],
+  #token-shell #player-full[data-open] #player-full-body > * {
+    animation: none;
+  }
+
+  #token-shell :is(#player-full-collapse, #player-full-lyrics-toggle, #player-full-queue, #queue-close),
+  #token-shell #player-full-scrubber,
+  #token-shell #player-full-scrubber[data-seekable='1'] #player-full-progress-fill::after,
+  #token-shell [data-queue-play] {
+    transition: none;
+  }
+}
+
+/* —— A closed queue sheet is gone, not just slid aside ——
+   The sheet's layer sits above the player bar and the tab bar (so an open
+   sheet covers them correctly). A closed sheet that was only translated by
+   its own height could therefore peek over them whenever it was short: an
+   empty queue on a phone left "Up next ✕" lying across the tab bar. Closed
+   now also means hidden, once the slide-out has finished, and the phone
+   sheet travels the full distance to the bottom of the window. */
+#token-shell #queue-sheet[data-queue-open='0'] {
+  visibility: hidden;
+  transition:
+    transform var(--gm-motion-sheet),
+    visibility 0s linear 200ms;
+}
+
+#token-shell #queue-sheet[data-queue-open='1'] {
+  visibility: visible;
+  transition:
+    transform var(--gm-motion-sheet),
+    visibility 0s;
+}
+
+#token-shell[data-width='compact'] #queue-sheet[data-queue-open='0'] {
+  transform: translateY(calc(100% + var(--gm-player-height) + var(--gm-tabs-height)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #token-shell #queue-sheet[data-queue-open='0'],
+  #token-shell #queue-sheet[data-queue-open='1'] {
+    transition: none;
+  }
+}

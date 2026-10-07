@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
@@ -6,6 +6,9 @@ import type { ShellAlbum, ShellTrack } from '../library-types.ts';
 import { formatDuration } from '../format.ts';
 import { LyricsPane } from '../LyricsPane.tsx';
 import { noLyrics, type LyricsResolver } from '../content.ts';
+import { Icon } from '../Icon.tsx';
+import { useMenuDismiss } from '../menu-dismiss.ts';
+import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
@@ -75,6 +78,13 @@ export type AlbumDetailProps = {
   onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
   onPlayNextTrack?: ((albumId: string, trackId: string) => void) | undefined;
   onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
+  /** The artist's other releases and how to open one; omitted when there are none. */
+  moreBy?: AlbumMoreBy | undefined;
+};
+
+export type AlbumMoreBy = {
+  albums: readonly ShellAlbum[];
+  onOpenAlbum: (albumId: string) => void;
 };
 
 /**
@@ -132,24 +142,15 @@ export function AlbumDetail({
   onAddAlbumToQueue,
   onPlayNextTrack,
   onAddTrackToQueue,
+  moreBy,
 }: AlbumDetailProps) {
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-
-  useEffect(() => {
-    if (!moreOpen) {
-      return;
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMoreOpen(false);
-      }
-    };
-    globalThis.addEventListener('keydown', onKey);
-    return () => {
-      globalThis.removeEventListener('keydown', onKey);
-    };
-  }, [moreOpen]);
+  const moreMenuId = useId();
+  const closeMore = useCallback(() => {
+    setMoreOpen(false);
+  }, []);
+  useMenuDismiss(moreOpen, moreMenuId, closeMore);
 
   if (album === undefined) {
     return (
@@ -170,6 +171,7 @@ export function AlbumDetail({
             }
           }}
         >
+          <Icon name="back" size={18} />
           <Text>{messages.backToLibrary}</Text>
         </View>
       </View>
@@ -238,6 +240,7 @@ export function AlbumDetail({
           }
         }}
       >
+        <Icon name="back" size={18} />
         <Text>{messages.backToLibrary}</Text>
       </View>
       <View dataSet={{ albumHeader: '1', albumHeaderLarge: '1', albumHeaderBleed: '1' }}>
@@ -249,6 +252,7 @@ export function AlbumDetail({
           artUrl={album.coverUrl}
         />
         <View dataSet={{ albumHeaderText: '1' }}>
+          <Text dataSet={{ detailEyebrow: '1' }}>{messages.albumEyebrow}</Text>
           <Text id="destination-headline" accessibilityRole="header">
             {title}
           </Text>
@@ -334,10 +338,7 @@ export function AlbumDetail({
               }
             }}
           >
-            <View dataSet={{ shuffleGlyph: '1' }}>
-              <View dataSet={{ shuffleArm: 'a' }} />
-              <View dataSet={{ shuffleArm: 'b' }} />
-            </View>
+            <Icon name="shuffle" />
           </View>
           <Text dataSet={{ controlHint: '1' }}>{shuffleWired ? messages.shuffle : messages.shuffleUnavailable}</Text>
         </View>
@@ -358,6 +359,7 @@ export function AlbumDetail({
               }
             }}
           >
+            <Icon name="lyrics" size={18} />
             <Text>{messages.lyrics}</Text>
           </View>
         )}
@@ -369,6 +371,7 @@ export function AlbumDetail({
             accessibilityLabel={messages.moreActions}
             aria-haspopup="menu"
             aria-expanded={moreOpen ? 'true' : 'false'}
+            aria-controls={moreMenuId}
             tabIndex={0}
             onClick={toggleMore}
             onKeyDown={(event) => {
@@ -378,11 +381,11 @@ export function AlbumDetail({
               }
             }}
           >
-            <Text>{messages.moreActions}</Text>
+            <Icon name="more" />
           </View>
           {moreOpen ? (
             <View
-              dataSet={{ albumMenu: '1', contextMenu: '1' }}
+              dataSet={{ albumMenu: '1', contextMenu: '1', menuId: moreMenuId }}
               accessibilityRole="menu"
               accessibilityLabel={messages.contextMenu}
             >
@@ -456,6 +459,13 @@ export function AlbumDetail({
                   </View>
                 )}
               </View>
+              <View dataSet={{ trackTableHead: '1' }} aria-hidden={true}>
+                <Text dataSet={{ trackTableNumber: '1' }}>{messages.columnNumber}</Text>
+                <Text dataSet={{ trackTableTitle: '1' }}>{messages.columnTitle}</Text>
+                <View dataSet={{ trackTableTime: '1' }}>
+                  <Icon name="clock" size={16} />
+                </View>
+              </View>
               {album.hostile
                 ? discTracks.map((track) => (
                     <HostileTrackRow
@@ -475,6 +485,13 @@ export function AlbumDetail({
           <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
             {messages.tracksHeading}
           </Text>
+          <View dataSet={{ trackTableHead: '1' }} aria-hidden={true}>
+            <Text dataSet={{ trackTableNumber: '1' }}>{messages.columnNumber}</Text>
+            <Text dataSet={{ trackTableTitle: '1' }}>{messages.columnTitle}</Text>
+            <View dataSet={{ trackTableTime: '1' }}>
+              <Icon name="clock" size={16} />
+            </View>
+          </View>
           {album.hostile
             ? album.tracks.map((track) => (
                 <HostileTrackRow
@@ -486,6 +503,28 @@ export function AlbumDetail({
                 />
               ))
             : album.tracks.map(renderTrackRow)}
+        </View>
+      )}
+      {moreBy === undefined ? null : (
+        <View id="album-more-by" dataSet={{ albumMoreBy: '1' }}>
+          <Text accessibilityRole="header" dataSet={{ sectionHeading: '1', type: 'title2' }}>
+            {`${messages.moreByArtist} ${artist}`}
+          </Text>
+          <View dataSet={{ albumGrid: '1', albumMoreByGrid: '1' }}>
+            {moreBy.albums.map((other, index) => (
+              <AlbumTile
+                key={other.id}
+                album={other}
+                messages={messages}
+                staggerIndex={index}
+                onOpen={moreBy.onOpenAlbum}
+                onPlay={onPlayAlbum}
+                onPlayNext={onPlayNextAlbum}
+                onAddToQueue={onAddAlbumToQueue}
+                onOpenArtist={onOpenArtist}
+              />
+            ))}
+          </View>
         </View>
       )}
     </View>

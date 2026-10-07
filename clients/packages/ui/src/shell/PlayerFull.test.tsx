@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { shellMessages } from '../messages/en/shell.ts';
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
@@ -75,8 +75,51 @@ test('open full player shows cover title artist scrubber transport and close', (
   expect(screen.getByRole('heading', { name: 'Now playing' }).id).toStrictEqual('player-full-heading');
   expect(screen.getByText('Pier at Dusk').id).toStrictEqual('player-full-title');
   expect(screen.getByText('Mira Sol').id).toStrictEqual('player-full-artist');
-  expect(container.querySelector('#player-full-art [data-size="full"]')).toBeTruthy();
+  expect(container.querySelector('#player-full-art [data-size="full"]')?.getAttribute('data-cover')).toStrictEqual(
+    '01',
+  );
   expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual('25');
+  // One composed view: the artwork stage beside (or above) the console that
+  // holds the title block, the scrubber, the transport and the secondary row.
+  expect([...(container.querySelector('#player-full-body')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-chrome',
+    'player-full-stage',
+    'player-full-console',
+  ]);
+  expect(container.querySelector('#player-full-stage > #player-full-art [data-size="full"]')?.id).toStrictEqual(
+    'cover-full-demo-track-01-01',
+  );
+  expect([...(container.querySelector('#player-full-console')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-info',
+    'player-full-progress',
+    'player-full-transport',
+    'player-full-footer',
+    'player-full-lyrics-unavailable',
+  ]);
+  expect([...(container.querySelector('#player-full-info')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-title',
+    'player-full-artist',
+  ]);
+  // Controls are drawn by the shared icon set; the nut draws its own glyph,
+  // keeps its text label and sits in the wrapper that carries its focus plate.
+  const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon');
+  expect(iconOf('Close')).toStrictEqual('collapse');
+  expect(iconOf('Previous')).toStrictEqual('previous');
+  expect(iconOf('Next')).toStrictEqual('next');
+  expect(iconOf('Lyrics')).toStrictEqual('lyrics');
+  expect(iconOf('Queue')).toStrictEqual('queue');
+  expect(
+    [...container.querySelectorAll('#player-full svg[data-icon]')].map((icon) => icon.getAttribute('aria-hidden')),
+  ).toStrictEqual(['true', 'true', 'true', 'true', 'true']);
+  expect(screen.getByRole('button', { name: 'Pause' }).querySelector('svg')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pause' }).textContent).toStrictEqual('Pause');
+  expect(screen.getByRole('button', { name: 'Pause' }).getAttribute('data-playing')).toStrictEqual('1');
+  expect(screen.getByRole('button', { name: 'Pause' }).parentElement?.getAttribute('data-hex-wrap')).toStrictEqual('1');
+  expect(
+    [...(container.querySelector('#player-full-transport')?.children ?? [])].map(
+      (node) => node.id || node.firstElementChild?.id,
+    ),
+  ).toStrictEqual(['player-full-skip-back', 'player-full-play', 'player-full-skip-next']);
   rerender(
     <PlayerFull
       lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
@@ -131,7 +174,7 @@ test('Escape and scrim dismiss the full player while other keys do not', () => {
   expect(onClose).toHaveBeenCalledTimes(0);
   fireEvent.keyDown(window, { key: 'Escape' });
   expect(onClose).toHaveBeenCalledTimes(1);
-  fireEvent.click(document.querySelector('#player-full-scrim')!);
+  fireEvent.click(document.querySelector('#player-full-scrim') as HTMLElement);
   expect(onClose).toHaveBeenCalledTimes(2);
 });
 
@@ -146,13 +189,28 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
       onClose={onClose}
     />,
   );
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('aria-pressed')).toStrictEqual('false');
+  expect(screen.getByRole('button', { name: 'Lyrics' }).hasAttribute('aria-disabled')).toStrictEqual(false);
+  expect(document.querySelector('#player-full-stage')?.getAttribute('data-stage')).toStrictEqual('art');
+  expect(document.querySelector('#player-full-lyrics-unavailable')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('aria-pressed')).toStrictEqual('true');
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-toggle')).toStrictEqual('1');
+  // Open lyrics take the artwork's stage; the artwork stays mounted under them.
+  expect(document.querySelector('#player-full-stage')?.getAttribute('data-stage')).toStrictEqual('lyrics');
+  expect([...(document.querySelector('#player-full-stage')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-art',
+    'player-full-lyrics',
+  ]);
   expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('0');
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-empty')).toStrictEqual('0');
   expect(
     [...document.querySelectorAll('#player-full-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
   ).toStrictEqual(['Hello, hello through the static', 'handshake in the noise', 'hold the line']);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
+  expect(document.querySelector('#player-full-stage')?.getAttribute('data-stage')).toStrictEqual('art');
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-toggle')).toStrictEqual('0');
   rerender(
     <PlayerFull
       lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
@@ -170,10 +228,68 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Tab' });
   rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={onClose} />);
   expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-available')).toStrictEqual('0');
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('aria-disabled')).toStrictEqual('true');
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('aria-pressed')).toStrictEqual('false');
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
+  expect(document.querySelector('#player-full-stage')?.getAttribute('data-stage')).toStrictEqual('art');
   expect(document.querySelector('#player-full-lyrics-unavailable')?.textContent).toStrictEqual(
     'This file has no lyrics.',
   );
+});
+
+test('lyrics without a resolver fall back to the no-lyrics line in the stage', () => {
+  render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), lyricsKind: 'plain' }}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  expect(
+    [...document.querySelectorAll('#player-full-stage #player-full-lyrics [data-lyrics-line="1"]')].map(
+      (node) => node.textContent,
+    ),
+  ).toStrictEqual(['This file has no lyrics.']);
+  // The placeholder is the quiet empty state, not a one-line lyric sheet.
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-empty')).toStrictEqual('1');
+  expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('0');
+});
+
+test('volume sits in the secondary row only when it is wired, and reports the new level', () => {
+  const onVolume = vi.fn();
+  const { container, rerender } = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0.4}
+      onVolume={onVolume}
+      onClose={vi.fn()}
+    />,
+  );
+  expect([...(container.querySelector('#player-full-footer')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-volume',
+    'player-full-footer-actions',
+  ]);
+  expect(container.querySelector('#player-full-volume')?.getAttribute('data-volume')).toStrictEqual('1');
+  expect(container.querySelector('#player-full-volume-icon svg')?.getAttribute('data-icon')).toStrictEqual('volume');
+  const range = screen.getByRole('slider', { name: 'Volume' });
+  expect(range.id).toStrictEqual('player-full-volume-range');
+  expect(range.getAttribute('value')).toStrictEqual('0.4');
+  fireEvent.change(range, { target: { value: '0.9' } });
+  expect(onVolume).toHaveBeenCalledTimes(1);
+  expect(onVolume).toHaveBeenCalledWith(0.9);
+  rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open volume={0.4} onClose={vi.fn()} />);
+  expect(container.querySelector('#player-full-volume')).toBeNull();
+  rerender(
+    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onVolume={onVolume} onClose={vi.fn()} />,
+  );
+  expect(container.querySelector('#player-full-volume')).toBeNull();
+  expect([...(container.querySelector('#player-full-footer')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-footer-actions',
+  ]);
 });
 
 test('open full player paints playing-from, remaining time, up next and pane placement', () => {
@@ -216,11 +332,26 @@ test('open full player paints playing-from, remaining time, up next and pane pla
     />,
   );
   expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('overlay');
-  expect(document.querySelector('#player-full-scrim')).toBeTruthy();
+  expect(document.querySelector('#player-full-scrim')?.getAttribute('data-open')).toStrictEqual('1');
   expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual('Playing from Harbour Lights');
   expect(document.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:45');
   expect(document.querySelector('#player-full-remaining')?.textContent).toStrictEqual('2:15');
   expect(document.querySelector('#player-full-up-next-title')?.textContent).toStrictEqual('Salt Window');
+  expect(document.querySelector('#player-full-up-next-label')?.textContent).toStrictEqual('Up next');
+  expect(document.querySelector('#player-full-up-next-artist')?.textContent).toStrictEqual('Mira Sol');
+  expect(document.querySelector('#player-full-up-next-duration')?.textContent).toStrictEqual('3:20');
+  expect(document.querySelector('#player-full-up-next [data-size="row"]')?.id).toStrictEqual(
+    'cover-next-demo-track-01-02',
+  );
+  expect(
+    document.querySelector('#player-full-up-next [data-size="row"]')?.getAttribute('data-cover-art'),
+  ).toStrictEqual('1');
+  expect([...(document.querySelector('#player-full-info')?.children ?? [])].map((node) => node.id)).toStrictEqual([
+    'player-full-from',
+    'player-full-title',
+    'player-full-artist',
+  ]);
+  expect(document.querySelector('#player-full-console')?.lastElementChild?.id).toStrictEqual('player-full-up-next');
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   expect(onToggleQueue).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Queue' }), { key: 'Enter' });
@@ -277,4 +408,189 @@ test('open full player paints the ambient artwork backdrop under a contrast veil
   expect(
     document.querySelector('#player-full-ambient [data-ambient-veil="1"]')?.getAttribute('data-ambient-veil'),
   ).toStrictEqual('1');
+});
+
+test('the queue control brings up a sheet left open underneath before it toggles one', () => {
+  const onToggleQueue = vi.fn();
+  const view = (open: boolean, queueOpen: boolean) => (
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), queueOpen }}
+      open={open}
+      onClose={vi.fn()}
+      onToggleQueue={onToggleQueue}
+    />
+  );
+  const sheet = () => document.querySelector('#player-full')?.getAttribute('data-queue-sheet');
+  // Play opened the queue on its own: it stays under the full player.
+  const { rerender } = render(view(true, true));
+  expect(sheet()).toStrictEqual('under');
+  // Asking for the queue brings that sheet up; nothing is toggled shut.
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  expect(onToggleQueue).toHaveBeenCalledTimes(0);
+  expect(sheet()).toStrictEqual('over');
+  // Asking again closes the sheet that is up.
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  expect(onToggleQueue).toHaveBeenCalledTimes(1);
+  expect(sheet()).toStrictEqual('over');
+  rerender(view(true, false));
+  expect(sheet()).toStrictEqual('under');
+  // A queue that opens again on its own is underneath again.
+  rerender(view(true, true));
+  expect(sheet()).toStrictEqual('under');
+  // A closed queue is opened by the control, over the player.
+  rerender(view(true, false));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Queue' }), { key: 'Enter' });
+  expect(onToggleQueue).toHaveBeenCalledTimes(2);
+  rerender(view(true, true));
+  expect(sheet()).toStrictEqual('over');
+  // Putting the player away forgets the request.
+  rerender(view(false, true));
+  expect(document.querySelector('#player-full')).toBeNull();
+  rerender(view(true, true));
+  expect(sheet()).toStrictEqual('under');
+});
+
+test('the scrubber seeks by pointer and by arrow keys when it is wired', () => {
+  const onSeek = vi.fn();
+  const view = (playback: PlayerSnapshot, seek: ((positionMs: number) => void) | undefined) => (
+    <PlayerFull messages={shellMessages()} playback={playback} open onSeek={seek} onClose={vi.fn()} />
+  );
+  const { rerender } = render(view(playingSnapshot(), onSeek));
+  const scrubber = screen.getByRole('slider', { name: 'Progress' });
+  expect(scrubber.id).toStrictEqual('player-full-scrubber');
+  expect(scrubber.parentElement?.id).toStrictEqual('player-full-progress');
+  expect([...scrubber.children].map((node) => node.id)).toStrictEqual(['player-full-progress-track']);
+  expect(scrubber.getAttribute('aria-valuemin')).toStrictEqual('0');
+  expect(scrubber.getAttribute('aria-valuemax')).toStrictEqual('180000');
+  expect(scrubber.getAttribute('aria-valuenow')).toStrictEqual('45000');
+  expect(scrubber.getAttribute('aria-valuetext')).toStrictEqual('0:45 of 3:00');
+  expect(scrubber.getAttribute('tabindex')).toStrictEqual('0');
+  expect(scrubber.getAttribute('data-seekable')).toStrictEqual('1');
+  // Nothing is laid out yet (a zero-width track): a click seeks nowhere.
+  fireEvent.click(scrubber, { clientX: 150 });
+  expect(onSeek).toHaveBeenCalledTimes(0);
+  Object.defineProperty(scrubber, 'getBoundingClientRect', {
+    value: () => ({ left: 100, width: 200, top: 0, height: 20 }) as DOMRect,
+  });
+  fireEvent.click(scrubber, { clientX: 150 });
+  expect(onSeek).toHaveBeenLastCalledWith(45_000); // a quarter of 3:00
+  fireEvent.click(scrubber, { clientX: 250 });
+  expect(onSeek).toHaveBeenLastCalledWith(135_000);
+  // Outside the track clamps to its ends.
+  fireEvent.click(scrubber, { clientX: 20 });
+  expect(onSeek).toHaveBeenLastCalledWith(0);
+  fireEvent.click(scrubber, { clientX: 900 });
+  expect(onSeek).toHaveBeenLastCalledWith(180_000);
+  expect(onSeek).toHaveBeenCalledTimes(4);
+  // Arrow keys step five seconds from where playback is.
+  fireEvent.keyDown(scrubber, { key: 'ArrowRight' });
+  expect(onSeek).toHaveBeenLastCalledWith(50_000);
+  fireEvent.keyDown(scrubber, { key: 'ArrowLeft' });
+  expect(onSeek).toHaveBeenLastCalledWith(40_000);
+  fireEvent.keyDown(scrubber, { key: 'Tab' });
+  fireEvent.keyDown(scrubber, { key: 'Enter' });
+  expect(onSeek).toHaveBeenCalledTimes(6);
+  // The audio clock reports fractions of a millisecond; the slider's value stays whole.
+  rerender(view({ ...playingSnapshot(), positionMs: 111_394.005 }, onSeek));
+  expect(screen.getByRole('slider', { name: 'Progress' }).getAttribute('aria-valuenow')).toStrictEqual('111394');
+  expect(screen.getByRole('slider', { name: 'Progress' }).getAttribute('aria-valuetext')).toStrictEqual('1:51 of 3:00');
+  rerender(view({ ...playingSnapshot(), positionMs: 2_000 }, onSeek));
+  fireEvent.keyDown(screen.getByRole('slider', { name: 'Progress' }), { key: 'ArrowLeft' });
+  expect(onSeek).toHaveBeenLastCalledWith(0);
+  rerender(view({ ...playingSnapshot(), positionMs: 178_000 }, onSeek));
+  fireEvent.keyDown(screen.getByRole('slider', { name: 'Progress' }), { key: 'ArrowRight' });
+  expect(onSeek).toHaveBeenLastCalledWith(180_000);
+  expect(onSeek).toHaveBeenCalledTimes(8);
+
+  // A track with no known length cannot be scrubbed: inert, out of the tab order.
+  rerender(view({ ...playingSnapshot(), positionMs: 10, durationMs: 0 }, onSeek));
+  const still = screen.getByRole('slider', { name: 'Progress' });
+  expect(still.getAttribute('tabindex')).toStrictEqual('-1');
+  expect(still.getAttribute('data-seekable')).toStrictEqual('0');
+  expect(still.getAttribute('aria-valuemax')).toStrictEqual('0');
+  expect(still.getAttribute('aria-valuetext')).toStrictEqual('0:00 of 0:00');
+  fireEvent.click(still, { clientX: 150 });
+  fireEvent.keyDown(still, { key: 'ArrowRight' });
+  expect(onSeek).toHaveBeenCalledTimes(8);
+
+  // Unwired: the same bar, showing progress only.
+  rerender(view(playingSnapshot(), undefined));
+  const shown = screen.getByRole('slider', { name: 'Progress' });
+  expect(shown.getAttribute('tabindex')).toStrictEqual('-1');
+  expect(shown.getAttribute('data-seekable')).toStrictEqual('0');
+  expect(shown.getAttribute('aria-valuenow')).toStrictEqual('45000');
+  fireEvent.click(shown, { clientX: 150 });
+  fireEvent.keyDown(shown, { key: 'ArrowLeft' });
+  expect(onSeek).toHaveBeenCalledTimes(8);
+});
+
+test('closing folds the view away over the sheet motion before it unmounts, where motion is allowed', () => {
+  vi.useFakeTimers();
+  const matchMedia = vi.fn((query: string) => ({ matches: false, media: query }));
+  vi.stubGlobal('matchMedia', matchMedia);
+  try {
+    const view = (open: boolean) => (
+      <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open={open} onClose={vi.fn()} />
+    );
+    const state = () => [
+      document.querySelector('#player-full')?.getAttribute('data-open'),
+      document.querySelector('#player-full-scrim')?.getAttribute('data-open'),
+    ];
+    const { rerender } = render(view(true));
+    expect(state()).toStrictEqual(['1', '1']);
+    expect(matchMedia).toHaveBeenCalledTimes(0);
+    // Closed: still mounted and marked as leaving for the 200ms sheet motion.
+    rerender(view(false));
+    expect(state()).toStrictEqual(['0', '0']);
+    expect(matchMedia).toHaveBeenLastCalledWith('(prefers-reduced-motion: reduce)');
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(state()).toStrictEqual(['0', '0']);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(state()).toStrictEqual([undefined, undefined]);
+    // Opening again while it leaves keeps it: the pending unmount is dropped.
+    rerender(view(true));
+    rerender(view(false));
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
+    rerender(view(true));
+    expect(state()).toStrictEqual(['1', '1']);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(state()).toStrictEqual(['1', '1']);
+    // Reduced motion: no leave at all, the view is gone with the request.
+    matchMedia.mockImplementation((query: string) => ({ matches: true, media: query }));
+    rerender(view(false));
+    expect(state()).toStrictEqual([undefined, undefined]);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});
+
+test('a paused track offers Play on the nut and reports the press', () => {
+  const onPlayPause = vi.fn();
+  render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), playing: false }}
+      open
+      onClose={vi.fn()}
+      onPlayPause={onPlayPause}
+    />,
+  );
+  const play = screen.getByRole('button', { name: 'Play' });
+  expect(play.id).toStrictEqual('player-full-play');
+  expect(play.getAttribute('data-playing')).toStrictEqual('0');
+  expect(play.getAttribute('data-player-control')).toStrictEqual('primary');
+  expect(play.textContent).toStrictEqual('Play');
+  expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+  fireEvent.keyDown(play, { key: ' ' });
+  expect(onPlayPause).toHaveBeenCalledTimes(1);
 });

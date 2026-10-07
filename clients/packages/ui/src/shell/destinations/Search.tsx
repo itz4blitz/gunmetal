@@ -3,8 +3,12 @@ import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { LibrarySearch, LibrarySearchHits } from '../content.ts';
-import type { ShellLibrary, ShellTrack } from '../library-types.ts';
+import { countNoun } from '../format.ts';
+import { Icon } from '../Icon.tsx';
+import type { ShellAlbum, ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
+import { CoverTile } from './CoverTile.tsx';
+import { ArtistAvatar, artistDisplayName } from './Library.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
 export type SearchProps = {
@@ -23,14 +27,24 @@ export type SearchProps = {
   onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
 };
 
+/** Enter and Space press a control; every other key is left alone. */
+function pressOn(event: { key: string; preventDefault: () => void }, action: () => void): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    action();
+  }
+}
+
 function TypeChip({
   id,
   label,
+  count,
   pressed,
   onToggle,
 }: {
   id: string;
   label: string;
+  count: number;
   pressed: boolean;
   onToggle: () => void;
 }) {
@@ -39,18 +53,17 @@ function TypeChip({
       id={id}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: pressed }}
+      aria-pressed={pressed}
       tabIndex={0}
       dataSet={{ searchChip: '1', pressed: pressed ? '1' : '0' }}
       onClick={onToggle}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onToggle();
-        }
+        pressOn(event, onToggle);
       }}
     >
-      <Text>{label}</Text>
+      <Text dataSet={{ searchChipLabel: '1' }}>{label}</Text>
+      {/* The count is chrome; the accessible name stays the bare type. */}
+      <Text dataSet={{ searchChipCount: '1' }}>{`${count}`}</Text>
     </View>
   );
 }
@@ -64,6 +77,106 @@ function QueryEcho({ query }: { query: string }) {
     </span>
   );
   return <Text dataSet={{ searchQueryEcho: '1' }}>{echo}</Text>;
+}
+
+/** The first thing the lookup answered, with what the card needs to show and play it. */
+type TopHit = {
+  kind: 'album' | 'track';
+  kindLabel: string;
+  albumId: string;
+  title: string;
+  byline: string;
+  tone: string;
+  coverUrl: string | undefined;
+  play: () => void;
+};
+
+/** A hostile fixture album never shows its own text: the safe catalogue labels stand in. */
+function albumHit(album: ShellAlbum, messages: DestinationMessages, onPlayAlbum: (albumId: string) => void): TopHit {
+  return {
+    kind: 'album',
+    kindLabel: messages.albumEyebrow,
+    albumId: album.id,
+    title: album.hostile ? messages.hostileAlbumLabel : album.title,
+    byline: album.hostile ? messages.hostileArtistLabel : album.artistName,
+    tone: album.coverTone,
+    coverUrl: album.coverUrl,
+    play: () => {
+      onPlayAlbum(album.id);
+    },
+  };
+}
+
+function trackHit(
+  track: ShellTrack,
+  album: ShellAlbum | undefined,
+  messages: DestinationMessages,
+  onPlayTrack: (albumId: string, trackId: string) => void,
+): TopHit {
+  const hostile = album?.hostile === true;
+  return {
+    kind: 'track',
+    kindLabel: messages.searchKindTrack,
+    albumId: track.albumId,
+    title: hostile ? messages.hostileAlbumLabel : track.title,
+    byline: hostile ? messages.hostileArtistLabel : track.artistName,
+    tone: album === undefined ? '' : album.coverTone,
+    coverUrl: album?.coverUrl,
+    play: () => {
+      onPlayTrack(track.albumId, track.id);
+    },
+  };
+}
+
+function TopResult({
+  hit,
+  messages,
+  onOpenAlbum,
+}: {
+  hit: TopHit;
+  messages: DestinationMessages;
+  onOpenAlbum: (albumId: string) => void;
+}) {
+  const open = () => {
+    onOpenAlbum(hit.albumId);
+  };
+  return (
+    <View id="search-top" dataSet={{ searchTop: hit.kind }}>
+      <Text accessibilityRole="header" dataSet={{ searchGroup: 'top' }}>
+        {messages.searchTopResult}
+      </Text>
+      <View dataSet={{ searchTopCard: '1' }}>
+        <View
+          dataSet={{ searchTopOpen: '1' }}
+          accessibilityRole="button"
+          accessibilityLabel={`${messages.searchTopResult}: ${hit.title}`}
+          tabIndex={0}
+          onClick={open}
+          onKeyDown={(event) => {
+            pressOn(event, open);
+          }}
+        >
+          <CoverTile tone={hit.tone} label={hit.title} size="grid" coverId="search-top-cover" artUrl={hit.coverUrl} />
+          <View dataSet={{ searchTopText: '1' }}>
+            <Text dataSet={{ searchTopTitle: '1' }}>{hit.title}</Text>
+            <Text dataSet={{ searchTopByline: '1' }}>{`${hit.kindLabel} · ${hit.byline}`}</Text>
+          </View>
+        </View>
+        <View dataSet={{ hexWrap: '1' }}>
+          <View
+            dataSet={{ brassHex: '1', searchTopPlay: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={`${messages.play} ${hit.title}`}
+            tabIndex={0}
+            onClick={hit.play}
+            onKeyDown={(event) => {
+              pressOn(event, hit.play);
+            }}
+          />
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export function Search({
@@ -92,8 +205,17 @@ export function Search({
   };
   const visibleAlbums = showAlbums ? hits.albums : [];
   const visibleTracks = showTracks ? hits.tracks : [];
-  const noVisibleHits = visibleAlbums.length === 0 && visibleTracks.length === 0;
   const albumFor = (track: ShellTrack) => library.albums.find((album) => album.id === track.albumId);
+  // The top result is the first album the lookup answered, or else its first
+  // track. No top result is the same fact as nothing to show.
+  const topAlbum = visibleAlbums[0];
+  const topTrack = visibleTracks[0];
+  const top =
+    topAlbum !== undefined
+      ? albumHit(topAlbum, messages, onPlayAlbum)
+      : topTrack !== undefined
+        ? trackHit(topTrack, albumFor(topTrack), messages, onPlayTrack)
+        : undefined;
 
   return (
     <View id="destination-search">
@@ -101,7 +223,9 @@ export function Search({
         {messages.searchHeadline}
       </Text>
       <View id="search-field-wrap">
-        <div id="search-affordance" aria-hidden="true" />
+        <View id="search-affordance">
+          <Icon name="search" size={18} />
+        </View>
         <input
           id="search-field"
           ref={fieldRef}
@@ -122,82 +246,111 @@ export function Search({
             tabIndex={0}
             onClick={clearQuery}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                clearQuery();
-              }
+              pressOn(event, clearQuery);
             }}
           >
-            <Text>{messages.searchClear}</Text>
+            <Icon name="close" size={16} />
           </View>
         ) : null}
       </View>
-      <View id="search-type-chips" accessibilityRole="group" accessibilityLabel={messages.searchTypeFilter}>
-        <TypeChip
-          id="search-chip-albums"
-          label={messages.tabAlbums}
-          pressed={showAlbums}
-          onToggle={() => {
-            if (showAlbums && !showTracks) {
-              return;
-            }
-            setShowAlbums(!showAlbums);
-          }}
-        />
-        <TypeChip
-          id="search-chip-tracks"
-          label={messages.tabTracks}
-          pressed={showTracks}
-          onToggle={() => {
-            if (showTracks && !showAlbums) {
-              return;
-            }
-            setShowTracks(!showTracks);
-          }}
-        />
-      </View>
       {!hasQuery ? (
-        <View id="search-recent" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-          <View dataSet={{ emptyMark: '1' }} />
-          <Text id="search-recent-heading" accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
-            {messages.searchRecentHeading}
-          </Text>
-          <Text id="search-recent-empty" dataSet={{ emptyState: 'search-recent' }}>
-            {messages.searchRecentEmpty}
-          </Text>
+        <View id="search-idle">
+          <Text id="search-hint">{messages.searchHint}</Text>
+          {/* Browse by what the library holds: its artists. Without a way to
+              open an artist, or without artists, there is nothing to offer. */}
+          {onOpenArtist !== undefined && library.artists.length > 0 ? (
+            <View id="search-browse">
+              <View dataSet={{ searchGroupHead: '1' }}>
+                <Text accessibilityRole="header" dataSet={{ searchGroup: 'artists' }}>
+                  {messages.searchBrowseArtists}
+                </Text>
+                <Text dataSet={{ searchGroupCount: '1' }}>{`${library.artists.length}`}</Text>
+              </View>
+              <View dataSet={{ searchArtistGrid: '1' }}>
+                {library.artists.map((artist) => {
+                  const name = artistDisplayName(artist, library, messages);
+                  const open = () => {
+                    onOpenArtist(artist.key);
+                  };
+                  return (
+                    <View
+                      key={artist.key}
+                      dataSet={{ searchArtist: artist.key }}
+                      accessibilityRole="button"
+                      accessibilityLabel={name}
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(event) => {
+                        pressOn(event, open);
+                      }}
+                    >
+                      <ArtistAvatar name={name} imageUrl={artist.imageUrl} />
+                      <Text dataSet={{ searchArtistName: '1' }}>{name}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
         </View>
       ) : (
         <View id="search-results">
-          <View id="search-results-meta">
+          <View id="search-results-bar">
+            <View id="search-type-chips" accessibilityRole="group" accessibilityLabel={messages.searchTypeFilter}>
+              <TypeChip
+                id="search-chip-albums"
+                label={messages.tabAlbums}
+                count={hits.albums.length}
+                pressed={showAlbums}
+                onToggle={() => {
+                  if (showAlbums && !showTracks) {
+                    return;
+                  }
+                  setShowAlbums(!showAlbums);
+                }}
+              />
+              <TypeChip
+                id="search-chip-tracks"
+                label={messages.tabTracks}
+                count={hits.tracks.length}
+                pressed={showTracks}
+                onToggle={() => {
+                  if (showTracks && !showAlbums) {
+                    return;
+                  }
+                  setShowTracks(!showTracks);
+                }}
+              />
+            </View>
             <Text id="search-results-count">
-              {`${visibleAlbums.length + visibleTracks.length} ${messages.searchResultCount}`}
+              {countNoun(
+                visibleAlbums.length + visibleTracks.length,
+                messages.searchResultCountOne,
+                messages.searchResultCount,
+              )}
             </Text>
-            <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
           </View>
-          <Text id="search-plugin-notice">{messages.searchPluginNotice}</Text>
-          {noVisibleHits ? (
-            <View id="search-no-hits" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-              <View dataSet={{ emptyMark: '1' }} />
-              <Text accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
+          {top === undefined ? (
+            <View id="search-no-hits">
+              <View dataSet={{ searchEmptyMark: '1' }}>
+                <Icon name="search" size={22} />
+              </View>
+              <Text accessibilityRole="header" dataSet={{ searchEmptyTitle: '1' }}>
                 {messages.searchNoHits}
               </Text>
               <QueryEcho query={query.trim()} />
+              <Text dataSet={{ searchEmptyHint: '1' }}>{messages.searchNoHitsHint}</Text>
             </View>
           ) : (
             <>
+              <TopResult hit={top} messages={messages} onOpenAlbum={onOpenAlbum} />
               {visibleAlbums.length > 0 ? (
                 <View dataSet={{ searchAlbums: '1' }}>
                   <View dataSet={{ searchGroupHead: '1' }}>
-                    <Text
-                      id="search-group-albums"
-                      accessibilityRole="header"
-                      dataSet={{ searchGroup: 'albums', type: 'title2' }}
-                    >
+                    <Text id="search-group-albums" accessibilityRole="header" dataSet={{ searchGroup: 'albums' }}>
                       {messages.tabAlbums}
                     </Text>
-                    <Text dataSet={{ searchGroupCount: '1' }} aria-hidden="true">
-                      {`${visibleAlbums.length}`}
-                    </Text>
+                    <Text dataSet={{ searchGroupCount: '1' }}>{`${visibleAlbums.length}`}</Text>
                   </View>
                   <View dataSet={{ searchAlbumGrid: '1' }}>
                     {visibleAlbums.map((album, index) => (
@@ -219,40 +372,41 @@ export function Search({
               {visibleTracks.length > 0 ? (
                 <View dataSet={{ searchTracks: '1' }}>
                   <View dataSet={{ searchGroupHead: '1' }}>
-                    <Text
-                      id="search-group-tracks"
-                      accessibilityRole="header"
-                      dataSet={{ searchGroup: 'tracks', type: 'title2' }}
-                    >
+                    <Text id="search-group-tracks" accessibilityRole="header" dataSet={{ searchGroup: 'tracks' }}>
                       {messages.tabTracks}
                     </Text>
-                    <Text dataSet={{ searchGroupCount: '1' }} aria-hidden="true">
-                      {`${visibleTracks.length}`}
-                    </Text>
+                    <Text dataSet={{ searchGroupCount: '1' }}>{`${visibleTracks.length}`}</Text>
                   </View>
-                  {visibleTracks.map((track) => {
-                    const album = albumFor(track);
-                    return (
-                      <TrackRow
-                        key={track.id}
-                        track={track}
-                        messages={messages}
-                        artistKey={album?.artistKey}
-                        albumTitle={album?.title}
-                        hostile={album?.hostile === true}
-                        current={track.id === currentTrackId}
-                        onPlay={onPlayTrack}
-                        onPlayNext={onPlayNextTrack}
-                        onAddToQueue={onAddTrackToQueue}
-                        onGoToAlbum={onOpenAlbum}
-                        onOpenArtist={onOpenArtist}
-                      />
-                    );
-                  })}
+                  <View id="search-track-list">
+                    {visibleTracks.map((track) => {
+                      const album = albumFor(track);
+                      return (
+                        <TrackRow
+                          key={track.id}
+                          track={track}
+                          messages={messages}
+                          artistKey={album?.artistKey}
+                          albumTitle={album?.title}
+                          hostile={album?.hostile === true}
+                          current={track.id === currentTrackId}
+                          onPlay={onPlayTrack}
+                          onPlayNext={onPlayNextTrack}
+                          onAddToQueue={onAddTrackToQueue}
+                          onGoToAlbum={onOpenAlbum}
+                          onOpenArtist={onOpenArtist}
+                        />
+                      );
+                    })}
+                  </View>
                 </View>
               ) : null}
             </>
           )}
+          {/* What this lookup is, and is not: one quiet line each. */}
+          <View id="search-notices">
+            <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
+            <Text id="search-plugin-notice">{messages.searchPluginNotice}</Text>
+          </View>
         </View>
       )}
     </View>

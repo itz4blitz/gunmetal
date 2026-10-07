@@ -37,6 +37,10 @@ test('the catalogue returns trusted shell and destination strings', () => {
       lyrics: 'Lyrics',
       playingFrom: 'Playing from',
       lyricsUnavailable: 'This file has no lyrics.',
+      resizeSidebar: 'Resize sidebar',
+      resizeQueue: 'Resize queue',
+      mute: 'Mute',
+      unmute: 'Unmute',
     },
     destinations: {
       homeHeadline: 'Home',
@@ -121,6 +125,11 @@ test('the catalogue returns trusted shell and destination strings', () => {
       shuffleUnavailable: 'Shuffle is not wired in this demo yet',
       playDisc: 'Play disc',
       allSongsHeading: 'All songs',
+      albumEyebrow: 'Album',
+      artistEyebrow: 'Artist',
+      artistSongCount: 'songs',
+      columnNumber: '#',
+      moreByArtist: 'More by',
       hostileTrackHidden: 'Track title hidden (hostile metadata)',
       /* 2026 library/search pass (SUR-022/SUR-032): density toggle, search
          clear. Append-only. */
@@ -136,6 +145,33 @@ test('the catalogue returns trusted shell and destination strings', () => {
       settingsSlotColumnSlot: 'Extension',
       settingsSlotColumnPlane: 'Runs on',
       settingsSlotColumnState: 'Status',
+      /* Layout pass over Settings, Search and Library: setting rows with an
+         honest status, the search idle and top-result states, and singular
+         count nouns. Append-only. */
+      settingsThemeHint: 'Dark is the default. OLED uses true black, and High contrast strengthens every edge.',
+      settingsUnavailable: 'Not available yet',
+      settingsPlaybackLevelling: 'Volume levelling',
+      settingsPlaybackLevellingHint: 'Plays tracks at a consistent loudness, from the tags in your files.',
+      settingsPlaybackCrossfade: 'Crossfade',
+      settingsPlaybackCrossfadeHint: 'Blends the end of one track into the start of the next.',
+      settingsPlaybackOutput: 'Output device',
+      settingsPlaybackOutputHint: 'Chooses the speakers or headphones this device plays through.',
+      settingsConnectedScrobble: 'Scrobbling',
+      settingsConnectedScrobbleHint: 'Sends what you play to a listening-history service you link yourself.',
+      settingsConnectedLyricsHint: 'Finds lyrics for tracks whose files have none.',
+      searchHint: 'Search by album, track or artist name.',
+      searchBrowseArtists: 'Browse artists',
+      searchTopResult: 'Top result',
+      searchKindTrack: 'Track',
+      searchNoHitsHint: 'Check the spelling, or try a shorter word.',
+      albumCountOne: 'album',
+      artistCountOne: 'artist',
+      trackCountOne: 'track',
+      searchResultCountOne: 'result',
+      libraryEmptyAlbums: 'No albums in this library yet.',
+      libraryEmptyArtists: 'No artists in this library yet.',
+      libraryEmptyTracks: 'No tracks in this library yet.',
+      settingsSlotLoaded: 'Loaded',
     },
   });
 });

@@ -4,8 +4,8 @@ import { navItems } from './Nav.tsx';
 
 test('primary nav items are Home, Search and Library from the catalogue', () => {
   expect(navItems(shellMessages())).toStrictEqual([
-    { path: '/', label: 'Home' },
-    { path: '/search', label: 'Search' },
-    { path: '/library', label: 'Library' },
+    { path: '/', label: 'Home', icon: 'home' },
+    { path: '/search', label: 'Search', icon: 'search' },
+    { path: '/library', label: 'Library', icon: 'library' },
   ]);
 });

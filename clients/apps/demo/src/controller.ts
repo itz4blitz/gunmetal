@@ -4,7 +4,15 @@ import type { PlaybackController } from '../../../packages/ui/src/shell/playback
 import { createDemoAudio, type DemoAudio } from './demo-audio.ts';
 import { applyAlbumQueue, applyPlayback, applyTrackQueue } from './demo-play.ts';
 import { createAudioElement } from './browser/audio-element.ts';
-import { emptyPlayback, seekTo, setQueueOpen, stepQueue, togglePlaying, type PlaybackSnapshot } from './playback.ts';
+import {
+  carryQueueOpen,
+  emptyPlayback,
+  seekTo,
+  setQueueOpen,
+  stepQueue,
+  togglePlaying,
+  type PlaybackSnapshot,
+} from './playback.ts';
 
 /**
  * The demo composition root's playback controller: fixture tones through one
@@ -67,10 +75,10 @@ export function useDemoPlayback(library: ShellLibrary | undefined): PlaybackCont
     volume,
     setVolume,
     playAlbum: (albumId) => {
-      setState(() => applyPlayback(library, albumId, undefined));
+      setState((current) => carryQueueOpen(current, applyPlayback(library, albumId, undefined)));
     },
     playTrack: (albumId, track) => {
-      setState(() => applyPlayback(library, albumId, track));
+      setState((current) => carryQueueOpen(current, applyPlayback(library, albumId, track)));
     },
     playNextAlbum: (albumId) => {
       setState((current) => applyAlbumQueue(library, current, albumId, 'next'));

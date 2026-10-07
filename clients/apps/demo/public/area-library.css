@@ -1,67 +1,90 @@
 /**
  * area-library.css — SUR-022 Library and SUR-032 Search (demo app).
  *
- * Loads after shell.css and only refines this area. Every colour comes from
- * a --gm-* token (design-language §4), motion is the 160ms token, radii stay
- * in the 2–16px set (never pills), and brass marks only the primary action
- * and where you are (§3). Sticky bars use the canvas, never translucency.
+ * Loads after shell.css and only refines these two surfaces: every rule is
+ * scoped to #destination-library or #destination-search, so the shared row
+ * and tile components keep whatever another surface gives them.
+ *
+ * Every colour comes from a --gm-* token (design-language §4), motion is the
+ * 160ms token, radii stay in the 2–16px set (never pills), and brass marks
+ * only the play control and where you are (§3). Sticky bars use the canvas,
+ * never translucency. The nut and its glyphs come from system.css.
+ *
+ * Layout answers the width of the page column through container queries.
+ * The sidebar and the queue are resizable, so nothing here reads the window.
  */
 
-/* —— SUR-022 Library header: headline, live totals, density —— */
+/* —— The page column is the container both surfaces measure —— */
 
-#destination-library {
+#destination:has(> #destination-library),
+#destination:has(> #destination-search) {
+  container-type: inline-size;
+  container-name: gm-page;
+}
+
+/* ==========================================================================
+   SUR-022 Library
+   ========================================================================== */
+
+#token-shell #destination-library {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-#library-header {
+/* —— Header: one toolbar row. Title and counts lead, density trails. —— */
+
+#token-shell #library-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 10px 24px;
+  justify-content: space-between;
+  gap: 12px 24px;
 }
 
-[data-library-heading] {
+#token-shell #library-header [data-library-heading] {
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 /* The counts line reads the catalogue it was handed — albums · artists ·
    tracks in tabular figures so the columns of a growing library stay put. */
-#library-totals {
-  font-size: 13px;
-  line-height: 18px;
+#token-shell #library-totals {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
 /* Density: a quiet segmented steel control. Where-you-are is the raised
    plate, not brass — brass stays scarce (§3). */
-#library-density {
+#token-shell #library-density {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: row;
   gap: 2px;
-  margin-inline-start: auto;
+  margin: 0;
   padding: 2px;
-  background: var(--gm-bg-inset);
+  border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
 }
 
-[data-density-option] {
+#token-shell #library-density [data-density-option] {
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 32px;
   min-height: 32px;
-  padding: 6px 14px;
+  padding: 0 10px;
   border-radius: var(--gm-radius-s);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
   cursor: pointer;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
@@ -70,30 +93,51 @@
     color var(--gm-motion);
 }
 
-[data-density-option]:hover {
+#token-shell #library-density [data-density-label] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+}
+
+#token-shell #library-density [data-density-option]:hover {
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-[data-density-option][data-selected='1'] {
+#token-shell #library-density [data-density-option][data-selected='1'] {
   background: var(--gm-bg-overlay);
   box-shadow: var(--gm-raised-edge);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-[data-density-option]:focus {
+#token-shell #library-density [data-density-option]:focus {
   outline: none;
 }
 
-[data-density-option]:focus-visible {
+#token-shell #library-density [data-density-option]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
 }
 
-/* —— Segmented tabs: sticky, brass underline slides in, roving arrows —— */
+/* Narrow column: the control keeps its place beside the title by dropping
+   its words. Each option keeps its accessible name and grows to a 44px
+   touch target. */
+@container gm-page (max-width: 519px) {
+  #token-shell #library-density [data-density-label] {
+    display: none;
+  }
 
-#library-tabs {
+  #token-shell #library-density [data-density-option] {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+}
+
+/* —— Tabs: sticky, brass underline on the selected one, roving arrows —— */
+
+#token-shell #library-tabs {
   position: sticky;
   top: 0;
   z-index: 6;
@@ -102,43 +146,42 @@
   border-bottom: 1px solid var(--gm-line-subtle);
 }
 
-#library-tabs [role='tab'] {
+#token-shell #library-tabs [role='tab'] {
   display: flex;
   flex-direction: row;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 10px 14px 12px;
-  border-radius: var(--gm-radius-m);
-  font-size: 14px;
-  font-weight: 600;
+  padding: 0 12px;
+  border-radius: var(--gm-radius-m) var(--gm-radius-m) 0 0;
+  cursor: pointer;
 }
 
-#library-tabs [role='tab']:focus {
+#token-shell #library-tabs [role='tab']:focus {
   outline: none;
 }
 
 /* Inside a scrolling list the ring is drawn 2px inside (design-language §8). */
-#library-tabs [role='tab']:focus-visible {
+#token-shell #library-tabs [role='tab']:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: -2px;
 }
 
-#library-tabs [data-tab-label] {
+#token-shell #library-tabs [data-tab-label] {
   font-size: 14px;
   line-height: 20px;
+  font-weight: 600;
 }
 
 /* Counts are chrome next to the label, in tabular figures. */
-#library-tabs [data-tab-count] {
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  padding: 1px 7px;
+#token-shell #library-tabs [data-tab-count] {
+  padding: 1px 6px;
   border-radius: var(--gm-radius-xs);
   background: color-mix(in srgb, var(--gm-text-primary) 7%, transparent);
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
   transition:
@@ -146,19 +189,22 @@
     color var(--gm-motion);
 }
 
-#library-tabs [data-selected='1'] [data-tab-count] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
-  --gm-text: var(--gm-accent-text);
-  color: var(--gm-accent-text);
+#token-shell #library-tabs [data-selected='1'] [data-tab-count] {
+  background: color-mix(in srgb, var(--gm-text-primary) 12%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-#library-tabs [data-selected='1']::after,
-#library-tabs [aria-selected='true']::after {
+/* Where you are: the brass bar sits on the hairline under the tab. */
+#token-shell #library-tabs [data-selected='1']::after {
   left: 12px;
   right: 12px;
-  bottom: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--gm-accent-indicator);
   transform-origin: left center;
-  animation: gm-tab-underline var(--gm-motion) cubic-bezier(0.2, 0, 0, 1) both;
+  animation: gm-tab-underline var(--gm-motion) both;
 }
 
 @keyframes gm-tab-underline {
@@ -173,178 +219,285 @@
   }
 }
 
-/* —— Album grid: fluid card shelf, art-first with a control scrim —— */
+/* —— Album grid: tiles of 160–200px on a 24px gap, filling the column —— */
 
-/* minmax sweeps 150–180px with the window, so a growing catalogue reflows
-   instead of leaving dead columns. */
-#library-album-grid {
-  grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 18vw, 180px), 1fr));
-  gap: 20px 16px;
-  padding-top: 4px;
+#token-shell #library-album-grid,
+#token-shell #destination-search [data-search-album-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 24px;
+  padding-top: 8px;
 }
 
-/* Hover scrim behind the on-art controls (play hex, kebab): the same
-   pattern as Home, canvas-gradient, never a blur. It sits under the
-   controls (z-index 2 < play 4 < kebab 5) and only ever covers art. */
-#library-album-grid [data-album-art]::after,
-[data-search-album-grid] [data-album-art]::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--gm-bg-canvas) 55%, transparent) 0%, transparent 28%),
-    linear-gradient(0deg, color-mix(in srgb, var(--gm-bg-canvas) 72%, transparent) 0%, transparent 40%);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--gm-motion);
+/* A phone-wide column shows two tiles on a 12px gap (design-language §7). */
+@container gm-page (max-width: 519px) {
+  #token-shell #library-album-grid,
+  #token-shell #destination-search [data-search-album-grid] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 12px;
+  }
 }
 
-#library-album-grid [data-album-tile]:hover [data-album-art]::after,
-#library-album-grid [data-album-tile]:focus-within [data-album-art]::after,
-[data-search-album-grid] [data-album-tile]:hover [data-album-art]::after,
-[data-search-album-grid] [data-album-tile]:focus-within [data-album-art]::after {
+/* The on-art controls (play nut, kebab) ride the tile's own scrim: canvas
+   gradient, never a blur. */
+#token-shell #library-album-grid [data-album-tile]:hover [data-art-scrim],
+#token-shell #library-album-grid [data-album-tile]:focus-within [data-art-scrim],
+#token-shell #destination-search [data-search-album-grid] [data-album-tile]:hover [data-art-scrim],
+#token-shell #destination-search [data-search-album-grid] [data-album-tile]:focus-within [data-art-scrim] {
   opacity: 1;
 }
 
 /* Two-line title clamp, artist muted — text carries the tile, not chrome. */
-#library-album-grid [data-album-artist],
-[data-search-album-grid] [data-album-artist] {
+#token-shell #library-album-grid [data-album-artist],
+#token-shell #destination-search [data-search-album-grid] [data-album-artist] {
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
-/* —— Artist rows: nut photo, name, album count, play affordance —— */
+/* —— People are nuts: the artist avatar, here and in Search —— */
 
-#library-artist-list {
-  gap: 4px;
-  padding-top: 4px;
+#token-shell :is(#destination-library, #destination-search) [data-artist-avatar] {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  clip-path: var(--gm-nut);
+  background: color-mix(in srgb, var(--gm-text-primary) 9%, var(--gm-bg-raised));
+  overflow: hidden;
 }
 
-[data-artist-row] {
-  grid-template-columns: 44px minmax(0, 1fr) auto auto;
-  gap: 14px;
-  min-height: 56px;
-  padding: 6px 12px;
-  cursor: pointer;
+#token-shell :is(#destination-library, #destination-search) [data-artist-initial] {
+  font-weight: 700;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
-[data-artist-avatar] {
-  width: 44px;
-  height: 44px;
-}
-
-[data-artist-photo] {
+#token-shell :is(#destination-library, #destination-search) [data-artist-photo] {
   position: absolute;
   inset: 0;
   background-size: cover;
   background-position: center;
-  /* One machined inner line keeps photo nuts sitting on the steel. */
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gm-line-control) 45%, transparent);
   transition: filter var(--gm-motion);
 }
 
-[data-artist-row]:hover [data-artist-photo] {
+/* —— Artists: a list of rows. Avatar, name, album count, play. —— */
+
+#token-shell #library-artist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+}
+
+#token-shell #library-artist-list [data-artist-row] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto 40px;
+  grid-template-areas: 'avatar name count play';
+  align-items: center;
+  align-content: center;
+  column-gap: 14px;
+  min-height: 56px;
+  padding: 6px 12px;
+  border-radius: var(--gm-radius-m);
+  cursor: pointer;
+  animation: gm-row-enter var(--gm-motion) both;
+}
+
+#token-shell #library-artist-list [data-artist-row]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: none;
+}
+
+#token-shell #library-artist-list [data-artist-row]:hover [data-artist-photo] {
   filter: brightness(1.08);
 }
 
-[data-artist-meta] {
+#token-shell #library-artist-list [data-artist-avatar] {
+  grid-area: avatar;
+  width: 44px;
+  height: 44px;
+}
+
+#token-shell #library-artist-list [data-artist-initial] {
+  font-size: 16px;
+  line-height: 20px;
+}
+
+#token-shell #library-artist-list [data-artist-meta] {
+  grid-area: name;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
   min-width: 0;
 }
 
-[data-artist-count] {
+#token-shell #library-artist-list [data-artist-name] {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  font-weight: 600;
+}
+
+#token-shell #library-artist-list [data-artist-count] {
+  grid-area: count;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* Play affordance: the brass hex, revealed on row hover or keyboard focus.
-   It plays the artist's first album and never swallows the row's open. */
-[data-artist-row] [data-artist-play] {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0;
-  background: var(--gm-accent-fill);
-  --gm-text: var(--gm-accent-on);
-  color: var(--gm-accent-on);
-  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
-  cursor: pointer;
+/* Play affordance: the shared brass nut (system.css draws it), revealed on
+   row hover or keyboard focus. It plays the artist's first album and never
+   swallows the row's open. */
+#token-shell #library-artist-list [data-artist-row] [data-artist-play] {
+  grid-area: play;
+  justify-self: end;
   opacity: 0;
-  transform: scale(0.94);
-  transition:
-    opacity var(--gm-motion),
-    transform var(--gm-motion),
-    filter var(--gm-motion);
 }
 
-[data-artist-row] [data-artist-play]::after {
-  content: '';
-  width: 0;
-  height: 0;
-  margin-left: 2px;
-  border-style: solid;
-  border-width: 6px 0 6px 10px;
-  border-color: transparent transparent transparent var(--gm-accent-on);
+#token-shell #library-artist-list [data-artist-row] [data-artist-play] > * {
+  display: none;
 }
 
-[data-artist-row]:hover [data-artist-play],
-[data-artist-row]:focus-within [data-artist-play],
-[data-artist-row] [data-artist-play]:focus-visible {
+#token-shell #library-artist-list [data-artist-row]:hover [data-artist-play],
+#token-shell #library-artist-list [data-artist-row]:focus-within [data-artist-play],
+#token-shell #library-artist-list [data-artist-row] [data-artist-play]:focus-visible {
   opacity: 1;
-  transform: scale(1);
 }
 
-[data-artist-row] [data-artist-play]:hover {
-  filter: brightness(1.06);
-}
-
-[data-artist-row] [data-artist-play]:active {
-  filter: brightness(0.92);
-}
-
-/* The hex clip eats outlines, so keyboard focus draws the ring on the row. */
-[data-artist-row]:has([data-artist-play]:focus-visible) {
+/* The nut clip eats outlines, so keyboard focus draws the ring on the row. */
+#token-shell #library-artist-list [data-artist-row]:has([data-artist-play]:focus-visible) {
   box-shadow: inset 0 0 0 2px var(--gm-focus-ring);
 }
 
-/* Always reachable on touch widths where hover does not exist. */
-#token-shell[data-width='compact'] [data-artist-row] [data-artist-play],
-#token-shell[data-width='medium'] [data-artist-row] [data-artist-play] {
+/* Always reachable on touch widths, where hover does not exist — as a steel
+   nut, so a list of artists is not a column of brass. It warms to brass
+   under a pointer or keyboard focus. */
+#token-shell:is([data-width='compact'], [data-width='medium'])
+  #library-artist-list
+  [data-artist-row]
+  [data-artist-play] {
   opacity: 1;
-  transform: none;
 }
 
-/* —— Track table: sticky header under the tab bar, honest flags —— */
+#token-shell:is([data-width='compact'], [data-width='medium'])
+  #library-artist-list
+  [data-artist-row]
+  [data-artist-play]:not(:hover, :focus-visible) {
+  background: var(--gm-progress-track);
+}
 
-#library-track-list {
+#token-shell:is([data-width='compact'], [data-width='medium'])
+  #library-artist-list
+  [data-artist-row]
+  [data-artist-play]:not(:hover, :focus-visible)::after {
+  background: var(--gm-text-secondary);
+}
+
+/* A column with room turns the comfortable list into a grid of portraits:
+   the nut large, the name and the count under it, play on the portrait. */
+@container gm-page (min-width: 520px) {
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+    gap: 16px 8px;
+  }
+
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list [data-artist-row] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'avatar'
+      'name'
+      'count';
+    justify-items: center;
+    row-gap: 2px;
+    min-height: 0;
+    padding: 12px 12px 14px;
+  }
+
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list [data-artist-avatar] {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    margin-bottom: 4px;
+  }
+
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list [data-artist-initial] {
+    font-size: 40px;
+    line-height: 48px;
+  }
+
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list [data-artist-meta] {
+    max-width: 100%;
+  }
+
+  #token-shell #destination-library[data-density='comfortable'] #library-artist-list [data-artist-name] {
+    text-align: center;
+  }
+
+  #token-shell
+    #destination-library[data-density='comfortable']
+    #library-artist-list
+    [data-artist-row]
+    [data-artist-play] {
+    grid-area: avatar;
+    align-self: end;
+    justify-self: end;
+    margin: 0 4px 14px 0;
+  }
+
+  /* On a portrait the tile itself is the way in; a play nut on every
+     portrait would crowd a touch screen, so there it waits for focus. */
+  #token-shell:is([data-width='compact'], [data-width='medium'])
+    #destination-library[data-density='comfortable']
+    #library-artist-list
+    [data-artist-row]
+    [data-artist-play]:not(:focus-visible) {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* —— Track table (Library) and track list (Search): one set of columns ——
+
+   number | title over artist | album | flag | time, then the kebab. Every
+   column has a fixed or fractional track, so a row with a flag lines up
+   with a row without one and the head lines up with both. */
+
+#token-shell :is(#library-track-list, #search-track-list) {
+  --track-col-number: 32px;
+  --track-col-flag: 92px;
+  --track-col-time: 48px;
+  --track-col-more: 44px;
+  --track-columns: var(--track-col-number) minmax(0, 1.6fr) minmax(0, 1fr) var(--track-col-flag) var(--track-col-time);
+  display: flex;
+  flex-direction: column;
   gap: 2px;
-  padding-top: 4px;
+}
+
+#token-shell #library-track-list {
+  padding-top: 0;
 }
 
 /* Sticky under the 49px tab bar (4 + 44 + hairline). The persistent bottom
    hairline is the stuck affordance — no scroll-driven class exists. */
-[data-track-table-head] {
+#token-shell #library-track-list [data-track-table-head] {
   position: sticky;
   top: 49px;
   z-index: 5;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1.8fr) minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: var(--track-columns);
+  column-gap: 12px;
   align-items: center;
-  min-height: 28px;
-  padding: 6px 56px 6px 12px;
-  background: var(--gm-bg-canvas);
+  align-content: center;
+  min-height: 36px;
+  margin-bottom: 4px;
+  padding: 0 calc(var(--track-col-more) + 8px) 0 12px;
   border-bottom: 1px solid var(--gm-line-subtle);
+  background: var(--gm-bg-canvas);
 }
 
-[data-track-table-head] > * {
+#token-shell #library-track-list [data-track-table-head] > * {
   font-size: 11px;
   line-height: 16px;
   font-weight: 600;
@@ -354,215 +507,367 @@
   color: var(--gm-text-muted);
 }
 
-[data-track-table-head] > [data-track-head-time] {
+#token-shell #library-track-list [data-track-table-head] > [data-track-head-time] {
+  grid-column: 5;
   text-align: end;
 }
 
-[data-track-row] {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--track-col-more);
+  align-items: center;
+  align-content: center;
+  column-gap: 4px;
   min-height: 52px;
-  padding: 8px 12px;
+  height: auto;
+  margin: 0;
+  padding: 0 4px 0 12px;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+  transition: background-color var(--gm-motion);
 }
 
-[data-track-row] [data-track-play],
-[data-track-row] [data-item-more] {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:hover,
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:focus-within {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: none;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] [data-track-play] {
+  display: grid;
+  grid-template-columns: var(--track-columns);
+  column-gap: 12px;
+  align-items: center;
+  /* A View starts its content at the top; the one row sits mid-height. */
+  align-content: center;
+  min-width: 0;
+  min-height: 52px;
+  border-radius: var(--gm-radius-s);
   cursor: pointer;
 }
 
-[data-track-row] [data-track-play] {
-  min-height: 36px;
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play]:focus {
+  outline: none;
 }
 
-/* Table rows with the album column: number | title/artist | album | flag | time. */
-[data-track-row] [data-track-play][data-with-album='1'] {
-  grid-template-columns: 32px minmax(0, 1.8fr) minmax(0, 1fr) auto auto;
-  column-gap: 12px;
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
 }
 
-[data-track-row] [data-track-album] {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > * {
+  grid-row: 1;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-number] {
+  grid-column: 1;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-meta] {
+  grid-column: 2;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-album] {
+  grid-column: 3;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-flag] {
+  grid-column: 4;
+  justify-self: start;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-duration] {
+  grid-column: 5;
+  justify-self: end;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-title] {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-artist] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-album] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
-/* The number becomes the play affordance on hover: brass triangle, no icon
-   font, no emoji — a clip-path glyph on the cell the pointer is over. The
-   playing row gives the slot to the animated bars instead. */
-[data-track-row] [data-track-number] {
-  position: relative;
+#token-shell :is(#library-track-list, #search-track-list) [data-track-duration] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  line-height: 18px;
+  text-align: end;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* The number becomes the play affordance on hover: the shared play glyph in
+   brass on the cell the pointer is over. The playing row gives the slot to
+   the level bars instead. */
+#token-shell :is(#library-track-list, #search-track-list) [data-track-number] {
+  position: relative;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-variant-numeric: tabular-nums;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
   transition: color var(--gm-motion);
 }
 
-[data-track-row] [data-track-number]::after {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-number]::after {
   content: '';
   position: absolute;
-  inset: 0;
-  width: 12px;
-  height: 12px;
-  margin: auto;
+  top: 50%;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
   background: var(--gm-accent-text);
-  clip-path: polygon(0% 0%, 100% 50%, 0% 100%);
+  clip-path: var(--gm-glyph-play);
   opacity: 0;
-  transform: translateX(1px);
   transition: opacity var(--gm-motion);
 }
 
-[data-track-row]:hover [data-track-number],
-[data-track-row] [data-track-play]:focus-visible [data-track-number],
-[data-track-row][data-current='1'] [data-track-number] {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:hover [data-track-number],
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play]:focus-visible [data-track-number],
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row][data-current='1'] [data-track-number] {
+  --gm-text: transparent;
   color: transparent;
 }
 
-[data-track-row]:hover [data-track-number]::after,
-[data-track-row] [data-track-play]:focus-visible [data-track-number]::after {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:hover [data-track-number]::after,
+#token-shell :is(#library-track-list, #search-track-list) [data-track-play]:focus-visible [data-track-number]::after {
   opacity: 1;
 }
 
-/* On the playing row the bars take the numeral slot; hovering swaps them
-   for the restart triangle. */
-[data-track-row][data-current='1'] [data-now-playing='1'] {
-  transition: opacity var(--gm-motion);
-}
-
-[data-track-row][data-current='1']:hover [data-now-playing='1'] {
-  opacity: 0;
-}
-
 /* Flags: text badges in steel, never brass — an unplayable file is not an
-   honour. The row dims; the labels keep their token colours. */
-[data-track-row] [data-track-flag] {
-  align-self: center;
-  padding: 2px 7px;
+   honour. The badge states the reason in words and the row's text keeps its
+   normal colour, so its contrast never drops (design-language §4,
+   "Unavailable item"). */
+#token-shell :is(#library-track-list, #search-track-list) [data-track-flag] {
+  padding: 1px 6px;
   border: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
   border-radius: var(--gm-radius-xs);
   font-size: 11px;
-  line-height: 14px;
+  line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.04em;
   white-space: nowrap;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
 }
 
-[data-track-row][data-flagged='1'] [data-track-play] {
-  opacity: 0.62;
-  transition: opacity var(--gm-motion);
-}
-
-[data-track-row][data-flagged='1']:hover [data-track-play],
-[data-track-row][data-flagged='1'] [data-track-play]:focus-visible {
-  opacity: 0.78;
-}
-
-/* Current row: brass wash plus a 1px brass inset — where you are. */
-[data-track-row][data-current='1'] {
+/* The playing row — where you are: a brass wash, the title in brass text
+   and the level bars in the number cell. Hover trades the bars for the play
+   glyph. */
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row][data-current='1'] {
   background: color-mix(in srgb, var(--gm-accent-fill) 12%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--gm-accent-indicator) 42%, transparent),
-    var(--gm-raised-edge);
+  box-shadow: none;
 }
 
-[data-track-row][data-current='1'] [data-track-duration] {
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row][data-current='1'] [data-track-title] {
   --gm-text: var(--gm-accent-text);
   color: var(--gm-accent-text);
 }
 
-/* Kebab: a 44px square target, right-aligned in the row; the glyph stays
-   text-free (font-size 0 + ::before from shell chrome). */
-[data-track-row] [data-item-more] {
-  position: static;
-  width: 44px;
-  height: 44px;
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] > [data-now-playing='1'] {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 12px;
+  height: 14px;
+  margin: -7px 0 0;
+  pointer-events: none;
+  transition: opacity var(--gm-motion);
+}
+
+#token-shell
+  :is(#library-track-list, #search-track-list)
+  [data-track-row][data-current='1']:hover
+  > [data-now-playing='1'] {
   opacity: 0;
 }
 
-[data-track-row]:hover [data-item-more],
-[data-track-row]:focus-within [data-item-more],
-[data-track-row] [data-item-more]:focus-visible {
+/* Kebab: its own trailing column, quiet until the row is hovered or
+   focused; always present where hover does not exist. */
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] [data-item-more] {
+  position: static;
+  width: var(--track-col-more);
+  height: 36px;
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--gm-motion),
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:hover [data-item-more],
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row]:focus-within [data-item-more],
+#token-shell:is([data-width='compact'], [data-width='medium'])
+  :is(#library-track-list, #search-track-list)
+  [data-track-row]
+  [data-item-more] {
   opacity: 1;
 }
 
-#token-shell[data-width='compact'] [data-track-row] [data-item-more],
-#token-shell[data-width='medium'] [data-track-row] [data-item-more] {
-  opacity: 1;
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] [data-item-more]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-/* Compact phones drop the album column; rows keep 56px from shell chrome. */
-#token-shell[data-width='compact'] [data-track-play][data-with-album='1'] {
-  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+/* A narrower column drops the album column; the flag takes what it needs
+   beside the time. Touch widths keep 56px rows and a 44px kebab. */
+@container gm-page (max-width: 639px) {
+  #token-shell :is(#library-track-list, #search-track-list) {
+    --track-columns: var(--track-col-number) minmax(0, 1fr) auto var(--track-col-time);
+  }
+
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-album],
+  #token-shell #library-track-list [data-track-table-head] > [data-track-head-album] {
+    display: none;
+  }
+
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-flag] {
+    grid-column: 3;
+  }
+
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-play] > [data-track-duration],
+  #token-shell #library-track-list [data-track-table-head] > [data-track-head-time] {
+    grid-column: 4;
+  }
 }
 
-#token-shell[data-width='compact'] [data-track-album],
-#token-shell[data-width='compact'] [data-track-table-head] > [data-track-head-album],
-#token-shell[data-width='compact'] [data-track-table-head] > [data-track-head-time] {
-  display: none;
+@container gm-page (max-width: 519px) {
+  #token-shell :is(#library-track-list, #search-track-list) {
+    --track-col-number: 24px;
+    --track-col-time: 40px;
+  }
+
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-row] {
+    padding: 0 0 0 8px;
+    column-gap: 0;
+  }
+
+  #token-shell #library-track-list [data-track-table-head] {
+    padding: 0 var(--track-col-more) 0 8px;
+  }
+
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-row] > [data-now-playing='1'] {
+    left: 8px;
+  }
 }
 
-#token-shell[data-width='compact'] [data-track-table-head] {
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  padding-right: 48px;
+#token-shell[data-width='compact'] :is(#library-track-list, #search-track-list) [data-track-row],
+#token-shell[data-width='compact'] :is(#library-track-list, #search-track-list) [data-track-row] [data-track-play] {
+  min-height: 56px;
 }
 
-/* —— Compact density (the toggle): 44px rows, tighter shelf —— */
+#token-shell[data-width='compact'] :is(#library-track-list, #search-track-list) [data-track-row] [data-item-more] {
+  height: 44px;
+}
 
-#destination-library[data-density='compact'] [data-track-row] {
+/* —— Compact density (the toggle): 44px rows, smaller tiles —— */
+
+#token-shell #destination-library[data-density='compact'] [data-track-row],
+#token-shell #destination-library[data-density='compact'] [data-track-row] [data-track-play] {
   min-height: 44px;
-  padding: 5px 12px;
 }
 
-#destination-library[data-density='compact'] [data-track-row] [data-track-play] {
-  min-height: 34px;
+#token-shell #destination-library[data-density='compact'] [data-track-row] [data-track-title] {
+  line-height: 18px;
 }
 
-#destination-library[data-density='compact'] [data-artist-row] {
+#token-shell #destination-library[data-density='compact'] [data-track-row] [data-track-artist] {
+  line-height: 16px;
+}
+
+#token-shell #destination-library[data-density='compact'] [data-track-row] [data-item-more] {
+  height: 32px;
+}
+
+#token-shell #destination-library[data-density='compact'] #library-artist-list [data-artist-row] {
   min-height: 48px;
   padding: 4px 12px;
 }
 
-#destination-library[data-density='compact'] #library-album-grid {
-  gap: 16px 12px;
+#token-shell #destination-library[data-density='compact'] #library-artist-list [data-artist-avatar] {
+  width: 36px;
+  height: 36px;
+}
+
+#token-shell #destination-library[data-density='compact'] #library-artist-list [data-artist-row] {
+  grid-template-columns: 36px minmax(0, 1fr) auto 40px;
+}
+
+#token-shell #destination-library[data-density='compact'] #library-artist-list [data-artist-initial] {
+  font-size: 14px;
+  line-height: 18px;
+}
+
+#token-shell #destination-library[data-density='compact'] #library-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 16px;
+}
+
+@container gm-page (max-width: 519px) {
+  #token-shell #destination-library[data-density='compact'] #library-album-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 8px;
+  }
 }
 
 /* —— Entrance choreography: rows rise in, capped at seven slots —— */
 
-#library-artist-list [data-artist-row],
-#library-track-list [data-track-row] {
+#token-shell #library-track-list [data-track-row] {
   animation: gm-row-enter var(--gm-motion) both;
 }
 
-[data-row-stagger='0'] {
+#token-shell #destination-library [data-row-stagger='0'] {
   animation-delay: 0ms;
 }
 
-[data-row-stagger='1'] {
+#token-shell #destination-library [data-row-stagger='1'] {
   animation-delay: 20ms;
 }
 
-[data-row-stagger='2'] {
+#token-shell #destination-library [data-row-stagger='2'] {
   animation-delay: 40ms;
 }
 
-[data-row-stagger='3'] {
+#token-shell #destination-library [data-row-stagger='3'] {
   animation-delay: 60ms;
 }
 
-[data-row-stagger='4'] {
+#token-shell #destination-library [data-row-stagger='4'] {
   animation-delay: 80ms;
 }
 
-[data-row-stagger='5'] {
+#token-shell #destination-library [data-row-stagger='5'] {
   animation-delay: 100ms;
 }
 
-[data-row-stagger='6'] {
+#token-shell #destination-library [data-row-stagger='6'] {
   animation-delay: 120ms;
 }
 
@@ -578,25 +883,51 @@
   }
 }
 
-/* —— SUR-032 Search —— */
+/* ==========================================================================
+   SUR-032 Search
+   ========================================================================== */
 
-#destination-search {
+#token-shell #destination-search {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
-#search-field-wrap {
-  max-width: 760px;
+/* —— The field: a real loupe leading, a real close trailing —— */
+
+#token-shell #search-field-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
 }
 
-#search-field {
-  padding: 17px 44px 17px 48px;
+#token-shell #search-affordance {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 0;
+  pointer-events: none;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #search-affordance::after {
+  content: none;
+}
+
+#token-shell #search-field {
+  height: 48px;
+  padding: 12px 48px 12px 46px;
   caret-color: var(--gm-accent-fill);
 }
 
-/* The browser's own cancel glyph stands down; the machined × below owns it. */
-#search-field::-webkit-search-cancel-button {
+/* The browser's own cancel glyph stands down; the close icon owns it. */
+#token-shell #search-field::-webkit-search-cancel-button {
   -webkit-appearance: none;
   appearance: none;
 }
@@ -610,19 +941,20 @@
     0 0 0 1px color-mix(in srgb, var(--gm-focus-ring) 40%, transparent);
 }
 
-[data-search-clear] {
+#token-shell #destination-search [data-search-clear] {
   position: absolute;
   top: 50%;
   right: 8px;
+  z-index: 1;
   transform: translateY(-50%);
   width: 32px;
   height: 32px;
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   border-radius: var(--gm-radius-m);
   background: transparent;
-  font-size: 0;
   cursor: pointer;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
@@ -631,190 +963,510 @@
     color var(--gm-motion);
 }
 
-[data-search-clear]::before {
-  content: '×';
-  font-size: 18px;
-  line-height: 1;
+#token-shell #destination-search [data-search-clear]::before {
+  content: none;
 }
 
-/* RN-web Text pins 14px — hide the visible label; the name is the aria-label. */
-[data-search-clear] > * {
-  display: none;
-}
-
-[data-search-clear]:hover {
+#token-shell #destination-search [data-search-clear]:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-[data-search-clear]:focus {
+#token-shell #destination-search [data-search-clear]:focus {
   outline: none;
 }
 
-[data-search-clear]:focus-visible {
+#token-shell #destination-search [data-search-clear]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
 }
 
-/* Quiet type toggles: hairline when off, primary text plus the brass
-   underline when on. Radius m — never pills. */
-#search-type-chips {
+#token-shell[data-width='compact'] #destination-search [data-search-clear] {
+  right: 2px;
+  width: 44px;
+  height: 44px;
+}
+
+/* —— Section heads: a heading and its count, here and in the results —— */
+
+#token-shell #destination-search [data-search-group-head] {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+}
+
+#token-shell #destination-search [data-search-group] {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-search [data-search-group-count] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* —— Before a query: a hint under the field, then browse by artist —— */
+
+#token-shell #search-idle {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  margin-top: -12px;
+}
+
+#token-shell #search-hint {
+  font-size: 14px;
+  line-height: 20px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #search-browse {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#token-shell #search-browse [data-search-artist-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0 -8px;
+}
+
+/* A phone-wide column shows three across. */
+@container gm-page (max-width: 519px) {
+  #token-shell #search-browse [data-search-artist-grid] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+}
+
+#token-shell #search-browse [data-search-artist] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 8px 12px;
+  border-radius: var(--gm-radius-m);
+  cursor: pointer;
+  transition: background-color var(--gm-motion);
+}
+
+#token-shell #search-browse [data-search-artist] [data-artist-avatar] {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+#token-shell #search-browse [data-search-artist] [data-artist-initial] {
+  font-size: 30px;
+  line-height: 36px;
+}
+
+/* Two lines, then an ellipsis (design-language §6): names are not cut short
+   while there is room to wrap. */
+#token-shell #search-browse [data-search-artist-name] {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  text-align: center;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  transition: color var(--gm-motion);
+}
+
+#token-shell #search-browse [data-search-artist]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+}
+
+#token-shell #search-browse [data-search-artist]:hover [data-search-artist-name] {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #search-browse [data-search-artist]:hover [data-artist-photo] {
+  filter: brightness(1.08);
+}
+
+#token-shell #search-browse [data-search-artist]:focus {
+  outline: none;
+}
+
+#token-shell #search-browse [data-search-artist]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
+}
+
+/* —— Results: filters and count, top result, albums, tracks, notices —— */
+
+#token-shell #search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-top: -8px;
+}
+
+#token-shell #search-results-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+#token-shell #search-results-count {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* Type toggles: hairline when off, a raised steel plate when on. Radius m —
+   never pills, and no brass: a filter is not where you are. */
+#token-shell #search-type-chips {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-[data-search-chip] {
+#token-shell #destination-search [data-search-chip] {
   position: relative;
-  min-height: 36px;
-  padding: 8px 14px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px 0 12px;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-m);
   background: transparent;
-  font-size: 13px;
-  font-weight: 600;
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
+  box-shadow: none;
+  cursor: pointer;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
   transition:
     color var(--gm-motion),
     border-color var(--gm-motion),
     background-color var(--gm-motion);
 }
 
-[data-search-chip]:hover {
+#token-shell #destination-search [data-search-chip]::after {
+  content: none;
+}
+
+#token-shell #destination-search [data-search-chip-label] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 600;
+}
+
+#token-shell #destination-search [data-search-chip-count] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+#token-shell #destination-search [data-search-chip]:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-[data-search-chip]:focus {
-  outline: none;
-}
-
-[data-search-chip]:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
-}
-
-[data-search-chip][data-pressed='1'] {
-  border-color: transparent;
+#token-shell #destination-search [data-search-chip][data-pressed='1'] {
+  border-color: color-mix(in srgb, var(--gm-line-control) 45%, var(--gm-line-subtle));
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-raised-edge);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
-/* Active filter = where you are: the brass underline, same grammar as tabs. */
-[data-search-chip][data-pressed='1']::after {
+#token-shell #destination-search [data-search-chip]:focus {
+  outline: none;
+}
+
+#token-shell #destination-search [data-search-chip]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell[data-width='compact'] #destination-search [data-search-chip] {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+/* Top result: one raised card. The cover and the words open the album; the
+   brass nut plays. */
+#token-shell #search-top,
+#token-shell #destination-search [data-search-albums],
+#token-shell #destination-search [data-search-tracks] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#token-shell #search-top [data-search-top-card] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px 16px 16px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-l);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-elev-raised);
+  transition: background-color var(--gm-motion);
+}
+
+#token-shell #search-top [data-search-top-card]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-raised));
+}
+
+#token-shell #search-top [data-search-top-open] {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  border-radius: var(--gm-radius-s);
+  cursor: pointer;
+}
+
+#token-shell #search-top [data-search-top-open]:focus {
+  outline: none;
+}
+
+#token-shell #search-top [data-search-top-open]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell #search-top #search-top-cover {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+}
+
+#token-shell #search-top [data-search-top-text] {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#token-shell #search-top [data-search-top-title] {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--gm-type-title2-size);
+  line-height: var(--gm-type-title2-line);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #search-top [data-search-top-byline] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+@container gm-page (max-width: 519px) {
+  #token-shell #search-top [data-search-top-card] {
+    gap: 12px;
+    padding: 12px 14px 12px 12px;
+  }
+
+  #token-shell #search-top [data-search-top-open] {
+    gap: 12px;
+  }
+
+  #token-shell #search-top #search-top-cover {
+    width: 72px;
+    height: 72px;
+  }
+
+  #token-shell #search-top [data-search-top-title] {
+    font-size: 17px;
+    line-height: 22px;
+  }
+
+  #token-shell #search-top [data-brass-hex='1'] {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* No matches: what happened, the query as typed, and what to try. An
+   empty Library tab uses the same statement: mark, then words. */
+#token-shell #search-no-hits,
+#token-shell #library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 40px 16px 32px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+
+/* The mark is the identity shape: a hollow steel nut around an icon. */
+#token-shell #search-no-hits [data-search-empty-mark],
+#token-shell #library-empty [data-library-empty-mark] {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 12px;
+  clip-path: var(--gm-nut);
+  background: color-mix(in srgb, var(--gm-line-control) 55%, var(--gm-line-subtle));
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #search-no-hits [data-search-empty-mark]::before,
+#token-shell #library-empty [data-library-empty-mark]::before {
   content: '';
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 4px;
-  height: 2px;
-  border-radius: var(--gm-radius-xs);
-  background: var(--gm-accent-indicator);
-  transform-origin: left center;
-  animation: gm-tab-underline var(--gm-motion) cubic-bezier(0.2, 0, 0, 1) both;
+  inset: 1.5px;
+  clip-path: var(--gm-nut);
+  background: var(--gm-bg-canvas);
 }
 
-/* Results meta: the count, then the honest demo-local notice as a quiet
-   chip — muted chrome that says what this search is not. */
-#search-results {
-  gap: 16px;
+#token-shell #search-no-hits [data-search-empty-mark] svg[data-icon],
+#token-shell #library-empty [data-library-empty-mark] svg[data-icon] {
+  position: relative;
 }
 
-#search-results-meta {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-}
-
-#search-results-count {
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+#token-shell #library-empty [data-library-empty-text] {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  text-align: center;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
 }
 
-#search-demo-notice {
-  padding: 3px 8px;
-  border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-xs);
-  font-size: 11px;
-  line-height: 14px;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
+#token-shell #search-no-hits [data-search-empty-title] {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 650;
+  text-align: center;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-#search-plugin-notice {
-  font-size: 12px;
-  line-height: 16px;
-  padding-left: 10px;
-  border-left: 2px solid var(--gm-line-subtle);
-}
-
-[data-search-group-head] {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--gm-line-subtle);
-}
-
-[data-search-group-count] {
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-}
-
-[data-search-album-grid] {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 18vw, 180px), 1fr));
-  gap: 20px 16px;
-}
-
-[data-search-query-echo] {
-  font-size: 13px;
-  line-height: 18px;
+#token-shell #search-no-hits [data-search-query-echo] {
+  max-width: 100%;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  text-align: center;
+  overflow-wrap: anywhere;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
+}
+
+#token-shell #search-no-hits [data-search-empty-hint] {
+  margin-top: 8px;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  text-align: center;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* What this lookup is, and is not: two quiet sentences under the results. */
+#token-shell #search-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gm-line-subtle);
+}
+
+#token-shell #search-notices > * {
+  max-width: 70ch;
+  padding: 0;
+  border: 0;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
 /* —— Reduced motion (CLI-140): everything resolves to instant —— */
 
 @media (prefers-reduced-motion: reduce) {
-  #library-tabs [data-selected='1']::after,
-  #library-tabs [aria-selected='true']::after,
-  [data-search-chip][data-pressed='1']::after {
+  #token-shell #library-tabs [data-selected='1']::after {
     animation: none;
     transform: none;
   }
 
-  #library-artist-list [data-artist-row],
-  #library-track-list [data-track-row] {
+  #token-shell #library-artist-list [data-artist-row],
+  #token-shell #library-track-list [data-track-row] {
     animation: none;
   }
 
-  [data-artist-photo],
-  [data-artist-row] [data-artist-play],
-  [data-track-row] [data-track-number],
-  [data-track-row] [data-track-number]::after,
-  [data-track-row][data-current='1'] [data-now-playing='1'],
-  [data-track-row][data-flagged='1'] [data-track-play],
-  [data-search-chip],
-  [data-search-clear],
-  #library-album-grid [data-album-art]::after,
-  [data-search-album-grid] [data-album-art]::after {
+  #token-shell :is(#destination-library, #destination-search) [data-artist-photo],
+  #token-shell #library-artist-list [data-artist-row] [data-artist-play],
+  #token-shell #library-density [data-density-option],
+  #token-shell #library-tabs [data-tab-count],
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-row],
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-number],
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-number]::after,
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-row] > [data-now-playing='1'],
+  #token-shell :is(#library-track-list, #search-track-list) [data-track-row] [data-item-more],
+  #token-shell #destination-search [data-search-chip],
+  #token-shell #destination-search [data-search-clear],
+  #token-shell #search-browse [data-search-artist],
+  #token-shell #search-browse [data-search-artist-name],
+  #token-shell #search-top [data-search-top-card] {
     transition: none;
   }
 
-  [data-artist-row] [data-artist-play] {
+  #token-shell #library-artist-list [data-artist-row] [data-artist-play] {
     transform: none;
   }
 }

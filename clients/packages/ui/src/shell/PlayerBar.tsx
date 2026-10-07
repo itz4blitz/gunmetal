@@ -3,6 +3,7 @@ import { Text, View } from 'react-native-web';
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
+import { Icon, type IconName } from './Icon.tsx';
 import { formatDuration } from './format.ts';
 
 export type PlayerBarProps = {
@@ -14,38 +15,11 @@ export type PlayerBarProps = {
   onVolume?: ((volume: number) => void) | undefined;
   onSeek?: ((positionMs: number) => void) | undefined;
   onPlayPause?: (() => void) | undefined;
-  /** Starts the featured album from the empty state (steel play button). */
-  onPlayFirst?: (() => void) | undefined;
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;
   onToggleQueue?: (() => void) | undefined;
   onOpenFull?: (() => void) | undefined;
 };
-
-/* Inline SVG glyphs (design-language §10: elements, no style inside). */
-function IconGlyph({ path, label }: { path: string; label: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-label={label}
-      role="img"
-    >
-      <path d={path} />
-    </svg>
-  );
-}
-
-const GLYPH_EXPAND = 'M6 14l6-6 6 6';
-const GLYPH_LYRICS = 'M4 6h16M4 11h16M4 16h10';
-const GLYPH_VOLUME = 'M4 9v6h4l5 4V5L8 9H4z M16.5 8.5a5 5 0 0 1 0 7';
-const GLYPH_QUEUE = 'M4 6h16M4 11h16M4 16h9M18 14v6M15 17h6';
 
 export function PlayerBar({
   messages,
@@ -56,7 +30,6 @@ export function PlayerBar({
   onVolume,
   onSeek,
   onPlayPause,
-  onPlayFirst,
   onPrevious,
   onNext,
   onToggleQueue,
@@ -64,7 +37,6 @@ export function PlayerBar({
 }: PlayerBarProps) {
   const empty = playback.trackId === undefined;
   const progress = playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
-  const [marqueeShift, setMarqueeShift] = useState(0);
 
   /* The marquee engages only on a measured overflow. The visible width comes
      from the meta block's content box (the clipping parent), so re-measuring
@@ -89,11 +61,9 @@ export function PlayerBar({
       const shift = titleMarqueeShift(el.scrollWidth, available);
       if (shift === null) {
         el.style.removeProperty('--gm-title-shift');
-        setMarqueeShift(0);
         return;
       }
       el.style.setProperty('--gm-title-shift', `${shift}px`);
-      setMarqueeShift(shift);
     };
     measure();
     globalThis.addEventListener('resize', measure);
@@ -171,6 +141,10 @@ export function PlayerBar({
               }}
             >
               <CoverTile tone={playback.coverTone} label={playback.title} size="bar" artUrl={playback.coverUrl} />
+              {/* Shown on hover and focus: the artwork opens the full player. */}
+              <View dataSet={{ artExpand: '1' }} aria-hidden={true}>
+                <Icon name="expand" size={18} />
+              </View>
             </View>
             <View
               id="player-meta"
@@ -195,23 +169,23 @@ export function PlayerBar({
       {/* —— Centre: transport stacked over the scrubber, one optical centre —— */}
       <View id="player-center">
         <View id="player-transport">
-          <ControlButton id="player-prev" label={messages.previous} onPress={onPrevious} disabled={empty} />
+          <ControlButton
+            id="player-prev"
+            label={messages.previous}
+            onPress={onPrevious}
+            disabled={empty}
+            glyph="previous"
+          />
           <ControlButton
             id="shell-play"
             label={playback.playing ? messages.pause : messages.play}
-            onPress={() => {
-              if (empty) {
-                onPlayFirst?.();
-                return;
-              }
-              onPlayPause?.();
-            }}
-            disabled={empty && onPlayFirst === undefined}
+            onPress={onPlayPause}
+            disabled={empty}
             primary
             playing={playback.playing}
             idle={empty}
           />
-          <ControlButton id="player-next" label={messages.next} onPress={onNext} disabled={empty} />
+          <ControlButton id="player-next" label={messages.next} onPress={onNext} disabled={empty} glyph="next" />
         </View>
         <View id="player-progress" dataSet={{ barEmpty: empty ? '1' : '0' }}>
           <Text id="player-time-elapsed" dataSet={{ scrubberTime: '1' }}>
@@ -221,12 +195,10 @@ export function PlayerBar({
             id="player-scrubber"
             accessibilityRole="slider"
             accessibilityLabel={messages.progress}
-            accessibilityValue={{
-              min: 0,
-              max: playback.durationMs,
-              now: playback.positionMs,
-              text: `${formatDuration(playback.positionMs)} of ${formatDuration(playback.durationMs)}`,
-            }}
+            aria-valuemin={0}
+            aria-valuemax={playback.durationMs}
+            aria-valuenow={Math.round(playback.positionMs)}
+            aria-valuetext={`${formatDuration(playback.positionMs)} of ${formatDuration(playback.durationMs)}`}
             dataSet={{ progress: `${Math.round(progress * 100)}` }}
             tabIndex={empty ? -1 : 0}
             onClick={seekFromEvent}
@@ -263,7 +235,7 @@ export function PlayerBar({
               }
             }}
           >
-            <IconGlyph path={GLYPH_EXPAND} label={messages.openFullPlayer} />
+            <Icon name="expand" size={18} />
           </View>
         )}
         {empty || compact ? null : (
@@ -281,36 +253,71 @@ export function PlayerBar({
               }
             }}
           >
-            <IconGlyph path={GLYPH_LYRICS} label={messages.lyrics} />
+            <Icon name="lyrics" size={18} />
           </View>
         )}
         {empty || compact || volume === undefined || onVolume === undefined ? null : (
-          <View id="player-volume" dataSet={{ volume: '1' }}>
-            <View id="player-volume-icon">
-              <IconGlyph path={GLYPH_VOLUME} label={messages.volume} />
-            </View>
-            <input
-              id="player-volume-range"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              aria-label={messages.volume}
-              onChange={(event) => {
-                onVolume(Number(event.currentTarget.value));
-              }}
-            />
-          </View>
+          <VolumeControl messages={messages} volume={volume} onVolume={onVolume} />
         )}
         <ControlButton
           id="player-queue"
           label={messages.queue}
           onPress={onToggleQueue}
           disabled={false}
-          glyph={GLYPH_QUEUE}
+          glyph="queue"
         />
       </View>
+    </View>
+  );
+}
+
+type VolumeControlProps = {
+  messages: ShellMessages;
+  volume: number;
+  onVolume: (volume: number) => void;
+};
+
+/* The speaker button silences the output and brings it back to where it was:
+   the level it returns to is the last audible one this control saw. */
+function VolumeControl({ messages, volume, onVolume }: VolumeControlProps) {
+  const [audibleVolume, setAudibleVolume] = useState(defaultAudibleVolume);
+  const muted = volume === 0;
+  const toggleMute = () => {
+    if (volume > 0) {
+      setAudibleVolume(volume);
+    }
+    onVolume(toggledVolume(volume, audibleVolume));
+  };
+  return (
+    <View id="player-volume" dataSet={{ volume: '1' }}>
+      <View
+        id="player-volume-icon"
+        dataSet={{ muted: muted ? '1' : '0' }}
+        accessibilityRole="button"
+        accessibilityLabel={muted ? messages.unmute : messages.mute}
+        tabIndex={0}
+        onClick={toggleMute}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleMute();
+          }
+        }}
+      >
+        <Icon name={muted ? 'mute' : 'volume'} size={18} />
+      </View>
+      <input
+        id="player-volume-range"
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={volume}
+        aria-label={messages.volume}
+        onChange={(event) => {
+          onVolume(Number(event.currentTarget.value));
+        }}
+      />
     </View>
   );
 }
@@ -323,7 +330,7 @@ type ControlButtonProps = {
   primary?: boolean | undefined;
   playing?: boolean | undefined;
   idle?: boolean | undefined;
-  glyph?: string | undefined;
+  glyph?: IconName | undefined;
 };
 
 function ControlButton({
@@ -347,7 +354,7 @@ function ControlButton({
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled }}
+      aria-disabled={disabled ? true : undefined}
       tabIndex={disabled ? -1 : 0}
       onClick={() => {
         if (!disabled) {
@@ -364,11 +371,7 @@ function ControlButton({
         }
       }}
     >
-      {glyph === undefined ? (
-        <Text dataSet={{ controlLabel: '1' }}>{label}</Text>
-      ) : (
-        <IconGlyph path={glyph} label={label} />
-      )}
+      {glyph === undefined ? <Text dataSet={{ controlLabel: '1' }}>{label}</Text> : <Icon name={glyph} size={20} />}
     </View>
   );
   /* The hex clip-path clips every paint of the button itself, so the focus
@@ -377,6 +380,15 @@ function ControlButton({
     return control;
   }
   return <View dataSet={{ hexWrap: '1' }}>{control}</View>;
+}
+
+/** The level an unmute returns to when this bar never saw an audible one. */
+export const defaultAudibleVolume = 0.8;
+
+/** Where the speaker button sends the volume: to silence when it is audible,
+ * and back to the remembered level when it is already silent. */
+export function toggledVolume(volume: number, remembered: number): number {
+  return volume > 0 ? 0 : remembered;
 }
 
 /** Returns the pixel shift for a marquee, or null when the title fits. */

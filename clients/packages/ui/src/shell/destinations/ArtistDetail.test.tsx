@@ -44,6 +44,17 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
   expect(container.querySelector('#artist-disambiguation')).toBeNull();
   expect(container.querySelector('[data-artist-album-count="1"]')?.textContent).toStrictEqual('2 albums');
+  // The hero reads eyebrow · name · "albums · songs", and the grid has its own heading.
+  expect(container.querySelector('[data-artist-header-text="1"] [data-detail-eyebrow="1"]')?.textContent).toStrictEqual(
+    'Artist',
+  );
+  expect([...container.querySelectorAll('[data-artist-meta="1"] > *')].map((node) => node.textContent)).toStrictEqual([
+    '2 albums',
+    '·',
+    '7 songs',
+  ]);
+  expect(screen.getByRole('heading', { name: 'Albums' }).getAttribute('data-section-heading')).toStrictEqual('1');
+  expect(container.querySelector('#artist-back svg')?.getAttribute('data-icon')).toStrictEqual('back');
   expect(container.querySelector('#artist-play[data-brass-hex="1"]')).toBeTruthy();
   expect(container.querySelector('#artist-album-grid')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
@@ -65,11 +76,12 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   const songs = container.querySelector('#artist-all-songs');
   expect(songs).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'All songs' })).toBeTruthy();
-  // The table head is presentational chrome over the row grid: title,
-  // album, time — hidden from assistive tech, aligned with the columns.
+  // The table head is presentational chrome over the row grid: number,
+  // title, album, time — hidden from assistive tech, aligned with the columns.
   const tableHead = container.querySelector('[data-artist-table-head="1"]');
   expect(tableHead?.getAttribute('aria-hidden')).toStrictEqual('true');
   expect([...(tableHead?.querySelectorAll('*') ?? [])].map((node) => node.textContent)).toStrictEqual([
+    '#',
     'Title',
     'Album',
     'Time',

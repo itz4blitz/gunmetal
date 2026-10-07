@@ -71,7 +71,7 @@ export function playbackFromAlbum(album: ShellAlbum): PlaybackSnapshot {
     durationMs: first.durationMs,
     lyricsKind: first.lyricsKind,
     queue,
-    queueOpen: true,
+    queueOpen: false,
   };
 }
 
@@ -94,7 +94,7 @@ export function playbackFromTrack(album: ShellAlbum, track: ShellTrack): Playbac
     durationMs: active.durationMs,
     lyricsKind: active.lyricsKind,
     queue,
-    queueOpen: true,
+    queueOpen: false,
   };
 }
 
@@ -176,7 +176,7 @@ export function playFromLine(line: QueueLine): PlaybackSnapshot {
     durationMs: line.durationMs,
     lyricsKind: line.lyricsKind,
     queue: [line],
-    queueOpen: true,
+    queueOpen: false,
   };
 }
 
@@ -186,12 +186,11 @@ export function insertPlayNext(snapshot: PlaybackSnapshot, line: QueueLine): Pla
   }
   const index = snapshot.queue.findIndex((entry) => entry.trackId === snapshot.trackId);
   if (index < 0) {
-    return { ...snapshot, queue: [...snapshot.queue, line], queueOpen: true };
+    return { ...snapshot, queue: [...snapshot.queue, line] };
   }
   return {
     ...snapshot,
     queue: [...snapshot.queue.slice(0, index + 1), line, ...snapshot.queue.slice(index + 1)],
-    queueOpen: true,
   };
 }
 
@@ -199,7 +198,7 @@ export function appendQueue(snapshot: PlaybackSnapshot, line: QueueLine): Playba
   if (snapshot.trackId === undefined) {
     return playFromLine(line);
   }
-  return { ...snapshot, queue: [...snapshot.queue, line], queueOpen: true };
+  return { ...snapshot, queue: [...snapshot.queue, line] };
 }
 
 export function insertAlbumNext(snapshot: PlaybackSnapshot, album: ShellAlbum): PlaybackSnapshot {
@@ -250,4 +249,13 @@ export function seekTo(snapshot: PlaybackSnapshot, positionMs: number): Playback
 
 export function setQueueOpen(snapshot: PlaybackSnapshot, queueOpen: boolean): PlaybackSnapshot {
   return { ...snapshot, queueOpen };
+}
+
+/**
+ * Starting playback never decides whether the queue is on screen: only the
+ * queue control does. A snapshot built for a new play is fresh (queue shut),
+ * so the controller carries the sheet's state over from the one it replaces.
+ */
+export function carryQueueOpen(previous: PlaybackSnapshot, next: PlaybackSnapshot): PlaybackSnapshot {
+  return { ...next, queueOpen: previous.queueOpen };
 }

@@ -115,12 +115,13 @@ test('theme changes from the Settings destination reach the composition callback
       }}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Light' }));
-  fireEvent.click(screen.getByRole('button', { name: 'OLED' }));
-  fireEvent.click(screen.getByRole('button', { name: 'High contrast' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Light' }), { key: 'Enter' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'OLED' }), { key: ' ' });
+  // The theme is one radio group of preview cards (one control per theme).
+  fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'OLED' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'High contrast' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Light' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'OLED' }), { key: ' ' });
   expect(themes).toStrictEqual(['light', 'oled', 'high-contrast', 'dark', 'light', 'oled']);
 });
 
@@ -172,6 +173,18 @@ test('nav items expose CSS glyph keys and the sidebar hosts the brand rule', () 
   expect(container.querySelector('#nav-item-home')?.getAttribute('data-nav-glyph')).toStrictEqual('home');
   expect(container.querySelector('#nav-item-search')?.getAttribute('data-nav-glyph')).toStrictEqual('search');
   expect(container.querySelector('#nav-item-library')?.getAttribute('data-nav-glyph')).toStrictEqual('library');
+  // Each nav item draws its glyph as an inline SVG icon ahead of its label.
+  expect(
+    ['home', 'search', 'library', 'settings'].map((key) => {
+      const item = container.querySelector(`#nav-item-${key}`);
+      return [item?.firstElementChild?.getAttribute('data-icon'), item?.textContent];
+    }),
+  ).toStrictEqual([
+    ['home', 'Home'],
+    ['search', 'Search'],
+    ['library', 'Library'],
+    ['settings', 'Settings'],
+  ]);
   expect(container.querySelector('#nav-sidebar #shell-brand')).toBeTruthy();
   expect(container.querySelector('#shell-brand-rule')).toBeTruthy();
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
@@ -240,4 +253,154 @@ test('queue line play actions route through the playback controller', () => {
   render(<Shell playback={controller} path="/" widthPx={1600} />);
   fireEvent.click(screen.getByRole('button', { name: 'Play Salt Window' }));
   expect(calls).toStrictEqual(['playTrack']);
+});
+
+function paneVars(root: Element | null): (string | undefined)[] {
+  const style = (root as HTMLElement).style;
+  return [style.getPropertyValue('--gm-sidebar-w'), style.getPropertyValue('--gm-queue-w')];
+}
+
+test('each resizable pane gets a separator, and only the panes the width shows', () => {
+  const wide = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} />);
+  expect(screen.getAllByRole('separator').map((node) => [node.id, node.getAttribute('aria-label')])).toStrictEqual([
+    ['pane-resizer-sidebar', 'Resize sidebar'],
+    ['pane-resizer-queue', 'Resize queue'],
+  ]);
+  // Unstored layout: the defaults, written to the shell root for the grid to read.
+  expect(paneVars(wide.container.querySelector('#token-shell'))).toStrictEqual(['256px', '340px']);
+  expect(screen.getByRole('separator', { name: 'Resize sidebar' }).getAttribute('aria-valuenow')).toStrictEqual('256');
+  expect(screen.getByRole('separator', { name: 'Resize queue' }).getAttribute('aria-valuenow')).toStrictEqual('340');
+  wide.unmount();
+
+  render(<Shell playback={stubPlayback().controller} path="/" widthPx={1200} />);
+  expect(screen.getAllByRole('separator').map((node) => node.id)).toStrictEqual(['pane-resizer-sidebar']);
+  cleanup();
+
+  render(<Shell playback={stubPlayback().controller} path="/" widthPx={800} />);
+  expect(screen.queryAllByRole('separator')).toStrictEqual([]);
+  cleanup();
+
+  render(<Shell playback={stubPlayback().controller} path="/" widthPx={360} />);
+  expect(screen.queryAllByRole('separator')).toStrictEqual([]);
+});
+
+test('a stored layout is applied on mount and every committed resize is written back', () => {
+  const written: string[] = [];
+  let reads = 0;
+  const { container } = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/"
+      widthPx={1600}
+      layoutStore={{
+        read: () => {
+          reads += 1;
+          return '{"sidebar":300,"queue":420}';
+        },
+        write: (value) => {
+          written.push(value);
+        },
+      }}
+    />,
+  );
+  const root = container.querySelector('#token-shell');
+  expect(reads).toStrictEqual(1);
+  expect(paneVars(root)).toStrictEqual(['300px', '420px']);
+  const sidebar = screen.getByRole('separator', { name: 'Resize sidebar' });
+  const queue = screen.getByRole('separator', { name: 'Resize queue' });
+  expect(sidebar.getAttribute('aria-valuenow')).toStrictEqual('300');
+  expect(queue.getAttribute('aria-valuenow')).toStrictEqual('420');
+
+  // Keyboard: one step wider on each pane, each written with the other kept.
+  fireEvent.keyDown(sidebar, { key: 'ArrowRight' });
+  expect(paneVars(root)).toStrictEqual(['316px', '420px']);
+  expect(sidebar.getAttribute('aria-valuenow')).toStrictEqual('316');
+  fireEvent.keyDown(queue, { key: 'ArrowLeft' });
+  expect(paneVars(root)).toStrictEqual(['316px', '436px']);
+  expect(queue.getAttribute('aria-valuenow')).toStrictEqual('436');
+  expect(written).toStrictEqual(['{"sidebar":316,"queue":420}', '{"sidebar":316,"queue":436}']);
+
+  // Pointer: the grid follows every move, but only the release is stored.
+  fireEvent.pointerDown(sidebar, { clientX: 316 });
+  fireEvent.pointerMove(window, { clientX: 360 });
+  expect(paneVars(root)).toStrictEqual(['360px', '436px']);
+  expect(sidebar.getAttribute('aria-valuenow')).toStrictEqual('316');
+  expect(written).toHaveLength(2);
+  fireEvent.pointerUp(window, { clientX: 380 });
+  expect(paneVars(root)).toStrictEqual(['380px', '436px']);
+  expect(sidebar.getAttribute('aria-valuenow')).toStrictEqual('380');
+
+  fireEvent.pointerDown(queue, { clientX: 1164 });
+  fireEvent.pointerMove(window, { clientX: 1200 });
+  expect(paneVars(root)).toStrictEqual(['380px', '400px']);
+  fireEvent.pointerUp(window, { clientX: 1264 });
+  expect(paneVars(root)).toStrictEqual(['380px', '336px']);
+
+  // Double-click returns a pane to its default.
+  fireEvent.doubleClick(sidebar);
+  expect(paneVars(root)).toStrictEqual(['256px', '336px']);
+  expect(written).toStrictEqual([
+    '{"sidebar":316,"queue":420}',
+    '{"sidebar":316,"queue":436}',
+    '{"sidebar":380,"queue":436}',
+    '{"sidebar":380,"queue":336}',
+    '{"sidebar":256,"queue":336}',
+  ]);
+  // The store is read once, at mount; later renders trust the state.
+  expect(reads).toStrictEqual(1);
+});
+
+test('a broken stored layout falls back to the defaults', () => {
+  const { container } = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/"
+      widthPx={1600}
+      layoutStore={{ read: () => '<script>', write: () => undefined }}
+    />,
+  );
+  expect(paneVars(container.querySelector('#token-shell'))).toStrictEqual(['256px', '340px']);
+});
+
+test('moving to another page or item returns the content pane to its top', () => {
+  const { container } = render(
+    <Shell playback={stubPlayback().controller} path="/" widthPx={1600} library={demoLibrary()} />,
+  );
+  const content = container.querySelector('#content') as HTMLElement;
+  const tops: number[] = [];
+  Object.defineProperty(content, 'scrollTop', {
+    configurable: true,
+    get: () => 640,
+    set: (value: number) => {
+      tops.push(value);
+    },
+  });
+  // Opening an album from Home is a new page: back to the top.
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
+  expect(tops).toStrictEqual([0]);
+  // Album to its artist: another item on the same route.
+  fireEvent.click(screen.getByRole('button', { name: 'Go to artist' }));
+  expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
+  expect(tops).toStrictEqual([0, 0]);
+  // A change that is not a navigation (a pane resize) leaves the scroll alone.
+  fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize sidebar' }), { key: 'ArrowRight' });
+  expect(tops).toStrictEqual([0, 0]);
+  fireEvent.click(screen.getByRole('link', { name: 'Search' }));
+  expect(tops).toStrictEqual([0, 0, 0]);
+});
+
+test('with nothing loaded, play in the bar starts nothing', () => {
+  const { calls, controller } = stubPlayback();
+  render(<Shell playback={controller} path="/" widthPx={1600} library={demoLibrary()} />);
+  const play = document.querySelector('#shell-play') as HTMLElement;
+  expect(play.getAttribute('aria-label')).toStrictEqual('Play');
+  expect(play.getAttribute('data-disabled')).toStrictEqual('1');
+  fireEvent.click(play);
+  fireEvent.keyDown(play, { key: 'Enter' });
+  fireEvent.keyDown(play, { key: ' ' });
+  expect(calls).toStrictEqual([]);
+  // The hero's own play is the way to start something.
+  fireEvent.click(document.querySelector('#home-spotlight-play') as HTMLElement);
+  expect(calls).toStrictEqual(['playAlbum']);
 });

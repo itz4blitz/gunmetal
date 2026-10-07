@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { artistInitial, formatDuration, staggerSlot } from './format.ts';
+import { artistInitial, countNoun, formatDuration, staggerSlot } from './format.ts';
 
 test('artistInitial uses the first visible character or a question mark', () => {
   expect(artistInitial('Keratin')).toStrictEqual('K');
@@ -24,4 +24,11 @@ test('formatDuration renders mm:ss for finite non-negative milliseconds', () => 
   expect(formatDuration(600_000)).toStrictEqual('10:00');
   expect(formatDuration(-1)).toStrictEqual('0:00');
   expect(formatDuration(Number.NaN)).toStrictEqual('0:00');
+});
+
+test('countNoun picks the singular noun for exactly one and the plural for every other count', () => {
+  expect(countNoun(1, 'album', 'albums')).toStrictEqual('1 album');
+  expect(countNoun(0, 'album', 'albums')).toStrictEqual('0 albums');
+  expect(countNoun(2, 'track', 'tracks')).toStrictEqual('2 tracks');
+  expect(countNoun(114, 'track', 'tracks')).toStrictEqual('114 tracks');
 });

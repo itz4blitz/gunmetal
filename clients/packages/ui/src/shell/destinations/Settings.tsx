@@ -2,20 +2,24 @@ import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
+import { Icon } from '../Icon.tsx';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import { ThemeSwitcher } from '../ThemeSwitcher.tsx';
 import type { PluginSlot } from './settings.ts';
 import {
   defaultSettingsSection,
+  settingsConnectedRows,
   settingsLayout,
   settingsNavItems,
+  settingsPlaybackRows,
   settingsRelease,
   settingsSectionTitle,
   settingsSections,
   settingsSlotPlaneLabel,
   settingsSlotTitle,
   settingsSwatchLabels,
+  settingsThemeForKey,
+  type SettingsRowCopy,
   type SettingsSection,
 } from './settings.ts';
 
@@ -68,28 +72,44 @@ function SettingsPane({
   );
 }
 
-/** One swatch card: canvas, raised panel and accent dot drawn by area-settings.css. */
+/**
+ * A setting that is not wired yet: what it is and what it will do on the
+ * left, and its status in words on the right. It is never a dead control —
+ * nothing here can be pressed or focused.
+ */
+function UnavailableRow({ row, status }: { row: SettingsRowCopy; status: string }) {
+  return (
+    <View dataSet={{ settingsRow: row.id, rowState: 'unavailable' }}>
+      <View dataSet={{ settingsRowText: '1' }}>
+        <Text dataSet={{ settingsRowLabel: '1' }}>{row.label}</Text>
+        <Text dataSet={{ settingsRowHint: '1' }}>{row.hint}</Text>
+      </View>
+      <Text dataSet={{ settingsRowStatus: '1' }}>{status}</Text>
+    </View>
+  );
+}
+
+/** One theme card: a miniature of the app in that theme, drawn by area-settings.css. */
 function ThemeSwatch({
   id,
   label,
-  namePrefix,
   selected,
   onSelect,
 }: {
   id: ThemeId;
   label: string;
-  namePrefix: string;
   selected: boolean;
   onSelect: () => void;
 }) {
   return (
     <View
       id={`settings-theme-swatch-${id}`}
-      accessibilityRole="button"
-      accessibilityLabel={`${namePrefix}: ${label}`}
-      accessibilityState={{ selected }}
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      aria-checked={selected}
       dataSet={{ themeSwatch: id, selected: selected ? '1' : '0' }}
-      tabIndex={0}
+      // Roving tabindex: the checked card is the group's one tab stop.
+      tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       onKeyDown={(event) => {
         activateKey(event, onSelect);
@@ -100,6 +120,11 @@ function ThemeSwatch({
         <View dataSet={{ swatchPanel: '1' }}>
           <View dataSet={{ swatchDot: '1' }} />
         </View>
+      </View>
+      {/* The checked mark: a brass nut on the card's corner, shown by the
+          stylesheet on the checked card only. */}
+      <View dataSet={{ swatchCheck: '1' }}>
+        <Icon name="check" size={12} />
       </View>
       <Text dataSet={{ swatchName: '1' }}>{label}</Text>
     </View>
@@ -124,7 +149,7 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
               id={`settings-nav-${item.id}`}
               accessibilityRole="tab"
               accessibilityLabel={item.label}
-              accessibilityState={{ selected: section === item.id }}
+              aria-selected={section === item.id}
               dataSet={{ settingsNavItem: item.id, selected: section === item.id ? '1' : '0' }}
               tabIndex={0}
               onClick={() => {
@@ -144,14 +169,31 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
       <View id="settings-panels">
         {visible.includes('appearance') ? (
           <SettingsPane id="settings-appearance" section="appearance" messages={messages}>
-            <ThemeSwitcher messages={shellMessages} theme={theme} onThemeChange={onThemeChange} />
-            <View id="settings-theme-preview">
+            <View dataSet={{ settingsGroup: 'theme' }}>
+              <Text dataSet={{ settingsGroupTitle: '1' }}>{shellMessages.themeLabel}</Text>
+              <Text dataSet={{ settingsGroupHint: '1' }}>{messages.settingsThemeHint}</Text>
+            </View>
+            {/* The one theme control: a radio group of preview cards. Arrows
+                move the choice and the focus together. */}
+            <View
+              id="settings-theme-preview"
+              accessibilityRole="radiogroup"
+              accessibilityLabel={shellMessages.themeLabel}
+              onKeyDown={(event) => {
+                const next = settingsThemeForKey(theme, event.key);
+                if (next === undefined) {
+                  return;
+                }
+                event.preventDefault();
+                onThemeChange(next);
+                document.getElementById(`settings-theme-swatch-${next}`)?.focus();
+              }}
+            >
               {settingsSwatchLabels(shellMessages).map(({ id, label }) => (
                 <ThemeSwatch
                   key={id}
                   id={id}
                   label={label}
-                  namePrefix={shellMessages.themeLabel}
                   selected={id === theme}
                   onSelect={() => {
                     onThemeChange(id);
@@ -163,48 +205,63 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
         ) : null}
         {visible.includes('playback') ? (
           <SettingsPane id="settings-playback" section="playback" messages={messages}>
-            <View dataSet={{ settingsStub: 'playback', emptyCard: '1' }}>
-              <Text dataSet={{ settingsPlaceholder: 'playback' }}>{messages.settingsPlaybackPlaceholder}</Text>
+            <View dataSet={{ settingsRows: 'playback' }}>
+              {settingsPlaybackRows(messages).map((row) => (
+                <UnavailableRow key={row.id} row={row} status={messages.settingsUnavailable} />
+              ))}
             </View>
+            <Text dataSet={{ settingsPlaceholder: 'playback', settingsNote: '1' }}>
+              {messages.settingsPlaybackPlaceholder}
+            </Text>
           </SettingsPane>
         ) : null}
         {visible.includes('connected') ? (
           <SettingsPane id="settings-connected" section="connected" messages={messages}>
-            <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-              <View dataSet={{ emptyMark: '1' }} />
-              <Text dataSet={{ emptyState: 'connected' }}>{messages.settingsConnectedEmpty}</Text>
+            <View dataSet={{ settingsRows: 'connected' }}>
+              {settingsConnectedRows(messages).map((row) => (
+                <UnavailableRow key={row.id} row={row} status={messages.settingsUnavailable} />
+              ))}
             </View>
+            <Text dataSet={{ emptyState: 'connected', settingsNote: '1' }}>{messages.settingsConnectedEmpty}</Text>
           </SettingsPane>
         ) : null}
         {visible.includes('extensions') ? (
           <SettingsPane id="settings-extensions" section="extensions" messages={messages}>
-            <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-              <View dataSet={{ emptyMark: '1' }} />
-              <Text dataSet={{ emptyState: 'extensions' }}>{messages.settingsExtensionsBody}</Text>
+            <View dataSet={{ settingsRows: 'extensions' }}>
+              <Text dataSet={{ emptyState: 'extensions', settingsStatement: '1' }}>
+                {messages.settingsExtensionsBody}
+              </Text>
             </View>
-            <View id="settings-plugin-slots">
-              <View dataSet={{ slotHead: '1' }}>
-                <View dataSet={{ slotHeadLead: '1' }} />
-                <Text dataSet={{ slotHeadTitle: '1' }}>{messages.settingsSlotColumnSlot}</Text>
-                <Text dataSet={{ slotHeadPlane: '1' }}>{messages.settingsSlotColumnPlane}</Text>
-                <Text dataSet={{ slotHeadState: '1' }}>{messages.settingsSlotColumnState}</Text>
-              </View>
-              {pluginSlots.map((slot) => (
-                <View
-                  key={slot.id}
-                  dataSet={{
-                    pluginSlot: slot.id,
-                    slotLoaded: slot.loaded ? '1' : '0',
-                    slotPlane: slot.plane,
-                  }}
-                >
-                  <View dataSet={{ slotMark: '1' }} />
-                  <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
-                  <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
-                  <Text dataSet={{ slotState: slot.loaded ? '1' : '0' }}>{messages.settingsSlotUnloaded}</Text>
+            {/* A table of the slots a plugin could fill. With no slots to
+                list there is no table: a column head over nothing reads as
+                broken. */}
+            {pluginSlots.length === 0 ? null : (
+              <View id="settings-plugin-slots">
+                <View dataSet={{ slotHead: '1' }}>
+                  <View dataSet={{ slotHeadLead: '1' }} />
+                  <Text dataSet={{ slotHeadTitle: '1' }}>{messages.settingsSlotColumnSlot}</Text>
+                  <Text dataSet={{ slotHeadPlane: '1' }}>{messages.settingsSlotColumnPlane}</Text>
+                  <Text dataSet={{ slotHeadState: '1' }}>{messages.settingsSlotColumnState}</Text>
                 </View>
-              ))}
-            </View>
+                {pluginSlots.map((slot) => {
+                  // The row says what the slot is, never a fixed word.
+                  const state = slot.loaded
+                    ? { flag: '1', label: messages.settingsSlotLoaded }
+                    : { flag: '0', label: messages.settingsSlotUnloaded };
+                  return (
+                    <View
+                      key={slot.id}
+                      dataSet={{ pluginSlot: slot.id, slotLoaded: state.flag, slotPlane: slot.plane }}
+                    >
+                      <View dataSet={{ slotMark: '1' }} />
+                      <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
+                      <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
+                      <Text dataSet={{ slotState: state.flag }}>{state.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </SettingsPane>
         ) : null}
         {visible.includes('about') ? (
@@ -227,7 +284,9 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
         ) : null}
         {visible.includes('privacy') ? (
           <SettingsPane id="settings-privacy" section="privacy" messages={messages}>
-            <Text dataSet={{ settingsPrivacy: '1' }}>{messages.settingsPrivacyBody}</Text>
+            <View dataSet={{ settingsRows: 'privacy' }}>
+              <Text dataSet={{ settingsPrivacy: '1', settingsStatement: '1' }}>{messages.settingsPrivacyBody}</Text>
+            </View>
           </SettingsPane>
         ) : null}
       </View>

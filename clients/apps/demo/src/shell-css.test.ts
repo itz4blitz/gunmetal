@@ -79,7 +79,11 @@ test('shell chrome elevates brand rule, nav glyphs, vignette, art-tint and wide 
   const css = await demoShellCss();
   expect(css.includes('#shell-brand-rule')).toStrictEqual(true);
   expect(css.includes('var(--gm-accent-fill)')).toStrictEqual(true);
-  expect(css.includes('[data-nav-glyph=')).toStrictEqual(true);
+  // Nav glyphs are inline SVG icons (Icon.tsx): the stylesheet lays the
+  // items out but draws no glyph of its own.
+  expect(css.includes('[data-nav-glyph]')).toStrictEqual(true);
+  expect(css.includes('[data-nav-glyph=')).toStrictEqual(false);
+  expect(css.includes('[data-nav-glyph]::before')).toStrictEqual(false);
   expect(css.includes("content: ''") || css.includes('content:""')).toStrictEqual(true);
   expect(css.includes('Canvas depth: subtle top vignette')).toStrictEqual(true);
   expect(css.includes('linear-gradient')).toStrictEqual(true);
@@ -278,12 +282,17 @@ test('plugin slots and album license chrome use muted tokens, not a host control
 
 test('2026 chrome uses icon transport, fills the column, and keeps a composed home', async () => {
   const css = await demoShellCss();
-  expect(css.includes('#player-prev > *')).toStrictEqual(true);
-  expect(css.includes('#player-next > *')).toStrictEqual(true);
+  // Only a text label is hidden inside a skip control; its icon is never touched.
+  expect(css.includes('#player-prev > [data-control-label]')).toStrictEqual(true);
+  expect(css.includes('#player-next > [data-control-label]')).toStrictEqual(true);
+  expect(css.includes('#player-prev > *')).toStrictEqual(false);
+  expect(css.includes('#player-next > *')).toStrictEqual(false);
   expect(css.includes('font-size: 0 !important')).toStrictEqual(true);
-  expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(true);
-  expect(css.includes('#player-next::after') || css.includes('#player-next:after')).toStrictEqual(true);
-  // The queue icon is an inline SVG; the legacy glyph stays gated off.
+  // The transport and queue icons are inline SVG; the legacy glyphs stay gated off.
+  expect(css.includes('#player-prev:not(:has(svg))::after')).toStrictEqual(true);
+  expect(css.includes('#player-next:not(:has(svg))::after')).toStrictEqual(true);
+  expect(css.includes('#player-prev::after')).toStrictEqual(false);
+  expect(css.includes('#player-next::after')).toStrictEqual(false);
   expect(css.includes('#player-queue:not(:has(svg))::after')).toStrictEqual(true);
   expect(css.includes('#player-full-prev::after') || css.includes('#player-full-prev:after')).toStrictEqual(true);
   expect(css.includes('gm-playing-bars')).toStrictEqual(true);
@@ -313,10 +322,16 @@ test('2026 chrome uses icon transport, fills the column, and keeps a composed ho
   expect(css.includes("[data-hex-wrap='1']:focus-within")).toStrictEqual(false);
   expect(css.includes('drop-shadow(0 0 0')).toStrictEqual(false);
   // The bar is three zones with a capped, centred column; the empty state
-  // sleeps the centre zone instead of unmounting it.
+  // keeps the centre zone mounted and visible, quiet rather than gone.
   expect(css.includes("grid-template-areas: 'left center right'")).toStrictEqual(true);
   expect(css.includes('#player-bar[data-bar-empty=')).toStrictEqual(true);
   expect(css.includes("#player-bar[data-bar-empty='1'] #player-center")).toStrictEqual(true);
+  const idleCentre = css.slice(
+    css.indexOf("#player-bar[data-bar-empty='1'] #player-center"),
+    css.indexOf('}', css.indexOf("#player-bar[data-bar-empty='1'] #player-center")),
+  );
+  expect(idleCentre.includes('visibility: visible')).toStrictEqual(true);
+  expect(idleCentre.includes('visibility: hidden')).toStrictEqual(false);
   expect(css.includes('#player-art-empty')).toStrictEqual(true);
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue } from '../messages/catalogue.ts';
 import { matchAddress, type MatchResult } from '../router/match.ts';
@@ -7,7 +7,17 @@ import { noLyrics, type LibrarySearch, type LyricsResolver } from './content.ts'
 import { Destination } from './destinations/Destination.tsx';
 import type { PluginSlot } from './destinations/settings.ts';
 import type { ShellLibrary } from './library-types.ts';
+import { Icon } from './Icon.tsx';
 import { Nav, navItems } from './Nav.tsx';
+import { PaneResizer } from './PaneResizer.tsx';
+import {
+  noLayoutStore,
+  parsePaneWidths,
+  serializePaneWidths,
+  type LayoutStore,
+  type PaneId,
+  type PaneWidths,
+} from './pane-widths.ts';
 import { PlayerBar } from './PlayerBar.tsx';
 import { PlayerFull } from './PlayerFull.tsx';
 import { QueuePane } from './QueuePane.tsx';
@@ -32,6 +42,8 @@ export type ShellProps = {
   lyricsFor?: LyricsResolver | undefined;
   /** Plugin-slot list for the Settings page (server config later). */
   pluginSlots?: readonly PluginSlot[] | undefined;
+  /** Where the pane widths are kept between visits (localStorage in apps/demo). */
+  layoutStore?: LayoutStore | undefined;
   onNavigate?: (path: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
 };
@@ -61,6 +73,21 @@ function focusLandmark(id: 'content' | 'player-bar'): void {
   target?.focus();
 }
 
+/* A new page starts at its top: the content pane is the scroller, and it
+   outlives the page inside it. */
+function scrollContentToTop(): void {
+  globalThis.document.querySelectorAll('#content').forEach((content) => {
+    content.scrollTop = 0;
+  });
+}
+
+/* The frame's grid reads the pane widths from two custom properties on the
+   shell root; they are written through the CSSOM, never a style attribute. */
+function applyPaneWidth(pane: PaneId, widthPx: number): void {
+  const shell = globalThis.document.getElementById('token-shell');
+  shell?.style.setProperty(`--gm-${pane}-w`, `${widthPx}px`);
+}
+
 export function Shell({
   path,
   search = '',
@@ -74,10 +101,13 @@ export function Shell({
   searchLibrary = () => ({ albums: [], tracks: [] }),
   lyricsFor = () => noLyrics,
   pluginSlots,
+  layoutStore,
   onNavigate,
   onThemeChange,
 }: ShellProps) {
   const messages = catalogue();
+  const [store] = useState<LayoutStore>(() => layoutStore ?? noLayoutStore());
+  const [paneWidths, setPaneWidths] = useState<PaneWidths>(() => parsePaneWidths(store.read()));
   const [theme, setTheme] = useState<ThemeId>(themeProp ?? defaultTheme());
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
   const [location, setLocation] = useState(() => {
@@ -121,9 +151,48 @@ export function Shell({
     };
   }, [path, search, hash, historyState]);
 
+  useLayoutEffect(() => {
+    applyPaneWidth('sidebar', paneWidths.sidebar);
+    applyPaneWidth('queue', paneWidths.queue);
+  }, [paneWidths]);
+
+  const resizeSidebar = useCallback((widthPx: number) => {
+    applyPaneWidth('sidebar', widthPx);
+  }, []);
+  const resizeQueue = useCallback((widthPx: number) => {
+    applyPaneWidth('queue', widthPx);
+  }, []);
+  const commitPane = useCallback(
+    (pane: PaneId, widthPx: number) => {
+      setPaneWidths((current) => {
+        const next = { ...current, [pane]: widthPx };
+        store.write(serializePaneWidths(next));
+        return next;
+      });
+    },
+    [store],
+  );
+  const commitSidebar = useCallback(
+    (widthPx: number) => {
+      commitPane('sidebar', widthPx);
+    },
+    [commitPane],
+  );
+  const commitQueue = useCallback(
+    (widthPx: number) => {
+      commitPane('queue', widthPx);
+    },
+    [commitPane],
+  );
+
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
   const itemId = match.kind === 'ok' ? match.history.itemId : undefined;
+  const pageId = `${location.pathname} ${itemId ?? ''}`;
+
+  useLayoutEffect(() => {
+    scrollContentToTop();
+  }, [pageId]);
   const items = navItems(messages.shell);
   const currentLandmarks = landmarksForClass(width);
 
@@ -201,6 +270,7 @@ export function Shell({
         }
       }}
     >
+      <Icon name="settings" />
       <Text dataSet={{ navLabel: '1' }}>{messages.shell.navSettings}</Text>
     </View>
   );
@@ -318,6 +388,15 @@ export function Shell({
             footer={navFooter}
           />
         ) : null}
+        {sidebarBrand ? (
+          <PaneResizer
+            pane="sidebar"
+            label={messages.shell.resizeSidebar}
+            widthPx={paneWidths.sidebar}
+            onResize={resizeSidebar}
+            onCommit={commitSidebar}
+          />
+        ) : null}
         <View id="content" accessibilityRole="main" tabIndex={-1}>
           <Destination
             searchLibrary={searchLibrary}
@@ -346,6 +425,15 @@ export function Shell({
           />
         </View>
         {showWideQueue ? (
+          <PaneResizer
+            pane="queue"
+            label={messages.shell.resizeQueue}
+            widthPx={paneWidths.queue}
+            onResize={resizeQueue}
+            onCommit={commitQueue}
+          />
+        ) : null}
+        {showWideQueue ? (
           <QueuePane messages={messages.shell} playback={state} compactSheet={false} onPlayLine={playback.playTrack} />
         ) : (
           <QueuePane
@@ -365,12 +453,6 @@ export function Shell({
           onVolume={playback.setVolume}
           onSeek={playback.seek}
           onPlayPause={playback.playPause}
-          onPlayFirst={() => {
-            const featured = library?.albums.find((album) => !album.hostile);
-            if (featured !== undefined) {
-              playback.playAlbum(featured.id);
-            }
-          }}
           onPrevious={playback.previous}
           onNext={playback.next}
           onToggleQueue={playback.toggleQueue}
@@ -385,6 +467,7 @@ export function Shell({
           albumTitle={playingAlbumTitle}
           volume={playback.volume}
           onVolume={playback.setVolume}
+          onSeek={playback.seek}
           onClose={playback.closeFull}
           onPlayPause={playback.playPause}
           onPrevious={playback.previous}

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { artistInitial, staggerSlot } from '../format.ts';
-import type { ShellLibrary } from '../library-types.ts';
+import { artistInitial, countNoun, staggerSlot } from '../format.ts';
+import { Icon, type IconName } from '../Icon.tsx';
+import type { ShellArtist, ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
@@ -27,17 +28,30 @@ export type LibraryProps = {
   onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
 };
 
-function artistRowName(
-  name: string,
-  albumIds: readonly string[],
-  library: ShellLibrary,
-  messages: DestinationMessages,
-): string {
-  const hostile = albumIds.some((id) => library.albums.some((album) => album.id === id && album.hostile));
+/**
+ * The name an artist is shown under. An artist of a hostile fixture album is
+ * never shown by its own text: the safe catalogue label stands in.
+ */
+export function artistDisplayName(artist: ShellArtist, library: ShellLibrary, messages: DestinationMessages): string {
+  const hostile = artist.albumIds.some((id) => library.albums.some((album) => album.id === id && album.hostile));
   if (hostile) {
     return messages.hostileArtistLabel;
   }
-  return name;
+  return artist.name;
+}
+
+/** People are nuts: the artist's photo in the nut, or the initial when there is none. */
+export function ArtistAvatar({ name, imageUrl }: { name: string; imageUrl: string | undefined }) {
+  const photo = imageUrl === undefined || imageUrl === '' ? null : imageUrl;
+  return (
+    <View dataSet={{ artistAvatar: '1' }}>
+      {photo === null ? (
+        <Text dataSet={{ artistInitial: '1' }}>{artistInitial(name)}</Text>
+      ) : (
+        <View dataSet={{ artistPhoto: '1' }} style={{ backgroundImage: `url("${photo}")` }} />
+      )}
+    </View>
+  );
 }
 
 function trackTotal(library: ShellLibrary): number {
@@ -46,7 +60,11 @@ function trackTotal(library: ShellLibrary): number {
 
 /** Whatever catalogue arrives, the header counts it — never a hard-coded figure. */
 function totalsLine(library: ShellLibrary, messages: DestinationMessages): string {
-  return `${library.albums.length} ${messages.artistAlbumCount} · ${library.artists.length} ${messages.artistCountLabel} · ${trackTotal(library)} ${messages.trackCountLabel}`;
+  return [
+    countNoun(library.albums.length, messages.albumCountOne, messages.artistAlbumCount),
+    countNoun(library.artists.length, messages.artistCountOne, messages.artistCountLabel),
+    countNoun(trackTotal(library), messages.trackCountOne, messages.trackCountLabel),
+  ].join(' · ');
 }
 
 /** Whatever catalogue arrives, the tabs count it — never a hard-coded figure. */
@@ -61,6 +79,30 @@ function tabCount(tab: LibraryTab, library: ShellLibrary): number {
 }
 
 const TABS: readonly LibraryTab[] = ['albums', 'artists', 'tracks'];
+
+/** Each tab's neighbours in the tab bar, wrapping at the ends. */
+const TAB_NEIGHBOURS: Record<LibraryTab, { before: LibraryTab; after: LibraryTab }> = {
+  albums: { before: 'tracks', after: 'artists' },
+  artists: { before: 'albums', after: 'tracks' },
+  tracks: { before: 'artists', after: 'albums' },
+};
+
+/** The tab a tablist key moves to; any other key answers undefined. */
+function tabForKey(current: LibraryTab, key: string): LibraryTab | undefined {
+  if (key === 'ArrowRight') {
+    return TAB_NEIGHBOURS[current].after;
+  }
+  if (key === 'ArrowLeft') {
+    return TAB_NEIGHBOURS[current].before;
+  }
+  if (key === 'Home') {
+    return 'albums';
+  }
+  if (key === 'End') {
+    return 'tracks';
+  }
+  return undefined;
+}
 
 export function Library({
   messages,
@@ -82,6 +124,14 @@ export function Library({
     artists: messages.tabArtists,
     tracks: messages.tabTracks,
   };
+  const emptyLabels: Record<LibraryTab, string> = {
+    albums: messages.libraryEmptyAlbums,
+    artists: messages.libraryEmptyArtists,
+    tracks: messages.libraryEmptyTracks,
+  };
+  // A tab with nothing in it says so; it never draws an empty grid or a
+  // table head over no rows.
+  const view: LibraryTab | 'empty' = tabCount(tab, library) === 0 ? 'empty' : tab;
   const selectAndFocus = (entry: LibraryTab) => {
     setTab(entry);
     document.getElementById(`library-tab-${entry}`)?.focus();
@@ -89,29 +139,12 @@ export function Library({
   // Roving tabindex with automatic activation: the arrows move both focus and
   // the selected section, wrapping at the ends (design-language §8).
   const onTablistKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    const key = event.key;
-    if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'Home' && key !== 'End') {
+    const target = tabForKey(tab, event.key);
+    if (target === undefined) {
       return;
     }
     event.preventDefault();
-    const current = TABS.indexOf(tab);
-    let next = current;
-    if (key === 'ArrowRight') {
-      next = (current + 1) % TABS.length;
-    }
-    if (key === 'ArrowLeft') {
-      next = (current + TABS.length - 1) % TABS.length;
-    }
-    if (key === 'Home') {
-      next = 0;
-    }
-    if (key === 'End') {
-      next = TABS.length - 1;
-    }
-    const entry = TABS[next];
-    if (entry !== undefined) {
-      selectAndFocus(entry);
-    }
+    selectAndFocus(target);
   };
 
   return (
@@ -128,6 +161,7 @@ export function Library({
         <View id="library-density" accessibilityRole="group" accessibilityLabel={messages.densityLabel}>
           <DensityButton
             id="library-density-comfortable"
+            icon="rows"
             label={messages.densityComfortable}
             selected={density === 'comfortable'}
             onSelect={() => {
@@ -136,6 +170,7 @@ export function Library({
           />
           <DensityButton
             id="library-density-compact"
+            icon="rowsDense"
             label={messages.densityCompact}
             selected={density === 'compact'}
             onSelect={() => {
@@ -163,7 +198,15 @@ export function Library({
           />
         ))}
       </View>
-      {tab === 'albums' ? (
+      {view === 'empty' ? (
+        <View id="library-empty" dataSet={{ libraryEmpty: tab }}>
+          <View dataSet={{ libraryEmptyMark: '1' }}>
+            <Icon name="library" size={22} />
+          </View>
+          <Text dataSet={{ libraryEmptyText: '1' }}>{emptyLabels[tab]}</Text>
+        </View>
+      ) : null}
+      {view === 'albums' ? (
         <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
           {library.albums.map((album, index) => (
             <AlbumTile
@@ -180,11 +223,10 @@ export function Library({
           ))}
         </View>
       ) : null}
-      {tab === 'artists' ? (
+      {view === 'artists' ? (
         <View id="library-artist-list">
           {library.artists.map((artist, index) => {
-            const rowName = artistRowName(artist.name, artist.albumIds, library, messages);
-            const photo = artist.imageUrl === undefined || artist.imageUrl === '' ? null : artist.imageUrl;
+            const rowName = artistDisplayName(artist, library, messages);
             const firstAlbumId = artist.albumIds[0];
             return (
               <View
@@ -204,17 +246,13 @@ export function Library({
                   }
                 }}
               >
-                <View dataSet={{ artistAvatar: '1' }} aria-hidden="true">
-                  {photo === null ? (
-                    <Text dataSet={{ artistInitial: '1' }}>{artistInitial(rowName)}</Text>
-                  ) : (
-                    <View dataSet={{ artistPhoto: '1' }} style={{ backgroundImage: `url("${photo}")` }} />
-                  )}
-                </View>
+                <ArtistAvatar name={rowName} imageUrl={artist.imageUrl} />
                 <View dataSet={{ artistMeta: '1' }}>
                   <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
                 </View>
-                <Text dataSet={{ artistCount: '1' }}>{`${artist.albumIds.length} ${messages.artistAlbumCount}`}</Text>
+                <Text dataSet={{ artistCount: '1' }}>
+                  {countNoun(artist.albumIds.length, messages.albumCountOne, messages.artistAlbumCount)}
+                </Text>
                 {firstAlbumId === undefined ? null : (
                   <View
                     dataSet={{ artistPlay: '1' }}
@@ -241,7 +279,7 @@ export function Library({
           })}
         </View>
       ) : null}
-      {tab === 'tracks' ? (
+      {view === 'tracks' ? (
         <View id="library-track-list">
           <View dataSet={{ trackTableHead: '1' }} aria-hidden="true">
             <Text dataSet={{ trackHeadNumber: '1' }}>#</Text>
@@ -288,7 +326,7 @@ function TabButton({ id, label, count, selected, onSelect }: TabButtonProps) {
       id={id}
       accessibilityRole="tab"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      aria-selected={selected}
       dataSet={{ selected: selected ? '1' : '0' }}
       // Roving tabindex: the selected tab is the only tab stop.
       tabIndex={selected ? 0 : -1}
@@ -311,18 +349,19 @@ function TabButton({ id, label, count, selected, onSelect }: TabButtonProps) {
 
 type DensityButtonProps = {
   id: string;
+  icon: IconName;
   label: string;
   selected: boolean;
   onSelect: () => void;
 };
 
-function DensityButton({ id, label, selected, onSelect }: DensityButtonProps) {
+function DensityButton({ id, icon, label, selected, onSelect }: DensityButtonProps) {
   return (
     <View
       id={id}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      aria-pressed={selected}
       dataSet={{ densityOption: '1', selected: selected ? '1' : '0' }}
       tabIndex={0}
       onClick={onSelect}
@@ -333,7 +372,8 @@ function DensityButton({ id, label, selected, onSelect }: DensityButtonProps) {
         }
       }}
     >
-      <Text>{label}</Text>
+      <Icon name={icon} size={16} />
+      <Text dataSet={{ densityLabel: '1' }}>{label}</Text>
     </View>
   );
 }

@@ -73,6 +73,12 @@ test('album detail paints a full-bleed cover-tone header with meta line and bras
   expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
   expect(container.querySelector('#album-duration-total')?.textContent).toStrictEqual('6:52');
   expect(container.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();
+  // Eyebrow over the title, and an icon on the back control.
+  expect(container.querySelector('[data-album-header-text="1"] [data-detail-eyebrow="1"]')?.textContent).toStrictEqual(
+    'Album',
+  );
+  expect(container.querySelector('#album-back svg')?.getAttribute('data-icon')).toStrictEqual('back');
+  expect(container.querySelector('#album-back')?.textContent).toStrictEqual('Back');
   fireEvent.click(container.querySelector('[data-album-artist]')!);
   fireEvent.keyDown(container.querySelector('[data-album-artist]')!, { key: 'Enter' });
   fireEvent.keyDown(container.querySelector('[data-album-artist]')!, { key: ' ' });
@@ -406,6 +412,19 @@ test('multi-disc albums keep sticky disc headers with titles and a per-disc play
   expect(screen.getByRole('heading', { name: 'Discs 2' })).toBeTruthy();
   // Both disc headers carry the sticky row marker; the rail pins above them.
   expect(document.querySelectorAll('[data-disc-header-row="1"]')).toHaveLength(2);
+  // Each disc gets its own column row, between its header and its tracks.
+  const discOrders = [...document.querySelectorAll('[data-disc-block]')].map((disc) =>
+    [...disc.children].map((child) => {
+      if (child.hasAttribute('data-disc-header-row')) {
+        return 'disc';
+      }
+      return child.hasAttribute('data-track-table-head') ? 'columns' : 'row';
+    }),
+  );
+  expect(discOrders).toStrictEqual([
+    ['disc', 'columns', 'row', 'row'],
+    ['disc', 'columns', 'row'],
+  ]);
   expect(document.querySelector('[data-album-rail="1"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Play disc · Act One' }));
   expect(onPlayTrack).toHaveBeenCalledWith('demo-album-05', 'demo-track-05-01');
@@ -485,4 +504,88 @@ test('a hostile album swaps chrome labels and never renders corpus text in its r
   expect(screen.getAllByText('Track title hidden (hostile metadata)')).toHaveLength(2);
   fireEvent.click(container.querySelector('#track-row-demo-track-01-02 [data-hostile-row-play="1"]')!);
   expect(onPlayTrack).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-02');
+});
+
+test('the rail controls carry icons and the track list sits under a hidden column row', () => {
+  const singable: ShellAlbum = {
+    ...album,
+    tracks: album.tracks.map((track, index) => (index === 1 ? { ...track, lyricsKind: 'plain' as const } : track)),
+  };
+  const { container } = renderAlbum({ album: singable });
+  expect(container.querySelector('#album-shuffle svg')?.getAttribute('data-icon')).toStrictEqual('shuffle');
+  expect(container.querySelector('#album-lyrics-toggle svg')?.getAttribute('data-icon')).toStrictEqual('lyrics');
+  expect(container.querySelector('#album-lyrics-toggle')?.textContent).toStrictEqual('Lyrics');
+  // The kebab is an icon alone; its name is the aria-label.
+  expect(container.querySelector('#album-more svg')?.getAttribute('data-icon')).toStrictEqual('more');
+  expect(container.querySelector('#album-more')?.textContent).toStrictEqual('');
+  expect(container.querySelector('#album-more')?.getAttribute('aria-label')).toStrictEqual('More');
+  // One presentational column row for a single-disc album: # · Title · clock.
+  const heads = container.querySelectorAll('[data-track-table-head="1"]');
+  expect(heads).toHaveLength(1);
+  expect(heads[0]?.getAttribute('aria-hidden')).toStrictEqual('true');
+  expect(heads[0]?.querySelector('[data-track-table-number="1"]')?.textContent).toStrictEqual('#');
+  expect(heads[0]?.querySelector('[data-track-table-title="1"]')?.textContent).toStrictEqual('Title');
+  expect(heads[0]?.querySelector('[data-track-table-time="1"] svg')?.getAttribute('data-icon')).toStrictEqual('clock');
+  // The column row comes before the first track row.
+  const block = container.querySelector('[data-disc-block]');
+  const order = [...(block?.children ?? [])].map((child) => {
+    if (child.hasAttribute('data-track-table-head')) {
+      return 'columns';
+    }
+    return child.hasAttribute('data-album-row') ? 'row' : 'heading';
+  });
+  expect(order).toStrictEqual(['heading', 'columns', 'row', 'row']);
+});
+
+test('other releases by the artist follow the tracks as tiles that open and play', () => {
+  const onOpenAlbum = vi.fn();
+  const onPlayAlbum = vi.fn();
+  const other: ShellAlbum = { ...album, id: 'demo-album-02', title: 'Night Shift' };
+  const bare = renderAlbum();
+  // No other releases handed in: the section is absent, not an empty shell.
+  expect(bare.container.querySelector('#album-more-by')).toStrictEqual(null);
+  expect(screen.queryByRole('heading', { name: 'More by Mira Sol' })).toStrictEqual(null);
+  bare.unmount();
+
+  const { container } = renderAlbum({ onPlayAlbum, moreBy: { albums: [other], onOpenAlbum } });
+  const section = container.querySelector('#album-more-by');
+  expect(section?.getAttribute('data-album-more-by')).toStrictEqual('1');
+  expect(screen.getByRole('heading', { name: 'More by Mira Sol' }).getAttribute('data-section-heading')).toStrictEqual(
+    '1',
+  );
+  // The section comes after the track list, and holds exactly the tiles given.
+  expect(container.querySelector('#destination-album')?.lastElementChild).toStrictEqual(section);
+  expect(
+    [...(section?.querySelectorAll('[data-album-more-by-grid="1"] > [data-album-tile]') ?? [])].map((tile) => tile.id),
+  ).toStrictEqual(['album-tile-demo-album-02']);
+  fireEvent.click(screen.getByRole('button', { name: 'Night Shift' }));
+  expect(onOpenAlbum).toHaveBeenCalledTimes(1);
+  expect(onOpenAlbum).toHaveBeenCalledWith('demo-album-02');
+  // The tile's own play starts that release, not the one on the page.
+  const tilePlay = section?.querySelector('[data-album-play="1"]') as HTMLElement;
+  fireEvent.click(tilePlay);
+  expect(onPlayAlbum).toHaveBeenCalledTimes(1);
+  expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-02');
+});
+
+test('the album kebab is wired to its menu, toggles it, and a press elsewhere closes it', () => {
+  const { container } = renderAlbum({ onOpenArtist: vi.fn() });
+  const more = container.querySelector('#album-more') as HTMLElement;
+  fireEvent.click(more);
+  const menu = screen.getByRole('menu', { name: 'Actions' });
+  expect(menu.getAttribute('data-album-menu')).toStrictEqual('1');
+  expect(menu.getAttribute('data-menu-id')).toStrictEqual(more.getAttribute('aria-controls'));
+  // A press on the kebab is the kebab's business; the click that follows toggles.
+  fireEvent.pointerDown(more);
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.click(more);
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
+  // Open again: a press inside keeps it, a press on the page closes it.
+  fireEvent.click(more);
+  fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Go to artist' }));
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(screen.getByRole('heading', { name: 'Harbour Lights' }));
+  expect(more.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
 });

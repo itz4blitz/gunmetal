@@ -166,13 +166,45 @@ test('track context menu and more control open go to artist', () => {
   expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
   expect(onPlay).not.toHaveBeenCalled();
 
+  // The kebab is the "more" icon alone; its name is the aria-label.
+  const more = screen.getByRole('button', { name: 'More' });
+  expect(more.querySelector('svg')?.getAttribute('data-icon')).toStrictEqual('more');
+  expect(more.textContent).toStrictEqual('');
   fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: ' ' });
   expect(onOpenArtist).toHaveBeenCalledTimes(2);
-  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: ' ' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Tab' });
-  fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).not.toBeNull();
+  // The kebab is a toggle wired to its menu: Space opens, a key that is not
+  // an activation key changes nothing, a second press closes.
+  const kebab = screen.getByRole('button', { name: 'More' });
+  expect(kebab.getAttribute('aria-haspopup')).toStrictEqual('menu');
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  fireEvent.keyDown(kebab, { key: ' ' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  expect(screen.getByRole('menu', { name: 'Actions' }).getAttribute('data-menu-id')).toStrictEqual(
+    kebab.getAttribute('aria-controls'),
+  );
+  fireEvent.keyDown(kebab, { key: 'Tab' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.click(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
+  // Open again; a press on the kebab itself is left to the kebab, a press
+  // anywhere else closes the menu.
+  fireEvent.click(kebab);
+  expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toStrictEqual([
+    'Play',
+    'Play next',
+    'Add to queue',
+    'Go to album',
+    'Go to artist',
+  ]);
+  fireEvent.pointerDown(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(document.body);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
 });
 
 test('catalogue menu plays queues and opens the album from the track row', () => {

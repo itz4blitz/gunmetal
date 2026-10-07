@@ -1,73 +1,134 @@
 /*
- * area-album.css — SUR-025 album page and SUR-024 artist page, 2026 pass.
+ * Gunmetal demo — album page (SUR-025) and artist page (SUR-024).
  *
- * Loads after shell.css and styles only what these two pages own: the
- * ambient artwork bloom behind each hero (blurred, masked into the canvas,
- * with a scrim under the display type), the sticky action rail with its
- * compact brass/steel hexes and kebab menu, the 52px track table with its
- * hover play-triangle and brass now-playing inset, the sticky disc headers,
- * the hostile-safe rows, the artist hero, the disambiguation tag and the
- * All songs table. Everything reads --gm-* tokens so themes switch for
- * free; nothing here edits shell-owned chrome.
+ * Both detail pages share one anatomy:
+ *   back · hero (artwork + eyebrow / display title / meta) · action rail
+ *   · track table (· album grid on the artist page).
+ * Records are squares and people are nuts (design-language §7). The hero
+ * sits on an artwork bloom that fades into the canvas; the table below it
+ * is plain steel. Tokens only; the nut and its glyphs come from system.css.
  *
- * Selectors are scoped to #destination-album / #destination-artist and carry
- * an ID on purpose: area-library.css loads after this file and also styles
- * [data-track-row], so every rule that must win on these two pages beats it
- * on specificity rather than on order. Colours always set --gm-text, the
- * variable shell.css reads with !important.
+ * Every rule is scoped under #token-shell + the page id so it wins over the
+ * older base rules in shell.css without !important.
  */
 
-/* —— Display-size page names (type.display, wide 44/52 · compact 32/38) —— */
+/* —— Page frame —— */
 
-#destination-album #destination-headline,
-#destination-artist #destination-headline {
-  font-size: var(--gm-type-display-size);
-  line-height: var(--gm-type-display-line);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+#token-shell #destination-album,
+#token-shell #destination-artist {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  /* The page keeps to the content column's own padding; only the bloom
+     bleeds past it. */
+  margin: 0;
+  padding: 0;
+  background: none;
+  --detail-gutter: 32px;
+  --detail-col-number: 44px;
+  --detail-col-time: 64px;
+  --detail-col-more: 40px;
 }
 
-/* —— Hero bloom: artwork blurred into the canvas, scrim under the type —— */
+#token-shell[data-width='expanded'] :is(#destination-album, #destination-artist) {
+  --detail-gutter: 32px;
+}
 
-#destination-album,
-#destination-artist {
+#token-shell[data-width='medium'] :is(#destination-album, #destination-artist) {
+  --detail-gutter: 24px;
+}
+
+#token-shell[data-width='compact'] :is(#destination-album, #destination-artist) {
+  --detail-gutter: 16px;
+  --detail-col-number: 32px;
+  --detail-col-time: 48px;
+}
+
+/* —— Artwork bloom: the cover, blurred, bleeding to the column's edges ——
+   The bloom and its scrim cover exactly the back row and the hero — never a
+   fixed height — so the scrim always lands on plain canvas where the action
+   rail begins, at any pane width. */
+
+/* Album page: a one-column grid; the two layers span the first two rows and
+   the back control and the hero sit on top of them. */
+#token-shell #destination-album {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+#token-shell #destination-album > * {
+  grid-column: 1;
+}
+
+#token-shell #destination-album > [data-album-bloom='1'],
+#token-shell #destination-album > [data-album-scrim='1'] {
+  grid-row: 1 / 3;
+  position: relative;
+  inset: auto;
+  width: auto;
+  height: auto;
+  margin: -32px calc(var(--detail-gutter) * -1) 0;
+}
+
+#token-shell #destination-album > #album-back {
+  grid-row: 1;
+  justify-self: start;
+}
+
+#token-shell #destination-album > [data-album-header='1'] {
+  grid-row: 2;
+}
+
+/* Artist page: the layers live inside the hero, so they reach up over the
+   back row from there. */
+#token-shell #destination-artist [data-artist-header='1'] {
   position: relative;
 }
 
-[data-album-bloom='1'],
-[data-artist-bloom='1'] {
+#token-shell #destination-artist [data-artist-bloom='1'],
+#token-shell #destination-artist [data-artist-scrim='1'] {
   position: absolute;
-  inset: 0 0 auto;
-  height: 480px;
-  z-index: 0;
-  background-size: cover;
-  background-position: center 32%;
-  filter: blur(70px) saturate(1.12);
-  opacity: 0.22;
-  /* Oversize so the blur's soft fringe never shows at the side edges. */
-  transform: scale(1.12);
-  transform-origin: top center;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 60%) 55%, transparent 94%);
-  mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 60%) 55%, transparent 94%);
-  animation: gm-bloom-in 320ms ease-out both;
+  top: -84px;
+  right: calc(var(--detail-gutter) * -1);
+  bottom: 0;
+  left: calc(var(--detail-gutter) * -1);
+  width: auto;
+  height: auto;
+  margin: 0;
 }
 
-/* The scrim is the safety margin for the display type: canvas ink fading
-   in over the bloom so title/meta keep their token contrast (§5). */
-[data-album-scrim='1'],
-[data-artist-scrim='1'] {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 480px;
-  z-index: 0;
+#token-shell #destination-artist #artist-back {
+  z-index: 1;
+}
+
+#token-shell [data-album-bloom='1'],
+#token-shell [data-artist-bloom='1'] {
+  z-index: -2;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) saturate(1.25);
+  /* The blur spreads past the layer's box; clip it back to the box so none
+     of it shows below the scrim, where the hero ends. */
+  clip-path: inset(0);
+  opacity: 0.55;
   pointer-events: none;
+  animation: gm-bloom-in 420ms var(--gm-ease) both;
+}
+
+#token-shell [data-album-scrim='1'],
+#token-shell [data-artist-scrim='1'] {
+  z-index: -1;
   background: linear-gradient(
-    180deg,
+    to bottom,
     color-mix(in srgb, var(--gm-bg-canvas) 30%, transparent) 0%,
-    color-mix(in srgb, var(--gm-bg-canvas) 62%, transparent) 46%,
-    var(--gm-bg-canvas) 88%
+    color-mix(in srgb, var(--gm-bg-canvas) 66%, transparent) 55%,
+    var(--gm-bg-canvas) 100%
   );
+  pointer-events: none;
 }
 
 @keyframes gm-bloom-in {
@@ -76,818 +137,1145 @@
   }
 
   to {
-    opacity: 0.22;
+    opacity: 0.55;
   }
 }
 
 /* High contrast gets no tint at all (design-language §5). */
-#token-shell[data-theme='high-contrast'] [data-album-bloom='1'],
-#token-shell[data-theme='high-contrast'] [data-album-scrim='1'],
-#token-shell[data-theme='high-contrast'] [data-artist-bloom='1'],
-#token-shell[data-theme='high-contrast'] [data-artist-scrim='1'] {
+#token-shell[data-theme='high-contrast'] :is([data-album-bloom='1'], [data-artist-bloom='1']),
+#token-shell[data-theme='high-contrast'] :is([data-album-scrim='1'], [data-artist-scrim='1']) {
   display: none;
 }
 
-/* The bloom paints in the positioned layer (z 0), so chrome that must sit
-   over it — back, the heroes' text, the lyrics pane — takes an explicit
-   step up. Rows and tiles are already positioned by shell.css and follow
-   the bloom in tree order. */
-#destination-album #album-back,
-#destination-artist #artist-back,
-#destination-album #album-lyrics {
-  position: relative;
-  z-index: 2;
-}
+/* —— Back —— */
 
-#destination-artist [data-artist-hero],
-#destination-artist [data-artist-header-text] {
-  position: relative;
-  z-index: 1;
-}
-
-/* —— Album header text: artist link, meta line, license —— */
-
-[data-album-header-text] {
-  min-width: 0;
-}
-
-[data-album-header-text] [data-album-artist] {
+#token-shell :is(#album-back, #artist-back) {
+  position: static;
   align-self: flex-start;
-  font-size: 16px;
-  line-height: 22px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  margin: -4px 0 20px -8px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-weight: 600;
-  color: var(--gm-accent-text);
-  --gm-text: var(--gm-accent-text);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, var(--gm-accent-text) 38%, transparent);
-  text-underline-offset: 4px;
-  transition: text-decoration-color var(--gm-motion);
-}
-
-[data-album-header-text] [data-album-artist][role='button'] {
   cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#token-shell :is(#album-back, #artist-back) > * {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+}
+
+#token-shell :is(#album-back, #artist-back):hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 8%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+  transform: none;
+}
+
+#token-shell :is(#album-back, #artist-back):focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— Hero —— */
+
+#token-shell #destination-album [data-album-header='1'],
+#token-shell #destination-artist [data-artist-header='1'] {
+  display: grid;
+  grid-template-columns: clamp(176px, 30%, 280px) minmax(0, 1fr);
+  align-items: end;
+  gap: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 0 28px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  animation: none;
+}
+
+#token-shell #destination-artist [data-artist-header='1'] {
+  grid-template-columns: clamp(140px, 22%, 208px) minmax(0, 1fr);
+  align-items: center;
+}
+
+/* The record: a square that fills its column. */
+#token-shell #destination-album [data-album-header='1'] [data-size='detail'] {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  max-width: none;
+  border-radius: var(--gm-radius-m);
+  box-shadow:
+    var(--gm-stroke-edge),
+    0 28px 56px -28px color-mix(in srgb, black 80%, transparent);
+  transform: none;
+}
+
+/* The person: a nut. */
+#token-shell #destination-artist [data-artist-avatar='hero'] {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background-color: var(--gm-bg-overlay);
+  background-size: cover;
+  background-position: center;
+  box-shadow: none;
+  clip-path: var(--gm-nut);
+  transform: none;
+}
+
+#token-shell #destination-artist [data-artist-avatar='hero'] [data-artist-initial] {
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1;
+  font-weight: 700;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell #destination-artist [data-artist-avatar='hero'][data-artist-image='1'] [data-artist-initial] {
+  display: none;
+}
+
+#token-shell :is([data-album-header-text='1'], [data-artist-header-text='1']) {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+#token-shell [data-detail-eyebrow='1'] {
+  margin: 0 0 8px;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell :is(#destination-album, #destination-artist) #destination-headline {
+  margin: 0;
+  max-width: 100%;
+  font-size: clamp(32px, 4.4vw, 60px);
+  line-height: 1.04;
+  font-weight: 760;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* Artist credit under the title: a text link, never brass. */
+#token-shell [data-album-header-text='1'] [data-album-artist] {
+  display: inline-flex;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
   border-radius: var(--gm-radius-xs);
+  background: none;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-[data-album-header-text] [data-album-artist][role='button']:hover {
-  text-decoration-color: var(--gm-accent-text);
+#token-shell [data-album-header-text='1'] [data-album-artist] > * {
+  font-size: var(--gm-type-title3-size);
+  line-height: var(--gm-type-title3-line);
+  font-weight: 650;
 }
 
-[data-album-header-text] [data-album-artist][role='button']:focus-visible {
+#token-shell [data-album-header-text='1'] [data-album-artist][role='button'] {
+  cursor: pointer;
+}
+
+#token-shell [data-album-header-text='1'] [data-album-artist][role='button']:hover > * {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+#token-shell [data-album-header-text='1'] [data-album-artist][role='button']:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 3px;
 }
 
-[data-album-header-text] [data-album-artist]:not([role='button']) {
-  cursor: default;
-}
-
-/* Year · track count · total time, all computed from the record; every
-   figure is tabular so the line holds still while it is read (§6). */
-[data-album-header-text] [data-album-meta='1'] {
+/* Year · tracks · total time (album) and albums · songs (artist). */
+#token-shell :is([data-album-meta='1'], [data-artist-meta='1']) {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
+  gap: 0 8px;
+  margin: 8px 0 0;
 }
 
-[data-album-meta='1'] > * {
-  font-size: 13px;
-  line-height: 18px;
+#token-shell :is([data-album-meta='1'], [data-artist-meta='1']) > * {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-weight: 500;
-  color: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
-}
-
-[data-album-meta='1'] [data-meta-separator='1'] {
-  font-weight: 400;
-  opacity: 0.6;
-}
-
-#album-year,
-#album-track-count,
-#album-duration-total {
   font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
-[data-album-header-text] #album-license {
-  margin-top: 2px;
-  max-width: 56ch;
+#token-shell :is([data-album-meta='1'], [data-artist-meta='1']) [data-meta-separator='1'] {
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-/* —— Sticky action rail: Play · Shuffle · Lyrics · More, pinned to the
-      content's top edge while the list scrolls under it. Opaque canvas,
-      one hairline — sticky bars never go translucent (§4). —— */
-
-#destination-album {
-  --gm-album-rail-h: 61px; /* 44px hex + 2 × 8px padding + 1px hairline */
+#token-shell [data-album-header-text='1'] #album-license {
+  margin: 12px 0 0;
+  max-width: 68ch;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-[data-album-rail='1'] {
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin: 0 -24px;
-  padding: 8px 24px;
-  background: var(--gm-bg-canvas);
-  border-bottom: 1px solid var(--gm-line-subtle);
+#token-shell #artist-disambiguation {
+  margin: 8px 0 0;
+  padding: 2px 6px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-xs);
+  background: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-[data-album-rail='1'] [data-kebab-wrap='1'] {
-  margin-inline-start: auto;
-}
-
-/* Compact brass hex. The clip-path would cut a rectangular ring, so focus
-   rides a double drop-shadow in the focus-ring token (§8). The page ID
-   beats shell.css's #album-play sizing rule regardless of load order. */
-#destination-album [data-album-rail='1'] [data-brass-hex='1'] {
+/* The artist's play nut sits under the meta line. */
+#token-shell #destination-artist #artist-play {
   position: relative;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  background: var(--gm-accent-fill);
-  color: var(--gm-accent-on);
-  --gm-text: var(--gm-accent-on);
-  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
-  transition:
-    filter var(--gm-motion),
-    transform var(--gm-motion);
+  align-self: flex-start;
+  margin: 20px 0 0;
 }
 
-#destination-album [data-album-rail='1'] [data-brass-hex='1'] > * {
+#token-shell :is(#album-play, #artist-play) > * {
   position: absolute;
   width: 1px;
   height: 1px;
-  padding: 0;
   margin: -1px;
+  padding: 0;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
 }
 
-#destination-album [data-album-rail='1'] [data-brass-hex='1']::after {
-  content: '';
-  width: 0;
-  height: 0;
-  margin-left: 2px;
-  border-style: solid;
-  border-width: 7px 0 7px 11px;
-  border-color: transparent transparent transparent var(--gm-accent-on);
+/* —— Action rail: Play · Shuffle · Lyrics · More —— */
+
+#token-shell #destination-album [data-album-rail='1'] {
+  position: sticky;
+  top: -32px;
+  z-index: 6;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 0;
+  margin: 0 calc(var(--detail-gutter) * -1);
+  padding: 12px var(--detail-gutter);
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: var(--gm-bg-canvas);
+  box-shadow: none;
 }
 
-#destination-album [data-album-rail='1'] [data-brass-hex='1']:hover {
-  filter: brightness(1.06);
-  transform: scale(1.03);
+/* Over the bloom the rail is clear; it only needs its own ground once the
+   rows scroll under it, which the opaque canvas provides. */
+#token-shell #destination-album [data-album-rail='1'] [data-brass-hex='1'] {
+  position: relative;
+  margin: 0;
 }
 
-#destination-album [data-album-rail='1'] [data-brass-hex='1']:active {
-  filter: brightness(0.92);
-  transform: scale(0.98);
-}
-
-#destination-album [data-album-rail='1'] [data-brass-hex='1']:focus-visible {
-  outline: none;
-  filter: drop-shadow(0 0 1px var(--gm-focus-ring)) drop-shadow(0 0 1px var(--gm-focus-ring));
-}
-
-/* Steel shuffle hex — same geometry, machined face, honest disabled. */
-[data-shuffle-wrap='1'] {
+#token-shell [data-shuffle-wrap='1'] {
   position: relative;
   display: inline-flex;
-  flex-direction: row;
-  flex: 0 0 auto;
+  align-items: center;
+  margin: 0;
 }
 
-[data-shuffle-wrap='1'] [data-hex-face='1'] {
-  width: 44px;
-  height: 44px;
+/* Secondary rail buttons: quiet 40px steel squares with an icon. */
+#token-shell [data-shuffle-wrap='1'] [data-hex-face='1'],
+#token-shell #album-more[data-album-more='1'] {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--gm-edge-highlight), transparent 42%), var(--gm-bg-overlay);
-  color: var(--gm-text-secondary);
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+  clip-path: none;
   --gm-text: var(--gm-text-secondary);
-  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  color: var(--gm-text-secondary);
+  font-size: 0;
+  cursor: pointer;
   transition:
     background-color var(--gm-motion),
     color var(--gm-motion),
-    transform var(--gm-motion),
-    filter var(--gm-motion);
+    transform var(--gm-motion);
 }
 
-[data-shuffle-wrap='1']:hover [data-hex-face='1'] {
-  background:
-    linear-gradient(180deg, var(--gm-edge-highlight), transparent 42%),
-    color-mix(in srgb, var(--gm-text-primary) 8%, var(--gm-bg-overlay));
-  color: var(--gm-text-primary);
+#token-shell #album-more[data-album-more='1']::before {
+  content: none;
+}
+
+#token-shell [data-shuffle-wrap='1']:hover [data-hex-face='1'],
+#token-shell #album-more[data-album-more='1']:hover,
+#token-shell #album-more[data-album-more='1'][aria-expanded='true'] {
+  background: color-mix(in srgb, var(--gm-text-primary) 8%, transparent);
   --gm-text: var(--gm-text-primary);
-}
-
-[data-shuffle-wrap='1'] [data-hex-face='1']:active {
-  transform: scale(0.98);
-}
-
-[data-shuffle-wrap='1'] [data-hex-face='1']:focus-visible {
-  outline: none;
-  filter: drop-shadow(0 0 1px var(--gm-focus-ring)) drop-shadow(0 0 1px var(--gm-focus-ring));
-}
-
-[data-shuffle-wrap='1'][data-wired='0'] {
-  cursor: default;
-}
-
-[data-shuffle-wrap='1'][data-wired='0'] [data-hex-face='1'] {
-  cursor: default;
-  background: color-mix(in srgb, var(--gm-bg-raised) 72%, transparent);
-  color: var(--gm-text-disabled);
-  --gm-text: var(--gm-text-disabled);
-}
-
-[data-shuffle-wrap='1'][data-wired='0']:hover [data-hex-face='1'] {
-  background: color-mix(in srgb, var(--gm-bg-raised) 72%, transparent);
-  color: var(--gm-text-disabled);
-  --gm-text: var(--gm-text-disabled);
-}
-
-/* Two crossing arms with a chevron on each end — the shuffle mark, drawn,
-   not an emoji, not an image. */
-[data-shuffle-glyph='1'] {
-  position: relative;
-  width: 18px;
-  height: 18px;
-}
-
-[data-shuffle-arm='a'],
-[data-shuffle-arm='b'] {
-  position: absolute;
-  left: 0;
-  top: 8px;
-  width: 18px;
-  height: 2px;
-  border-radius: 1px;
-  background: currentcolor;
-}
-
-[data-shuffle-arm='a'] {
-  transform: rotate(-35deg);
-}
-
-[data-shuffle-arm='b'] {
-  transform: rotate(35deg);
-}
-
-[data-shuffle-arm='a']::after,
-[data-shuffle-arm='b']::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 50%;
-  width: 6px;
-  height: 6px;
-  border-top: 2px solid currentcolor;
-  border-right: 2px solid currentcolor;
-  transform: translateY(-50%) rotate(45deg);
-}
-
-/* Tooltip lives on the un-clipped wrapper so the hexagon cannot cut it. */
-[data-shuffle-wrap='1'] [data-control-hint] {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 5px 9px;
-  border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-s);
-  background: var(--gm-bg-overlay);
-  box-shadow: 0 6px 18px color-mix(in srgb, #000 24%, transparent);
   color: var(--gm-text-primary);
-  --gm-text: var(--gm-text-primary);
-  font-size: 12px;
-  line-height: 16px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--gm-motion);
-  z-index: 12;
+  filter: none;
+  transform: none;
 }
 
-[data-shuffle-wrap='1']:hover [data-control-hint],
-[data-shuffle-wrap='1']:focus-within [data-control-hint] {
+#token-shell [data-shuffle-wrap='1'] [data-hex-face='1']:active,
+#token-shell #album-more[data-album-more='1']:active {
+  transform: scale(0.96);
+}
+
+#token-shell [data-shuffle-wrap='1'] [data-hex-face='1']:focus-visible,
+#token-shell #album-more[data-album-more='1']:focus-visible,
+#token-shell #album-lyrics-toggle:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Not wired yet: honest, visibly unavailable, and the hint says why. */
+#token-shell [data-shuffle-wrap='1'][data-wired='0'] {
   opacity: 1;
 }
 
-/* Lyrics toggle: a quiet steel ghost button; toggled on it earns the 14%
-   brass wash and the indicator edge — where you are (§4). */
-[data-album-rail='1'] #album-lyrics-toggle {
-  padding: 10px 14px;
-  border-radius: var(--gm-radius-m);
-  border: 1px solid var(--gm-line-subtle);
+#token-shell [data-shuffle-wrap='1'][data-wired='0'] [data-hex-face='1'],
+#token-shell [data-shuffle-wrap='1'][data-wired='0']:hover [data-hex-face='1'] {
   background: transparent;
-  color: var(--gm-text-secondary);
-  --gm-text: var(--gm-text-secondary);
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
-  transition:
-    background-color var(--gm-motion),
-    color var(--gm-motion),
-    box-shadow var(--gm-motion);
+  --gm-text: var(--gm-text-disabled);
+  color: var(--gm-text-disabled);
+  cursor: not-allowed;
 }
 
-[data-album-rail='1'] #album-lyrics-toggle:hover {
-  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
-  color: var(--gm-text-primary);
-  --gm-text: var(--gm-text-primary);
-}
-
-[data-album-rail='1'] #album-lyrics-toggle[data-lyrics-toggle='1'] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
-  color: var(--gm-accent-text);
-  --gm-text: var(--gm-accent-text);
-  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
-}
-
-[data-album-rail='1'] #album-lyrics-toggle:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
-}
-
-/* Kebab: 44px square target, ⋮ drawn by CSS (font-size 0 on the button),
-   its label kept for assistive tech. */
-[data-kebab-wrap='1'] {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-#album-more[data-album-more='1'] {
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--gm-radius-m);
-  color: var(--gm-text-secondary);
-  --gm-text: var(--gm-text-secondary);
-  font-size: 0;
-  transition:
-    background-color var(--gm-motion),
-    color var(--gm-motion);
-}
-
-#album-more[data-album-more='1']::before {
-  content: '⋮';
-  font-size: 18px;
-  line-height: 1;
-}
-
-#album-more[data-album-more='1'] > * {
-  display: none;
-}
-
-#album-more[data-album-more='1']:hover {
-  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
-  color: var(--gm-text-primary);
-  --gm-text: var(--gm-text-primary);
-}
-
-#album-more[data-album-more='1']:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
-}
-
-/* The album menu reuses shell's [data-context-menu] chrome; only the
-   anchor differs — it drops from the kebab instead of a row corner. */
-[data-album-menu='1'] {
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 24;
-}
-
-[data-album-menu='1'] [data-menu-item] {
-  display: flex;
-  align-items: center;
-  min-height: 36px;
-  cursor: pointer;
-  transition: background-color var(--gm-motion);
-}
-
-/* —— Track table on the album page and the artist's All songs —— */
-
-#destination-album [data-track-row],
-#destination-artist [data-track-row] {
-  min-height: 52px;
-  padding: 8px 12px;
-}
-
-#destination-album [data-track-row] [data-track-play],
-#destination-artist [data-track-row] [data-track-play] {
-  min-height: 52px;
-}
-
-/* Rows focus with an inset ring: an outside ring would be clipped by the
-   list (design-language §8). */
-#destination-album [data-track-play]:focus-visible,
-#destination-artist [data-track-play]:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: -2px;
-}
-
-[data-album-row='1'] {
-  display: block;
-}
-
-/* The album artist's own rows drop the repeated credit; guests keep theirs. */
-[data-album-row='1'][data-guest='0'] [data-track-artist] {
-  display: none;
-}
-
-[data-album-row='1'][data-guest='1'] [data-track-artist] {
-  font-size: 12px;
-  color: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
-}
-
-/* Number column: tabular numerals that step aside for a brass play
-   triangle on hover or keyboard focus — the modern table's affordance. */
-#destination-album [data-track-row] [data-track-number],
-#destination-artist [data-track-row] [data-track-number] {
-  position: relative;
-  font-size: 13px;
-  line-height: 18px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  color: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
-  transition: color var(--gm-motion);
-}
-
-#destination-album [data-track-row] [data-track-number]::after,
-#destination-artist [data-track-row] [data-track-number]::after {
-  content: '';
+#token-shell [data-shuffle-wrap='1'] [data-control-hint] {
   position: absolute;
-  inset: 0;
-  width: 12px;
-  height: 12px;
-  margin: auto;
-  background: var(--gm-accent-text);
-  clip-path: polygon(0% 0%, 100% 50%, 0% 100%);
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-elev-overlay);
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
   opacity: 0;
-  transform: translateX(1px);
+  transform: translateY(-2px);
+  pointer-events: none;
   transition:
     opacity var(--gm-motion),
     transform var(--gm-motion);
 }
 
-#destination-album [data-track-row]:hover [data-track-number],
-#destination-artist [data-track-row]:hover [data-track-number],
-#destination-album [data-track-row] [data-track-play]:focus-visible [data-track-number],
-#destination-artist [data-track-row] [data-track-play]:focus-visible [data-track-number] {
-  color: transparent;
-  --gm-text: transparent;
-}
-
-#destination-album [data-track-row]:hover [data-track-number]::after,
-#destination-artist [data-track-row]:hover [data-track-number]::after,
-#destination-album [data-track-row] [data-track-play]:focus-visible [data-track-number]::after,
-#destination-artist [data-track-row] [data-track-play]:focus-visible [data-track-number]::after {
+#token-shell [data-shuffle-wrap='1']:hover [data-control-hint],
+#token-shell [data-shuffle-wrap='1']:focus-within [data-control-hint] {
   opacity: 1;
-  transform: translateX(0);
+  transform: none;
 }
 
-/* Where you are: brass wash, a 3px inset lead and a 1px brass hairline.
-   The equaliser bars (shell's gm-playing-bars) take the numeral's slot;
-   hovering the playing row swaps them for the restart triangle. */
-#destination-album [data-track-row][data-current='1'] [data-track-number],
-#destination-artist [data-track-row][data-current='1'] [data-track-number] {
-  color: transparent;
-  --gm-text: transparent;
-}
-
-#destination-album [data-track-row][data-current='1']:hover [data-now-playing='1'],
-#destination-artist [data-track-row][data-current='1']:hover [data-now-playing='1'] {
-  opacity: 0;
-}
-
-#destination-album [data-track-row][data-current='1'],
-#destination-artist [data-track-row][data-current='1'] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 12%, transparent);
-  box-shadow:
-    inset 3px 0 0 var(--gm-accent-indicator),
-    inset 0 0 0 1px color-mix(in srgb, var(--gm-accent-indicator) 28%, transparent),
-    var(--gm-raised-edge);
-}
-
-#destination-album [data-track-row][data-current='1'] [data-track-title],
-#destination-artist [data-track-row][data-current='1'] [data-track-title] {
-  color: var(--gm-accent-text);
-  --gm-text: var(--gm-accent-text);
-}
-
-/* Honest flags: the row dims, the chip keeps its words as an outline chip
-   in steel — an unplayable file is never brass (MUS-229, §4). */
-#destination-album [data-track-row][data-flagged='1'] [data-track-play],
-#destination-artist [data-track-row][data-flagged='1'] [data-track-play] {
-  opacity: 0.55;
-  transition: opacity var(--gm-motion);
-}
-
-#destination-album [data-track-row][data-flagged='1']:hover [data-track-play],
-#destination-artist [data-track-row][data-flagged='1']:hover [data-track-play],
-#destination-album [data-track-row][data-flagged='1'] [data-track-play]:focus-visible,
-#destination-artist [data-track-row][data-flagged='1'] [data-track-play]:focus-visible {
-  opacity: 0.78;
-}
-
-#destination-album [data-track-row] [data-track-flag],
-#destination-artist [data-track-row] [data-track-flag] {
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
-  border-radius: var(--gm-radius-xs);
-  background: color-mix(in srgb, var(--gm-bg-inset) 55%, transparent);
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--gm-text-secondary);
+#token-shell [data-album-rail='1'] #album-lyrics-toggle {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  margin: 0 0 0 4px;
+  padding: 0 14px 0 12px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
   --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    border-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#token-shell [data-album-rail='1'] #album-lyrics-toggle > * {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-weight: 600;
+}
+
+#token-shell [data-album-rail='1'] #album-lyrics-toggle:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  border-color: var(--gm-line-control);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-album-rail='1'] #album-lyrics-toggle[data-lyrics-toggle='1'] {
+  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
+  border-color: color-mix(in srgb, var(--gm-accent-indicator) 60%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* The kebab keeps to the trailing edge of the rail. */
+#token-shell [data-album-rail='1'] [data-kebab-wrap='1'] {
+  position: relative;
+  margin: 0 0 0 auto;
+}
+
+#token-shell [data-album-menu='1'] {
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  min-width: 220px;
+}
+
+#token-shell #destination-album #album-lyrics {
+  position: relative;
+  z-index: 1;
+  margin: 8px 0 16px;
+}
+
+/* —— Track table —— */
+
+#token-shell #destination-album [data-disc-block],
+#token-shell #destination-artist [data-artist-song-list='1'] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+#token-shell #destination-album [data-disc-block] + [data-disc-block] {
+  margin-top: 28px;
+}
+
+/* A single-disc album needs no "Tracks" heading: the column row says it.
+   Multi-disc albums keep their disc titles. */
+#token-shell #destination-album [data-disc-block] > [data-disc-header] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
-  justify-self: end;
+  border: 0;
 }
 
-/* Durations: tabular, right-aligned, a fixed floor so columns hold. */
-#destination-album [data-track-duration],
-#destination-artist [data-track-duration],
-#destination-album [data-hostile-row='1'] [data-track-duration] {
-  font-variant-numeric: tabular-nums;
-  text-align: end;
-  justify-self: end;
-  min-width: 4ch;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-/* —— Disc headers: sticky under the action rail while a disc plays out —— */
-
-#destination-album [data-disc-header-row='1'] {
-  position: sticky;
-  top: var(--gm-album-rail-h);
-  z-index: 7;
+#token-shell #destination-album [data-disc-header-row='1'] {
+  position: static;
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 16px;
-  margin: 24px -24px 8px;
-  padding: 8px 24px;
-  background: var(--gm-bg-canvas);
-  border-bottom: 1px solid var(--gm-line-subtle);
-}
-
-#destination-album [data-disc-header-row='1'] [data-disc-header] {
-  flex: 1 1 auto;
-  min-width: 0;
+  gap: 12px;
+  min-height: 0;
   margin: 0;
-  padding-bottom: 0;
-  border-bottom: none;
+  padding: 16px 0 8px;
+  border: 0;
+  background: none;
+  box-shadow: none;
 }
 
-[data-disc-play='1'] {
+#token-shell #destination-album [data-disc-header-row='1'] [data-disc-header] {
+  margin: 0;
+  font-size: var(--gm-type-title3-size);
+  line-height: var(--gm-type-title3-line);
+  font-weight: 700;
+  letter-spacing: 0;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-disc-play='1'] {
   display: inline-flex;
   flex-direction: row;
-  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 8px 12px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px 0 8px;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-m);
-  background: var(--gm-bg-raised);
-  box-shadow: var(--gm-raised-edge);
-  color: var(--gm-text-secondary);
+  background: transparent;
+  box-shadow: none;
   --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  cursor: pointer;
   transition:
     background-color var(--gm-motion),
-    color var(--gm-motion),
-    transform var(--gm-motion);
+    color var(--gm-motion);
 }
 
-[data-disc-play='1']::before {
+#token-shell [data-disc-play='1']::before {
   content: '';
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 5px 0 5px 8px;
-  border-color: transparent transparent transparent var(--gm-accent-fill);
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  border: 0;
+  background: currentColor;
+  clip-path: var(--gm-glyph-play);
 }
 
-[data-disc-play='1'] [data-disc-play-label='1'] {
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: inherit;
+#token-shell [data-disc-play='1'] [data-disc-play-label='1'] {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  clip: auto;
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
 }
 
-[data-disc-play='1']:hover {
-  background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-raised));
-  color: var(--gm-text-primary);
+#token-shell [data-disc-play='1']:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 8%, transparent);
   --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-[data-disc-play='1']:active {
-  transform: scale(0.98);
-}
-
-[data-disc-play='1']:focus-visible {
+#token-shell [data-disc-play='1']:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
 }
 
-/* —— Hostile-safe rows: a safe label, the real duration, nothing else —— */
-
-[data-hostile-row='1'] {
-  position: relative;
-  display: block;
-}
-
-[data-hostile-row='1'] [data-hostile-row-play='1'] {
-  display: grid;
-  grid-template-columns: 32px 1fr auto;
-  gap: 12px;
+/* Column row: #  Title  (Album)  ⏱ — quiet labels on a hairline. */
+#token-shell :is([data-track-table-head='1'], [data-artist-table-head='1']) {
+  position: static;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  width: 100%;
+  gap: 0;
+  height: 36px;
+  min-height: 36px;
+  margin: 0 0 4px;
+  padding: 0 var(--detail-col-more) 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--gm-line-subtle);
+  background: none;
+}
+
+#token-shell :is([data-track-table-head='1'], [data-artist-table-head='1']) > * {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: start;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell :is([data-track-table-head='1'], [data-artist-table-head='1']) > :first-child {
+  flex: 0 0 var(--detail-col-number);
+  text-align: center;
+}
+
+#token-shell :is([data-track-table-head='1'], [data-artist-table-head='1']) > :last-child {
+  flex: 0 0 var(--detail-col-time);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: end;
+}
+
+/* The artist table's Title column is wider than its Album column, matching
+   the rows beneath it. */
+#token-shell [data-artist-table-head='1'] > :nth-child(2) {
+  flex: 1.4 1 0;
+}
+
+/* Rows. Each is one button (number · title · [album] · [flag] · time) plus
+   the kebab in its own column. */
+#token-shell :is(#destination-album, #destination-artist) [data-album-row='1'] {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
   min-height: 52px;
-  padding: 8px 12px;
-  border-radius: var(--gm-radius-s);
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
   transition: background-color var(--gm-motion);
+  animation: none;
 }
 
-[data-hostile-row='1'] [data-hostile-row-play='1']:hover {
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:hover,
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:focus-within {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  box-shadow: none;
 }
 
-[data-hostile-row='1'] [data-hostile-row-play='1']:focus-visible {
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] {
+  flex: 1 1 0;
+  /* number · title · time, with an album column between title and time
+     where the row carries one. A grid, not a flex row, so an optional flag
+     chip can never push a column out of line with the rows around it. */
+  display: grid;
+  grid-template-columns: var(--detail-col-number) minmax(0, 1fr) var(--detail-col-time);
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--gm-radius-m);
+  cursor: pointer;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-play]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: -2px;
 }
 
-[data-hostile-row='1'][data-current='1'] [data-hostile-row-play='1'] {
-  padding-left: 26px;
-  background: color-mix(in srgb, var(--gm-accent-fill) 12%, transparent);
-  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play][data-with-album='1'] {
+  grid-template-columns: var(--detail-col-number) minmax(0, 1.4fr) minmax(0, 1fr) var(--detail-col-time);
 }
 
-[data-hostile-row-label='1'] {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gm-text-secondary);
-  --gm-text: var(--gm-text-secondary);
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > * {
+  grid-row: 1;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > [data-track-number] {
+  grid-column: 1;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > [data-track-meta] {
+  grid-column: 2;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > [data-track-album] {
+  grid-column: 3;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > [data-track-duration] {
+  grid-column: -2 / -1;
+}
+
+/* The flag chip rides the trailing end of the title cell. */
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] > [data-track-flag] {
+  grid-column: 2;
+  justify-self: end;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-flagged='1'] [data-track-meta] {
+  padding-right: 120px;
+}
+
+/* Number cell: tabular digits that hand over to a play glyph on hover and
+   to the level bars on the playing row. */
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-number] {
+  position: relative;
+  flex: 0 0 var(--detail-col-number);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: 52px;
+  margin: 0;
+  padding: 0;
+  font-size: var(--gm-type-small-size);
+  line-height: 1;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-number]::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 0;
+  background: var(--gm-text-primary);
+  clip-path: var(--gm-glyph-play);
+  opacity: 0;
+  transform: none;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:hover [data-track-number],
+#token-shell :is(#destination-album, #destination-artist) [data-track-play]:focus-visible [data-track-number] {
+  --gm-text: transparent;
+  color: transparent;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:hover [data-track-number]::after,
+#token-shell :is(#destination-album, #destination-artist) [data-track-play]:focus-visible [data-track-number]::after {
+  opacity: 1;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-meta] {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  padding: 0 16px 0 0;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-title] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  font-weight: 550;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
 }
 
-/* The playing mark stays static here: fixture rows, calm by default. */
-[data-hostile-row='1'] [data-now-playing='1'] {
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  width: 12px;
-  height: 14px;
-  margin-top: -7px;
-  background:
-    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 0 100% / 2px 40% no-repeat,
-    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 5px 100% / 2px 80% no-repeat,
-    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 10px 100% / 2px 55% no-repeat;
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-artist] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
-/* —— Artist page: hero, nut image, disambiguation, All songs table —— */
-
-#destination-artist [data-artist-header='1'] {
-  position: relative;
-  z-index: 1;
-}
-
-#destination-artist [data-artist-hero][data-artist-image='1'] [data-artist-initial] {
+/* The album artist's own rows drop the repeated credit; guests keep theirs.
+   On the artist page every row is the artist's, so the credit goes too. */
+#token-shell [data-album-row='1'][data-guest='0'] [data-track-artist],
+#token-shell #destination-artist [data-track-row] [data-track-artist] {
   display: none;
 }
 
-#artist-disambiguation {
-  align-self: flex-start;
-  width: fit-content;
-  max-width: 100%;
-  padding: 3px 8px;
-  border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-xs);
-  color: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+#token-shell [data-album-row='1'][data-guest='1'] [data-track-artist] {
+  display: block;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-album] {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 16px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell #destination-artist [data-track-row] [data-track-meta] {
+  flex: 1.4 1 0;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-duration],
+#token-shell #destination-album [data-hostile-row='1'] [data-track-duration] {
+  flex: 0 0 var(--detail-col-time);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  text-align: end;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
 }
 
-#artist-all-songs {
-  margin-top: 44px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-#artist-all-songs [data-section-heading='1'] {
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--gm-line-subtle);
-}
-
-/* Presentational column chrome, aligned with the row grid beneath it
-   (number gutter 44px, kebab gutter 56px). Hidden from assistive tech —
-   the rows are buttons, not table cells. */
-[data-artist-table-head='1'] {
-  display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
-  min-height: 28px;
-  padding: 0 56px 6px 44px;
-  border-bottom: 1px solid var(--gm-line-subtle);
-}
-
-[data-artist-table-head='1'] > * {
+/* Honest flags: the row dims, the chip keeps its words. */
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-track-flag] {
+  flex: 0 0 auto;
+  margin: 0 12px 0 0;
+  padding: 1px 6px;
+  border: 1px solid var(--gm-line-control);
+  border-radius: var(--gm-radius-xs);
+  background: none;
   font-size: 11px;
   line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
+  white-space: nowrap;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
 }
 
-[data-artist-table-head='1'] > *:last-child {
-  text-align: end;
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-flagged='1'] [data-track-title],
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-flagged='1'] [data-track-number] {
+  --gm-text: var(--gm-text-disabled);
+  color: var(--gm-text-disabled);
 }
 
-[data-artist-song-list='1'] {
+/* Kebab: its own 40px column, quiet until the row is hovered or focused. */
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-item-more] {
+  position: static;
+  flex: 0 0 var(--detail-col-more);
+  width: var(--detail-col-more);
+  height: 36px;
+  margin: 0;
+  padding: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity var(--gm-motion),
+    background-color var(--gm-motion),
+    color var(--gm-motion);
 }
 
-#token-shell[data-width='compact'] [data-artist-table-head='1'] {
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 0 48px 6px 40px;
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:hover [data-item-more],
+#token-shell :is(#destination-album, #destination-artist) [data-track-row]:focus-within [data-item-more],
+#token-shell:is([data-width='compact'], [data-width='medium'])
+  :is(#destination-album, #destination-artist)
+  [data-track-row]
+  [data-item-more] {
+  opacity: 1;
 }
 
-#token-shell[data-width='compact'] [data-artist-table-head='1'] > *:nth-child(2),
-#token-shell[data-width='compact'] [data-artist-table-head='1'] > *:nth-child(3) {
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] [data-item-more]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 10%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* Where you are: brass title, level bars in the number cell, a soft wash. */
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-current='1'] {
+  background: color-mix(in srgb, var(--gm-accent-fill) 10%, transparent);
+  border: 0;
+  box-shadow: none;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-current='1'] [data-track-title] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row][data-current='1'] [data-track-number] {
+  --gm-text: transparent;
+  color: transparent;
+}
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] > [data-now-playing='1'] {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--detail-col-number) / 2 - 6px);
+  width: 12px;
+  height: 14px;
+  margin: -7px 0 0;
+  pointer-events: none;
+}
+
+/* Hover on the playing row trades the bars for the play glyph. */
+#token-shell
+  :is(#destination-album, #destination-artist)
+  [data-track-row][data-current='1']:hover
+  > [data-now-playing='1'] {
+  opacity: 0;
+}
+
+#token-shell
+  :is(#destination-album, #destination-artist)
+  [data-track-row][data-current='1']
+  [data-track-number]::after {
+  background: var(--gm-accent-text);
+}
+
+/* —— Hostile-safe rows: a safe label, the real duration, nothing else —— */
+
+#token-shell #destination-album [data-hostile-row='1'] {
+  position: relative;
+  display: flex;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  box-shadow: none;
+}
+
+#token-shell #destination-album [data-hostile-row='1'] [data-hostile-row-play='1'] {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 var(--detail-col-more) 0 0;
+  border-radius: var(--gm-radius-m);
+  cursor: pointer;
+}
+
+#token-shell #destination-album [data-hostile-row='1'] [data-hostile-row-play='1']:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+}
+
+#token-shell #destination-album [data-hostile-row='1'] [data-hostile-row-play='1']:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
+}
+
+#token-shell #destination-album [data-hostile-row='1'] [data-track-number] {
+  flex: 0 0 var(--detail-col-number);
+  text-align: center;
+  font-size: var(--gm-type-small-size);
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #destination-album [data-hostile-row-label='1'] {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  font-style: italic;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell #destination-album [data-hostile-row='1'][data-current='1'] [data-hostile-row-label='1'] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+}
+
+#token-shell #destination-album [data-hostile-row='1'] > [data-now-playing='1'] {
   display: none;
 }
 
-/* —— Targets, compact, reduced motion —— */
+/* —— Artist page sections —— */
 
-#token-shell[data-width='compact'] #album-back,
-#token-shell[data-width='compact'] #artist-back,
-#token-shell[data-width='compact'] #album-lyrics-toggle,
-#token-shell[data-width='compact'] [data-disc-play='1'] {
-  min-height: 44px;
+#token-shell #destination-artist [data-section-heading='1'] {
+  margin: 8px 0 16px;
+  font-size: var(--gm-type-title2-size);
+  line-height: var(--gm-type-title2-line);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-artist #artist-album-grid {
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 24px;
+  margin: 0 0 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+#token-shell #destination-artist #artist-album-grid [data-album-tile] {
+  width: auto;
+  min-width: 0;
+  flex: none;
+}
+
+#token-shell #destination-artist #artist-all-songs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+#token-shell #destination-artist #artist-all-songs [data-section-heading='1'] {
+  margin-bottom: 8px;
+}
+
+/* —— Album page: more by this artist —— */
+
+#token-shell #destination-album #album-more-by {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 48px 0 8px;
+  padding: 28px 0 0;
+  border-top: 1px solid var(--gm-line-subtle);
+}
+
+#token-shell #destination-album #album-more-by [data-section-heading='1'] {
+  margin: 0 0 16px;
+  font-size: var(--gm-type-title2-size);
+  line-height: var(--gm-type-title2-line);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #destination-album [data-album-more-by-grid='1'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+}
+
+#token-shell #destination-album [data-album-more-by-grid='1'] [data-album-tile] {
+  width: auto;
+  min-width: 0;
+  flex: none;
+}
+
+#token-shell[data-width='compact'] #destination-album [data-album-more-by-grid='1'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* —— Missing album / artist —— */
+
+#token-shell :is(#destination-album-missing, #destination-artist-missing) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 48px 0;
+}
+
+/* —— Phone —— */
+
+#token-shell[data-width='compact'] #destination-album [data-album-header='1'] {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 20px;
+  padding-bottom: 16px;
+}
+
+#token-shell[data-width='compact'] #destination-album [data-album-header='1'] [data-size='detail'] {
+  width: min(64vw, 260px);
+  justify-self: center;
+}
+
+#token-shell[data-width='compact'] #destination-artist [data-artist-header='1'] {
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+#token-shell[data-width='compact'] :is(#destination-album, #destination-artist) #destination-headline {
+  font-size: clamp(26px, 8vw, 34px);
+}
+
+#token-shell[data-width='compact'] #destination-artist #artist-album-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* The album column folds away on a phone; the title keeps the room. */
+#token-shell[data-width='compact'] #destination-artist [data-track-row] [data-track-album],
+#token-shell[data-width='compact'] [data-artist-table-head='1'] > :nth-child(3) {
+  display: none;
+}
+
+#token-shell[data-width='compact'] #destination-artist [data-track-row] [data-track-play][data-with-album='1'] {
+  grid-template-columns: var(--detail-col-number) minmax(0, 1fr) var(--detail-col-time);
+}
+
+#token-shell[data-width='compact'] :is(#destination-album, #destination-artist) [data-track-row],
+#token-shell[data-width='compact'] :is(#destination-album, #destination-artist) [data-track-row] [data-track-play] {
+  min-height: 56px;
+}
+
+#token-shell[data-width='compact'] [data-shuffle-wrap='1'] [data-hex-face='1'],
+#token-shell[data-width='compact'] #album-more[data-album-more='1'] {
+  width: 44px;
+  height: 44px;
+}
+
+#token-shell[data-width='compact'] [data-album-rail='1'] #album-lyrics-toggle {
+  height: 44px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-album-bloom='1'],
-  [data-artist-bloom='1'] {
+  #token-shell [data-album-bloom='1'],
+  #token-shell [data-artist-bloom='1'] {
     animation: none;
   }
 
-  [data-album-header-text] [data-album-artist][role='button'],
-  [data-shuffle-wrap='1'] [data-hex-face='1'],
-  [data-album-rail='1'] [data-brass-hex='1'],
-  [data-shuffle-wrap='1'] [data-control-hint],
-  [data-album-rail='1'] #album-lyrics-toggle,
-  #album-more[data-album-more='1'],
-  [data-disc-play='1'],
-  [data-hostile-row='1'] [data-hostile-row-play='1'],
-  #destination-album [data-track-row] [data-track-number],
-  #destination-artist [data-track-row] [data-track-number],
-  #destination-album [data-track-row] [data-track-number]::after,
-  #destination-artist [data-track-row] [data-track-number]::after,
-  #destination-album [data-track-row][data-flagged='1'] [data-track-play],
-  #destination-artist [data-track-row][data-flagged='1'] [data-track-play] {
+  #token-shell :is(#destination-album, #destination-artist) * {
     transition: none;
   }
 }

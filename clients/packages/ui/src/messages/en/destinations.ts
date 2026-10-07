@@ -81,6 +81,11 @@ export type DestinationMessages = {
   shuffleUnavailable: string;
   playDisc: string;
   allSongsHeading: string;
+  albumEyebrow: string;
+  artistEyebrow: string;
+  artistSongCount: string;
+  columnNumber: string;
+  moreByArtist: string;
   hostileTrackHidden: string;
   densityLabel: string;
   densityComfortable: string;
@@ -94,6 +99,33 @@ export type DestinationMessages = {
   settingsSlotColumnSlot: string;
   settingsSlotColumnPlane: string;
   settingsSlotColumnState: string;
+  /* Appended for the layout pass over Settings, Search and Library: setting
+     rows with an honest status, the search idle and top-result states, and
+     singular count nouns. Append-only. */
+  settingsThemeHint: string;
+  settingsUnavailable: string;
+  settingsPlaybackLevelling: string;
+  settingsPlaybackLevellingHint: string;
+  settingsPlaybackCrossfade: string;
+  settingsPlaybackCrossfadeHint: string;
+  settingsPlaybackOutput: string;
+  settingsPlaybackOutputHint: string;
+  settingsConnectedScrobble: string;
+  settingsConnectedScrobbleHint: string;
+  settingsConnectedLyricsHint: string;
+  searchHint: string;
+  searchBrowseArtists: string;
+  searchTopResult: string;
+  searchKindTrack: string;
+  searchNoHitsHint: string;
+  albumCountOne: string;
+  artistCountOne: string;
+  trackCountOne: string;
+  searchResultCountOne: string;
+  libraryEmptyAlbums: string;
+  libraryEmptyArtists: string;
+  libraryEmptyTracks: string;
+  settingsSlotLoaded: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -180,6 +212,11 @@ export function destinationMessages(): DestinationMessages {
     shuffleUnavailable: 'Shuffle is not wired in this demo yet',
     playDisc: 'Play disc',
     allSongsHeading: 'All songs',
+    albumEyebrow: 'Album',
+    artistEyebrow: 'Artist',
+    artistSongCount: 'songs',
+    columnNumber: '#',
+    moreByArtist: 'More by',
     hostileTrackHidden: 'Track title hidden (hostile metadata)',
     densityLabel: 'Row density',
     densityComfortable: 'Comfortable',
@@ -192,5 +229,30 @@ export function destinationMessages(): DestinationMessages {
     settingsSlotColumnSlot: 'Extension',
     settingsSlotColumnPlane: 'Runs on',
     settingsSlotColumnState: 'Status',
+    /* Layout pass over Settings, Search and Library. Append-only. */
+    settingsThemeHint: 'Dark is the default. OLED uses true black, and High contrast strengthens every edge.',
+    settingsUnavailable: 'Not available yet',
+    settingsPlaybackLevelling: 'Volume levelling',
+    settingsPlaybackLevellingHint: 'Plays tracks at a consistent loudness, from the tags in your files.',
+    settingsPlaybackCrossfade: 'Crossfade',
+    settingsPlaybackCrossfadeHint: 'Blends the end of one track into the start of the next.',
+    settingsPlaybackOutput: 'Output device',
+    settingsPlaybackOutputHint: 'Chooses the speakers or headphones this device plays through.',
+    settingsConnectedScrobble: 'Scrobbling',
+    settingsConnectedScrobbleHint: 'Sends what you play to a listening-history service you link yourself.',
+    settingsConnectedLyricsHint: 'Finds lyrics for tracks whose files have none.',
+    searchHint: 'Search by album, track or artist name.',
+    searchBrowseArtists: 'Browse artists',
+    searchTopResult: 'Top result',
+    searchKindTrack: 'Track',
+    searchNoHitsHint: 'Check the spelling, or try a shorter word.',
+    albumCountOne: 'album',
+    artistCountOne: 'artist',
+    trackCountOne: 'track',
+    searchResultCountOne: 'result',
+    libraryEmptyAlbums: 'No albums in this library yet.',
+    libraryEmptyArtists: 'No artists in this library yet.',
+    libraryEmptyTracks: 'No tracks in this library yet.',
+    settingsSlotLoaded: 'Loaded',
   };
 }

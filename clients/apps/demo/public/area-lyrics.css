@@ -77,6 +77,7 @@
   font-size: calc(var(--gm-type-title3-size) + 2px);
   line-height: calc(var(--gm-type-title3-line) + 4px);
   font-weight: 650;
+  --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
 
@@ -108,19 +109,23 @@
 /* —— Soft falloff by distance from the current line (synced only) ——
    Each step mixes text.secondary toward text.muted. Both endpoints sit at
    or above the AA floor on every surface the pane can be drawn on, and any
-   mix of the two keeps that ratio, so no step ever drops below 4.5:1. */
+   mix of the two keeps that ratio, so no step ever drops below 4.5:1.
+   The shell paints every element from --gm-text, so each step sets it. */
 
 [data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='1'] {
+  --gm-text: color-mix(in srgb, var(--gm-text-secondary) 70%, var(--gm-text-muted));
   color: color-mix(in srgb, var(--gm-text-secondary) 70%, var(--gm-text-muted));
 }
 
 [data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='2'] {
+  --gm-text: color-mix(in srgb, var(--gm-text-secondary) 45%, var(--gm-text-muted));
   color: color-mix(in srgb, var(--gm-text-secondary) 45%, var(--gm-text-muted));
 }
 
 [data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='3'],
 [data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='4'] {
   /* The ramp saturates at the muted step: distant verse blocks rest here. */
+  --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
 }
 
@@ -137,6 +142,7 @@
 [data-lyrics-pane='1'][data-empty='1'] [data-lyrics-line='1'] {
   font-size: var(--gm-type-body-size);
   line-height: var(--gm-type-body-line);
+  --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
   text-align: center;
 }

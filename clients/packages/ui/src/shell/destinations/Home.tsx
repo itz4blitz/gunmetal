@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial, staggerSlot } from '../format.ts';
@@ -6,6 +6,7 @@ import type { ShellAlbum, ShellArtist, ShellLibrary } from '../library-types.ts'
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+import { Icon } from '../Icon.tsx';
 
 export type HomeProps = {
   messages: DestinationMessages;
@@ -164,6 +165,7 @@ export function Home({
   // Where-you-are reaches the artists shelf through the playing release —
   // no extra wiring beyond the album id the shell already knows (C2).
   const playingArtistKey = albums.find((album) => album.id === playingAlbumId)?.artistKey;
+  const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const hasArt = spotlight !== undefined && spotlight.coverUrl !== '';
 
@@ -234,22 +236,26 @@ export function Home({
                   dataSet={{ spotlightMore: '1' }}
                   accessibilityRole="button"
                   accessibilityLabel={messages.moreActions}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen ? 'true' : 'false'}
+                  aria-controls={menuId}
                   tabIndex={0}
                   onClick={() => {
-                    setMenuOpen(true);
+                    setMenuOpen((open) => !open);
                   }}
                   onKeyDown={(event) => {
                     activateKey(event, () => {
-                      setMenuOpen(true);
+                      setMenuOpen((open) => !open);
                     });
                   }}
                 >
-                  <Text>{messages.moreActions}</Text>
+                  <Icon name="more" />
                 </View>
               )}
               {onOpenArtist === undefined ? null : (
                 <GoToArtistMenu
                   open={menuOpen}
+                  menuId={menuId}
                   artistKey={spotlight.artistKey}
                   messages={messages}
                   onOpenArtist={onOpenArtist}

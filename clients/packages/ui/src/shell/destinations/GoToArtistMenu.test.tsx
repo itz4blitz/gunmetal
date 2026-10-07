@@ -8,6 +8,7 @@ afterEach(cleanup);
 test('closed menu renders nothing', () => {
   const { container } = render(
     <GoToArtistMenu
+      menuId="menu-1"
       open={false}
       artistKey="mira-sol"
       messages={destinationMessages()}
@@ -24,6 +25,7 @@ test('go to artist activates by pointer and keyboard and escape only closes', ()
   const onClose = vi.fn();
   render(
     <GoToArtistMenu
+      menuId="menu-1"
       open
       artistKey="mira-sol"
       messages={destinationMessages()}
@@ -62,6 +64,7 @@ test('catalogue actions invoke optional handlers when they are provided', () => 
   const onClose = vi.fn();
   render(
     <GoToArtistMenu
+      menuId="menu-1"
       open
       artistKey="keratin"
       messages={destinationMessages()}
@@ -100,6 +103,7 @@ test('optional catalogue handlers stay quiet when omitted', () => {
   const onClose = vi.fn();
   render(
     <GoToArtistMenu
+      menuId="menu-1"
       open
       artistKey="mira-sol"
       messages={destinationMessages()}

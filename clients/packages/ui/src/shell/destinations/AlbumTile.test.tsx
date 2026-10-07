@@ -85,6 +85,11 @@ test('2026 art actions: a scrim carries the controls, kebab rides the art', () =
   expect(scrim?.getAttribute('role')).toStrictEqual(null);
   // The kebab is anchored to the art (it sits on the scrim), not the tile text.
   expect(screen.getByRole('button', { name: 'More' }).closest('[data-album-art="1"]')).toStrictEqual(art);
+  // The kebab is the "more" icon alone; its name is the aria-label.
+  expect(screen.getByRole('button', { name: 'More' }).querySelector('svg')?.getAttribute('data-icon')).toStrictEqual(
+    'more',
+  );
+  expect(screen.getByRole('button', { name: 'More' }).textContent).toStrictEqual('');
   // It still opens the catalogue menu without opening the album underneath.
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
   expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
@@ -164,10 +169,38 @@ test('stagger slots and go to artist open from context and more', () => {
   expect(onOpenArtist).toHaveBeenCalledWith('keratin');
   fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Go to artist' }), { key: 'Escape' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: ' ' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Tab' });
-  fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  // The kebab is a toggle wired to its menu: Space opens, a key that is not
+  // an activation key changes nothing, a second press closes.
+  const kebab = screen.getByRole('button', { name: 'More' });
+  expect(kebab.getAttribute('aria-haspopup')).toStrictEqual('menu');
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  fireEvent.keyDown(kebab, { key: ' ' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  expect(screen.getByRole('menu', { name: 'Actions' }).getAttribute('data-menu-id')).toStrictEqual(
+    kebab.getAttribute('aria-controls'),
+  );
+  fireEvent.keyDown(kebab, { key: 'Tab' });
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.click(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
+  // Open again; a press on the kebab itself is left to the kebab, a press
+  // anywhere else closes the menu.
+  fireEvent.click(kebab);
+  expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toStrictEqual([
+    'Play',
+    'Play next',
+    'Add to queue',
+    'Go to album',
+    'Go to artist',
+  ]);
+  fireEvent.pointerDown(kebab);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Play next' }));
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
+  fireEvent.pointerDown(document.body);
+  expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
+  expect(screen.queryByRole('menu')).toStrictEqual(null);
   capped.unmount();
 });
 

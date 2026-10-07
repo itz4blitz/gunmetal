@@ -334,8 +334,8 @@
 /* —— Album shelf: whole tiles, snap, sized per width class —— */
 
 #token-shell[data-width='wide'] [data-album-shelf] [data-album-tile] {
-  /* Wide three-pane column: 6–8 tiles visible instead of four large ones. */
-  flex: 0 0 132px;
+  /* Design-language §7: grid tiles are 160–200 wide with a 24 gap. */
+  flex: 0 0 168px;
 }
 
 /* Compact and medium: whole tiles plus a peek of the next one — the shelf
@@ -521,7 +521,7 @@
     var(--gm-line-subtle) 52%,
     color-mix(in srgb, var(--gm-home-deep) 24%, var(--gm-line-subtle)) 100%
   );
-  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  clip-path: var(--gm-nut);
   transition: transform var(--gm-home-lift);
 }
 
@@ -550,7 +550,7 @@
   inset: 1px;
   width: auto;
   height: auto;
-  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  clip-path: var(--gm-nut);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -672,4 +672,35 @@
   [data-home-see-all]:hover {
     transform: none;
   }
+}
+
+/* —— Proportion pass: the hero leaves room for the first shelf —— */
+
+/* The spotlight cover scales with the column instead of taking a fixed 400px
+   square, so the hero and the top of "Recently added" share the first screen
+   at any pane width. */
+#token-shell[data-width='wide'] #destination-home #home-spotlight > [data-size='detail'],
+#token-shell[data-width='expanded'] #destination-home #home-spotlight > [data-size='detail'] {
+  flex: 0 0 auto;
+  width: clamp(220px, 34%, 320px);
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 1;
+}
+
+#token-shell[data-width='wide'] #home-spotlight,
+#token-shell[data-width='expanded'] #home-spotlight {
+  min-height: 0;
+  align-items: flex-end;
+  padding-bottom: 28px;
+}
+
+#token-shell[data-width='wide'] [data-album-shelf],
+#token-shell[data-width='expanded'] [data-album-shelf] {
+  gap: 24px;
+}
+
+#token-shell[data-width='expanded'] [data-album-shelf] [data-album-tile] {
+  flex: 0 0 168px;
 }
