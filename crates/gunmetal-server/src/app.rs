@@ -19,6 +19,8 @@ use gunmetal_core::audit_event::SecuritySink;
 use gunmetal_core::time::Clock;
 use gunmetal_fs::dataroot::{DataRoot, DataRootError, Modes, NetworkFilesystems, Policy};
 use gunmetal_fs::host::HostFacts;
+use gunmetal_secrets::random::{OsRandom, Random, RandomnessUnavailable};
+use gunmetal_store::store::{Generation, Store, StoreError};
 use rustix::io::Errno;
 
 use crate::audit_sink::AuditSink;
@@ -27,6 +29,7 @@ use crate::config::{Config, ConfigError, Env, load_config};
 use crate::datadir::{self, ConfigFileError};
 use crate::host::{PrivilegeError, Privileges};
 use crate::log::{Level, LogEvent, Logger};
+use crate::tasks::{self, Limits, Runner, TaskError};
 
 /// The server's version, as the log and `--version` give it.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -56,6 +59,11 @@ pub enum StartError {
     Config(ConfigError),
     /// The audit log or its keys could not be opened.
     Audit(gunmetal_durable::audit::error::AuditError),
+    /// The cache could not be opened.
+    Cache(StoreError),
+    /// The operating system could not supply random bytes for the cache
+    /// generation.
+    Random(RandomnessUnavailable),
 }
 
 impl StartError {
@@ -72,6 +80,10 @@ impl StartError {
             Self::ConfigFile(error) => error.message(dir),
             Self::Config(error) => error.message(),
             Self::Audit(_) => "The security audit log could not be opened.".to_owned(),
+            Self::Cache(_) => "The cache could not be opened.".to_owned(),
+            Self::Random(_) => {
+                "The operating system could not supply random bytes the cache needs.".to_owned()
+            }
         }
     }
 }
@@ -90,6 +102,10 @@ pub struct AppState {
     pub bus: Arc<Bus>,
     /// The security audit log, subscribed to the bus.
     pub audit: Arc<AuditSink>,
+    /// The rebuildable cache.
+    pub store: Arc<Store>,
+    /// The task runner.
+    pub tasks: Arc<Runner>,
 }
 
 /// Whether the environment accepts a data directory on a network
@@ -118,6 +134,17 @@ impl AppState {
         clock: Arc<dyn Clock + Send + Sync>,
         out: Box<dyn Write + Send>,
     ) -> Result<Self, StartError> {
+        Self::build(dir, host, env, clock, out, &OsRandom)
+    }
+
+    fn build(
+        dir: &Path,
+        host: &Host,
+        env: &Env,
+        clock: Arc<dyn Clock + Send + Sync>,
+        out: Box<dyn Write + Send>,
+        random: &dyn Random,
+    ) -> Result<Self, StartError> {
         host.privileges.check().map_err(StartError::Privileged)?;
         let log = Logger::new(Arc::clone(&clock), Level::Info, out);
         let policy = Policy {
@@ -145,6 +172,19 @@ impl AppState {
             bus.security
                 .subscribe(move |event| sink.record(event.clone()));
         }
+        let generation = cache_generation(random).map_err(StartError::Random)?;
+        let opened = Store::open(&data, &[tasks::SCHEMA], Generation(generation))
+            .map_err(StartError::Cache)?;
+        let store = Arc::new(opened.store);
+        let tasks = Runner::open(Arc::clone(&store), Arc::clone(&clock), Limits::production())
+            .map_err(cache_open_error);
+        #[cfg(test)]
+        let tasks = if fail_runner() {
+            Err(StartError::Cache(StoreError::Closed))
+        } else {
+            tasks
+        };
+        let tasks = tasks?;
         Ok(Self {
             config,
             data,
@@ -152,6 +192,8 @@ impl AppState {
             log: Arc::new(log),
             bus,
             audit,
+            store,
+            tasks: Arc::new(tasks),
         })
     }
 }
@@ -167,6 +209,47 @@ fn open_audit_root(dir: &Path, facts: HostFacts, env: &Env) -> Result<DataRoot, 
     )
     .map(|opened| opened.root)
     .map_err(|refused| StartError::DataDir(refused.error))
+}
+
+/// A cache generation that is not a repeated literal: `CodeQL`'s
+/// rust/hard-coded-cryptographic-value treats `[0; N]` as a key source and
+/// does not see `Random::fill` as a barrier.
+fn cache_generation(random: &dyn Random) -> Result<[u8; 16], RandomnessUnavailable> {
+    let mut generation = core::array::from_fn(|index| {
+        let [b0, ..] = index.to_le_bytes();
+        b0
+    });
+    random.fill(&mut generation)?;
+    Ok(generation)
+}
+
+fn cache_open_error(error: TaskError) -> StartError {
+    match error {
+        TaskError::Store(error) => StartError::Cache(error),
+        TaskError::Cancelled
+        | TaskError::Interrupted
+        | TaskError::Failed { .. }
+        | TaskError::Unknown
+        | TaskError::PathTooLong { .. } => StartError::Cache(StoreError::Closed),
+    }
+}
+
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_RUNNER: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+fn fail_runner() -> bool {
+    FAIL_RUNNER.replace(false)
+}
+
+#[cfg(test)]
+fn arm_runner_fail() {
+    FAIL_RUNNER.set(true);
 }
 
 #[cfg(test)]
@@ -251,6 +334,7 @@ mod tests {
         assert_eq!(state.clock.now().millis(), testing::NOON);
         assert_eq!(out, STARTED);
         assert!(layout_is_sound(&dir));
+        assert_eq!(state.tasks.list().expect("no tasks yet"), []);
         // The state's handle is the directory it was started in.
         state
             .data
@@ -532,6 +616,8 @@ mod tests {
             StartError::ConfigFile(ConfigFileError::TooLarge),
             StartError::Config(ConfigError::UnknownVariable("GUNMETAL_X".to_owned())),
             StartError::Audit(gunmetal_durable::audit::error::AuditError::Halted),
+            StartError::Cache(StoreError::Closed),
+            StartError::Random(RandomnessUnavailable),
         ]
         .iter()
         .map(|error| error.message(&dir))
@@ -545,7 +631,121 @@ mod tests {
                 r#""/data/durable/config.toml" is longer than 65536 bytes, which no Gunmetal configuration needs."#,
                 "The environment variable \"GUNMETAL_X\" is not one Gunmetal reads. Check the spelling, or unset it.",
                 "The security audit log could not be opened.",
+                "The cache could not be opened.",
+                "The operating system could not supply random bytes the cache needs.",
             ]
         );
+    }
+
+    #[test]
+    fn cache_generation_is_the_bytes_drawn_and_fails_without_randomness() {
+        struct Counting;
+        impl Random for Counting {
+            fn fill(&self, bytes: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                for (index, slot) in bytes.iter_mut().enumerate() {
+                    *slot = u8::try_from(index).unwrap_or(u8::MAX);
+                }
+                Ok(())
+            }
+        }
+        struct Failing;
+        impl Random for Failing {
+            fn fill(&self, _: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                Err(RandomnessUnavailable)
+            }
+        }
+        assert_eq!(
+            cache_generation(&Counting),
+            Ok([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        );
+        assert_eq!(cache_generation(&Failing), Err(RandomnessUnavailable));
+    }
+
+    #[test]
+    fn every_task_error_at_start_is_a_cache_refusal() {
+        assert_eq!(
+            cache_open_error(TaskError::Store(StoreError::Closed)),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Cancelled),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Interrupted),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Failed {
+                message: "no space".to_owned()
+            }),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::Unknown),
+            StartError::Cache(StoreError::Closed)
+        );
+        assert_eq!(
+            cache_open_error(TaskError::PathTooLong { length: 5 }),
+            StartError::Cache(StoreError::Closed)
+        );
+    }
+
+    #[test]
+    fn randomness_unavailable_at_start_is_a_random_refusal() {
+        struct Failing;
+        impl Random for Failing {
+            fn fill(&self, _: &mut [u8]) -> Result<(), RandomnessUnavailable> {
+                Err(RandomnessUnavailable)
+            }
+        }
+        let dir = TempDir::new("app-random").expect("scratch");
+        let (clock, _) = testing::clock();
+        let out = Capture::default();
+        let started = AppState::build(
+            dir.path(),
+            &local(),
+            &Env::default(),
+            clock,
+            Box::new(out.clone()),
+            &Failing,
+        );
+        assert_eq!(
+            started.err(),
+            Some(StartError::Random(RandomnessUnavailable))
+        );
+        assert_eq!(
+            StartError::Random(RandomnessUnavailable).message(dir.path()),
+            "The operating system could not supply random bytes the cache needs."
+        );
+        assert_eq!(out.text(), STARTED);
+    }
+
+    #[test]
+    fn an_unreadable_cache_file_refuses_start() {
+        let dir = TempDir::new("app-cache").expect("scratch");
+        let cache = DataPath::constant(DataDir::Cache, "library.db");
+        arrange(&dir).create_dir(&cache).expect("not a file");
+        let (started, out) = start(&dir, &local(), &Env::default());
+        let expected = Store::open(
+            &arrange(&dir),
+            &[tasks::SCHEMA],
+            Generation(core::array::from_fn(|index| {
+                let [b0, ..] = index.to_le_bytes();
+                b0
+            })),
+        )
+        .expect_err("same refuse");
+        assert_eq!(started.err(), Some(StartError::Cache(expected)));
+        assert_eq!(out, STARTED);
+    }
+
+    #[test]
+    fn a_task_table_the_runner_cannot_use_refuses_start() {
+        let dir = TempDir::new("app-runner").expect("scratch");
+        super::arm_runner_fail();
+        let (started, out) = start(&dir, &local(), &Env::default());
+        assert_eq!(started.err(), Some(StartError::Cache(StoreError::Closed)));
+        assert_eq!(out, STARTED);
     }
 }

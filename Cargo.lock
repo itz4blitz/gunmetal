@@ -457,6 +457,7 @@ dependencies = [
  "gunmetal-fs",
  "gunmetal-http",
  "gunmetal-secrets",
+ "gunmetal-store",
  "gunmetal-testkit",
  "proptest",
  "rustix",
