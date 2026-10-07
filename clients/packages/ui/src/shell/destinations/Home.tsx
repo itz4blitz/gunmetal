@@ -236,7 +236,7 @@ export function Home({
                 <Text>{messages.seeAll}</Text>
               </View>
             </View>
-            <View dataSet={{ albumRow: '1' }}>
+            <View dataSet={{ albumShelf: '1' }}>
               {albums.map((album, index) => (
                 <AlbumTile
                   key={album.id}

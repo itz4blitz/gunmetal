@@ -1203,9 +1203,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: var(--gm-raised-edge);
 }
 
-/* Album shelf: one horizontal row, whole tiles, no visible scrollbar,
-   no permanent edge fade — the row simply scrolls. */
-[data-album-row] {
+/* Album shelf (Home): one horizontal row, whole tiles, no visible scrollbar. */
+[data-album-shelf] {
   display: flex;
   flex-direction: row;
   gap: 16px;
@@ -1216,7 +1215,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 6px 4px 12px;
 }
 
-[data-album-row]::-webkit-scrollbar {
+[data-album-shelf]::-webkit-scrollbar {
   display: none;
 }
 
@@ -1264,13 +1263,12 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   }
 }
 
-[data-album-row] [data-album-tile] {
+[data-album-shelf] [data-album-tile] {
   flex: 0 0 168px;
   scroll-snap-align: start;
 }
 
-#token-shell[data-width='expanded'] [data-album-row] [data-album-tile],
-#token-shell[data-width='wide'] [data-album-row] [data-album-tile] {
+#token-shell[data-width='expanded'] [data-album-shelf] [data-album-tile] {
   flex: 0 0 180px;
 }
 

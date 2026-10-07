@@ -126,7 +126,7 @@
 
 /* —— Album shelf: whole tiles, snap, sized per width class —— */
 
-#token-shell[data-width='wide'] [data-album-row] [data-album-tile] {
+#token-shell[data-width='wide'] [data-album-shelf] [data-album-tile] {
   /* Wide three-pane column: 6–8 tiles visible instead of four large ones. */
   flex: 0 0 132px;
 }
