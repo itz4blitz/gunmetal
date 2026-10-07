@@ -39,7 +39,8 @@ test('playing a fixture album fills the player bar from demo-local state', () =>
   expect(document.querySelector('#shell-play')?.getAttribute('data-playing')).toStrictEqual('1');
   expect(document.querySelector('#queue-line-demo-track-01-01')).toBeTruthy();
   expect(document.querySelector('#player-full')).toBeNull();
-  expect(document.querySelector('#player-album')?.textContent).toStrictEqual('Harbour Lights');
+  // The album merged into the credit line: artist · album.
+  expect(document.querySelector('#player-album')).toBeNull();
   expect(document.querySelector('#nav-sidebar')).toBeTruthy();
   expect(document.querySelector('#player-bar')).toBeTruthy();
 });
