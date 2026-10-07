@@ -308,7 +308,9 @@ test('2026 chrome uses icon transport, fills the column, and keeps a composed ho
   // The queue sheet is a real sheet with a scrim behind it.
   expect(css.includes('#queue-scrim')).toStrictEqual(true);
   // Hex buttons take their focus ring on a square wrapper (clip-path eats outlines).
-  expect(css.includes("[data-hex-wrap='1']:focus-within")).toStrictEqual(true);
+  // The hex plate's ring is keyboard-only: a mouse click never draws it.
+  expect(css.includes("[data-hex-wrap='1']:has(:focus-visible)")).toStrictEqual(true);
+  expect(css.includes("[data-hex-wrap='1']:focus-within")).toStrictEqual(false);
   expect(css.includes('drop-shadow(0 0 0')).toStrictEqual(false);
   // The bar is three zones with a capped, centred column; the empty state
   // sleeps the centre zone instead of unmounting it.

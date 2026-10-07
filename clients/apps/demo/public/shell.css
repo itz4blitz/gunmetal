@@ -3537,9 +3537,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-m);
 }
 
-[data-hex-wrap='1']:focus-within {
+/* Keyboard-only: the square plate must never draw for a mouse click. */
+[data-hex-wrap='1']:has(:focus-visible) {
   outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 /* —— Reduced motion —— */
