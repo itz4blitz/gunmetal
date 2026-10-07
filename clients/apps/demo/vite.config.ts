@@ -21,7 +21,8 @@ export default defineConfig({
     headers,
     // Tailnet-only access (tailscale serve fronts this loopback port with
     // HTTPS); the exact host is allow-listed, nothing wild-carded.
-    allowedHosts: ['scrogginslwtx3p90dx.taild1bbf.ts.net'],
+    // The node was renamed to gunmetal — the dev server answers to that host only.
+    allowedHosts: ['gunmetal.taild1bbf.ts.net'],
   },
   preview: {
     host: '127.0.0.1',
