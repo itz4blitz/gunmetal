@@ -42,7 +42,7 @@ test('album tile hover lifts cover art and fades the brass play control', async 
   expect(css.includes('scroll-snap-type: x mandatory')).toStrictEqual(true);
   // The shelf never shows a scrollbar and never fades its last tile.
   expect(css.includes('scrollbar-width: none')).toStrictEqual(true);
-  expect(css.includes('[data-album-row]::-webkit-scrollbar')).toStrictEqual(true);
+  expect(css.includes('[data-album-shelf]::-webkit-scrollbar')).toStrictEqual(true);
   expect(css.includes('mask-image')).toStrictEqual(false);
 });
 
