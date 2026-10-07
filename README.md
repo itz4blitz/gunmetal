@@ -83,7 +83,7 @@ flowchart LR
 |---|---|---|
 | **Core** | Rust crate | Container parsers, remuxer, playback decisions, protocol types. Compiled into everything below. |
 | **Server** | Rust, single binary, SQLite | Indexes the library, serves bytes, remuxes in a jailed worker, supervises the transcode sandbox. |
-| **Client** | React Native, TypeScript | One interface for TVs, browsers and desktop, dark-first and built around a persistent player. |
+| **Client** | React 19, TypeScript, Vite | The web app and the demo, built around a persistent player; react-native-web keeps one interface that can carry to phones and TVs. |
 | **Mobile app** | React Native, TypeScript | Phones and tablets, with offline downloads and background playback. |
 | **Site** | Cloudflare | Docs and landing page at [gunmetal.tv](https://gunmetal.tv). |
 
@@ -151,18 +151,42 @@ scripts/gate.sh
 ```
 
 The gate runs the formatter, the linter, the tests with the coverage
-requirement, and mutation testing. CI runs the same script.
+requirement, and mutation testing. CI runs the same script. The Rust
+workspace builds on Linux today: the jailed worker's sandbox uses
+seccomp and landlock, which do not exist on macOS.
+
+The clients need Node 24 and pnpm 12:
+
+```bash
+cd clients
+pnpm install
+pnpm demo      # the demo client, against its fake server
+pnpm test      # vitest; playwright drives the e2e suite
+```
 
 ## Repository layout
 
 ```
-crates/gunmetal-core   shared core (the only crate so far)
-docs/adr               architecture decision records
-scripts/gate.sh        every quality gate, in one script
+crates/                  the Rust workspace
+  gunmetal-core          parsers, protocol types, domain logic (pure, no I/O)
+  gunmetal-server        sessions, the sign-in verifier, access policy, routes
+  gunmetal-egress        the outbound gate: address classes, grants, limits
+  gunmetal-worker        the jailed worker: sandbox profile, IPC, limits
+  gunmetal-secrets       AEAD, key derivation, nonces
+  gunmetal-store         the SQLite catalog
+  gunmetal-durable       the durable identity store
+  gunmetal-http          request, routing, paging and credential plumbing
+  gunmetal-fs            the SQLite pool, fingerprints, data roots
+  gunmetal-wasm          plugin-component groundwork
+  gunmetal-testkit       shared test helpers
+  gunmetal-fuzz          fuzz targets
+  xtask                  the supply-chain checks the gate runs
+clients/                 the React workspace: web app, demo client, the fake
+                         server it runs against, shared UI and port packages
+docs/                    research, feature maps, plans, ADRs, security baseline
+site/                    the gunmetal.tv pages
+scripts/gate.sh          every quality gate, in one script
 ```
-
-The server, client, mobile app and site get their directories when their
-first test is written.
 
 ## Contributing
 
