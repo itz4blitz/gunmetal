@@ -96,6 +96,21 @@ test('play affordance calls onPlay when provided otherwise onOpen', () => {
   openOnly.unmount();
 });
 
+test('playing prop marks the tile with the brass where-you-are state', () => {
+  const onOpen = vi.fn();
+  const playing = render(<AlbumTile album={album} messages={messages} onOpen={onOpen} playing />);
+  const tile = document.querySelector('#album-tile-demo-album-1');
+  expect(tile?.getAttribute('data-tile-playing')).toStrictEqual('1');
+  // The state is presentation only: open still works from title and art.
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  expect(onOpen).toHaveBeenCalledWith('demo-album-1');
+  playing.unmount();
+
+  const resting = render(<AlbumTile album={album} messages={messages} onOpen={onOpen} />);
+  expect(document.querySelector('#album-tile-demo-album-1')?.getAttribute('data-tile-playing')).toStrictEqual('0');
+  resting.unmount();
+});
+
 test('hostile album uses catalogue labels on the tile', () => {
   const onOpen = vi.fn();
   render(

@@ -15,6 +15,7 @@ import {
   settingsSections,
   settingsSlotPlaneLabel,
   settingsSlotTitle,
+  settingsSwatchLabels,
   type SettingsSection,
 } from './settings.ts';
 
@@ -67,6 +68,44 @@ function SettingsPane({
   );
 }
 
+/** One swatch card: canvas, raised panel and accent dot drawn by area-settings.css. */
+function ThemeSwatch({
+  id,
+  label,
+  namePrefix,
+  selected,
+  onSelect,
+}: {
+  id: ThemeId;
+  label: string;
+  namePrefix: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <View
+      id={`settings-theme-swatch-${id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${namePrefix}: ${label}`}
+      accessibilityState={{ selected }}
+      dataSet={{ themeSwatch: id, selected: selected ? '1' : '0' }}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        activateKey(event, onSelect);
+      }}
+    >
+      <View dataSet={{ swatchStage: '1' }}>
+        <View dataSet={{ swatchLines: '1' }} />
+        <View dataSet={{ swatchPanel: '1' }}>
+          <View dataSet={{ swatchDot: '1' }} />
+        </View>
+      </View>
+      <Text dataSet={{ swatchName: '1' }}>{label}</Text>
+    </View>
+  );
+}
+
 export function Settings({ pluginSlots = [], messages, shellMessages, theme, onThemeChange, width }: SettingsProps) {
   const layout = settingsLayout(width);
   const [section, setSection] = useState<SettingsSection>(defaultSettingsSection());
@@ -106,6 +145,20 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
         {visible.includes('appearance') ? (
           <SettingsPane id="settings-appearance" section="appearance" messages={messages}>
             <ThemeSwitcher messages={shellMessages} theme={theme} onThemeChange={onThemeChange} />
+            <View id="settings-theme-preview">
+              {settingsSwatchLabels(shellMessages).map(({ id, label }) => (
+                <ThemeSwatch
+                  key={id}
+                  id={id}
+                  label={label}
+                  namePrefix={shellMessages.themeLabel}
+                  selected={id === theme}
+                  onSelect={() => {
+                    onThemeChange(id);
+                  }}
+                />
+              ))}
+            </View>
           </SettingsPane>
         ) : null}
         {visible.includes('playback') ? (
@@ -139,6 +192,7 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
                     slotPlane: slot.plane,
                   }}
                 >
+                  <View dataSet={{ slotMark: '1' }} />
                   <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
                   <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
                   <Text dataSet={{ slotState: slot.loaded ? '1' : '0' }}>{messages.settingsSlotUnloaded}</Text>

@@ -11,6 +11,10 @@ export type TrackRowProps = {
   messages: DestinationMessages;
   current?: boolean | undefined;
   artistKey?: string | undefined;
+  /** Muted album column for library and search tables; album pages omit it. */
+  albumTitle?: string | undefined;
+  /** Hostile albums never render corpus text: safe catalogue labels replace it. */
+  hostile?: boolean | undefined;
   onPlay: (albumId: string, trackId: string) => void;
   onPlayNext?: ((albumId: string, trackId: string) => void) | undefined;
   onAddToQueue?: ((albumId: string, trackId: string) => void) | undefined;
@@ -23,12 +27,17 @@ export function TrackRow({
   messages,
   current = false,
   artistKey,
+  albumTitle,
+  hostile = false,
   onPlay,
   onPlayNext,
   onAddToQueue,
   onGoToAlbum,
   onOpenArtist,
 }: TrackRowProps) {
+  const title = hostile ? messages.hostileAlbumLabel : track.title;
+  const artist = hostile ? messages.hostileArtistLabel : track.artistName;
+  const album = hostile ? messages.hostileAlbumLabel : albumTitle;
   const flagLabel =
     track.flag === 'unplayable'
       ? messages.trackFlagUnplayable
@@ -44,7 +53,12 @@ export function TrackRow({
   return (
     <View
       id={`track-row-${track.id}`}
-      dataSet={{ trackRow: track.id, current: current ? '1' : '0' }}
+      dataSet={{
+        trackRow: track.id,
+        current: current ? '1' : '0',
+        hostile: hostile ? '1' : '0',
+        flagged: flagLabel === '' ? '0' : '1',
+      }}
       onContextMenu={
         onOpenArtist !== undefined && artistKey !== undefined
           ? (event) => {
@@ -55,9 +69,9 @@ export function TrackRow({
     >
       {current ? <View dataSet={{ nowPlaying: '1' }} /> : null}
       <View
-        dataSet={{ trackPlay: '1' }}
+        dataSet={{ trackPlay: '1', withAlbum: album === undefined ? '0' : '1' }}
         accessibilityRole="button"
-        accessibilityLabel={track.title}
+        accessibilityLabel={title}
         tabIndex={0}
         onClick={() => {
           onPlay(track.albumId, track.id);
@@ -71,9 +85,10 @@ export function TrackRow({
       >
         <Text dataSet={{ trackNumber: '1' }}>{`${track.number}`}</Text>
         <View dataSet={{ trackMeta: '1' }}>
-          <Text dataSet={{ trackTitle: '1' }}>{track.title}</Text>
-          <Text dataSet={{ trackArtist: '1' }}>{track.artistName}</Text>
+          <Text dataSet={{ trackTitle: '1' }}>{title}</Text>
+          <Text dataSet={{ trackArtist: '1' }}>{artist}</Text>
         </View>
+        {album !== undefined ? <Text dataSet={{ trackAlbum: '1' }}>{album}</Text> : null}
         {flagLabel !== '' ? <Text dataSet={{ trackFlag: track.flag }}>{flagLabel}</Text> : null}
         <Text dataSet={{ trackDuration: '1' }}>{formatDuration(track.durationMs)}</Text>
       </View>

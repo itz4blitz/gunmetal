@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { artistInitial, formatDuration } from '../format.ts';
+import { artistInitial } from '../format.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
@@ -11,6 +11,8 @@ export type LibraryTab = 'albums' | 'artists' | 'tracks';
 export type LibraryProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
+  /** Track the shell is playing now; its row paints the brass current state. */
+  currentTrackId?: string | undefined;
   onOpenAlbum: (albumId: string) => void;
   onOpenArtist: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
@@ -34,9 +36,25 @@ function artistRowName(
   return name;
 }
 
+function trackTotal(library: ShellLibrary): number {
+  return library.albums.reduce((total, album) => total + album.tracks.length, 0);
+}
+
+/** Whatever catalogue arrives, the tabs count it — never a hard-coded figure. */
+function tabCount(tab: LibraryTab, library: ShellLibrary): number {
+  if (tab === 'albums') {
+    return library.albums.length;
+  }
+  if (tab === 'artists') {
+    return library.artists.length;
+  }
+  return trackTotal(library);
+}
+
 export function Library({
   messages,
   library,
+  currentTrackId,
   onOpenAlbum,
   onOpenArtist,
   onPlayAlbum,
@@ -47,6 +65,12 @@ export function Library({
   onAddTrackToQueue,
 }: LibraryProps) {
   const [tab, setTab] = useState<LibraryTab>('albums');
+  const tabs: readonly LibraryTab[] = ['albums', 'artists', 'tracks'];
+  const tabLabels: Record<LibraryTab, string> = {
+    albums: messages.tabAlbums,
+    artists: messages.tabArtists,
+    tracks: messages.tabTracks,
+  };
 
   return (
     <View id="destination-library">
@@ -54,55 +78,41 @@ export function Library({
         {messages.libraryHeadline}
       </Text>
       <View id="library-tabs" accessibilityRole="tablist" accessibilityLabel={messages.libraryHeadline}>
-        <TabButton
-          id="library-tab-albums"
-          label={messages.tabAlbums}
-          selected={tab === 'albums'}
-          onSelect={() => {
-            setTab('albums');
-          }}
-        />
-        <TabButton
-          id="library-tab-artists"
-          label={messages.tabArtists}
-          selected={tab === 'artists'}
-          onSelect={() => {
-            setTab('artists');
-          }}
-        />
-        <TabButton
-          id="library-tab-tracks"
-          label={messages.tabTracks}
-          selected={tab === 'tracks'}
-          onSelect={() => {
-            setTab('tracks');
-          }}
-        />
+        {tabs.map((entry) => (
+          <TabButton
+            key={entry}
+            id={`library-tab-${entry}`}
+            label={tabLabels[entry]}
+            count={tabCount(entry, library)}
+            selected={tab === entry}
+            onSelect={() => {
+              setTab(entry);
+            }}
+          />
+        ))}
       </View>
       {tab === 'albums' ? (
-        <>
-          <Text id="library-section-count">{`${library.albums.length} ${messages.artistAlbumCount}`}</Text>
-          <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
-            {library.albums.map((album, index) => (
-              <AlbumTile
-                key={album.id}
-                album={album}
-                messages={messages}
-                staggerIndex={index}
-                onOpen={onOpenAlbum}
-                onPlay={onPlayAlbum}
-                onPlayNext={onPlayNextAlbum}
-                onAddToQueue={onAddAlbumToQueue}
-                onOpenArtist={onOpenArtist}
-              />
-            ))}
-          </View>
-        </>
+        <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
+          {library.albums.map((album, index) => (
+            <AlbumTile
+              key={album.id}
+              album={album}
+              messages={messages}
+              staggerIndex={index}
+              onOpen={onOpenAlbum}
+              onPlay={onPlayAlbum}
+              onPlayNext={onPlayNextAlbum}
+              onAddToQueue={onAddAlbumToQueue}
+              onOpenArtist={onOpenArtist}
+            />
+          ))}
+        </View>
       ) : null}
       {tab === 'artists' ? (
         <View id="library-artist-list">
           {library.artists.map((artist) => {
             const rowName = artistRowName(artist.name, artist.albumIds, library, messages);
+            const photo = artist.imageUrl === undefined || artist.imageUrl === '' ? null : artist.imageUrl;
             return (
               <View
                 key={artist.key}
@@ -122,9 +132,15 @@ export function Library({
                 }}
               >
                 <View dataSet={{ artistAvatar: '1' }} aria-hidden="true">
-                  <Text dataSet={{ artistInitial: '1' }}>{artistInitial(rowName)}</Text>
+                  {photo === null ? (
+                    <Text dataSet={{ artistInitial: '1' }}>{artistInitial(rowName)}</Text>
+                  ) : (
+                    <View dataSet={{ artistPhoto: '1' }} style={{ backgroundImage: `url("${photo}")` }} />
+                  )}
                 </View>
-                <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
+                <View dataSet={{ artistMeta: '1' }}>
+                  <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
+                </View>
                 <Text dataSet={{ artistCount: '1' }}>{`${artist.albumIds.length} ${messages.artistAlbumCount}`}</Text>
               </View>
             );
@@ -133,21 +149,28 @@ export function Library({
       ) : null}
       {tab === 'tracks' ? (
         <View id="library-track-list">
+          <View dataSet={{ trackTableHead: '1' }} aria-hidden="true">
+            <Text dataSet={{ trackHeadNumber: '1' }}>#</Text>
+            <Text dataSet={{ trackHeadTitle: '1' }}>{messages.columnTitle}</Text>
+            <Text dataSet={{ trackHeadAlbum: '1' }}>{messages.columnAlbum}</Text>
+            <Text dataSet={{ trackHeadTime: '1' }}>{messages.columnTime}</Text>
+          </View>
           {library.albums.flatMap((album) =>
             album.tracks.map((track) => (
-              <View key={track.id} dataSet={{ libraryTrack: track.id }}>
-                <TrackRow
-                  track={track}
-                  messages={messages}
-                  artistKey={album.artistKey}
-                  onPlay={onPlayTrack}
-                  onPlayNext={onPlayNextTrack}
-                  onAddToQueue={onAddTrackToQueue}
-                  onGoToAlbum={onOpenAlbum}
-                  onOpenArtist={onOpenArtist}
-                />
-                <Text dataSet={{ trackAlbumHint: '1' }}>{`${album.title} · ${formatDuration(track.durationMs)}`}</Text>
-              </View>
+              <TrackRow
+                key={track.id}
+                track={track}
+                messages={messages}
+                artistKey={album.artistKey}
+                albumTitle={album.title}
+                hostile={album.hostile}
+                current={track.id === currentTrackId}
+                onPlay={onPlayTrack}
+                onPlayNext={onPlayNextTrack}
+                onAddToQueue={onAddTrackToQueue}
+                onGoToAlbum={onOpenAlbum}
+                onOpenArtist={onOpenArtist}
+              />
             )),
           )}
         </View>
@@ -159,11 +182,12 @@ export function Library({
 type TabButtonProps = {
   id: string;
   label: string;
+  count: number;
   selected: boolean;
   onSelect: () => void;
 };
 
-function TabButton({ id, label, selected, onSelect }: TabButtonProps) {
+function TabButton({ id, label, count, selected, onSelect }: TabButtonProps) {
   return (
     <View
       id={id}
@@ -180,7 +204,11 @@ function TabButton({ id, label, selected, onSelect }: TabButtonProps) {
         }
       }}
     >
-      <Text>{label}</Text>
+      <Text dataSet={{ tabLabel: '1' }}>{label}</Text>
+      {/* The count is chrome; the accessible name stays the bare tab label. */}
+      <Text dataSet={{ tabCount: '1' }} aria-hidden="true">
+        {`${count}`}
+      </Text>
     </View>
   );
 }

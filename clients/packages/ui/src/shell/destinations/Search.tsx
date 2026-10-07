@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { LibrarySearch, LibrarySearchHits } from '../content.ts';
@@ -10,6 +11,8 @@ export type SearchProps = {
   searchLibrary?: LibrarySearch | undefined;
   messages: DestinationMessages;
   library: ShellLibrary;
+  /** Track the shell is playing now; its row paints the brass current state. */
+  currentTrackId?: string | undefined;
   onOpenAlbum: (albumId: string) => void;
   onOpenArtist?: ((artistKey: string) => void) | undefined;
   onPlayAlbum: (albumId: string) => void;
@@ -52,10 +55,22 @@ function TypeChip({
   );
 }
 
+/** The typed query is the one untrusted string this surface echoes: it goes
+ * out as a text node inside its own bidirectional isolate, never as markup. */
+function QueryEcho({ query }: { query: string }) {
+  const echo: ReactNode = (
+    <span data-search-query-echo="1" dir="auto">
+      {`“${query}”`}
+    </span>
+  );
+  return <Text dataSet={{ searchQueryEcho: '1' }}>{echo}</Text>;
+}
+
 export function Search({
   searchLibrary = (): LibrarySearchHits => ({ albums: [], tracks: [] }),
   messages,
   library,
+  currentTrackId,
   onOpenAlbum,
   onOpenArtist,
   onPlayAlbum,
@@ -73,6 +88,7 @@ export function Search({
   const visibleAlbums = showAlbums ? hits.albums : [];
   const visibleTracks = showTracks ? hits.tracks : [];
   const noVisibleHits = visibleAlbums.length === 0 && visibleTracks.length === 0;
+  const albumFor = (track: ShellTrack) => library.albums.find((album) => album.id === track.albumId);
 
   return (
     <View id="destination-search">
@@ -128,7 +144,12 @@ export function Search({
         </View>
       ) : (
         <View id="search-results">
-          <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
+          <View id="search-results-meta">
+            <Text id="search-results-count">
+              {`${visibleAlbums.length + visibleTracks.length} ${messages.searchResultCount}`}
+            </Text>
+            <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
+          </View>
           <Text id="search-plugin-notice">{messages.searchPluginNotice}</Text>
           {noVisibleHits ? (
             <View id="search-no-hits" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
@@ -136,19 +157,24 @@ export function Search({
               <Text accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
                 {messages.searchNoHits}
               </Text>
-              <Text dataSet={{ emptyState: 'search-no-hits' }}>{messages.searchDemoLocalNotice}</Text>
+              <QueryEcho query={query.trim()} />
             </View>
           ) : (
             <>
               {visibleAlbums.length > 0 ? (
                 <View dataSet={{ searchAlbums: '1' }}>
-                  <Text
-                    id="search-group-albums"
-                    accessibilityRole="header"
-                    dataSet={{ searchGroup: 'albums', type: 'title2' }}
-                  >
-                    {messages.tabAlbums}
-                  </Text>
+                  <View dataSet={{ searchGroupHead: '1' }}>
+                    <Text
+                      id="search-group-albums"
+                      accessibilityRole="header"
+                      dataSet={{ searchGroup: 'albums', type: 'title2' }}
+                    >
+                      {messages.tabAlbums}
+                    </Text>
+                    <Text dataSet={{ searchGroupCount: '1' }} aria-hidden="true">
+                      {`${visibleAlbums.length}`}
+                    </Text>
+                  </View>
                   <View dataSet={{ searchAlbumGrid: '1' }}>
                     {visibleAlbums.map((album, index) => (
                       <AlbumTile
@@ -168,26 +194,37 @@ export function Search({
               ) : null}
               {visibleTracks.length > 0 ? (
                 <View dataSet={{ searchTracks: '1' }}>
-                  <Text
-                    id="search-group-tracks"
-                    accessibilityRole="header"
-                    dataSet={{ searchGroup: 'tracks', type: 'title2' }}
-                  >
-                    {messages.tabTracks}
-                  </Text>
-                  {visibleTracks.map((track) => (
-                    <TrackRow
-                      key={track.id}
-                      track={track}
-                      messages={messages}
-                      artistKey={library.albums.find((album) => album.id === track.albumId)?.artistKey}
-                      onPlay={onPlayTrack}
-                      onPlayNext={onPlayNextTrack}
-                      onAddToQueue={onAddTrackToQueue}
-                      onGoToAlbum={onOpenAlbum}
-                      onOpenArtist={onOpenArtist}
-                    />
-                  ))}
+                  <View dataSet={{ searchGroupHead: '1' }}>
+                    <Text
+                      id="search-group-tracks"
+                      accessibilityRole="header"
+                      dataSet={{ searchGroup: 'tracks', type: 'title2' }}
+                    >
+                      {messages.tabTracks}
+                    </Text>
+                    <Text dataSet={{ searchGroupCount: '1' }} aria-hidden="true">
+                      {`${visibleTracks.length}`}
+                    </Text>
+                  </View>
+                  {visibleTracks.map((track) => {
+                    const album = albumFor(track);
+                    return (
+                      <TrackRow
+                        key={track.id}
+                        track={track}
+                        messages={messages}
+                        artistKey={album?.artistKey}
+                        albumTitle={album?.title}
+                        hostile={album?.hostile === true}
+                        current={track.id === currentTrackId}
+                        onPlay={onPlayTrack}
+                        onPlayNext={onPlayNextTrack}
+                        onAddToQueue={onAddTrackToQueue}
+                        onGoToAlbum={onOpenAlbum}
+                        onOpenArtist={onOpenArtist}
+                      />
+                    );
+                  })}
                 </View>
               ) : null}
             </>

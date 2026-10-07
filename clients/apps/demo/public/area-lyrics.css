@@ -1,0 +1,108 @@
+/*
+ * Gunmetal lyrics pane — SUR-012 (docs/ui/surfaces.md).
+ * Loads after shell.css, so these rules refine the shell's base lyrics paint.
+ * Everything is var(--gm-*) tokens: the Inter type ramp (design-language §6),
+ * the text steps of §4, and the 160ms motion token of §9. No boxes, no
+ * translucency, no assets — lyrics are just well-set text.
+ */
+
+/* —— The reading column —— */
+
+[data-lyrics-pane='1'] {
+  /* About 70 characters per line (design-language §6 line-length rule). */
+  width: min(34em, 100%);
+  gap: 12px;
+}
+
+[data-lyrics-pane='1'] [data-lyrics-line='1'] {
+  /* type.title3 of the ramp: 16px on phone and wide web, 22px leading. */
+  font-size: var(--gm-type-title3-size);
+  line-height: var(--gm-type-title3-line);
+  /* Plain lyrics are prose: start-aligned reading, never inherited centring. */
+  text-align: start;
+  /* Reflow at 320px (A9) without ever clipping a word. */
+  overflow-wrap: anywhere;
+}
+
+/* Synced lyrics read as a lyric sheet: the block centres itself and the
+   lines sit centred, wherever the pane is placed (this targets the lines
+   directly, so it also wins over the wide player's inherited alignment). */
+[data-lyrics-pane='1'][data-synced='1'] {
+  margin-inline: auto;
+}
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'] {
+  text-align: center;
+  /* The active-line change animates colour only, at the 160ms motion token.
+     Size and weight step instantly — layout is never animated. */
+  transition:
+    color var(--gm-motion),
+    opacity var(--gm-motion);
+}
+
+/* —— The current line ——
+   Colour and weight carry the highlight (§9: never scaling or sweeping);
+   the size lift is two ramp-derived pixels, applied without transition. */
+
+[data-lyrics-pane='1'] [data-lyrics-line='1'][data-current='1'] {
+  font-size: calc(var(--gm-type-title3-size) + 2px);
+  line-height: calc(var(--gm-type-title3-line) + 4px);
+  font-weight: 650;
+  color: var(--gm-text-primary);
+}
+
+/* —— Soft falloff by distance from the current line (synced only) ——
+   Each step mixes text.secondary toward text.muted. Both endpoints sit at
+   or above the AA floor on every surface the pane can be drawn on, and any
+   mix of the two keeps that ratio, so no step ever drops below 4.5:1. */
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='1'] {
+  color: color-mix(in srgb, var(--gm-text-secondary) 70%, var(--gm-text-muted));
+}
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='2'] {
+  color: color-mix(in srgb, var(--gm-text-secondary) 45%, var(--gm-text-muted));
+}
+
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='3'],
+[data-lyrics-pane='1'][data-synced='1'] [data-lyrics-line='1'][data-distance='4'] {
+  /* The ramp saturates at the muted step: distant verse blocks rest here. */
+  color: var(--gm-text-muted);
+}
+
+/* —— "This file has no lyrics." (design-language §11, MUS-154) ——
+   Quiet centred chrome: no card, no border, muted body text. */
+
+[data-lyrics-pane='1'][data-empty='1'] {
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin-inline: auto;
+}
+
+[data-lyrics-pane='1'][data-empty='1'] [data-lyrics-line='1'] {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  color: var(--gm-text-muted);
+  text-align: center;
+}
+
+/* The full player shows the same sentence through its own element while the
+   toggle is unavailable; give it the same quiet voice so both no-lyrics
+   states read identically. (Styling only — the element belongs to
+   PlayerFull.tsx.) */
+#player-full-lyrics-unavailable {
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  color: var(--gm-text-muted);
+}
+
+/* —— Reduced motion (CLI-140): the highlight itself is information and
+   still applies, but the change is instant. shell.css zeroes --gm-motion;
+   this is the explicit off-switch the surface requires. —— */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-lyrics-pane='1'] [data-lyrics-line='1'] {
+    transition: none;
+  }
+}

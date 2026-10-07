@@ -25,6 +25,27 @@ test('grid and row covers are quiet plates: no letter, no sheen layer', () => {
   expect(row.container.querySelector('[data-size="row"] [data-cover-label]')).toStrictEqual(null);
 });
 
+test('art-first: real art marks the tile and silences the loading plate', () => {
+  const withArt = render(<CoverTile tone="01" label="Harbour" size="grid" artUrl="/media/covers/demo-album-01.svg" />);
+  const artRoot = withArt.container.querySelector('[data-cover="01"][data-size="grid"]');
+  expect(artRoot?.getAttribute('data-cover-art')).toStrictEqual('1');
+  // The plate and wash stay in the tree (loading base) but flagged off.
+  expect(artRoot?.querySelector('[data-cover-plate="1"]')).toBeTruthy();
+  expect(artRoot?.querySelector('[data-cover-wash="1"]')).toBeTruthy();
+  // No letter glyph over real art, at any size.
+  expect(artRoot?.querySelector('[data-cover-label]')).toBeNull();
+  withArt.unmount();
+
+  const detailWithArt = render(<CoverTile tone="02" label="Stages" size="detail" artUrl="/media/covers/x.svg" />);
+  expect(detailWithArt.container.querySelector('[data-cover-art="1"] [data-cover-label]')).toBeNull();
+  detailWithArt.unmount();
+
+  const loading = render(<CoverTile tone="03" label="Harbour" size="grid" />);
+  const plateRoot = loading.container.querySelector('[data-cover="03"][data-size="grid"]');
+  expect(plateRoot?.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(plateRoot?.querySelector('[data-cover-plate="1"]')).toBeTruthy();
+});
+
 test('bar, detail and full covers show the uppercase initial', () => {
   const bar = render(<CoverTile tone="02" label="Harbour" size="bar" coverId="cover-bar-demo" />);
   expect(bar.container.querySelector('#cover-bar-demo')?.getAttribute('data-size')).toStrictEqual('bar');

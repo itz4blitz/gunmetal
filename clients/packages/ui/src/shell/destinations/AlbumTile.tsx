@@ -16,6 +16,8 @@ export type AlbumTileProps = {
   onAddToQueue?: ((albumId: string) => void) | undefined;
   onOpenArtist?: ((artistKey: string) => void) | undefined;
   staggerIndex?: number | undefined;
+  /** This release is the one playing — brass where-you-are state on the title. */
+  playing?: boolean | undefined;
 };
 
 function displayTitle(album: ShellAlbum, messages: DestinationMessages): string {
@@ -60,6 +62,7 @@ export function AlbumTile({
   onAddToQueue,
   onOpenArtist,
   staggerIndex = 0,
+  playing = false,
 }: AlbumTileProps) {
   const title = displayTitle(album, messages);
   const artist = displayArtist(album, messages);
@@ -75,6 +78,7 @@ export function AlbumTile({
       dataSet={{
         albumTile: album.id,
         hostile: album.hostile ? '1' : '0',
+        tilePlaying: playing ? '1' : '0',
         tileStagger: staggerSlot(staggerIndex),
       }}
       onContextMenu={

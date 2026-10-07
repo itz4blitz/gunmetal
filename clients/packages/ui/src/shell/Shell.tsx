@@ -371,6 +371,8 @@ export function Shell({
           open={playback.fullOpen && state.trackId !== undefined}
           placement={width === 'compact' ? 'overlay' : 'pane'}
           albumTitle={playingAlbumTitle}
+          volume={playback.volume}
+          onVolume={playback.setVolume}
           onClose={playback.closeFull}
           onPlayPause={playback.playPause}
           onPrevious={playback.previous}

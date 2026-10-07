@@ -11,6 +11,8 @@ export type PluginSlot = {
   loaded: boolean;
 };
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
+import type { ShellMessages } from '../../messages/en/shell.ts';
+import { themes, type ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
 
 export type SettingsSection = 'appearance' | 'playback' | 'connected' | 'extensions' | 'about' | 'privacy';
@@ -95,4 +97,23 @@ export function settingsSlotPlaneLabel(plane: PluginPlane, messages: Destination
     return messages.settingsSlotServer;
   }
   return messages.settingsSlotClient;
+}
+
+/** The switcher's label for a theme; the preview strip captions use the same words. */
+export function settingsThemeLabel(id: ThemeId, messages: ShellMessages): string {
+  if (id === 'dark') {
+    return messages.themeDark;
+  }
+  if (id === 'light') {
+    return messages.themeLight;
+  }
+  if (id === 'oled') {
+    return messages.themeOled;
+  }
+  return messages.themeHighContrast;
+}
+
+/** The theme preview strip: the same four themes as the switcher, in switcher order. */
+export function settingsSwatchLabels(messages: ShellMessages): readonly { id: ThemeId; label: string }[] {
+  return themes().map((id) => ({ id, label: settingsThemeLabel(id, messages) }));
 }

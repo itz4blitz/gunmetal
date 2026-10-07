@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
+import { hostileCorpus } from '../../../../fake-server/src/hostile.ts';
 import { destinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellTrack } from '../library-types.ts';
 import { TrackRow } from './TrackRow.tsx';
@@ -18,6 +19,99 @@ const track: ShellTrack = {
   lyricsKind: 'none',
   mediaUrl: '/media/audio/fixtures.wav',
 };
+
+test('rows are keyboard playable: Enter and Space play, other keys do nothing', () => {
+  const onPlay = vi.fn();
+  render(<TrackRow track={track} messages={destinationMessages()} onPlay={onPlay} />);
+  const play = screen.getByRole('button', { name: 'Pier at Dusk' });
+  fireEvent.keyDown(play, { key: 'Enter' });
+  fireEvent.keyDown(play, { key: ' ' });
+  expect(onPlay).toHaveBeenCalledTimes(2);
+  expect(onPlay).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
+  fireEvent.keyDown(play, { key: 'ArrowDown' });
+  fireEvent.keyDown(play, { key: 'Escape' });
+  expect(onPlay).toHaveBeenCalledTimes(2);
+});
+
+test('the muted album column appears only when a title is passed (album pages omit it)', () => {
+  const withAlbum = render(
+    <TrackRow track={track} messages={destinationMessages()} albumTitle="Harbour Lights" onPlay={vi.fn()} />,
+  );
+  expect(withAlbum.container.querySelector('[data-track-album="1"]')?.textContent).toStrictEqual('Harbour Lights');
+  expect(withAlbum.container.querySelector('[data-track-play]')?.getAttribute('data-with-album')).toStrictEqual('1');
+  withAlbum.unmount();
+
+  const withoutAlbum = render(<TrackRow track={track} messages={destinationMessages()} onPlay={vi.fn()} />);
+  expect(withoutAlbum.container.querySelector('[data-track-album="1"]')).toBeNull();
+  expect(withoutAlbum.container.querySelector('[data-track-play]')?.getAttribute('data-with-album')).toStrictEqual('0');
+});
+
+test('hostile rows replace corpus text with safe catalogue labels everywhere', () => {
+  const hostileTrack: ShellTrack = {
+    ...track,
+    id: 'demo-track-08-01',
+    title: hostileCorpus(),
+    artistName: hostileCorpus(),
+  };
+  render(
+    <TrackRow
+      track={hostileTrack}
+      messages={destinationMessages()}
+      albumTitle={hostileCorpus()}
+      hostile
+      artistKey="hostile-artist"
+      onOpenArtist={vi.fn()}
+      onPlay={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('[data-track-row]')?.getAttribute('data-hostile')).toStrictEqual('1');
+  expect(document.querySelector('[data-track-title="1"]')?.textContent).toStrictEqual('Hostile metadata (fixture)');
+  expect(document.querySelector('[data-track-artist="1"]')?.textContent).toStrictEqual('Security corpus');
+  expect(document.querySelector('[data-track-album="1"]')?.textContent).toStrictEqual('Hostile metadata (fixture)');
+  expect(screen.getByRole('button', { name: 'Hostile metadata (fixture)' })).not.toBeNull();
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'Hostile metadata (fixture)' }));
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).not.toBeNull();
+  // The corpus reaches neither the visible text nor the accessible tree.
+  expect(document.body.textContent).not.toContain(hostileCorpus());
+});
+
+test('flags become text chips and mark the row; healthy rows stay unmarked', () => {
+  const unplayable = render(
+    <TrackRow track={{ ...track, flag: 'unplayable' }} messages={destinationMessages()} onPlay={vi.fn()} />,
+  );
+  expect(unplayable.container.querySelector('[data-track-row]')?.getAttribute('data-flagged')).toStrictEqual('1');
+  expect(unplayable.container.querySelector('[data-track-flag]')?.textContent).toStrictEqual('Cannot play');
+  expect(unplayable.container.querySelector('[data-track-flag]')?.getAttribute('data-track-flag')).toStrictEqual(
+    'unplayable',
+  );
+  unplayable.unmount();
+
+  const damaged = render(
+    <TrackRow track={{ ...track, flag: 'damaged' }} messages={destinationMessages()} onPlay={vi.fn()} />,
+  );
+  expect(damaged.container.querySelector('[data-track-flag]')?.textContent).toStrictEqual('Damaged');
+  damaged.unmount();
+
+  const healthy = render(<TrackRow track={track} messages={destinationMessages()} onPlay={vi.fn()} />);
+  expect(healthy.container.querySelector('[data-track-row]')?.getAttribute('data-flagged')).toStrictEqual('0');
+  expect(healthy.container.querySelector('[data-track-flag]')).toBeNull();
+});
+
+test('the current row paints the now-playing state; other rows do not', () => {
+  const current = render(<TrackRow track={track} messages={destinationMessages()} current onPlay={vi.fn()} />);
+  expect(current.container.querySelector('[data-track-row]')?.getAttribute('data-current')).toStrictEqual('1');
+  expect(current.container.querySelector('[data-now-playing="1"]')).not.toBeNull();
+  current.unmount();
+
+  const idle = render(<TrackRow track={track} messages={destinationMessages()} onPlay={vi.fn()} />);
+  expect(idle.container.querySelector('[data-track-row]')?.getAttribute('data-current')).toStrictEqual('0');
+  expect(idle.container.querySelector('[data-now-playing="1"]')).toBeNull();
+});
+
+test('durations render as tabular m:ss text', () => {
+  const { container } = render(<TrackRow track={track} messages={destinationMessages()} onPlay={vi.fn()} />);
+  expect(container.querySelector('[data-track-duration="1"]')?.textContent).toStrictEqual('3:34');
+});
 
 test('go to artist context is only armed when both the key and the opener exist', () => {
   const messages = destinationMessages();
@@ -59,7 +153,7 @@ test('track context menu and more control open go to artist', () => {
   fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: ' ' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Tab' });
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).not.toBeNull();
 });
 
 test('catalogue menu plays queues and opens the album from the track row', () => {

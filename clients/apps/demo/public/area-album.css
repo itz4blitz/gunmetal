@@ -1,0 +1,477 @@
+/*
+ * area-album.css — SUR-025 album page and SUR-024 artist page.
+ *
+ * Loads after shell.css and styles only what these two pages own: the
+ * display-size header type, the meta line, the artist link, the shuffle
+ * control and its tooltip, the disc headers and per-disc play, the honest
+ * flag treatment, the hostile-safe rows, the artist hero image, the
+ * disambiguation tag and the All songs table. Everything reads --gm-*
+ * tokens so themes switch for free; nothing here edits shell-owned chrome.
+ * Selectors are scoped to #destination-album / #destination-artist so the
+ * shared TrackRow keeps its library and search styling untouched.
+ */
+
+/* —— Display-size page names (type.display, wide 44/52 · compact 32/38) —— */
+
+#destination-album #destination-headline,
+#destination-artist #destination-headline {
+  font-size: var(--gm-type-display-size);
+  line-height: var(--gm-type-display-line);
+  letter-spacing: -0.02em;
+}
+
+/* —— Album header text: artist link, meta line, license —— */
+
+[data-album-header-text] {
+  min-width: 0;
+}
+
+[data-album-header-text] [data-album-artist] {
+  align-self: flex-start;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--gm-accent-text);
+  --gm-text: var(--gm-accent-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--gm-accent-text) 38%, transparent);
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--gm-motion);
+}
+
+[data-album-header-text] [data-album-artist][role='button'] {
+  cursor: pointer;
+  border-radius: var(--gm-radius-xs);
+}
+
+[data-album-header-text] [data-album-artist][role='button']:hover {
+  text-decoration-color: var(--gm-accent-text);
+}
+
+[data-album-header-text] [data-album-artist][role='button']:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 3px;
+}
+
+[data-album-header-text] [data-album-artist]:not([role='button']) {
+  cursor: default;
+}
+
+/* Year · track count · total time, all computed from the record. */
+[data-album-header-text] [data-album-meta='1'] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+[data-album-meta='1'] > * {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-muted);
+}
+
+[data-album-meta='1'] [data-meta-separator='1'] {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+#album-year,
+#album-duration-total {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-album-header-text] #album-license {
+  margin-top: 2px;
+  max-width: 56ch;
+}
+
+/* —— Actions row: brass play hex (shell-owned) + steel shuffle hex —— */
+
+[data-album-actions='1'] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+[data-shuffle-wrap='1'] {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+}
+
+#album-shuffle[data-hex-face='1'] {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--gm-edge-highlight), transparent 42%), var(--gm-bg-overlay);
+  color: var(--gm-text-secondary);
+  --gm-text: var(--gm-text-secondary);
+  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion),
+    transform var(--gm-motion),
+    filter var(--gm-motion);
+}
+
+[data-shuffle-wrap='1']:hover #album-shuffle[data-hex-face='1'] {
+  background:
+    linear-gradient(180deg, var(--gm-edge-highlight), transparent 42%),
+    color-mix(in srgb, var(--gm-text-primary) 8%, var(--gm-bg-overlay));
+  color: var(--gm-text-primary);
+  --gm-text: var(--gm-text-primary);
+}
+
+#album-shuffle[data-hex-face='1']:active {
+  transform: scale(0.98);
+}
+
+/* Focus follows the nut shape: the clip-path would cut a rectangular ring. */
+#album-shuffle[data-hex-face='1']:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 1px var(--gm-focus-ring)) drop-shadow(0 0 1px var(--gm-focus-ring));
+}
+
+[data-shuffle-wrap='1'][data-wired='0'] {
+  cursor: default;
+}
+
+[data-shuffle-wrap='1'][data-wired='0'] #album-shuffle[data-hex-face='1'] {
+  cursor: default;
+  background: color-mix(in srgb, var(--gm-bg-raised) 72%, transparent);
+  color: var(--gm-text-disabled);
+  --gm-text: var(--gm-text-disabled);
+}
+
+[data-shuffle-wrap='1'][data-wired='0']:hover #album-shuffle[data-hex-face='1'] {
+  background: color-mix(in srgb, var(--gm-bg-raised) 72%, transparent);
+  color: var(--gm-text-disabled);
+  --gm-text: var(--gm-text-disabled);
+}
+
+/* Two crossing arms with a chevron on each end — the shuffle mark, drawn,
+   not an emoji, not an image. */
+[data-shuffle-glyph='1'] {
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+
+[data-shuffle-arm='a'],
+[data-shuffle-arm='b'] {
+  position: absolute;
+  left: 1px;
+  top: 9px;
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentcolor;
+}
+
+[data-shuffle-arm='a'] {
+  transform: rotate(-35deg);
+}
+
+[data-shuffle-arm='b'] {
+  transform: rotate(35deg);
+}
+
+[data-shuffle-arm='a']::after,
+[data-shuffle-arm='b']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid currentcolor;
+  border-right: 2px solid currentcolor;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+/* Tooltip lives on the un-clipped wrapper so the hexagon cannot cut it. */
+[data-shuffle-wrap='1'] [data-control-hint] {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-s);
+  background: var(--gm-bg-overlay);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 24%, transparent);
+  color: var(--gm-text-primary);
+  --gm-text: var(--gm-text-primary);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--gm-motion);
+  z-index: 12;
+}
+
+[data-shuffle-wrap='1']:hover [data-control-hint],
+[data-shuffle-wrap='1']:focus-within [data-control-hint] {
+  opacity: 1;
+}
+
+/* —— Track table on the album page —— */
+
+[data-album-row='1'] {
+  display: block;
+}
+
+/* The album artist's own rows drop the repeated credit; guests keep theirs. */
+[data-album-row='1'][data-guest='0'] [data-track-artist] {
+  display: none;
+}
+
+[data-album-row='1'][data-guest='1'] [data-track-artist] {
+  font-size: 12px;
+  color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-muted);
+}
+
+[data-album-row='1'] [data-track-number],
+[data-artist-song-list='1'] [data-track-number],
+[data-hostile-row='1'] [data-track-number] {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-muted);
+}
+
+/* Honest flags: rows dim, the chip keeps its words (MUS-229). */
+[data-album-row='1'] [data-track-row][data-flagged='1'] {
+  opacity: 0.55;
+}
+
+[data-album-row='1'] [data-track-row][data-flagged='1']:hover {
+  opacity: 0.72;
+}
+
+[data-album-row='1'] [data-track-flag] {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--gm-text-secondary) 42%, transparent);
+  border-radius: var(--gm-radius-xs);
+  color: var(--gm-text-secondary);
+  --gm-text: var(--gm-text-secondary);
+  white-space: nowrap;
+  justify-self: end;
+}
+
+/* Where you are: a brass inset leads the playing row. */
+[data-album-row='1'] [data-track-row][data-current='1'],
+[data-artist-song-list='1'] [data-track-row][data-current='1'] {
+  box-shadow:
+    inset 3px 0 0 var(--gm-accent-indicator),
+    var(--gm-raised-edge);
+}
+
+/* —— Disc headers with a per-disc play affordance (SUR-025, MUS-012) —— */
+
+[data-disc-header-row='1'] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  margin: 24px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gm-line-subtle);
+}
+
+[data-disc-header-row='1'] [data-disc-header] {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+[data-disc-play='1'] {
+  display: inline-flex;
+  flex-direction: row;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-raised-edge);
+  color: var(--gm-text-secondary);
+  --gm-text: var(--gm-text-secondary);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion),
+    transform var(--gm-motion);
+}
+
+[data-disc-play='1']::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--gm-accent-fill);
+}
+
+[data-disc-play='1'] [data-disc-play-label='1'] {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+[data-disc-play='1']:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-raised));
+  color: var(--gm-text-primary);
+  --gm-text: var(--gm-text-primary);
+}
+
+[data-disc-play='1']:active {
+  transform: scale(0.98);
+}
+
+[data-disc-play='1']:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— Hostile-safe rows: a safe label, the real duration, nothing else —— */
+
+[data-hostile-row='1'] {
+  position: relative;
+  display: block;
+}
+
+[data-hostile-row='1'] [data-hostile-row-play='1'] {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: var(--gm-radius-s);
+  transition: background-color var(--gm-motion);
+}
+
+[data-hostile-row='1'] [data-hostile-row-play='1']:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+}
+
+[data-hostile-row='1'] [data-hostile-row-play='1']:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: -2px;
+}
+
+[data-hostile-row='1'][data-current='1'] [data-hostile-row-play='1'] {
+  padding-left: 26px;
+  background: color-mix(in srgb, var(--gm-accent-fill) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+}
+
+[data-hostile-row-label='1'] {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gm-text-secondary);
+  --gm-text: var(--gm-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The playing mark stays static here: fixture rows, calm by default. */
+[data-hostile-row='1'] [data-now-playing='1'] {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 12px;
+  height: 14px;
+  margin-top: -7px;
+  background:
+    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 0 100% / 2px 40% no-repeat,
+    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 5px 100% / 2px 80% no-repeat,
+    linear-gradient(var(--gm-accent-indicator), var(--gm-accent-indicator)) 10px 100% / 2px 55% no-repeat;
+}
+
+/* —— Artist page: hero image in the nut, disambiguation, All songs —— */
+
+#destination-artist [data-artist-hero][data-artist-image='1'] [data-artist-initial] {
+  display: none;
+}
+
+#artist-disambiguation {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-xs);
+  color: var(--gm-text-muted);
+  --gm-text: var(--gm-text-muted);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+#artist-all-songs {
+  margin-top: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#artist-all-songs [data-section-heading='1'] {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--gm-line-subtle);
+}
+
+[data-artist-song-list='1'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* —— Targets, compact, reduced motion —— */
+
+#token-shell[data-width='compact'] #album-back,
+#token-shell[data-width='compact'] #artist-back,
+#token-shell[data-width='compact'] #album-lyrics-toggle,
+#token-shell[data-width='compact'] [data-disc-play='1'] {
+  min-height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-album-header-text] [data-album-artist][role='button'],
+  #album-shuffle[data-hex-face='1'],
+  [data-shuffle-wrap='1'] [data-control-hint],
+  [data-disc-play='1'],
+  [data-hostile-row='1'] [data-hostile-row-play='1'] {
+    transition: none;
+  }
+}

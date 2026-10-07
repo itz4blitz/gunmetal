@@ -19,6 +19,15 @@ const palettes = {
   'demo-album-06': { hue: 356, deep: '#3a2424', mid: '#5a3a3a', hi: '#8a5c5c', ink: '#f4e9e9' },
   'demo-album-07': { hue: 215, deep: '#1a2634', mid: '#2a3a4a', hi: '#4a6680', ink: '#e7edf4' },
   'demo-album-08': { hue: 210, deep: '#151a1f', mid: '#1f262d', hi: '#3a4650', ink: '#e9eef2' },
+  'demo-album-09': { hue: 165, deep: '#1c302e', mid: '#2e4b48', hi: '#587874', ink: '#e6efed' },
+  // Real CC albums (10-15): same muted steel/deep-warm family, one hue per
+  // album, no pure saturation, no purple-gradient territory.
+  'demo-album-10': { hue: 148, deep: '#20362e', mid: '#345448', hi: '#5f8375', ink: '#e8f0ec' },
+  'demo-album-11': { hue: 20, deep: '#38291f', mid: '#5a4433', hi: '#8a6b52', ink: '#f2ebe3' },
+  'demo-album-12': { hue: 190, deep: '#16303a', mid: '#26495a', hi: '#4f7d92', ink: '#e6eff3' },
+  'demo-album-13': { hue: 60, deep: '#33331f', mid: '#545433', hi: '#7f7f52', ink: '#f1f1e6' },
+  'demo-album-14': { hue: 330, deep: '#382430', mid: '#5a3f4c', hi: '#8a6478', ink: '#f3eaef' },
+  'demo-album-15': { hue: 245, deep: '#232a3e', mid: '#3a4460', hi: '#647199', ink: '#eaedf4' },
 };
 
 // —— WAV tones ———————————————————————————————————————————————
@@ -101,7 +110,8 @@ function coverSvg(seed) {
 // —— Artist images ———————————————————————————————————————————
 // Hex-nut mark on a tone field, per design-language §1.
 function artistSvg(seed, name) {
-  const id = Object.keys(palettes)[seed % 8];
+  const tones = Object.keys(palettes);
+  const id = tones[seed % tones.length];
   const p = palettes[id];
   const initial = name.trim().slice(0, 1).toUpperCase();
   return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
@@ -115,7 +125,22 @@ function artistSvg(seed, name) {
 `;
 }
 
-const artists = ['Mira Sol', 'Alex Reed', 'The Compound', 'Various Artists', 'Keratin', 'Chris Zabriskie'];
+// One image per non-hostile catalogue artist key (catalogue.ts derives
+// /media/artists/<key>.svg from the key, including both Alex Reed entries).
+// The seed picks the tone field; existing files keep their seeds so their
+// bytes stay stable across regenerations.
+const artists = [
+  ['mira-sol', 'Mira Sol', 0],
+  ['alex-reed-north', 'Alex Reed', 1],
+  ['alex-reed-south', 'Alex Reed', 8],
+  ['the-compound', 'The Compound', 2],
+  ['various-artists', 'Various Artists', 3],
+  ['keratin', 'Keratin', 4],
+  ['chris-zabriskie', 'Chris Zabriskie', 5],
+  ['kai-engel', 'Kai Engel', 6],
+  ['scott-buckley', 'Scott Buckley', 7],
+  ['kevin-macleod', 'Kevin MacLeod', 9],
+];
 
 mkdirSync(join(root, 'audio'), { recursive: true });
 mkdirSync(join(root, 'covers'), { recursive: true });
@@ -126,11 +151,7 @@ albumIds.forEach((id, index) => {
   writeFileSync(join(root, 'audio', `${id}.wav`), toneWav(index));
   writeFileSync(join(root, 'covers', `${id}.svg`), coverSvg(index));
 });
-artists.forEach((name, index) => {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z]+/g, '-')
-    .replace(/^-|-$/g, '');
-  writeFileSync(join(root, 'artists', `${slug}.svg`), artistSvg(index, name));
+artists.forEach(([slug, name, seed]) => {
+  writeFileSync(join(root, 'artists', `${slug}.svg`), artistSvg(seed, name));
 });
 console.log(`generated ${albumIds.length} tones, ${albumIds.length} covers, ${artists.length} artist images`);

@@ -13,19 +13,23 @@ export type CoverTileProps = {
  * Artwork placeholder until real covers sync (LIB-142): a quiet tone plate,
  * the hexagon outline from the brand mark, and — only where the artwork is
  * too small to read a title next to it — the initial. No letter posters.
+ *
+ * Art-first: when a real cover is present the plate and wash stand down
+ * (data-cover-art) and the machined edge carries the tile; the plate stays
+ * the loading base underneath.
  */
 export function CoverTile({ tone, label, size = 'grid', coverId, artUrl }: CoverTileProps) {
-  const art =
-    artUrl === undefined || artUrl === ''
-      ? undefined
-      : { backgroundImage: `url("${artUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' };
-  const showGlyph = (size === 'bar' || size === 'detail' || size === 'full') && (artUrl === undefined || artUrl === '');
+  const hasArt = artUrl !== undefined && artUrl !== '';
+  const art = hasArt
+    ? { backgroundImage: `url("${artUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : undefined;
+  const showGlyph = !hasArt && (size === 'bar' || size === 'detail' || size === 'full');
   const trimmed = label.trim();
   const glyph = trimmed.length === 0 ? '·' : trimmed.slice(0, 1).toUpperCase();
   return (
     <View
       id={coverId ?? `cover-${size}`}
-      dataSet={{ cover: tone, size }}
+      dataSet={{ cover: tone, size, coverArt: hasArt ? '1' : '0' }}
       accessibilityLabel={label}
       accessibilityRole="image"
       style={art}

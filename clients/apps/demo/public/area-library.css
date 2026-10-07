@@ -1,0 +1,469 @@
+/**
+ * area-library.css — SUR-022 Library and SUR-032 Search (demo app).
+ *
+ * Loads after shell.css and only refines this area. Every colour comes from
+ * a --gm-* token (design-language §4), motion is the 160ms token, radii stay
+ * in the 2–16px set (never pills), and brass marks only the primary action
+ * and where you are (§3). Sticky bars use the canvas, never translucency.
+ */
+
+/* —— SUR-022 Library frame —— */
+
+#destination-library {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Segmented tabs: 44px targets on the canvas, brass underline for the
+   selected section. The underline draws in from its start edge (a transform,
+   not a layout read) so switching feels like it slides into place. */
+#library-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  gap: 4px;
+  padding: 4px 0 0;
+  border-bottom: 1px solid var(--gm-line-subtle);
+}
+
+#library-tabs [role='tab'] {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px 12px;
+  border-radius: var(--gm-radius-m);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#library-tabs [data-tab-label] {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Counts are chrome next to the label, in tabular figures. */
+#library-tabs [data-tab-count] {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: var(--gm-radius-xs);
+  background: color-mix(in srgb, var(--gm-text-primary) 7%, transparent);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#library-tabs [data-selected='1'] [data-tab-count] {
+  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+}
+
+#library-tabs [data-selected='1']::after,
+#library-tabs [aria-selected='true']::after {
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  transform-origin: left center;
+  animation: gm-tab-underline var(--gm-motion) cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes gm-tab-underline {
+  from {
+    transform: scaleX(0.55);
+    opacity: 0;
+  }
+
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+/* Fluid album grid — the tile agent owns the tile; this is the shelf. */
+#library-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 20px 16px;
+  padding-top: 4px;
+}
+
+/* —— Artist rows: nut photo, name, album count —— */
+
+#library-artist-list {
+  gap: 4px;
+  padding-top: 4px;
+}
+
+[data-artist-row] {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 14px;
+  min-height: 56px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+[data-artist-avatar] {
+  width: 44px;
+  height: 44px;
+}
+
+[data-artist-photo] {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  /* One machined inner line keeps photo nuts sitting on the steel. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gm-line-control) 45%, transparent);
+  transition: filter var(--gm-motion);
+}
+
+[data-artist-row]:hover [data-artist-photo] {
+  filter: brightness(1.08);
+}
+
+[data-artist-meta] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+[data-artist-count] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— Track table: header chrome, 52px rows, honest flags —— */
+
+#library-track-list {
+  gap: 2px;
+  padding-top: 4px;
+}
+
+[data-track-table-head] {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1.8fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 56px 6px 12px;
+  border-bottom: 1px solid var(--gm-line-subtle);
+}
+
+[data-track-table-head] > * {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+[data-track-table-head] > [data-track-head-time] {
+  text-align: end;
+}
+
+[data-track-row] {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+[data-track-row] [data-track-play],
+[data-track-row] [data-item-more] {
+  cursor: pointer;
+}
+
+[data-track-row] [data-track-play] {
+  min-height: 36px;
+}
+
+/* Table rows with the album column: number | title/artist | album | flag | time. */
+[data-track-row] [data-track-play][data-with-album='1'] {
+  grid-template-columns: 32px minmax(0, 1.8fr) minmax(0, 1fr) auto auto;
+  column-gap: 12px;
+}
+
+[data-track-row] [data-track-album] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 18px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* The number becomes the play affordance on hover: brass triangle, no icon
+   font, no emoji — a clip-path glyph on the cell the pointer is over. The
+   playing row gives the slot to the animated bars instead. */
+[data-track-row] [data-track-number] {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 18px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  transition: color var(--gm-motion);
+}
+
+[data-track-row] [data-track-number]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 12px;
+  height: 12px;
+  margin: auto;
+  background: var(--gm-accent-text);
+  clip-path: polygon(0% 0%, 100% 50%, 0% 100%);
+  opacity: 0;
+  transform: translateX(1px);
+  transition: opacity var(--gm-motion);
+}
+
+[data-track-row]:hover [data-track-number],
+[data-track-row] [data-track-play]:focus-visible [data-track-number],
+[data-track-row][data-current='1'] [data-track-number] {
+  color: transparent;
+}
+
+[data-track-row]:hover [data-track-number]::after,
+[data-track-row] [data-track-play]:focus-visible [data-track-number]::after {
+  opacity: 1;
+}
+
+/* On the playing row the bars take the numeral slot; hovering swaps them
+   for the restart triangle. */
+[data-track-row][data-current='1'] [data-now-playing='1'] {
+  transition: opacity var(--gm-motion);
+}
+
+[data-track-row][data-current='1']:hover [data-now-playing='1'] {
+  opacity: 0;
+}
+
+/* Flags: text badges in steel, never brass — an unplayable file is not an
+   honour. The row dims; the labels keep their token colours. */
+[data-track-row] [data-track-flag] {
+  align-self: center;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
+  border-radius: var(--gm-radius-xs);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+[data-track-row][data-flagged='1'] [data-track-play] {
+  opacity: 0.62;
+  transition: opacity var(--gm-motion);
+}
+
+[data-track-row][data-flagged='1']:hover [data-track-play],
+[data-track-row][data-flagged='1'] [data-track-play]:focus-visible {
+  opacity: 0.78;
+}
+
+/* Current row: brass wash plus a 1px brass inset — where you are. */
+[data-track-row][data-current='1'] {
+  background: color-mix(in srgb, var(--gm-accent-fill) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--gm-accent-indicator) 42%, transparent),
+    var(--gm-raised-edge);
+}
+
+[data-track-row][data-current='1'] [data-track-duration] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+}
+
+/* Kebab: a 44px square target, right-aligned in the row; the glyph stays
+   text-free (font-size 0 + ::before from shell chrome). */
+[data-track-row] [data-item-more] {
+  position: static;
+  width: 44px;
+  height: 44px;
+  opacity: 0;
+}
+
+[data-track-row]:hover [data-item-more],
+[data-track-row]:focus-within [data-item-more],
+[data-track-row] [data-item-more]:focus-visible {
+  opacity: 1;
+}
+
+#token-shell[data-width='compact'] [data-track-row] [data-item-more],
+#token-shell[data-width='medium'] [data-track-row] [data-item-more] {
+  opacity: 1;
+}
+
+/* Compact phones drop the album column; rows keep 56px from shell chrome. */
+#token-shell[data-width='compact'] [data-track-play][data-with-album='1'] {
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+}
+
+#token-shell[data-width='compact'] [data-track-album],
+#token-shell[data-width='compact'] [data-track-table-head] > [data-track-head-album],
+#token-shell[data-width='compact'] [data-track-table-head] > [data-track-head-time] {
+  display: none;
+}
+
+#token-shell[data-width='compact'] [data-track-table-head] {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  padding-right: 48px;
+}
+
+/* —— SUR-032 Search —— */
+
+#destination-search {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+#search-field-wrap {
+  max-width: 760px;
+}
+
+#search-field {
+  padding: 17px 16px 17px 48px;
+  caret-color: var(--gm-accent-fill);
+}
+
+/* Quiet type toggles: a hairline when off, primary text and the brass
+   underline (shell chrome) when on. Radius m — never pills. */
+#search-type-chips {
+  gap: 8px;
+}
+
+[data-search-chip] {
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    color var(--gm-motion),
+    border-color var(--gm-motion),
+    background-color var(--gm-motion);
+}
+
+[data-search-chip]:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+[data-search-chip]:focus {
+  outline: none;
+}
+
+[data-search-chip]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+[data-search-chip][data-pressed='1'] {
+  border-color: transparent;
+}
+
+/* Results meta: the count, then the honest demo-local notice as a quiet
+   chip — muted chrome that says what this search is not. */
+#search-results {
+  gap: 16px;
+}
+
+#search-results-meta {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+#search-results-count {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#search-demo-notice {
+  padding: 3px 8px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-xs);
+  font-size: 11px;
+  line-height: 14px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#search-plugin-notice {
+  font-size: 12px;
+  line-height: 16px;
+  padding-left: 10px;
+  border-left: 2px solid var(--gm-line-subtle);
+}
+
+[data-search-group-head] {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+}
+
+[data-search-group-count] {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+[data-search-album-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 20px 16px;
+}
+
+[data-search-query-echo] {
+  font-size: 13px;
+  line-height: 18px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+/* —— Reduced motion (CLI-140): everything resolves to instant —— */
+
+@media (prefers-reduced-motion: reduce) {
+  #library-tabs [data-selected='1']::after,
+  #library-tabs [aria-selected='true']::after {
+    animation: none;
+    transform: none;
+  }
+
+  [data-artist-photo],
+  [data-track-row] [data-track-number],
+  [data-track-row] [data-track-number]::after,
+  [data-track-row][data-current='1'] [data-now-playing='1'],
+  [data-track-row][data-flagged='1'] [data-track-play],
+  [data-search-chip] {
+    transition: none;
+  }
+}

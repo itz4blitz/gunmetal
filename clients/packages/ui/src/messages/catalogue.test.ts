@@ -112,6 +112,16 @@ test('the catalogue returns trusted shell and destination strings', () => {
       trackCountLabel: 'tracks',
       hostileAlbumLabel: 'Hostile metadata (fixture)',
       hostileArtistLabel: 'Security corpus',
+      artistCountLabel: 'artists',
+      searchResultCount: 'results',
+      columnTitle: 'Title',
+      columnAlbum: 'Album',
+      columnTime: 'Time',
+      shuffle: 'Shuffle',
+      shuffleUnavailable: 'Shuffle is not wired in this demo yet',
+      playDisc: 'Play disc',
+      allSongsHeading: 'All songs',
+      hostileTrackHidden: 'Track title hidden (hostile metadata)',
     },
   });
 });

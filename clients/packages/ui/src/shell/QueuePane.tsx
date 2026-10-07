@@ -28,7 +28,10 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
       onKeyDown={compactSheet ? closeOnKey : undefined}
     >
       <View dataSet={{ queueHeader: '1' }}>
-        <Text accessibilityRole="header">{messages.queueHeading}</Text>
+        <Text accessibilityRole="header" dataSet={{ queueHeading: '1' }}>
+          {messages.queueHeading}
+        </Text>
+        {playback.queue.length === 0 ? null : <Text dataSet={{ queueCount: '1' }}>{playback.queue.length}</Text>}
         {compactSheet ? (
           <View
             id="queue-sheet-close"
@@ -75,6 +78,7 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
                 coverId={`queue-art-${line.trackId}`}
                 artUrl={line.coverUrl}
               />
+              <View dataSet={{ nowPlaying: line.trackId === playback.trackId && playback.playing ? '1' : '0' }} />
               <Text dataSet={{ queueTitle: '1' }}>{line.title}</Text>
               <Text dataSet={{ queueArtist: '1' }}>{line.artistName}</Text>
               <Text dataSet={{ queueDuration: '1' }}>{formatDuration(line.durationMs)}</Text>

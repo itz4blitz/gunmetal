@@ -16,6 +16,8 @@ export type PlayerFullProps = {
   open: boolean;
   placement?: PlayerPlacement | undefined;
   albumTitle?: string | undefined;
+  volume?: number | undefined;
+  onVolume?: ((volume: number) => void) | undefined;
   onClose: () => void;
   onPlayPause?: (() => void) | undefined;
   onPrevious?: (() => void) | undefined;
@@ -38,6 +40,8 @@ export function PlayerFull({
   open,
   placement = 'overlay',
   albumTitle,
+  volume,
+  onVolume,
   onClose,
   onPlayPause,
   onPrevious,
@@ -146,49 +150,69 @@ export function PlayerFull({
           <FullControl id="player-full-next" label={messages.next} onPress={onNext} />
         </View>
         <View id="player-full-footer">
-          <View id="player-full-device" dataSet={{ deviceSlot: 'empty' }} />
-          <View
-            id="player-full-lyrics-toggle"
-            accessibilityRole="button"
-            accessibilityLabel={messages.lyrics}
-            tabIndex={0}
-            dataSet={{
-              lyricsToggle: lyricsOpen ? '1' : '0',
-              lyricsAvailable: canLyrics ? '1' : '0',
-            }}
-            onClick={() => {
-              if (canLyrics) {
-                setLyricsOpen((open) => !open);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (!canLyrics) {
-                return;
-              }
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                setLyricsOpen((open) => !open);
-              }
-            }}
-          >
-            <Text>{messages.lyrics}</Text>
-          </View>
-          <View
-            id="player-full-queue"
-            accessibilityRole="button"
-            accessibilityLabel={messages.queue}
-            tabIndex={0}
-            onClick={() => {
-              onToggleQueue?.();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
+          {volume === undefined || onVolume === undefined ? null : (
+            <View id="player-full-volume" dataSet={{ volume: '1' }}>
+              <Text id="player-full-volume-icon" aria-hidden="true">
+                ♪
+              </Text>
+              <input
+                id="player-full-volume-range"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                aria-label={messages.volume}
+                onChange={(event) => {
+                  onVolume(Number(event.currentTarget.value));
+                }}
+              />
+            </View>
+          )}
+          <View id="player-full-footer-actions">
+            <View
+              id="player-full-lyrics-toggle"
+              accessibilityRole="button"
+              accessibilityLabel={messages.lyrics}
+              tabIndex={0}
+              dataSet={{
+                lyricsToggle: lyricsOpen ? '1' : '0',
+                lyricsAvailable: canLyrics ? '1' : '0',
+              }}
+              onClick={() => {
+                if (canLyrics) {
+                  setLyricsOpen((open) => !open);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!canLyrics) {
+                  return;
+                }
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setLyricsOpen((open) => !open);
+                }
+              }}
+            >
+              <Text>{messages.lyrics}</Text>
+            </View>
+            <View
+              id="player-full-queue"
+              accessibilityRole="button"
+              accessibilityLabel={messages.queue}
+              tabIndex={0}
+              onClick={() => {
                 onToggleQueue?.();
-              }
-            }}
-          >
-            <Text>{messages.queue}</Text>
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onToggleQueue?.();
+                }
+              }}
+            >
+              <Text>{messages.queue}</Text>
+            </View>
           </View>
         </View>
         {upNext === undefined ? null : (
@@ -200,6 +224,7 @@ export function PlayerFull({
         )}
         {canLyrics ? (
           <LyricsPane
+            empty={playback.lyricsKind === 'none'}
             id="player-full-lyrics"
             label={messages.lyrics}
             lines={lyricsFor(playback.trackId ?? '', playback.lyricsKind)}

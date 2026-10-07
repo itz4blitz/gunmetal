@@ -103,6 +103,8 @@ export function Destination({
             onOpenArtist={onOpenArtist}
             onPlayNextAlbum={onPlayNextAlbum}
             onAddAlbumToQueue={onAddAlbumToQueue}
+            onPlayTrack={onPlayTrack}
+            currentTrackId={currentTrackId}
           />
         </View>
       );
@@ -158,6 +160,7 @@ export function Destination({
           searchLibrary={searchLibrary}
           messages={messages.destinations}
           library={library}
+          currentTrackId={currentTrackId}
           onOpenAlbum={onOpenAlbum}
           onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}
@@ -176,6 +179,7 @@ export function Destination({
         <Library
           messages={messages.destinations}
           library={library}
+          currentTrackId={currentTrackId}
           onOpenAlbum={onOpenAlbum}
           onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}

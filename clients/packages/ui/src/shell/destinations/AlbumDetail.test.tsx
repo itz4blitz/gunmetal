@@ -44,7 +44,7 @@ const album: ShellAlbum = {
   ],
 };
 
-test('album detail paints a full-bleed cover-tone header with year track count and brass play', () => {
+test('album detail paints a full-bleed cover-tone header with meta line and brass play', () => {
   const onPlayAlbum = vi.fn();
   const { container } = render(
     <AlbumDetail
@@ -62,8 +62,11 @@ test('album detail paints a full-bleed cover-tone header with year track count a
   expect(container.querySelector('[data-album-header-bleed="1"]')).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
   expect(container.querySelector('[data-album-artist]')?.textContent).toStrictEqual('Mira Sol');
-  expect(screen.getByText('Year 2021')).toBeTruthy();
+  // Meta line: year · computed track count · computed total time (tabular segments).
+  expect(container.querySelector('#album-year')?.textContent).toStrictEqual('2021');
+  expect(container.querySelector('[data-album-meta="1"]')).toBeTruthy();
   expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
+  expect(container.querySelector('#album-duration-total')?.textContent).toStrictEqual('6:52');
   expect(container.querySelector('#album-play[data-brass-hex="1"]')).toBeTruthy();
   fireEvent.click(container.querySelector('[data-album-artist]')!);
   fireEvent.keyDown(container.querySelector('[data-album-artist]')!, { key: 'Enter' });
@@ -71,6 +74,52 @@ test('album detail paints a full-bleed cover-tone header with year track count a
   fireEvent.keyDown(container.querySelector('[data-album-artist]')!, { key: 'Tab' });
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
   expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
+});
+
+test('shuffle sits beside play, disabled with its hint until the shell wires it', () => {
+  const onShuffleAlbum = vi.fn();
+  const unwired = render(
+    <AlbumDetail
+      album={album}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('[data-shuffle-wrap="1"][data-wired="0"]')).toBeTruthy();
+  expect(document.querySelector('#album-shuffle[data-hex-face="1"]')).toBeTruthy();
+  expect(screen.getByText('Shuffle is not wired in this demo yet')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Shuffle' }).getAttribute('aria-disabled')).toStrictEqual('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Shuffle' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Shuffle' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Shuffle' }), { key: ' ' });
+  expect(onShuffleAlbum).not.toHaveBeenCalled();
+  unwired.unmount();
+
+  const wired = render(
+    <AlbumDetail
+      album={album}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onShuffleAlbum={onShuffleAlbum}
+    />,
+  );
+  expect(document.querySelector('[data-shuffle-wrap="1"][data-wired="1"]')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Shuffle' }).getAttribute('aria-disabled')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Shuffle' }));
+  expect(onShuffleAlbum).toHaveBeenCalledTimes(1);
+  expect(onShuffleAlbum).toHaveBeenCalledWith('demo-album-01');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Shuffle' }), { key: 'Enter' });
+  expect(onShuffleAlbum).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Shuffle' }), { key: ' ' });
+  expect(onShuffleAlbum).toHaveBeenCalledTimes(3);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Shuffle' }), { key: 'Tab' });
+  expect(onShuffleAlbum).toHaveBeenCalledTimes(3);
+  expect(screen.getByText('Shuffle')).toBeTruthy();
+  expect(wired.container.querySelector('[data-album-actions="1"]')).toBeTruthy();
 });
 
 test('album artist control goes to the artist when the opener is provided', () => {
@@ -253,4 +302,117 @@ test('album lyrics fall back to the first plain or synced track when the current
   expect(
     [...container.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent)[0],
   ).toStrictEqual('Hello, hello through the static');
+});
+
+test('multi-disc albums keep disc headers with titles and a per-disc play affordance', () => {
+  const staged: ShellAlbum = {
+    ...album,
+    id: 'demo-album-05',
+    title: 'Stages',
+    discs: [
+      { index: 1, title: 'Act One' },
+      { index: 2, title: '' },
+    ],
+    tracks: [
+      { ...album.tracks[0]!, id: 'demo-track-05-01', discIndex: 1, number: 1 },
+      { ...album.tracks[1]!, id: 'demo-track-05-02', discIndex: 1, number: 2 },
+      {
+        ...album.tracks[0]!,
+        id: 'demo-track-05-03',
+        title: 'Intermission Tone',
+        discIndex: 2,
+        number: 1,
+      },
+    ],
+  };
+  const onPlayTrack = vi.fn();
+  render(
+    <AlbumDetail
+      album={staged}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={onPlayTrack}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Act One' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Discs 2' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Play disc · Act One' }));
+  expect(onPlayTrack).toHaveBeenCalledWith('demo-album-05', 'demo-track-05-01');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Play disc 2' }), { key: 'Enter' });
+  expect(onPlayTrack).toHaveBeenCalledWith('demo-album-05', 'demo-track-05-03');
+  fireEvent.click(screen.getByRole('button', { name: 'Pier at Dusk' }));
+  expect(onPlayTrack).toHaveBeenCalledWith('demo-album-05', 'demo-track-05-01');
+});
+
+test('guest artists stay labelled and same-artist rows drop the repeat; flags badge honestly', () => {
+  const mixed: ShellAlbum = {
+    ...album,
+    tracks: [
+      album.tracks[0]!,
+      {
+        ...album.tracks[1]!,
+        title: 'Shortwave Map',
+        artistName: 'Ivy North',
+        flag: 'damaged',
+      },
+      {
+        ...album.tracks[0]!,
+        id: 'demo-track-01-03',
+        title: 'Codec Mirage',
+        artistName: 'Ivy North',
+        flag: 'unplayable',
+      },
+    ],
+  };
+  const { container } = render(
+    <AlbumDetail
+      album={mixed}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  const own = container.querySelector('[data-album-row="1"][data-guest="0"]');
+  const guest = container.querySelector('[data-album-row="1"][data-guest="1"]');
+  expect(own).toBeTruthy();
+  expect(guest?.querySelector('[data-track-title]')?.textContent).toStrictEqual('Shortwave Map');
+  expect(container.querySelectorAll('[data-album-row="1"][data-guest="0"]')).toHaveLength(1);
+  const damaged = container.querySelector('[data-album-row="1"] [data-track-row][data-flagged="1"]');
+  expect(damaged?.querySelector('[data-track-flag]')?.textContent).toStrictEqual('Damaged');
+  expect(screen.getByText('Cannot play')).toBeTruthy();
+  expect(container.querySelector('[data-album-row="1"] [data-track-row][data-flagged="0"]')).toBeTruthy();
+});
+
+test('a hostile album swaps chrome labels and never renders corpus text in its rows', () => {
+  const payload = '"><img src=x onerror=alert(1)><script>window.__gm_xss=1</script>';
+  const hostile: ShellAlbum = {
+    ...album,
+    hostile: true,
+    title: payload,
+    artistName: payload,
+    tracks: [
+      { ...album.tracks[0]!, title: payload, artistName: payload },
+      { ...album.tracks[1]!, title: payload, artistName: payload },
+    ],
+  };
+  const onPlayTrack = vi.fn();
+  const { container } = render(
+    <AlbumDetail
+      album={hostile}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={onPlayTrack}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Hostile metadata (fixture)' })).toBeTruthy();
+  expect(screen.getByText('Security corpus')).toBeTruthy();
+  expect(container.textContent).not.toContain('onerror');
+  expect(container.textContent).not.toContain('__gm_xss');
+  expect(container.querySelectorAll('[data-hostile-row="1"]')).toHaveLength(2);
+  expect(screen.getAllByText('Track title hidden (hostile metadata)')).toHaveLength(2);
+  fireEvent.click(container.querySelector('#track-row-demo-track-01-02 [data-hostile-row-play="1"]')!);
+  expect(onPlayTrack).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-02');
 });

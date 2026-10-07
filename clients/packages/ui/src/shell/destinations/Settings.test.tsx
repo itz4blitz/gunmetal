@@ -148,3 +148,63 @@ test('appearance theme segments still notify the shell', () => {
   fireEvent.keyDown(screen.getByRole('button', { name: 'OLED' }), { key: 'Enter' });
   expect(themes).toStrictEqual(['light', 'oled']);
 });
+
+test('the appearance pane previews all four themes and selects through the same callback', () => {
+  const picked: ThemeId[] = [];
+  renderSettings('compact', (theme) => {
+    picked.push(theme);
+  });
+  const strip = document.querySelector('#settings-theme-preview');
+  expect(strip).toBeTruthy();
+  const cards = [...document.querySelectorAll('#settings-theme-preview [data-theme-swatch]')];
+  expect(cards.map((card) => card.id)).toStrictEqual([
+    'settings-theme-swatch-dark',
+    'settings-theme-swatch-light',
+    'settings-theme-swatch-oled',
+    'settings-theme-swatch-high-contrast',
+  ]);
+  expect(cards.map((card) => card.getAttribute('data-theme-swatch'))).toStrictEqual([
+    'dark',
+    'light',
+    'oled',
+    'high-contrast',
+  ]);
+  // The current theme is the selected card; the others are not.
+  expect(document.querySelector('[data-theme-swatch="dark"]')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(document.querySelector('[data-theme-swatch="light"]')?.getAttribute('data-selected')).toStrictEqual('0');
+  // Card names carry the theme prefix from the shell catalogue, so they never
+  // collide with the switcher segments' own names.
+  fireEvent.click(screen.getByRole('button', { name: 'Theme: Light' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Theme: OLED' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Theme: High contrast' }), { key: 'Tab' });
+  expect(picked).toStrictEqual(['light', 'oled']);
+  expect(screen.getAllByRole('button', { name: 'Theme: Dark' }).length).toStrictEqual(1);
+});
+
+test('the preview strip rides along on the side layout and stacked layouts alike', () => {
+  renderSettings('expanded');
+  expect(document.querySelector('#settings-appearance #settings-theme-preview')).toBeTruthy();
+  expect(document.querySelectorAll('#settings-theme-preview [data-theme-swatch]').length).toStrictEqual(4);
+});
+
+// Verifies: design-language §3 (brass is scarce), §8 (focus rings), §9 (reduced motion), SEC-API-044 (no url/data)
+test('area-settings.css keeps the steel-and-brass contract for settings', async () => {
+  const css = await readFile(join(here, '../../../../../apps/demo/public/area-settings.css'), 'utf8');
+  expect(css.length).toBeGreaterThan(0);
+  // The R1 badge is steel and the R2 badge is the one brass badge.
+  expect(css.includes("[data-settings-badge='R1']")).toBe(true);
+  expect(css.includes("[data-settings-badge='R2']")).toBe(true);
+  // Every theme has its swatch drawn from static token values; brass outlines the selected one.
+  for (const id of ['dark', 'light', 'oled', 'high-contrast']) {
+    expect(css.includes(`[data-theme-swatch='${id}']`)).toBe(true);
+  }
+  expect(css.includes("[data-theme-swatch][data-selected='1']")).toBe(true);
+  // Keyboard focus rings and reduced-motion handling exist.
+  expect(css.includes('outline: 2px solid var(--gm-focus-ring)')).toBe(true);
+  expect(css.includes('prefers-reduced-motion: reduce')).toBe(true);
+  // No external or inline assets: stylesheets stay inside the CSP (SEC-API-044).
+  expect(css.includes('url(')).toBe(false);
+  expect(css.includes('data:')).toBe(false);
+  // Hostile corpus strings never appear in this surface.
+  expect(css.toLowerCase().includes('hostile')).toBe(false);
+});

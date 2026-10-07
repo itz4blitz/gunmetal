@@ -1,0 +1,444 @@
+/* ==========================================================================
+   Gunmetal — Settings (SUR-073) area styles.
+   Loads after shell.css, so rules here refine its settings chrome.
+   Tokens only (--gm-*); no external assets of any kind — SEC-API-044.
+   Brass is scarce (design-language §3): the R2 badge and the selected
+   theme swatch outline are the only brass on this page.
+   ========================================================================== */
+
+/* —— Page rhythm: stacked panes on compact, list + pane on expanded/wide —— */
+
+#destination-settings[data-settings-layout='side'] {
+  grid-template-columns: minmax(184px, 232px) minmax(0, 1fr);
+  gap: 28px;
+}
+
+#token-shell[data-width='compact'] #destination-settings,
+#token-shell[data-width='medium'] #destination-settings {
+  gap: 16px;
+}
+
+/* Section cards: raised, machined top edge (from shell), slightly roomier. */
+#destination-settings [data-settings-panel] {
+  gap: 16px;
+  padding: 22px 24px;
+}
+
+#token-shell[data-width='compact'] #destination-settings [data-settings-panel],
+#token-shell[data-width='medium'] #destination-settings [data-settings-panel] {
+  padding: 16px;
+}
+
+#destination-settings [data-settings-heading-row] {
+  padding-bottom: 2px;
+}
+
+/* —— Honest release badges: R1 steel, R2 the one brass badge —— */
+
+#destination-settings [data-settings-badge] {
+  padding: 1px 7px;
+  border-radius: var(--gm-radius-xs);
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+#destination-settings [data-settings-badge='R1'] {
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--gm-line-control) 55%, transparent);
+}
+
+#destination-settings [data-settings-badge='R2'] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+  background: transparent;
+  border: 1px solid var(--gm-accent-text);
+}
+
+/* —— Section list (side layout): selected item = brass leading bar —— */
+
+#destination-settings[data-settings-layout='side'] #settings-nav {
+  gap: 2px;
+  padding: 6px;
+  position: sticky;
+  top: 4px;
+}
+
+#destination-settings #settings-nav [role='tab'] {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#destination-settings #settings-nav [data-selected='1'] {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+}
+
+@media (hover: hover) {
+  #destination-settings #settings-nav [role='tab']:hover {
+    background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  }
+
+  #destination-settings #settings-nav [data-selected='1']:hover {
+    background: color-mix(in srgb, var(--gm-accent-fill) 18%, transparent);
+  }
+}
+
+/* —— Theme preview strip: four swatch cards, the current theme in brass —— */
+
+#settings-theme-preview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+#token-shell[data-width='compact'] #settings-theme-preview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#destination-settings [data-theme-swatch] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    border-color var(--gm-motion);
+}
+
+#destination-settings [data-theme-swatch][data-selected='1'] {
+  /* Brass marks where you are: the current theme's card. */
+  background: color-mix(in srgb, var(--gm-accent-fill) 8%, var(--gm-bg-inset));
+  border-color: var(--gm-accent-indicator);
+}
+
+@media (hover: hover) {
+  #destination-settings [data-theme-swatch]:hover {
+    background: color-mix(in srgb, var(--gm-text-primary) 6%, var(--gm-bg-inset));
+  }
+
+  #destination-settings [data-theme-swatch][data-selected='1']:hover {
+    background: color-mix(in srgb, var(--gm-accent-fill) 12%, var(--gm-bg-inset));
+  }
+}
+
+/* Per-theme preview values: the token file's own values for each theme,
+   so a swatch shows its theme honestly whatever theme is active. */
+#destination-settings [data-theme-swatch='dark'] {
+  --sw-canvas: #0f1317;
+  --sw-raised: #161c21;
+  --sw-line: #262e36;
+  --sw-accent: #d4952f;
+  --sw-text: #e9eef2;
+  --sw-edge: color-mix(in srgb, #e8f1f8 14%, transparent);
+}
+
+#destination-settings [data-theme-swatch='light'] {
+  --sw-canvas: #f3f5f7;
+  --sw-raised: #ffffff;
+  --sw-line: #dde3e8;
+  --sw-accent: #b8781a;
+  --sw-text: #11161b;
+  --sw-edge: transparent;
+}
+
+#destination-settings [data-theme-swatch='oled'] {
+  --sw-canvas: #000000;
+  --sw-raised: #0c1013;
+  --sw-line: #1f262d;
+  --sw-accent: #d4952f;
+  --sw-text: #e9eef2;
+  --sw-edge: color-mix(in srgb, #e8f1f8 14%, transparent);
+}
+
+#destination-settings [data-theme-swatch='high-contrast'] {
+  --sw-canvas: #000000;
+  --sw-raised: #000000;
+  --sw-line: #ffffff;
+  --sw-accent: #ffc857;
+  --sw-text: #ffffff;
+  --sw-edge: transparent;
+}
+
+/* The miniature: canvas sky, two text bars, raised bar with a brass nut. */
+#destination-settings [data-swatch-stage] {
+  position: relative;
+  height: 68px;
+  overflow: hidden;
+  border: 1px solid var(--sw-line);
+  border-radius: var(--gm-radius-s);
+  background: var(--sw-canvas);
+}
+
+#destination-settings [data-swatch-lines] {
+  position: absolute;
+  top: 11px;
+  inset-inline-start: 10px;
+  width: 46%;
+  height: 5px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--sw-text);
+  opacity: 0.85;
+}
+
+#destination-settings [data-swatch-lines]::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  inset-inline-start: 0;
+  width: 64%;
+  height: 4px;
+  border-radius: var(--gm-radius-xs);
+  background: var(--sw-text);
+  opacity: 0.4;
+}
+
+#destination-settings [data-swatch-panel] {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 32px;
+  background: var(--sw-raised);
+  box-shadow: inset 0 1px 0 var(--sw-edge);
+}
+
+#destination-settings [data-swatch-dot] {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 10px;
+  width: 15px;
+  height: 13px;
+  transform: translateY(-50%);
+  /* The mark: flat-topped hexagon, brass bore. */
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  background: var(--sw-accent);
+}
+
+#destination-settings [data-swatch-name] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  text-align: center;
+}
+
+#destination-settings [data-theme-swatch][data-selected='1'] [data-swatch-name] {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+/* —— Playback: an honest quiet notice, not an empty box —— */
+
+#destination-settings [data-settings-stub] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 18px 16px 24px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+#destination-settings [data-settings-stub]::before {
+  content: '';
+  position: absolute;
+  inset-block: 12px;
+  inset-inline-start: 9px;
+  width: 2px;
+  background: var(--gm-line-control);
+  opacity: 0.65;
+}
+
+#destination-settings [data-settings-placeholder='playback'] {
+  max-width: none;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  /* A sentence someone needs to read: secondary, not muted. */
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* —— Connected + Extensions: empty cards with the hex mark —— */
+
+#destination-settings [data-empty-card] {
+  border-radius: var(--gm-radius-m);
+}
+
+/* The quiet mark becomes the identity shape: a hollow machined nut. */
+#destination-settings [data-empty-mark] {
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  border: 0;
+  background: color-mix(in srgb, var(--gm-line-control) 55%, var(--gm-line-subtle));
+}
+
+#destination-settings [data-empty-mark]::before {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  background: var(--gm-bg-raised);
+}
+
+#destination-settings [data-empty-mark]::after {
+  content: none;
+}
+
+#destination-settings [data-empty-state] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  overflow-wrap: anywhere;
+}
+
+/* —— Plugin slot list: nut bullet, name, plane tag, honest state —— */
+
+#destination-settings #settings-plugin-slots {
+  gap: 8px;
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'mark title plane state';
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: var(--gm-radius-m);
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark] {
+  grid-area: mark;
+  position: relative;
+  align-self: center;
+  width: 18px;
+  height: 16px;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  background: color-mix(in srgb, var(--gm-line-control) 60%, var(--gm-line-subtle));
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark]::before {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  background: var(--gm-bg-inset);
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
+  grid-area: title;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane],
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
+  align-self: center;
+  padding: 2px 7px;
+  border-radius: var(--gm-radius-xs);
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-plane] {
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--gm-line-control) 45%, transparent);
+}
+
+#destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  border: 1px solid var(--gm-line-subtle);
+}
+
+/* Compact: name keeps its line, the tags wrap below it. */
+#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-plugin-slot],
+#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-plugin-slot] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+#token-shell[data-width='compact'] #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title],
+#token-shell[data-width='medium'] #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-title] {
+  flex: 1 1 auto;
+}
+
+/* —— About + Privacy: quiet fact rows, readable sentences —— */
+
+#destination-settings [data-settings-fact] {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+#destination-settings [data-settings-fact]::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 3px;
+  height: 3px;
+  align-self: center;
+  background: var(--gm-line-control);
+}
+
+#destination-settings [data-settings-privacy] {
+  max-width: 36rem;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* —— Focus: 2px ring with a 2px gap, keyboard only (CLI-138) —— */
+
+#destination-settings [data-theme-swatch]:focus {
+  outline: none;
+}
+
+#destination-settings [data-theme-swatch]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+/* —— Targets: 44px touch minimum on compact (CLI-142) —— */
+
+#token-shell[data-width='compact'] #settings-appearance #theme-switcher [id^='theme-'],
+#token-shell[data-width='medium'] #settings-appearance #theme-switcher [id^='theme-'] {
+  min-height: 44px;
+}
+
+/* —— Reduced motion: transitions resolve to instant (CLI-140) —— */
+
+@media (prefers-reduced-motion: reduce) {
+  #destination-settings #settings-nav [role='tab'],
+  #destination-settings [data-theme-swatch] {
+    transition: none;
+  }
+}

@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { destinationMessages } from '../../messages/en/destinations.ts';
+import { shellMessages } from '../../messages/en/shell.ts';
 import {
   defaultSettingsSection,
   settingsLayout,
@@ -9,6 +10,8 @@ import {
   settingsSections,
   settingsSlotPlaneLabel,
   settingsSlotTitle,
+  settingsSwatchLabels,
+  settingsThemeLabel,
 } from './settings.ts';
 
 test('settings sections are the six 2026 catalogue panes in listed order', () => {
@@ -60,4 +63,16 @@ test('plugin slot titles and planes are the catalogue literals', () => {
   expect(settingsSlotTitle('home-row', messages)).toStrictEqual('Home rows');
   expect(settingsSlotPlaneLabel('server', messages)).toStrictEqual('Server');
   expect(settingsSlotPlaneLabel('client', messages)).toStrictEqual('Client');
+});
+
+test('the theme preview strip lists the four switcher themes with catalogue labels', () => {
+  const shell = shellMessages();
+  expect(settingsSwatchLabels(shell)).toStrictEqual([
+    { id: 'dark', label: 'Dark' },
+    { id: 'light', label: 'Light' },
+    { id: 'oled', label: 'OLED' },
+    { id: 'high-contrast', label: 'High contrast' },
+  ]);
+  expect(settingsThemeLabel('dark', shell)).toStrictEqual('Dark');
+  expect(settingsThemeLabel('high-contrast', shell)).toStrictEqual('High contrast');
 });

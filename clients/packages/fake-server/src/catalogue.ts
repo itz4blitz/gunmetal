@@ -1,4 +1,12 @@
-import { cylindersAlbum } from './commons.ts';
+import {
+  chapterAlbum,
+  cylindersAlbum,
+  dividerAlbum,
+  impactAlbum,
+  librarySongsAlbum,
+  sustainsAlbum,
+  thatchedVillagersAlbum,
+} from './commons.ts';
 import { hostileCorpus } from './hostile.ts';
 import type { DemoAlbum, DemoArtist, DemoLibrary, DemoTrack, FixtureAlbum, FixtureTrack } from './types.ts';
 
@@ -438,6 +446,12 @@ function albumTable(): readonly FixtureAlbum[] {
     signalLoss(),
     hostileAlbum(),
     cylindersAlbum(),
+    dividerAlbum(),
+    sustainsAlbum(),
+    librarySongsAlbum(),
+    thatchedVillagersAlbum(),
+    impactAlbum(),
+    chapterAlbum(),
   ];
 }
 
@@ -465,7 +479,9 @@ function artistsFrom(albums: readonly DemoAlbum[]): readonly DemoArtist[] {
 
 /**
  * Stage-A demo library: hand-written fixture albums (CP-011) with the
- * generated media attached. Same-origin URLs served by the demo app itself.
+ * generated media attached. Albums 09 and up are real Creative Commons
+ * releases (see commons.ts for sources and licence notes). Same-origin URLs
+ * served by the demo app itself.
  */
 export function demoLibrary(): DemoLibrary {
   const albums: readonly DemoAlbum[] = albumTable().map((album) => ({

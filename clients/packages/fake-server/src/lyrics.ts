@@ -20,6 +20,16 @@ export function demoLyricsTable(): Readonly<Record<string, string>> {
     'demo-track-07-03': 'A lullaby for broken bits\nsleep in the checksum\nwake on retry',
     'demo-track-08-01': 'A short demo verse\nlives in this fixture\nno markup, only lines',
     'demo-track-08-02': 'First line stays lit\nthe rest wait their turn\nno clock in the demo',
+    // Original demo verses for the real CC albums below. Those releases are
+    // instrumentals; these lines are stand-in fixture text, never real lyrics.
+    'demo-track-10-01': 'A mirror to the sun\none flash across the bay\nand the ships reply',
+    'demo-track-10-05': 'Green glass over the beds\nthe leaves breathe out\nwhat the lamps breathe in',
+    'demo-track-11-07': 'Two towers hold their breath\none voice comes back\nyears too late',
+    'demo-track-12-01': 'First light finds the map\nwe name the stars we know\nand hum the rest',
+    'demo-track-13-15': 'Thatch holds the warm air\nlanterns learn the wind\nthe village hums low',
+    'demo-track-14-01': 'Count the quiet in\none note leans on the next\nthe hall leans back',
+    'demo-track-15-02': 'First line stays lit\nwindows count the snow\nthe year turns slow',
+    'demo-track-15-18': 'One more than the nine\nkept for the road home\na light left on',
   };
 }
 
