@@ -459,6 +459,91 @@ impl DataPath {
     }
 }
 
+/// The name, inside `durable/`, of the directory that holds the audit log.
+const AUDIT: &str = "audit";
+
+/// `durable/audit`: the security audit log's segments, address side store
+/// and reserve (WP-069).
+pub const AUDIT_DIR: DataPath = DataPath::constant(DataDir::Durable, AUDIT);
+
+/// `durable/audit/head.json`: the audit log's next sequence number and
+/// live segment, written atomically after each append.
+pub const AUDIT_HEAD: DataPath = DataPath::constant(DataDir::Durable, "audit/head.json");
+
+/// `durable/audit/reserve.bin`: pre-allocated space so recovery actions
+/// can still be recorded on a full disk (SEC-OPS-020).
+pub const AUDIT_RESERVE: DataPath = DataPath::constant(DataDir::Durable, "audit/reserve.bin");
+
+/// A numbered JSON-lines segment of the audit log: 1 to
+/// [`AuditSeg::MAX`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AuditSeg(u32);
+
+impl AuditSeg {
+    /// The highest segment number a path can hold.
+    pub const MAX: u32 = 99_999_999;
+
+    /// Segment `n`, or `None` unless `n` is at least 1 and at most
+    /// [`Self::MAX`].
+    #[must_use]
+    pub const fn new(n: u32) -> Option<Self> {
+        if n >= 1 && n <= Self::MAX {
+            Some(Self(n))
+        } else {
+            None
+        }
+    }
+
+    /// The segment number, 1 to [`Self::MAX`].
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+
+    /// The file's name, such as `s-00000001.jsonl`.
+    fn name(self) -> String {
+        format!("s-{:08}.jsonl", self.0)
+    }
+
+    /// The next segment, or `None` at [`Self::MAX`].
+    #[must_use]
+    pub const fn next(self) -> Option<Self> {
+        Self::new(self.0.saturating_add(1))
+    }
+}
+
+impl DataPath {
+    /// `durable/audit/s-<n>.jsonl`: one 16 MB JSON-lines segment of the
+    /// audit log.
+    ///
+    /// The number is a typed value, so the name is built from it and from
+    /// nothing else (SEC-HIS-015):
+    ///
+    /// ```
+    /// use gunmetal_fs::path::{AuditSeg, DataPath};
+    ///
+    /// let first = AuditSeg::new(1).expect("segment 1 exists");
+    /// let path = DataPath::audit_segment(first);
+    /// assert_eq!(path.rel(), "audit/s-00000001.jsonl");
+    /// ```
+    ///
+    /// Verifies: SEC-HIS-015
+    ///
+    /// ```compile_fail,E0308
+    /// use gunmetal_fs::path::DataPath;
+    ///
+    /// let path = DataPath::audit_segment("../../secrets/root.key");
+    /// assert_eq!(path.rel(), "audit/s-00000001.jsonl");
+    /// ```
+    #[must_use]
+    pub fn audit_segment(seg: AuditSeg) -> Self {
+        Self {
+            dir: DataDir::Durable,
+            rel: Cow::Owned(format!("{AUDIT}/{}", seg.name())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +588,28 @@ mod tests {
                 "tmp"
             ]
         );
+    }
+
+    #[test]
+    fn names_an_audit_segment_from_its_number_only() {
+        assert_eq!(AuditSeg::new(0), None);
+        assert_eq!(AuditSeg::new(1).map(AuditSeg::get), Some(1));
+        assert_eq!(
+            AuditSeg::new(AuditSeg::MAX).map(AuditSeg::get),
+            Some(AuditSeg::MAX)
+        );
+        assert_eq!(AuditSeg::new(AuditSeg::MAX.saturating_add(1)), None);
+        let first = AuditSeg::new(1).expect("segment 1");
+        assert_eq!(
+            DataPath::audit_segment(first).rel(),
+            "audit/s-00000001.jsonl"
+        );
+        assert_eq!(first.next().map(AuditSeg::get), Some(2));
+        let last = AuditSeg::new(AuditSeg::MAX).expect("the last segment");
+        assert_eq!(last.next(), None);
+        assert_eq!(AUDIT_DIR.rel(), "audit");
+        assert_eq!(AUDIT_HEAD.rel(), "audit/head.json");
+        assert_eq!(AUDIT_RESERVE.rel(), "audit/reserve.bin");
     }
 
     #[test]

@@ -3,5 +3,6 @@
 //!
 //! This file is a registry: it holds only `mod` lines.
 
+pub mod audit;
 pub mod identity;
 pub mod userlog;

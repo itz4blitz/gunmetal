@@ -44,6 +44,10 @@ pub enum Purpose {
     /// The commitment to an audit record's source address
     /// (`audit_address`).
     AuditAddress,
+    /// Checkpoints, prune and coarsen records of the audit log
+    /// (`audit_signing`). HMAC-SHA-256 until the secrets crate grows an
+    /// Ed25519 sign-verify door; the inventory name is the same.
+    AuditSigning,
 }
 
 impl Purpose {
@@ -56,6 +60,7 @@ impl Purpose {
             Self::RecoveryLinkHash => "secret_hash/recovery_link",
             Self::RecoveryPepper => "recovery_pepper",
             Self::AuditAddress => "audit_address",
+            Self::AuditSigning => "audit_signing",
         }
     }
 }
@@ -75,6 +80,7 @@ impl Purpose {
 /// Inventory: `secret_hash`
 /// Inventory: `recovery_pepper`
 /// Inventory: `audit_address`
+/// Inventory: `audit_signing`
 #[derive(Debug)]
 pub struct KeyRing {
     /// The key that signs.
@@ -193,7 +199,7 @@ mod tests {
     ///
     /// Each purpose has its own key, derived from the root secret with
     /// HKDF under a context that names the purpose and the key's
-    /// generation: the six tags are the ones an independent HKDF and HMAC
+    /// generation: the seven tags are the ones an independent HKDF and HMAC
     /// give for those contexts, and no two are alike.
     #[test]
     fn each_purpose_signs_with_its_own_key_derived_from_the_root() {
@@ -213,6 +219,7 @@ mod tests {
                 tag(Purpose::RecoveryLinkHash),
                 tag(Purpose::RecoveryPepper),
                 tag(Purpose::AuditAddress),
+                tag(Purpose::AuditSigning),
             ]
             .map(Option::unwrap),
             [
@@ -222,6 +229,7 @@ mod tests {
                 "c485c84f3c289dec6abff4e932f507c1ffb132b70092ef8bda016f7adec4a742",
                 "4c14783ebbc16517da903c093ba27ec0816216f58dae52d21994c44023265d2f",
                 "8d38cbc6b723ccea353531705b39fa8d7770e1f6b77909d5bba8496e34ccfbb3",
+                "cf4b29d06a6de84d781aecea6cd613c824799979bd2f7fde6ad022b1e54e1644",
             ]
         );
     }

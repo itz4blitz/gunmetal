@@ -4,6 +4,8 @@
 
 pub mod access;
 pub mod app;
+pub mod audit_cli;
+pub mod audit_sink;
 pub mod bus;
 pub mod cli;
 pub mod clock;

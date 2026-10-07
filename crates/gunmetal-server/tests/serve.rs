@@ -151,12 +151,13 @@ fn serve_takes_the_data_directory_from_the_environment_and_the_flag_wins() {
 fn serve_tightens_a_loose_secret_and_says_so_in_the_log() {
     let dir = TempDir::new("serve-repair").expect("scratch");
     let key = DataPath::constant(DataDir::Secrets, "root.key");
-    DataRoot::open(dir.path(), &facts(&dir), Policy::DEFAULT)
+    let mut file = DataRoot::open(dir.path(), &facts(&dir), Policy::DEFAULT)
         .expect("opens")
         .root
         .create_new(&key)
-        .expect("created")
-        .set_permissions(std::fs::Permissions::from_mode(0o644))
+        .expect("created");
+    file.write_all(&[7_u8; 32]).expect("a root secret");
+    file.set_permissions(std::fs::Permissions::from_mode(0o644))
         .expect("loosened");
     assert_eq!(open_strictly(&dir), None);
     let (exit, out, err) = gunmetal(&["serve", "--data-dir", path(&dir)], &[]);

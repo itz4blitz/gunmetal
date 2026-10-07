@@ -1,6 +1,6 @@
 [package]
 name = "gunmetal-durable"
-description = "Gunmetal's durable state: the identity store"
+description = "Gunmetal's durable state: the identity store, the user log and the audit log"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,7 @@ homepage.workspace = true
 [dependencies]
 gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
 gunmetal-fs = { path = "../gunmetal-fs", version = "0.0.0" }
+gunmetal-secrets = { path = "../gunmetal-secrets", version = "0.0.0" }
 
 [dev-dependencies]
 gunmetal-testkit.workspace = true
