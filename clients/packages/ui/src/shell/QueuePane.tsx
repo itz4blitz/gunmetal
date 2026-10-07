@@ -13,9 +13,18 @@ export type QueuePaneProps = {
   onCloseSheet?: () => void;
   /** Play this queue line now (wired to the controller's playTrack). */
   onPlayLine?: ((albumId: string, trackId: string) => void) | undefined;
+  /** Drop this line from the queue; without it no remove control is drawn. */
+  onRemoveLine?: ((trackId: string) => void) | undefined;
 };
 
-export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPlayLine }: QueuePaneProps) {
+export function QueuePane({
+  messages,
+  playback,
+  compactSheet,
+  onCloseSheet,
+  onPlayLine,
+  onRemoveLine,
+}: QueuePaneProps) {
   const closeOnKey = (event: { key: string; preventDefault: () => void }) => {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -112,6 +121,26 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet, onPl
                 >
                   <Text dataSet={{ controlLabel: '1' }}>{messages.play}</Text>
                 </View>
+                {onRemoveLine === undefined ? null : (
+                  <View
+                    id={`queue-remove-${line.trackId}`}
+                    dataSet={{ queueRemove: '1' }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${messages.playerRemove}: ${line.title}`}
+                    tabIndex={0}
+                    onClick={() => {
+                      onRemoveLine(line.trackId);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onRemoveLine(line.trackId);
+                      }
+                    }}
+                  >
+                    <Icon name="close" size={16} />
+                  </View>
+                )}
               </View>
             </Fragment>
           ))}

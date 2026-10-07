@@ -411,6 +411,69 @@ test('type toggles are quiet: each hides its group, and one type always stays on
   expect(document.querySelector('[data-search-tracks="1"]')).not.toBeNull();
 });
 
+test('an empty library says so instead of pretending the query missed', () => {
+  render(
+    <Search
+      searchLibrary={demoLocalFilter}
+      messages={destinationMessages()}
+      library={{ albums: [], artists: [] }}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  typeQuery('anything');
+  expect(document.querySelector('#search-empty-library')?.textContent).toStrictEqual(
+    'The library is empty — nothing to search yet.',
+  );
+  // The generic miss would lie about a library that has nothing to miss in.
+  expect(document.querySelector('#search-no-hits')).toBeNull();
+  expect(document.querySelector('#search-top')).toBeNull();
+});
+
+test('hiding the only hit type names the filter instead of a miss', () => {
+  const library = demoLibrary();
+  const albumsOnly: LibrarySearch = (read, query) => ({
+    albums: demoLocalFilter(read, query).albums,
+    tracks: [],
+  });
+  renderWired(library, albumsOnly);
+  typeQuery('zabriskie');
+  const hits = albumsOnly(library, 'zabriskie');
+  expect(hits.albums.length).toBeGreaterThan(0);
+  // Both types are on: the album hits render normally.
+  expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
+  // Hide the albums: results exist but none are shown — the filter says so.
+  fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+  expect(document.querySelector('#search-filter-empty')).not.toBeNull();
+  expect(screen.getByRole('heading', { name: 'No results for the current filter' })).not.toBeNull();
+  expect(document.querySelector('[data-search-filter-remaining="1"]')?.textContent).toStrictEqual('Tracks');
+  expect(document.querySelector('#search-filter-empty [data-search-filter-hint="1"]')?.textContent).toStrictEqual(
+    'Turn a type back on to see its results.',
+  );
+  // The chips keep their counts and the count line stays honest.
+  expect(document.querySelector('#search-results-count')?.textContent).toStrictEqual('0 results');
+  expect(document.querySelector('#search-no-hits')).toBeNull();
+  // Turning the type back on restores the results.
+  fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+  expect(document.querySelector('#search-filter-empty')).toBeNull();
+  expect(document.querySelector('[data-search-albums="1"]')).not.toBeNull();
+});
+
+test('hiding the tracks type names Albums as what remains', () => {
+  const library = demoLibrary();
+  const tracksOnly: LibrarySearch = (read, query) => ({
+    albums: [],
+    tracks: demoLocalFilter(read, query).tracks,
+  });
+  renderWired(library, tracksOnly);
+  typeQuery('zabriskie');
+  expect(demoLocalFilter(library, 'zabriskie').tracks.length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
+  expect(document.querySelector('#search-filter-empty')).not.toBeNull();
+  expect(document.querySelector('[data-search-filter-remaining="1"]')?.textContent).toStrictEqual('Albums');
+});
+
 test('no matches say so, echo the query as an isolated text node, and say what to try', () => {
   renderSearch();
   typeQuery('zzquadrazz');

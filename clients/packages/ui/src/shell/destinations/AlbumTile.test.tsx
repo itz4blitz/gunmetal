@@ -1,8 +1,17 @@
+import { act } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellAlbum } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
+
+/** A lookup that must land: the test names what it could not find. */
+function required<T extends Element>(node: T | null | undefined, what: string): T {
+  if (node === null || node === undefined) {
+    throw new Error(`${what} missing`);
+  }
+  return node;
+}
 
 afterEach(cleanup);
 
@@ -48,11 +57,11 @@ const album: ShellAlbum = {
 test('album tile shows title artist hierarchy and opens on activate', () => {
   const onOpen = vi.fn();
   render(<AlbumTile album={album} messages={messages} onOpen={onOpen} />);
-  expect(screen.getByText('Harbour Lights')).toBeTruthy();
-  expect(screen.getByText('Keratin')).toBeTruthy();
+  expect(screen.getByText('Harbour Lights')).not.toBeNull();
+  expect(screen.getByText('Keratin')).not.toBeNull();
   expect(document.querySelector('[data-album-title="1"]')?.textContent).toStrictEqual('Harbour Lights');
   expect(document.querySelector('[data-album-artist="1"]')?.textContent).toStrictEqual('Keratin');
-  fireEvent.click(document.querySelector('[data-album-art="1"]')!);
+  fireEvent.click(required(document.querySelector('[data-album-art="1"]'), '[data-album-art="1"]'));
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');
   fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
   expect(onOpen).toHaveBeenCalledTimes(2);
@@ -71,7 +80,7 @@ test('play control is a sibling of open — never a nested button', () => {
   const play = screen.getByRole('button', { name: 'Play album' });
   expect(open.contains(play)).toStrictEqual(false);
   expect(play.contains(open)).toStrictEqual(false);
-  expect(play.closest('[data-album-art="1"]')).toBeTruthy();
+  expect(play.closest('[data-album-art="1"]')).not.toBeNull();
   expect(open.getAttribute('data-album-open')).toStrictEqual('1');
 });
 
@@ -81,7 +90,7 @@ test('2026 art actions: a scrim carries the controls, kebab rides the art', () =
   const art = document.querySelector('[data-album-art="1"]');
   // The scrim is the fade the controls sit on — decorative, never a control.
   const scrim = art?.querySelector(':scope > [data-art-scrim="1"]');
-  expect(scrim).toBeTruthy();
+  expect(scrim).not.toBeNull();
   expect(scrim?.getAttribute('role')).toStrictEqual(null);
   // The kebab is anchored to the art (it sits on the scrim), not the tile text.
   expect(screen.getByRole('button', { name: 'More' }).closest('[data-album-art="1"]')).toStrictEqual(art);
@@ -92,7 +101,7 @@ test('2026 art actions: a scrim carries the controls, kebab rides the art', () =
   expect(screen.getByRole('button', { name: 'More' }).textContent).toStrictEqual('');
   // It still opens the catalogue menu without opening the album underneath.
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeTruthy();
+  expect(screen.getByRole('menuitem', { name: 'Go to artist' })).not.toBeNull();
   expect(onOpen).not.toHaveBeenCalled();
   // Play stays a sibling of open, above the scrim.
   const play = screen.getByRole('button', { name: 'Play album' });
@@ -145,8 +154,8 @@ test('hostile album uses catalogue labels on the tile', () => {
       onOpen={onOpen}
     />,
   );
-  expect(screen.getByRole('button', { name: 'Hostile metadata (fixture)' })).toBeTruthy();
-  expect(screen.getByText('Hostile artist (fixture)')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Hostile metadata (fixture)' })).not.toBeNull();
+  expect(screen.getByText('Hostile artist (fixture)')).not.toBeNull();
   // Grid covers carry no letter — the hostile label lives in the tile text.
   expect(document.querySelector('[data-cover-label]')).toBeNull();
 });
@@ -154,17 +163,17 @@ test('hostile album uses catalogue labels on the tile', () => {
 test('stagger slots and go to artist open from context and more', () => {
   const onOpenArtist = vi.fn();
   const first = render(<AlbumTile album={album} messages={messages} onOpen={vi.fn()} staggerIndex={3} />);
-  expect(document.querySelector('[data-tile-stagger="3"]')).toBeTruthy();
+  expect(document.querySelector('[data-tile-stagger="3"]')).not.toBeNull();
   expect(first.container.querySelector('[data-item-more="1"]')).toBeNull();
-  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  fireEvent.contextMenu(required(document.querySelector('#album-tile-demo-album-1'), '#album-tile-demo-album-1'));
   expect(screen.queryByRole('menuitem', { name: 'Go to artist' })).toBeNull();
   first.unmount();
 
   const capped = render(
     <AlbumTile album={album} messages={messages} onOpen={vi.fn()} onOpenArtist={onOpenArtist} staggerIndex={12} />,
   );
-  expect(document.querySelector('[data-tile-stagger="6"]')).toBeTruthy();
-  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  expect(document.querySelector('[data-tile-stagger="6"]')).not.toBeNull();
+  fireEvent.contextMenu(required(document.querySelector('#album-tile-demo-album-1'), '#album-tile-demo-album-1'));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
   expect(onOpenArtist).toHaveBeenCalledWith('keratin');
   fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' });
@@ -266,7 +275,7 @@ test('album context menu plays, queues without shuffle, and opens the album', ()
       onOpenArtist={vi.fn()}
     />,
   );
-  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
+  fireEvent.contextMenu(required(document.querySelector('#album-tile-demo-album-1'), '#album-tile-demo-album-1'));
   const labels = [...document.querySelectorAll('[data-menu-label="1"]')].map((node) => node.textContent);
   expect(labels).toStrictEqual(['Play', 'Play next', 'Add to queue', 'Go to album', 'Go to artist']);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
@@ -280,4 +289,26 @@ test('album context menu plays, queues without shuffle, and opens the album', ()
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');
+});
+
+test('nearArt defers the cover URL until the tile reports itself near', async () => {
+  let report: (() => void) | undefined = undefined;
+  let disconnected = false;
+  const nearArt = (target: Element, onNear: () => void) => {
+    expect(target.id).toStrictEqual('cover-grid-demo-album-1');
+    report = onNear;
+    return () => {
+      disconnected = true;
+    };
+  };
+  const { unmount } = render(<AlbumTile album={album} messages={messages} onOpen={vi.fn()} nearArt={nearArt} />);
+  const cover = document.querySelector('#cover-grid-demo-album-1');
+  expect(cover?.getAttribute('style') ?? '').not.toContain('background-image');
+  expect(cover?.getAttribute('data-cover-art')).toStrictEqual('1');
+  act(() => {
+    report?.();
+  });
+  expect(document.querySelector('#cover-grid-demo-album-1')?.getAttribute('style')).toContain('background-image');
+  unmount();
+  expect(disconnected).toStrictEqual(true);
 });

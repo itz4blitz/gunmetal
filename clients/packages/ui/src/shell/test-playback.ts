@@ -36,7 +36,14 @@ export function stubPlayback(state?: PlayerSnapshot): PlaybackStub {
     },
     fullOpen: false,
     volume: 0.8,
+    muted: false,
     setVolume: record('setVolume'),
+    setMuted: record('setMuted'),
+    toggleShuffle: record('toggleShuffle'),
+    cycleRepeat: record('cycleRepeat'),
+    removeQueueLine: (trackId) => {
+      calls.push(`removeQueueLine ${trackId}`);
+    },
     playAlbum: record('playAlbum'),
     playTrack: record('playTrack'),
     playNextAlbum: record('playNextAlbum'),
@@ -141,5 +148,20 @@ export function queuedSnapshot(currentIndex = 0): PlayerSnapshot {
     lyricsKind: line.lyricsKind,
     queue: FIXTURE_LINES,
     queueOpen: true,
+  };
+}
+
+/**
+ * The queued snapshot carrying the transport state the 2026 player pass
+ * added: shuffle on with a seed, repeat all, the engine buffering. Tests
+ * that need a different shape spread over this one.
+ */
+export function transportSnapshot(): PlayerSnapshot {
+  return {
+    ...queuedSnapshot(),
+    shuffleOn: true,
+    shuffleSeed: 42,
+    repeatMode: 'all',
+    buffering: false,
   };
 }

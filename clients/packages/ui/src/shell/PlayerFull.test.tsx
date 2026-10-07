@@ -3,9 +3,24 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { shellMessages } from '../messages/en/shell.ts';
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 import { emptySnapshot } from './test-playback.ts';
-import { PlayerFull } from './PlayerFull.tsx';
+import { createPositionClock } from './position-clock.ts';
+import type { SyncedLine } from './synced-lyrics.ts';
+import { PlayerFull, tabWrapTarget } from './PlayerFull.tsx';
 
 afterEach(cleanup);
+
+/** The fixture value a test names, or a loud failure — never an asserted maybe. */
+function present<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`${what} is missing`);
+  }
+  return value;
+}
+
+const TIMED: readonly SyncedLine[] = [
+  { atMs: 0, text: 'First line arrives at once' },
+  { atMs: 30_000, text: 'the second at the half minute' },
+];
 
 function playingSnapshot(): PlayerSnapshot {
   return {
@@ -108,9 +123,11 @@ test('open full player shows cover title artist scrubber transport and close', (
   expect(iconOf('Next')).toStrictEqual('next');
   expect(iconOf('Lyrics')).toStrictEqual('lyrics');
   expect(iconOf('Queue')).toStrictEqual('queue');
+  expect(iconOf('Shuffle')).toStrictEqual('shuffle');
+  expect(iconOf('Repeat')).toStrictEqual('repeat');
   expect(
     [...container.querySelectorAll('#player-full svg[data-icon]')].map((icon) => icon.getAttribute('aria-hidden')),
-  ).toStrictEqual(['true', 'true', 'true', 'true', 'true']);
+  ).toStrictEqual(['true', 'true', 'true', 'true', 'true', 'true', 'true']);
   expect(screen.getByRole('button', { name: 'Pause' }).querySelector('svg')).toBeNull();
   expect(screen.getByRole('button', { name: 'Pause' }).textContent).toStrictEqual('Pause');
   expect(screen.getByRole('button', { name: 'Pause' }).getAttribute('data-playing')).toStrictEqual('1');
@@ -119,7 +136,13 @@ test('open full player shows cover title artist scrubber transport and close', (
     [...(container.querySelector('#player-full-transport')?.children ?? [])].map(
       (node) => node.id || node.firstElementChild?.id,
     ),
-  ).toStrictEqual(['player-full-skip-back', 'player-full-play', 'player-full-skip-next']);
+  ).toStrictEqual([
+    'player-full-shuffle',
+    'player-full-skip-back',
+    'player-full-play',
+    'player-full-skip-next',
+    'player-full-repeat',
+  ]);
   rerender(
     <PlayerFull
       lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
@@ -593,4 +616,316 @@ test('a paused track offers Play on the nut and reports the press', () => {
   expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
   fireEvent.keyDown(play, { key: ' ' });
   expect(onPlayPause).toHaveBeenCalledTimes(1);
+});
+
+test('the dialog is modal: focus enters on open, is trapped, and returns to the opener', () => {
+  const onClose = vi.fn();
+  const view = (open: boolean) => (
+    <>
+      <button id="dialog-opener" type="button">
+        Open the player
+      </button>
+      <PlayerFull
+        messages={shellMessages()}
+        playback={playingSnapshot()}
+        open={open}
+        onClose={onClose}
+        onToggleQueue={vi.fn()}
+      />
+    </>
+  );
+  const { rerender, unmount } = render(view(false));
+  const opener = document.querySelector('#dialog-opener') as HTMLElement;
+  opener.focus();
+  expect(document.activeElement?.id).toStrictEqual('dialog-opener');
+  rerender(view(true));
+  // The dialog is announced modal and takes the focus at its first control.
+  expect(document.querySelector('#player-full')?.getAttribute('aria-modal')).toStrictEqual('true');
+  expect(document.activeElement?.id).toStrictEqual('player-full-collapse');
+  const controls = [
+    ...(document.querySelector('#player-full') as HTMLElement).querySelectorAll<HTMLElement>('[tabindex="0"], input'),
+  ].filter((node) => node.getAttribute('aria-disabled') !== 'true');
+  expect(controls.length).toBeGreaterThanOrEqual(6);
+  // Tab from the last control wraps to the first; Shift+Tab from the first
+  // wraps to the last; from a control in the middle the order is natural.
+  present(controls[controls.length - 1], 'last full-player control').focus();
+  fireEvent.keyDown(document.querySelector('#player-full') as HTMLElement, { key: 'Tab' });
+  expect(document.activeElement?.id).toStrictEqual('player-full-collapse');
+  fireEvent.keyDown(document.querySelector('#player-full') as HTMLElement, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement?.id).toStrictEqual(
+    present(controls[controls.length - 1], 'last full-player control').id,
+  );
+  const middle = controls[Math.floor(controls.length / 2)] as HTMLElement;
+  middle.focus();
+  fireEvent.keyDown(document.querySelector('#player-full') as HTMLElement, { key: 'Tab' });
+  expect(document.activeElement?.id).toStrictEqual(middle.id);
+  // Closing hands the focus back to where it came from.
+  rerender(view(false));
+  expect(document.activeElement?.id).toStrictEqual('dialog-opener');
+  rerender(view(true));
+  rerender(view(false));
+  expect(document.activeElement?.id).toStrictEqual('dialog-opener');
+  unmount();
+});
+
+test('the tab wrap is decided by the dialog node list alone', () => {
+  const first = document.createElement('div');
+  const middle = document.createElement('div');
+  const last = document.createElement('div');
+  const nodes = [first, middle, last];
+  expect(tabWrapTarget([], document.body, false)).toStrictEqual(undefined);
+  expect(tabWrapTarget(nodes, last, false)).toStrictEqual(first);
+  expect(tabWrapTarget(nodes, first, true)).toStrictEqual(last);
+  expect(tabWrapTarget(nodes, middle, false)).toStrictEqual(undefined);
+  expect(tabWrapTarget(nodes, middle, true)).toStrictEqual(undefined);
+  // A focus that escaped the dialog comes back to the natural ends.
+  expect(tabWrapTarget(nodes, document.body, false)).toStrictEqual(first);
+  expect(tabWrapTarget(nodes, document.body, true)).toStrictEqual(last);
+});
+
+test('shuffle and repeat ride in the full transport with their states', () => {
+  const onToggleShuffle = vi.fn();
+  const onCycleRepeat = vi.fn();
+  const { container, rerender } = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), shuffleOn: true, repeatMode: 'all' }}
+      open
+      onClose={vi.fn()}
+      onToggleShuffle={onToggleShuffle}
+      onCycleRepeat={onCycleRepeat}
+    />,
+  );
+  const shuffle = screen.getByRole('button', { name: 'Shuffle' });
+  expect(shuffle.id).toStrictEqual('player-full-shuffle');
+  expect(shuffle.getAttribute('aria-pressed')).toStrictEqual('true');
+  const repeat = screen.getByRole('button', { name: 'Repeat all' });
+  expect(repeat.id).toStrictEqual('player-full-repeat');
+  expect(repeat.getAttribute('aria-pressed')).toStrictEqual('true');
+  expect(container.querySelector('#player-full-repeat svg')?.getAttribute('data-icon')).toStrictEqual('repeat');
+  fireEvent.click(shuffle);
+  fireEvent.keyDown(repeat, { key: 'Enter' });
+  expect(onToggleShuffle).toHaveBeenCalledTimes(1);
+  expect(onCycleRepeat).toHaveBeenCalledTimes(1);
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), repeatMode: 'one' }}
+      open
+      onClose={vi.fn()}
+      onToggleShuffle={onToggleShuffle}
+      onCycleRepeat={onCycleRepeat}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Repeat one' }).getAttribute('aria-pressed')).toStrictEqual('true');
+  expect(container.querySelector('#player-full-repeat svg')?.getAttribute('data-icon')).toStrictEqual('repeat-one');
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      onClose={vi.fn()}
+      onToggleShuffle={onToggleShuffle}
+      onCycleRepeat={onCycleRepeat}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Repeat' }).getAttribute('aria-pressed')).toStrictEqual('false');
+  // Unwired, the toggles stay inert buttons.
+  const idle = render(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />);
+  fireEvent.click(idle.container.querySelector('#player-full-shuffle') as HTMLElement);
+  fireEvent.keyDown(idle.container.querySelector('#player-full-repeat') as HTMLElement, { key: ' ' });
+  expect(onToggleShuffle).toHaveBeenCalledTimes(1);
+  expect(onCycleRepeat).toHaveBeenCalledTimes(1);
+});
+
+test('the console says the engine state once: its reason, or that it is buffering', () => {
+  const { container, rerender } = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), buffering: true }}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  const state = screen.getByRole('status');
+  expect(state.id).toStrictEqual('player-full-state');
+  expect(state.textContent).toStrictEqual('Buffering…');
+  expect(state.getAttribute('data-player-state')).toStrictEqual('buffering');
+  expect(container.querySelector('#player-full')?.getAttribute('data-buffering')).toStrictEqual('1');
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), playbackError: 'The file could not be decoded.' }}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('status').textContent).toStrictEqual('The file could not be decoded.');
+  expect(container.querySelector('#player-full')?.getAttribute('data-errored')).toStrictEqual('1');
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), playbackError: '' }}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('status').textContent).toStrictEqual('This track could not be played.');
+  rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />);
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+test('with a position clock the times and scrubber follow the frames', () => {
+  let callback: ((time: number) => void) | undefined;
+  const scheduler = {
+    request(requested: (time: number) => void) {
+      callback = requested;
+      return 1;
+    },
+    cancel() {
+      callback = undefined;
+    },
+  };
+  const clock = createPositionClock(scheduler);
+  clock.sync({ durationMs: 180_000, positionMs: 45_000, playing: true });
+  const { container, unmount } = render(
+    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open clock={clock} onClose={vi.fn()} />,
+  );
+  expect(container.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:45');
+  act(() => {
+    callback?.(16);
+  });
+  act(() => {
+    callback?.(2_016);
+  });
+  expect(container.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:47');
+  expect(container.querySelector('#player-full-remaining')?.textContent).toStrictEqual('2:13');
+  expect(container.querySelector('#player-full-scrubber')?.getAttribute('aria-valuenow')).toStrictEqual('47000');
+  clock.detach();
+  unmount();
+});
+
+test('when the composition root owns the mute, the full player says so and can change it', () => {
+  const changes: boolean[] = [];
+  const view = (muted: boolean, volume: number) => (
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={volume}
+      onVolume={vi.fn()}
+      muted={muted}
+      onMuted={(next) => {
+        changes.push(next);
+      }}
+      onClose={vi.fn()}
+    />
+  );
+  const first = render(view(false, 0.4));
+  const speaker = screen.getByRole('button', { name: 'Mute' });
+  expect(speaker.id).toStrictEqual('player-full-volume-icon');
+  expect(speaker.getAttribute('aria-pressed')).toStrictEqual('false');
+  fireEvent.click(speaker);
+  expect(changes).toStrictEqual([true]);
+  first.rerender(view(true, 0.4));
+  const silent = screen.getByRole('button', { name: 'Unmute' });
+  expect(silent.querySelector('svg')?.getAttribute('data-icon')).toStrictEqual('mute');
+  fireEvent.keyDown(silent, { key: 'Enter' });
+  expect(changes).toStrictEqual([true, false]);
+  // jsdom resolves id selectors against the whole document, so the other
+  // variants render only once this one is gone.
+  first.rerender(view(false, 0.4));
+  first.unmount();
+  // Without an owned mute the icon stays decorative, as before — and it
+  // still says a mute it was merely told about.
+  const decorative = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0.4}
+      onVolume={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(decorative.container.querySelector('#player-full-volume-icon')?.getAttribute('tabindex')).toStrictEqual('-1');
+  expect(screen.queryByRole('button', { name: 'Mute' })).toBeNull();
+  decorative.unmount();
+  const told = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0.4}
+      onVolume={vi.fn()}
+      muted
+      onClose={vi.fn()}
+    />,
+  );
+  expect(told.container.querySelector('#player-full-volume-icon svg')?.getAttribute('data-icon')).toStrictEqual('mute');
+  told.unmount();
+  // An owned mute that has not been asked yet reads as unmuted, and its
+  // first press asks for the mute.
+  const fresh = render(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0.4}
+      onVolume={vi.fn()}
+      onMuted={(next) => {
+        changes.push(next);
+      }}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(fresh.container.querySelector('#player-full-volume-icon')?.getAttribute('aria-pressed')).toStrictEqual(
+    'false',
+  );
+  fireEvent.click(fresh.container.querySelector('#player-full-volume-icon') as HTMLElement);
+  fireEvent.keyDown(fresh.container.querySelector('#player-full-volume-icon') as HTMLElement, { key: 'Enter' });
+  expect(changes).toStrictEqual([true, false, true, true]);
+  fresh.unmount();
+});
+
+test('a timed resolver lights the sounding line and the pane follows the position', () => {
+  const timedLyricsFor = vi.fn((trackId: string) => (trackId === 'demo-track-01-01' ? TIMED : undefined));
+  const view = (positionMs: number) => (
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), lyricsKind: 'synced' }}
+      open
+      timedLyricsFor={timedLyricsFor}
+      positionMs={positionMs}
+      onClose={vi.fn()}
+    />
+  );
+  const { container, rerender } = render(view(0));
+  expect(timedLyricsFor).toHaveBeenCalledWith('demo-track-01-01', 'synced');
+  fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+  const currents = () =>
+    [...container.querySelectorAll('[data-lyrics-line="1"]')].map((node) => node.getAttribute('data-current'));
+  expect(container.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
+  expect([...container.querySelectorAll('[data-lyrics-line="1"]')].map((node) => node.textContent)).toStrictEqual([
+    'First line arrives at once',
+    'the second at the half minute',
+  ]);
+  expect(currents()).toStrictEqual(['1', '0']);
+  rerender(view(30_000));
+  expect(currents()).toStrictEqual(['0', '1']);
+  // A track the timed resolver has nothing for falls back to the plain one;
+  // the sheet stays open across the track change.
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={{ ...playingSnapshot(), lyricsKind: 'synced', trackId: 'demo-track-01-03' }}
+      open
+      timedLyricsFor={timedLyricsFor}
+      onClose={vi.fn()}
+    />,
+  );
+  expect([...container.querySelectorAll('[data-lyrics-line="1"]')].map((node) => node.textContent)).toStrictEqual([
+    'This file has no lyrics.',
+  ]);
+  expect(container.querySelector('#player-full-lyrics')?.getAttribute('data-empty')).toStrictEqual('1');
 });

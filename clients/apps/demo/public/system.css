@@ -117,6 +117,22 @@
      when a pane is resized or a stored layout is read. */
   --gm-sidebar-w: 256px;
   --gm-queue-w: 340px;
+  /* The design-language §7 space scale (4px base grid). Components use
+     tokens only, so text-size and density settings can scale them together.
+     Defined here once, like the nut; never re-declared per rule. */
+  --gm-space-0: 0px;
+  --gm-space-1: 2px;
+  --gm-space-2: 4px;
+  --gm-space-3: 8px;
+  --gm-space-4: 12px;
+  --gm-space-5: 16px;
+  --gm-space-6: 20px;
+  --gm-space-7: 24px;
+  --gm-space-8: 32px;
+  --gm-space-9: 40px;
+  --gm-space-10: 48px;
+  --gm-space-11: 64px;
+  --gm-space-12: 96px;
 }
 
 #token-shell[data-theme='high-contrast'] {
@@ -352,6 +368,19 @@
   outline: none;
 }
 
+/* The grab target is the 44px touch floor (design-language §10), not the
+   11px edge: an invisible strip on the separator carries the pointer while
+   the painted grip stays a 2px hairline. */
+[data-pane-resizer]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 44px;
+  transform: translateX(-50%);
+}
+
 [data-pane-resizer='sidebar'] {
   left: calc(var(--gm-sidebar-w) - 6px);
 }
@@ -420,6 +449,45 @@
 
 #token-shell[data-width='compact'] #player-left {
   min-width: 0;
+  overflow: hidden;
+}
+
+/* Phone bar (player.md): artwork, two truncated lines, play and next.
+   Shuffle, repeat and the queue stay in the full player. Previous is
+   already hidden by the shell sheet. The title never marquees here. */
+#token-shell[data-width='compact'] :is(#player-shuffle, #player-repeat, #player-queue) {
+  display: none;
+}
+
+/* RN Web writes flex-shrink: 0 inline on every View, which lets the
+   credit lines grow to their text and paint over the transport. */
+#token-shell[data-width='compact'] #player-meta {
+  flex-shrink: 1 !important;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+#token-shell[data-width='compact'] #player-title[data-marquee='1'] {
+  animation: none;
+  width: auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: none;
+}
+
+#token-shell[data-width='compact'] #player-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Five controls (4×48px plus the 64px nut) have to fit the column on a
+   320px phone. The column is --pf-col; the leftover becomes the gap. */
+#token-shell[data-width='compact'] #player-full-transport {
+  gap: clamp(4px, calc((var(--pf-col) - 256px) / 4), 28px);
 }
 
 /* —— 7. An open menu clears everything around it —— */
@@ -461,7 +529,7 @@
   box-sizing: border-box;
   height: var(--gm-player-height);
   margin: auto -12px 0;
-  padding: 0 12px;
+  padding: 0 var(--gm-space-4);
   justify-content: center;
   gap: 0;
   border-top: 1px solid var(--gm-line-subtle);
@@ -512,7 +580,7 @@
 #token-shell #player-volume {
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: var(--gm-space-2);
   height: 40px;
 }
 
@@ -624,5 +692,46 @@
 @container player-bar (max-width: 760px) {
   #token-shell #player-lyrics {
     display: none;
+  }
+}
+
+/* —— 13. Reduced motion and forced colours —— */
+
+/* CLI-140: every transition in this sheet resolves to instant — the nut's
+   hover lift, the volume icon's wash, the resizer grip's warm-up. State
+   changes stay visible; movement does not happen. */
+@media (prefers-reduced-motion: reduce) {
+  #token-shell
+    :is(
+      #shell-play[data-player-control='primary'],
+      #player-full-play[data-player-control='primary'],
+      #home-spotlight-play,
+      #album-play,
+      #artist-play,
+      [data-brass-hex='1'],
+      [data-album-play],
+      [data-artist-play]
+    ),
+  [data-pane-resizer-grip],
+  #token-shell #player-volume-icon {
+    transition: none;
+  }
+}
+
+/* Forced colours (Windows High Contrast, design-language §4): system colours
+   already replace the palette, so the shell only has to keep its own
+   navigation skeleton legible — the resizer edge, and the focus rings the
+   brass palette would otherwise draw too faintly. */
+@media (forced-colors: active) {
+  [data-pane-resizer]:hover [data-pane-resizer-grip],
+  [data-pane-resizer][data-dragging='1'] [data-pane-resizer-grip],
+  [data-pane-resizer]:focus-visible [data-pane-resizer-grip] {
+    background: ButtonText;
+  }
+
+  :where(#token-shell) :is([tabindex], input, button, select, textarea):focus-visible,
+  #token-shell #content:focus-visible,
+  #token-shell #player-bar:focus-visible {
+    outline-color: Highlight;
   }
 }

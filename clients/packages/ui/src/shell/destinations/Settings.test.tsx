@@ -300,7 +300,7 @@ test('the extensions pane names Wasm grants and this build loads no plugin host'
   expect(combined.includes('pluginHost')).toStrictEqual(false);
 });
 
-test('the theme is one radio group of four preview cards, with the current theme checked', () => {
+test('the theme is one radio group of five preview cards, with the current theme checked', () => {
   renderSettings('compact');
   const group = screen.getByRole('radiogroup', { name: 'Theme' });
   expect(group.id).toStrictEqual('settings-theme-preview');
@@ -318,6 +318,7 @@ test('the theme is one radio group of four preview cards, with the current theme
       card.querySelector('[data-swatch-name]')?.textContent,
     ]),
   ).toStrictEqual([
+    ['settings-theme-swatch-system', 'system', 'radio', 'System', 'false', '0', '-1', 'System'],
     ['settings-theme-swatch-dark', 'dark', 'radio', 'Dark', 'true', '1', '0', 'Dark'],
     ['settings-theme-swatch-light', 'light', 'radio', 'Light', 'false', '0', '-1', 'Light'],
     ['settings-theme-swatch-oled', 'oled', 'radio', 'OLED', 'false', '0', '-1', 'OLED'],
@@ -337,8 +338,24 @@ test('the theme is one radio group of four preview cards, with the current theme
     'Theme',
   );
   expect(document.querySelector('#settings-appearance [data-settings-group-hint]')?.textContent).toStrictEqual(
-    'Dark is the default. OLED uses true black, and High contrast strengthens every edge.',
+    'System follows this device, with Dark as the fallback. OLED uses true black, and High contrast strengthens every edge.',
   );
+});
+
+test('with System chosen, the system card is the group\u2019s one tab stop', () => {
+  render(
+    <Settings
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="system"
+      onThemeChange={() => {}}
+      width="compact"
+    />,
+  );
+  expect(screen.getByRole('radio', { name: 'System' }).getAttribute('aria-checked')).toStrictEqual('true');
+  expect(screen.getByRole('radio', { name: 'System' }).getAttribute('tabindex')).toStrictEqual('0');
+  expect(screen.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')).toStrictEqual('false');
+  expect(screen.getByRole('radio', { name: 'Dark' }).getAttribute('tabindex')).toStrictEqual('-1');
 });
 
 test('a card is chosen by pointer, Enter or Space and reports the theme to the shell', () => {
@@ -366,16 +383,16 @@ test('arrow keys move the choice and the focus through the radio group, wrapping
   fireEvent.keyDown(dark, { key: 'ArrowRight' });
   expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-light');
   fireEvent.keyDown(dark, { key: 'ArrowLeft' });
-  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-high-contrast');
+  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-system');
   fireEvent.keyDown(dark, { key: 'ArrowDown' });
   expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-light');
   fireEvent.keyDown(dark, { key: 'ArrowUp' });
-  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-high-contrast');
-  expect(picked).toStrictEqual(['light', 'high-contrast', 'light', 'high-contrast']);
+  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-system');
+  expect(picked).toStrictEqual(['light', 'system', 'light', 'system']);
   // Home is not a radio-group key here: nothing is chosen and focus stays.
   fireEvent.keyDown(dark, { key: 'Home' });
   expect(picked.length).toStrictEqual(4);
-  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-high-contrast');
+  expect(document.activeElement?.id).toStrictEqual('settings-theme-swatch-system');
 });
 
 test('the preview cards ride along on the side layout and stacked layouts alike', () => {
@@ -383,7 +400,7 @@ test('the preview cards ride along on the side layout and stacked layouts alike'
   expect(document.querySelector('#settings-appearance #settings-theme-preview')?.getAttribute('role')).toStrictEqual(
     'radiogroup',
   );
-  expect(document.querySelectorAll('#settings-theme-preview [data-theme-swatch]').length).toStrictEqual(4);
+  expect(document.querySelectorAll('#settings-theme-preview [data-theme-swatch]').length).toStrictEqual(5);
 });
 
 // Verifies: design-language §3 (brass is scarce), §8 (focus rings), §9 (reduced motion), SEC-API-044 (no url/data)
@@ -396,11 +413,17 @@ test('area-settings.css keeps the steel-and-brass contract for settings', async 
   const badges = css.slice(css.indexOf('[data-settings-badge]'), css.indexOf('/* —— Section list'));
   expect(badges.length).toBeGreaterThan(0);
   expect(badges.includes('--gm-accent')).toBe(false);
-  // Every theme has its swatch drawn from static token values; brass outlines the selected one.
-  for (const id of ['dark', 'light', 'oled', 'high-contrast']) {
+  // Every theme choice has its swatch drawn from static token values; brass outlines the selected one.
+  for (const id of ['system', 'dark', 'light', 'oled', 'high-contrast']) {
     expect(css.includes(`[data-theme-swatch='${id}']`)).toBe(true);
   }
+  // The system card shows both faces honestly: a dark half and a light half.
+  const systemSwatch = css.slice(css.indexOf("[data-theme-swatch='system'] [data-swatch-stage]"));
+  expect(systemSwatch.includes('linear-gradient(90deg')).toBe(true);
   expect(css.includes("[data-theme-swatch][data-selected='1']")).toBe(true);
+  // A loaded plugin slot is the one place a status colour earns its keep;
+  // "Not loaded" stays steel because nothing is wrong.
+  expect(css.includes('var(--gm-status-success)')).toBe(true);
   // Keyboard focus rings and reduced-motion handling exist.
   expect(css.includes('outline: 2px solid var(--gm-focus-ring)')).toBe(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toBe(true);

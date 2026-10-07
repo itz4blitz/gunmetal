@@ -3,7 +3,6 @@ import type {
   ShellAlbum,
   ShellArtist,
   ShellLibrary,
-  ShellLyricsKind,
   ShellTrack,
 } from '../../../packages/ui/src/shell/library-types.ts';
 
@@ -138,11 +137,24 @@ export function stepQueue(snapshot: PlaybackSnapshot, direction: -1 | 1): Playba
   if (index < 0) {
     return snapshot;
   }
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= snapshot.queue.length) {
-    return { ...snapshot, playing: false };
+  /* Shuffle rides on the queue: the same lines, walked in the seed's order.
+     Without shuffle the queue's own order is the walk. */
+  const order = snapshot.shuffleOn === true ? shuffledIndices(snapshot.queue.length, snapshot.shuffleSeed ?? 0) : null;
+  const walked = order === null ? index : order.indexOf(index);
+  let nextWalked = walked + direction;
+  if (nextWalked < 0 || nextWalked >= snapshot.queue.length) {
+    /* Repeat all turns the end of the walk into its beginning; without it
+       the queue ends and playback stops, as it always has. */
+    if (snapshot.repeatMode === 'all') {
+      nextWalked = (nextWalked + snapshot.queue.length) % snapshot.queue.length;
+    } else {
+      return { ...snapshot, playing: false };
+    }
   }
-  const line = snapshot.queue[nextIndex];
+  /* The walk indexes the seed's order. A missing entry (a hole left by a
+     vanished line) reads as no index at all, which indexes to no line. */
+  const queueIndex = order === null ? nextWalked : Number(order[nextWalked]);
+  const line = snapshot.queue[queueIndex];
   if (line === undefined) {
     return snapshot;
   }
@@ -159,6 +171,102 @@ export function stepQueue(snapshot: PlaybackSnapshot, direction: -1 | 1): Playba
     durationMs: line.durationMs,
     lyricsKind: line.lyricsKind,
     playing: true,
+  };
+}
+
+/**
+ * A track that ran to its own end hands over: repeat one replays it from
+ * the top, repeat all walks on past the queue's end, and with repeat off
+ * the queue ends and playback stops.
+ */
+export function advanceQueue(snapshot: PlaybackSnapshot): PlaybackSnapshot {
+  if (snapshot.trackId === undefined || snapshot.queue.length === 0) {
+    return snapshot;
+  }
+  if (snapshot.repeatMode === 'one') {
+    return { ...snapshot, positionMs: 0, playing: true };
+  }
+  /* Repeat all walks past the queue's end; with repeat off the walk stops
+     and playback ends, as it always has. */
+  return stepQueue(snapshot, 1);
+}
+
+/** A small prime-modulo LCG step, enough order for a display-only shuffle. */
+function nextSeed(state: number): number {
+  return (state * 48271) % 2147483647;
+}
+
+/** The queue's indices in the seed's order; the same seed walks the same walk. */
+export function shuffledIndices(count: number, seed: number): readonly number[] {
+  const indices = Array.from({ length: count }, (_, index) => index);
+  let state = seed % 2147483647;
+  if (state <= 0) {
+    state += 2147483646;
+  }
+  for (let i = count - 1; i > 0; i -= 1) {
+    state = nextSeed(state);
+    const j = state % (i + 1);
+    /* The swap is between two indexes of the array being built, so both
+       entries are present; the bounds are the loop's own. */
+    const atI = indices[i] as number;
+    const atJ = indices[j] as number;
+    indices[i] = atJ;
+    indices[j] = atI;
+  }
+  return indices;
+}
+
+/** Turn shuffle on (recording the order's seed) or off (dropping the order). */
+export function toggleShuffleMode(snapshot: PlaybackSnapshot, seed: number): PlaybackSnapshot {
+  if (snapshot.shuffleOn === true) {
+    return { ...snapshot, shuffleOn: false, shuffleSeed: seed };
+  }
+  return { ...snapshot, shuffleOn: true, shuffleSeed: seed };
+}
+
+/** Walk the repeat modes: off plays the queue once, all loops it, one hammers the track. */
+export function cycleRepeatMode(snapshot: PlaybackSnapshot): PlaybackSnapshot {
+  const next =
+    snapshot.repeatMode === undefined || snapshot.repeatMode === 'off'
+      ? 'all'
+      : snapshot.repeatMode === 'all'
+        ? 'one'
+        : 'off';
+  return { ...snapshot, repeatMode: next };
+}
+
+/** Drop one line from the queue; a removed current line promotes the next. */
+export function removeLine(snapshot: PlaybackSnapshot, trackId: string): PlaybackSnapshot {
+  if (snapshot.trackId === undefined) {
+    return snapshot;
+  }
+  const index = snapshot.queue.findIndex((line) => line.trackId === trackId);
+  if (index < 0) {
+    return snapshot;
+  }
+  const queue = snapshot.queue.filter((_, at) => at !== index);
+  if (trackId !== snapshot.trackId) {
+    return { ...snapshot, queue };
+  }
+  if (queue.length === 0) {
+    return { ...emptyPlayback(), queueOpen: snapshot.queueOpen };
+  }
+  /* index sat in the old queue, so it has a neighbour in the new one. */
+  const promoted = queue[Math.min(index, queue.length - 1)] as QueueLine;
+  return {
+    ...snapshot,
+    trackId: promoted.trackId,
+    albumId: promoted.albumId,
+    title: promoted.title,
+    artistName: promoted.artistName,
+    coverTone: promoted.coverTone,
+    coverUrl: promoted.coverUrl,
+    mediaUrl: promoted.mediaUrl,
+    positionMs: 0,
+    durationMs: promoted.durationMs,
+    lyricsKind: promoted.lyricsKind,
+    playing: snapshot.playing,
+    queue,
   };
 }
 
@@ -247,15 +355,35 @@ export function seekTo(snapshot: PlaybackSnapshot, positionMs: number): Playback
   return { ...snapshot, positionMs: clamped };
 }
 
+/**
+ * The engine's loadedmetadata reported a track length. The snapshot takes
+ * it when the catalogue had none to give (the file is the truth about the
+ * file); a catalogue duration stays — the demo's fixture clock runs at
+ * that scale on purpose.
+ */
+export function adoptDuration(snapshot: PlaybackSnapshot, reportedMs: number): PlaybackSnapshot {
+  if (snapshot.trackId === undefined || snapshot.durationMs > 0 || !(reportedMs > 0)) {
+    return snapshot;
+  }
+  return { ...snapshot, durationMs: Math.round(reportedMs) };
+}
+
 export function setQueueOpen(snapshot: PlaybackSnapshot, queueOpen: boolean): PlaybackSnapshot {
   return { ...snapshot, queueOpen };
 }
 
 /**
- * Starting playback never decides whether the queue is on screen: only the
- * queue control does. A snapshot built for a new play is fresh (queue shut),
- * so the controller carries the sheet's state over from the one it replaces.
+ * Starting playback never decides whether the queue is on screen, and it
+ * never changes how the listener walks the queue: the sheet's state and
+ * the transport choices (shuffle, its seed, repeat) carry over from the
+ * play they replace. Only the queue itself is fresh.
  */
 export function carryQueueOpen(previous: PlaybackSnapshot, next: PlaybackSnapshot): PlaybackSnapshot {
-  return { ...next, queueOpen: previous.queueOpen };
+  return {
+    ...next,
+    queueOpen: previous.queueOpen,
+    shuffleOn: previous.shuffleOn,
+    shuffleSeed: previous.shuffleSeed,
+    repeatMode: previous.repeatMode,
+  };
 }

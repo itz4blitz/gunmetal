@@ -241,6 +241,7 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
                   <View dataSet={{ slotHeadLead: '1' }} />
                   <Text dataSet={{ slotHeadTitle: '1' }}>{messages.settingsSlotColumnSlot}</Text>
                   <Text dataSet={{ slotHeadPlane: '1' }}>{messages.settingsSlotColumnPlane}</Text>
+                  <Text dataSet={{ slotHeadVersion: '1' }}>{messages.settingsSlotColumnVersion}</Text>
                   <Text dataSet={{ slotHeadState: '1' }}>{messages.settingsSlotColumnState}</Text>
                 </View>
                 {pluginSlots.map((slot) => {
@@ -256,6 +257,9 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
                       <View dataSet={{ slotMark: '1' }} />
                       <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
                       <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
+                      <Text dataSet={{ slotVersion: '1' }}>
+                        {slot.manifest === undefined ? '—' : slot.manifest.version}
+                      </Text>
                       <Text dataSet={{ slotState: state.flag }}>{state.label}</Text>
                     </View>
                   );

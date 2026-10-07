@@ -58,7 +58,7 @@ test('the new real-album verses are plain except two synced fixtures', () => {
     ['demo-track-15-18', 'plain'],
   ]);
   for (const track of withLyrics) {
-    expect(demoLyricsTable()[track.id]).toBeDefined();
-    expect(demoLyricsVerse(track.id, track.lyricsKind).split('\n').length).toBeGreaterThan(1);
+    expect(demoLyricsTable()[track.id] === undefined).toStrictEqual(false);
+    expect(demoLyricsVerse(track.id, track.lyricsKind).split('\n').length > 1).toStrictEqual(true);
   }
 });

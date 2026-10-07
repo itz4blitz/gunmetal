@@ -3,9 +3,11 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { staggerSlot } from '../format.ts';
+import { anchorOf, type MenuPoint } from '../menu-anchor.ts';
 import type { ShellAlbum } from '../library-types.ts';
 import { CoverTile } from './CoverTile.tsx';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+import type { NearViewFactory } from './near-view.ts';
 import { Icon } from '../Icon.tsx';
 
 export type AlbumTileProps = {
@@ -19,6 +21,8 @@ export type AlbumTileProps = {
   staggerIndex?: number | undefined;
   /** This release is the one playing — brass where-you-are state on the title. */
   playing?: boolean | undefined;
+  /** When wired, the cover art waits until the tile is near the viewport. */
+  nearArt?: NearViewFactory | undefined;
 };
 
 function displayTitle(album: ShellAlbum, messages: DestinationMessages): string {
@@ -64,20 +68,30 @@ export function AlbumTile({
   onOpenArtist,
   staggerIndex = 0,
   playing = false,
+  nearArt,
 }: AlbumTileProps) {
   const title = displayTitle(album, messages);
   const artist = displayArtist(album, messages);
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
-  const openMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+  const [menuAt, setMenuAt] = useState<MenuPoint>({ x: 0, y: 0 });
+  /* A right-click opens at the pointer; the kebab hangs the menu off itself. */
+  const openMenu = (event: {
+    preventDefault: () => void;
+    stopPropagation: () => void;
+    clientX: number;
+    clientY: number;
+  }) => {
     event.preventDefault();
     event.stopPropagation();
+    setMenuAt({ x: event.clientX, y: event.clientY });
     setMenuOpen(true);
   };
   /* The kebab is a toggle: a second press on it closes the menu it opened. */
-  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void; currentTarget: Element }) => {
     event.preventDefault();
     event.stopPropagation();
+    setMenuAt(anchorOf(event.currentTarget));
     setMenuOpen((open) => !open);
   };
   return (
@@ -109,6 +123,7 @@ export function AlbumTile({
           size="grid"
           coverId={`cover-grid-${album.id}`}
           artUrl={album.coverUrl}
+          deferArt={nearArt}
         />
         {/* 2026 pattern: the hover scrim the controls sit on. Decorative —
             the play hex and kebab above it are the real controls. */}
@@ -173,6 +188,7 @@ export function AlbumTile({
           menuId={menuId}
           artistKey={album.artistKey}
           messages={messages}
+          at={menuAt}
           onOpenArtist={onOpenArtist}
           onPlay={() => {
             activatePlay(album.id, onOpen, onPlay);

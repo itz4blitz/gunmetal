@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { formatDuration, staggerSlot } from '../format.ts';
+import { anchorOf, type MenuPoint } from '../menu-anchor.ts';
 import type { ShellTrack } from '../library-types.ts';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
 import { Icon } from '../Icon.tsx';
@@ -50,15 +51,23 @@ export function TrackRow({
         : '';
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
-  const openMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+  const [menuAt, setMenuAt] = useState<MenuPoint>({ x: 0, y: 0 });
+  const openMenu = (event: {
+    preventDefault: () => void;
+    stopPropagation: () => void;
+    clientX: number;
+    clientY: number;
+  }) => {
     event.preventDefault();
     event.stopPropagation();
+    setMenuAt({ x: event.clientX, y: event.clientY });
     setMenuOpen(true);
   };
   /* The kebab is a toggle: a second press on it closes the menu it opened. */
-  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+  const toggleMenu = (event: { preventDefault: () => void; stopPropagation: () => void; currentTarget: Element }) => {
     event.preventDefault();
     event.stopPropagation();
+    setMenuAt(anchorOf(event.currentTarget));
     setMenuOpen((open) => !open);
   };
   return (
@@ -130,6 +139,7 @@ export function TrackRow({
             menuId={menuId}
             artistKey={artistKey}
             messages={messages}
+            at={menuAt}
             onOpenArtist={onOpenArtist}
             onPlay={() => {
               onPlay(track.albumId, track.id);

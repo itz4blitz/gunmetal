@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
+import type { DemoLibrary } from '../../../packages/fake-server/src/types.ts';
 import { App } from './App.tsx';
 
 afterEach(cleanup);
@@ -12,18 +13,61 @@ test('the demo app mounts the shell with fixture home rows and demo data', () =>
   expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
   expect(document.querySelector('#destination-headline')).toBeNull();
   expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual('01');
-  expect(document.querySelector('#home-spotlight')).toBeTruthy();
+  expect(document.querySelector('#home-spotlight')).not.toBeNull();
   expect(document.querySelector('#home-spotlight [data-spotlight-eyebrow="1"]')?.textContent).toStrictEqual('Featured');
-  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
-  expect(screen.getByRole('heading', { name: 'Recently added' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).not.toBeNull();
+  expect(screen.getByRole('heading', { name: 'Recently added' })).not.toBeNull();
   // History rows stay hidden until plays and loves exist (C2): no placeholder
   // cards on the first screen.
   expect(screen.queryByRole('heading', { name: 'Recently played' })).toBeNull();
   expect(screen.queryByRole('heading', { name: 'Continue listening' })).toBeNull();
   expect(screen.queryByRole('heading', { name: 'Loved' })).toBeNull();
   expect(screen.queryByText('Nothing played yet')).toBeNull();
-  expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'See all' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Harbour Lights' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'See all' })).not.toBeNull();
+});
+
+test('a folder library replaces the fixture home and drops the demo label', () => {
+  window.history.pushState(null, '', '/');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+  const album = 'a'.repeat(16);
+  const artist = 'b'.repeat(16);
+  const track = 'c'.repeat(16);
+  const library: DemoLibrary = {
+    kind: 'folder',
+    albums: [
+      {
+        id: album,
+        title: 'St. Elsewhere',
+        artistName: 'Gnarls Barkley',
+        artistKey: artist,
+        year: 2006,
+        coverTone: '01',
+        coverUrl: `/media/library/covers/${album}.jpg`,
+        discs: [{ index: 1, title: '' }],
+        hostile: false,
+        tracks: [
+          {
+            id: track,
+            albumId: album,
+            discIndex: 1,
+            number: 1,
+            title: 'Crazy',
+            artistName: 'Gnarls Barkley',
+            durationMs: 178_000,
+            flag: 'ok',
+            lyricsKind: 'none',
+            mediaUrl: `/media/library/${track}`,
+          },
+        ],
+      },
+    ],
+    artists: [{ key: artist, name: 'Gnarls Barkley', albumIds: [album] }],
+  };
+  render(<App library={library} />);
+  expect(screen.queryByText('Demo data')).toBeNull();
+  expect(screen.getByRole('heading', { name: 'St. Elsewhere' })).not.toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Harbour Lights' })).toBeNull();
 });
 
 test('playing a fixture album fills the player bar from demo-local state', () => {
@@ -37,12 +81,12 @@ test('playing a fixture album fills the player bar from demo-local state', () =>
   expect(document.querySelector('#player-artist')?.textContent).toStrictEqual('Mira Sol · Harbour Lights');
   expect(document.querySelector('#shell-play')?.getAttribute('aria-label')).toStrictEqual('Pause');
   expect(document.querySelector('#shell-play')?.getAttribute('data-playing')).toStrictEqual('1');
-  expect(document.querySelector('#queue-line-demo-track-01-01')).toBeTruthy();
+  expect(document.querySelector('#queue-line-demo-track-01-01')).not.toBeNull();
   expect(document.querySelector('#player-full')).toBeNull();
   // The album merged into the credit line: artist · album.
   expect(document.querySelector('#player-album')).toBeNull();
-  expect(document.querySelector('#nav-sidebar')).toBeTruthy();
-  expect(document.querySelector('#player-bar')).toBeTruthy();
+  expect(document.querySelector('#nav-sidebar')).not.toBeNull();
+  expect(document.querySelector('#player-bar')).not.toBeNull();
 });
 
 test('album page play fills the bar and history returns to it', () => {
@@ -73,10 +117,10 @@ test('context menus play next and add to queue without shuffling', () => {
   window.history.pushState(null, '', '/library');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
-  fireEvent.click(document.querySelector('#album-tile-demo-album-01 [data-album-play]')!);
+  fireEvent.click(document.querySelector('#album-tile-demo-album-01 [data-album-play]') as HTMLElement);
   fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   const before = [...document.querySelectorAll('#queue-list [data-queue-line]')].map((node) => node.id);
-  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-02')!);
+  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-02') as HTMLElement);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
   const after = [...document.querySelectorAll('#queue-list [data-queue-line]')].map((node) => node.id);
   // Night Shift lands right after the current track, in its own order.
@@ -91,14 +135,14 @@ test('compact play opens the overlay full player while wide play stays in the ba
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
   const compact = render(<App />);
-  fireEvent.click(document.querySelector('#home-spotlight-play')!);
-  expect(document.querySelector('#player-full')).toBeTruthy();
+  fireEvent.click(document.querySelector('#home-spotlight-play') as HTMLElement);
+  expect(document.querySelector('#player-full')).not.toBeNull();
   compact.unmount();
   cleanup();
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
-  fireEvent.click(document.querySelector('#home-spotlight-play')!);
+  fireEvent.click(document.querySelector('#home-spotlight-play') as HTMLElement);
   // Wide keeps the full player closed: the bar carries playback.
   expect(document.querySelector('#player-title')?.textContent).toStrictEqual('Pier at Dusk');
 });
@@ -122,6 +166,27 @@ test('pane widths persist in localStorage and come back on the next visit', () =
   // Only layout is stored: one key, two pixel counts.
   expect(window.localStorage.length).toStrictEqual(1);
   window.localStorage.clear();
+});
+
+test('the settings extensions table lists the six fixture plugin slots, none loaded', () => {
+  window.history.pushState(null, '', '/');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+  render(<App />);
+  fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
+  const table = document.querySelector('#settings-plugin-slots');
+  expect(table).not.toBeNull();
+  const slotTitles = [...(table as HTMLElement).querySelectorAll('[data-slot-title]')].map((node) => node.textContent);
+  expect(slotTitles).toStrictEqual([
+    'Metadata and artwork',
+    'Lyrics lookup',
+    'Catalogue search',
+    'Scrobblers',
+    'Themes',
+    'Home rows',
+  ]);
+  // Every slot is unloaded in this build: the fixture carries no runtimes.
+  expect((table as HTMLElement).querySelectorAll('[data-slot-loaded="1"]')).toHaveLength(0);
 });
 
 test('playing never opens the queue sheet; the queue control does, and it stays open across plays', () => {

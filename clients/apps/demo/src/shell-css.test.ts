@@ -21,7 +21,10 @@ test('artist subtitles use text.secondary while captions stay muted', async () =
   expect(css.includes('[data-album-artist]')).toStrictEqual(true);
   const artistBlock = css.slice(css.indexOf('[data-album-artist]'));
   expect(artistBlock.includes('var(--gm-text-secondary)')).toStrictEqual(true);
-  expect(css.includes('#theme-label')).toStrictEqual(true);
+  // The old theme-switcher label is gone: Settings renders swatch cards, so
+  // no component emits #theme-label and the first paint carries no dead
+  // selector for it.
+  expect(css.includes('#theme-label')).toStrictEqual(false);
   expect(css.includes('--gm-text-secondary: #b0bbc5')).toStrictEqual(true);
 });
 
@@ -93,7 +96,9 @@ test('shell chrome elevates brand rule, nav glyphs, vignette, art-tint and wide 
   expect(css.includes("data-width='wide'] #content") || css.includes('data-width="wide"] #content')).toStrictEqual(
     true,
   );
-  expect(css.includes('padding: 32px')).toStrictEqual(true);
+  // The wide content gutter is the §7 space scale, not a raw number.
+  const wideContent = css.slice(css.indexOf("#token-shell[data-width='wide'] #content"));
+  expect(wideContent.includes('padding: var(--gm-space-8)')).toStrictEqual(true);
   // The wide content column fills the space to the queue pane (no dead zone).
   expect(css.includes('max-width: 1120px')).toStrictEqual(false);
   // Opaque player bar: no translucency, no blur (design-language §2, §7).
@@ -140,13 +145,15 @@ test('artist rows are 56px with a hex avatar and tracks raise on hover with tabu
   expect(css.includes('var(--gm-raised-edge)')).toStrictEqual(true);
 });
 
-test('settings panels sit on raised machined surfaces and theme is segmented', async () => {
+test('settings panes exist in the first paint and the dead segmented theme switcher is gone', async () => {
   const css = await demoShellCss();
   expect(css.includes('[data-settings-panel]')).toStrictEqual(true);
-  expect(css.includes('#settings-appearance #theme-switcher')).toStrictEqual(true);
-  const segmented = css.slice(css.indexOf('#settings-appearance #theme-switcher'));
-  expect(segmented.includes('flex-direction: row')).toStrictEqual(true);
-  expect(segmented.includes('var(--gm-bg-inset)')).toStrictEqual(true);
+  // The theme is a radio group of preview cards drawn by area-settings.css;
+  // no component emits the segmented-control ids, so the first paint must
+  // not carry their paint either.
+  expect(css.includes('#theme-switcher')).toStrictEqual(false);
+  expect(css.includes('#theme-label')).toStrictEqual(false);
+  expect(css.includes('#settings-theme-preview')).toStrictEqual(false);
 });
 
 test('settings app uses a steel side list on wide and brass R2 badges', async () => {
@@ -197,11 +204,19 @@ test('2026 motion staggers tiles, fades heroes without parallax and presses at 0
   expect(reduced.includes('animation: none')).toStrictEqual(true);
 });
 
+test('a hovered album tile rides above its siblings so the lift is never painted over', async () => {
+  const css = await demoShellCss();
+  const hover = css.indexOf('[data-album-tile]:hover');
+  const block = css.slice(hover, css.indexOf('}', hover) + 1);
+  expect(block.includes('z-index: 3')).toStrictEqual(true);
+});
+
 test('context menus sit on overlay at radius.l with brass focus and 160ms motion', async () => {
   const css = await demoShellCss();
   expect(css.includes('[data-context-menu]') || css.includes('[data-item-menu]')).toStrictEqual(true);
   const menuMarker = css.includes('[data-context-menu]') ? '[data-context-menu]' : '[data-item-menu]';
   const menu = css.slice(css.indexOf(menuMarker));
+  expect(menu.includes('position: fixed')).toStrictEqual(true);
   expect(menu.includes('var(--gm-radius-l)')).toStrictEqual(true);
   expect(menu.includes('var(--gm-bg-overlay)')).toStrictEqual(true);
   expect(css.includes('var(--gm-focus-ring)')).toStrictEqual(true);
@@ -255,6 +270,49 @@ test('every CLI-141 theme sets color-scheme and paints html through :has', async
   expect(lightShell.includes('color-scheme: light')).toStrictEqual(true);
 });
 
+test('every theme carries the design-language §4 status colours, each declared once per theme', async () => {
+  const css = await demoShellCss();
+  const expected: Record<string, readonly string[]> = {
+    dark: [
+      '--gm-status-danger: #ff7b74',
+      '--gm-status-warning: #ff9b55',
+      '--gm-status-success: #5cc98f',
+      '--gm-status-info: #7ab8ee',
+    ],
+    light: [
+      '--gm-status-danger: #b8322a',
+      '--gm-status-warning: #a14f12',
+      '--gm-status-success: #1d7348',
+      '--gm-status-info: #1d5f9f',
+    ],
+    oled: [
+      '--gm-status-danger: #ff7b74',
+      '--gm-status-warning: #ff9b55',
+      '--gm-status-success: #5cc98f',
+      '--gm-status-info: #7ab8ee',
+    ],
+    'high-contrast': [
+      '--gm-status-danger: #ff8a80',
+      '--gm-status-warning: #ffb36b',
+      '--gm-status-success: #7fe0a8',
+      '--gm-status-info: #9fd0ff',
+    ],
+  };
+  for (const [theme, tokens] of Object.entries(expected)) {
+    const start = css.indexOf(`#token-shell[data-theme='${theme}'] {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = css.slice(start, css.indexOf('}', start));
+    for (const token of tokens) {
+      expect(block.includes(`${token};`)).toStrictEqual(true);
+    }
+  }
+  // One declaration per theme block, nowhere else: four each, no more.
+  expect(css.split('--gm-status-danger:').length - 1).toStrictEqual(4);
+  expect(css.split('--gm-status-warning:').length - 1).toStrictEqual(4);
+  expect(css.split('--gm-status-success:').length - 1).toStrictEqual(4);
+  expect(css.split('--gm-status-info:').length - 1).toStrictEqual(4);
+});
+
 test('wordmark and form controls use theme tokens and Inter, not hardcoded dark ink', async () => {
   const css = await demoShellCss();
   const face = css.slice(css.indexOf('@font-face'), css.indexOf('html,'));
@@ -263,6 +321,12 @@ test('wordmark and form controls use theme tokens and Inter, not hardcoded dark 
   const wordmark = css.slice(css.indexOf('#shell-wordmark'), css.indexOf('#nav-sidebar #shell-wordmark'));
   expect(wordmark.includes('var(--gm-text-primary)')).toStrictEqual(true);
   expect(wordmark.includes('#e9eef2')).toStrictEqual(false);
+  // The polished-metal wordmark: gradient clipped into the letterforms at
+  // the weight the bundled Inter truly carries, with a forced-colors fall
+  // back to system ink.
+  expect(wordmark.includes('background-clip: text')).toStrictEqual(true);
+  expect(wordmark.includes('font-weight: 700')).toStrictEqual(true);
+  expect(css.includes('--gm-text: CanvasText')).toStrictEqual(true);
   expect(css.includes('#search-field')).toStrictEqual(true);
   expect(css.includes('font-family: Inter, system-ui, sans-serif !important')).toStrictEqual(true);
   expect(css.includes('--gm-text: var(--gm-text-primary)')).toStrictEqual(true);

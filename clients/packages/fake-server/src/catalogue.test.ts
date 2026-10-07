@@ -6,6 +6,8 @@ import { albumById, allTracks, demoLibrary, trackById } from './catalogue.ts';
 import { coverDataUri } from './cover.ts';
 import { demoLocalFilter } from './filter.ts';
 import { hostileCorpus } from './hostile.ts';
+import type { CatalogueLicense } from '../../ports/src/provisional/catalogue.ts';
+import type { DemoAlbum } from './types.ts';
 
 test('the demo library holds fifteen fixture albums with unique opaque ids', () => {
   const library = demoLibrary();
@@ -192,13 +194,14 @@ test('every new real album records a licence from the allowed SPDX union', () =>
   const licences = newAlbumIds.map((id) => {
     const album = albumById(library, id);
     expect(album?.hostile).toStrictEqual(false);
-    expect(album?.license).toBeDefined();
-    return album!.license!;
+    // The licence must be present: the cast names the fixture's promise.
+    expect(album?.license === undefined).toStrictEqual(false);
+    return album?.license as CatalogueLicense;
   });
   for (const licence of licences) {
     expect(allowedSpdx.has(licence.spdx)).toStrictEqual(true);
-    expect(licence.attribution.length).toBeGreaterThan(0);
-    expect(licence.source.length).toBeGreaterThan(0);
+    expect(licence.attribution.length > 0).toStrictEqual(true);
+    expect(licence.source.length > 0).toStrictEqual(true);
   }
   expect(licences.map((licence) => licence.spdx)).toStrictEqual([
     'CC-BY-4.0',
@@ -212,7 +215,7 @@ test('every new real album records a licence from the allowed SPDX union', () =>
 
 test('the new real albums reuse cover tones and exercise multi-disc structure', () => {
   const library = demoLibrary();
-  const newAlbums = newAlbumIds.map((id) => albumById(library, id)!);
+  const newAlbums = newAlbumIds.map((id) => albumById(library, id) as DemoAlbum);
   const tones = new Set(newAlbums.map((album) => album.coverTone));
   for (const tone of tones) {
     expect(['01', '02', '03', '04', '05', '06', '07', '08'].includes(tone)).toStrictEqual(true);

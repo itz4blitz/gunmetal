@@ -1,10 +1,21 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
-import { stubPlayback } from '../test-playback.ts';
+import { afterEach, expect, test, vi } from 'vitest';
+import { stubPlayback, queuedSnapshot } from '../test-playback.ts';
 import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
 import type { ShellLibrary } from '../library-types.ts';
+import { catalogue } from '../../messages/catalogue.ts';
+import { matchAddress } from '../../router/match.ts';
 import { Shell } from '../Shell.tsx';
+import { Destination } from './Destination.tsx';
+
+/** A lookup that must land: the test names what it could not find. */
+function required<T extends Element>(node: T | null | undefined, what: string): T {
+  if (node === null || node === undefined) {
+    throw new Error(`${what} missing`);
+  }
+  return node;
+}
 
 afterEach(cleanup);
 
@@ -20,7 +31,7 @@ test('missing album itemId and empty shell without library keep closed routes', 
       historyState={{ itemId: 'demo-album-99' }}
     />,
   );
-  expect(screen.getByRole('heading', { name: 'That album is not in the demo library' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'That album is not in the demo library' })).not.toBeNull();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: ' ' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'Enter' });
@@ -54,7 +65,18 @@ test('missing album itemId and empty shell without library keep closed routes', 
 
 test('artist rows with no albums and untitled discs are reachable', () => {
   const base = demoLibrary();
-  const first = base.albums[0]!;
+  const first = base.albums[0];
+  if (first === undefined) {
+    throw new Error('fixture album missing');
+  }
+  const firstTrackA = first.tracks[0];
+  if (firstTrackA === undefined) {
+    throw new Error('fixture track missing');
+  }
+  const firstTrackB = first.tracks[1];
+  if (firstTrackB === undefined) {
+    throw new Error('fixture track missing');
+  }
   const library: ShellLibrary = {
     albums: [
       {
@@ -65,8 +87,8 @@ test('artist rows with no albums and untitled discs are reachable', () => {
           { index: 2, title: 'Named Disc' },
         ],
         tracks: [
-          { ...first.tracks[0]!, id: 'demo-track-custom-1', albumId: 'demo-album-custom', discIndex: 1 },
-          { ...first.tracks[1]!, id: 'demo-track-custom-2', albumId: 'demo-album-custom', discIndex: 2 },
+          { ...firstTrackA, id: 'demo-track-custom-1', albumId: 'demo-album-custom', discIndex: 1 },
+          { ...firstTrackB, id: 'demo-track-custom-2', albumId: 'demo-album-custom', discIndex: 2 },
         ],
       },
     ],
@@ -102,12 +124,12 @@ test('artist rows with no albums and untitled discs are reachable', () => {
   fireEvent.click(screen.getByRole('button', { name: first.artistName }));
   expect(screen.getByRole('heading', { name: first.artistName }).id).toStrictEqual('destination-headline');
   fireEvent.click(screen.getByRole('button', { name: first.title }));
-  expect(screen.getByRole('heading', { name: 'Discs 1' })).toBeTruthy();
-  expect(screen.getByRole('heading', { name: 'Named Disc' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Discs 1' })).not.toBeNull();
+  expect(screen.getByRole('heading', { name: 'Named Disc' })).not.toBeNull();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Play album' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Tab' });
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
-  fireEvent.keyDown(screen.getByRole('button', { name: first.tracks[0]!.title }), { key: 'Tab' });
+  fireEvent.keyDown(screen.getByRole('button', { name: firstTrackA.title }), { key: 'Tab' });
 });
 
 test('uncontrolled shell opens and leaves album detail through history', () => {
@@ -136,16 +158,19 @@ test('hostile fixture album uses catalogue labels instead of corpus text in chro
   );
   fireEvent.click(screen.getByRole('button', { name: 'Hostile metadata (fixture)' }));
   expect(screen.getByRole('heading', { name: 'Hostile metadata (fixture)' }).id).toStrictEqual('destination-headline');
-  expect(screen.getByText('Security corpus')).toBeTruthy();
+  expect(screen.getByText('Security corpus')).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 });
 
 test('home recently-added empty card appears when every fixture album is hostile', () => {
   const base = demoLibrary();
   const hostile = base.albums.find((album) => album.hostile);
-  expect(hostile).toBeTruthy();
+  if (hostile === undefined) {
+    throw new Error('fixture hostile album missing');
+  }
+  expect(hostile.id).toStrictEqual('demo-album-08');
   const library: ShellLibrary = {
-    albums: [hostile!],
+    albums: [hostile],
     artists: base.artists,
   };
   render(
@@ -157,8 +182,8 @@ test('home recently-added empty card appears when every fixture album is hostile
       library={library}
     />,
   );
-  expect(screen.getByText('No albums added yet')).toBeTruthy();
-  expect(document.querySelector('#home-row-recent [data-empty-card="1"]')).toBeTruthy();
+  expect(screen.getByText('No albums added yet')).not.toBeNull();
+  expect(document.querySelector('#home-row-recent [data-empty-card="1"]')).not.toBeNull();
   expect(document.querySelector('#home-row-recent [data-empty-title="1"]')?.textContent).toStrictEqual(
     'Recently added',
   );
@@ -181,6 +206,27 @@ test('home see all navigates to the library destination', () => {
   expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
 });
 
+test('the album in the playback state is the one tile with the where-you-are state', () => {
+  const library = demoLibrary();
+  render(
+    <Shell
+      playback={stubPlayback(queuedSnapshot()).controller}
+      searchLibrary={demoLocalFilter}
+      path="/"
+      widthPx={1600}
+      library={library}
+    />,
+  );
+  // queuedSnapshot() plays demo-album-01; exactly that tile is marked playing.
+  expect(document.querySelector('[data-album-tile="demo-album-01"]')?.getAttribute('data-tile-playing')).toStrictEqual(
+    '1',
+  );
+  expect(document.querySelector('[data-album-tile="demo-album-02"]')?.getAttribute('data-tile-playing')).toStrictEqual(
+    '0',
+  );
+  expect(document.querySelectorAll('[data-tile-playing="1"]')).toHaveLength(1);
+});
+
 test('history itemId artist key and go to artist open the artist destination', () => {
   const library = demoLibrary();
   const fromHistoryStub = stubPlayback();
@@ -197,10 +243,10 @@ test('history itemId artist key and go to artist open the artist destination', (
   expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
   expect(document.querySelector('#destination-artist')?.getAttribute('data-artist-key')).toStrictEqual('mira-sol');
   expect(document.querySelector('#destination-artist')?.getAttribute('data-art-tone')).toStrictEqual('01');
-  expect(document.querySelector('[data-artist-hero="1"]')).toBeTruthy();
-  expect(document.querySelector('[data-artist-avatar-nut="1"]')).toBeTruthy();
-  expect(document.querySelector('#artist-album-grid')).toBeTruthy();
-  fireEvent.click(document.querySelector('#artist-play')!);
+  expect(document.querySelector('[data-artist-hero="1"]')).not.toBeNull();
+  expect(document.querySelector('[data-artist-avatar-nut="1"]')).not.toBeNull();
+  expect(document.querySelector('#artist-album-grid')).not.toBeNull();
+  fireEvent.click(required(document.querySelector('#artist-play'), '#artist-play'));
   expect(fromHistoryStub.calls).toStrictEqual(['playAlbum']);
   fromHistory.unmount();
 
@@ -213,7 +259,7 @@ test('history itemId artist key and go to artist open the artist destination', (
       library={library}
     />,
   );
-  fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-07')!);
+  fireEvent.contextMenu(required(document.querySelector('#album-tile-demo-album-07'), '#album-tile-demo-album-07'));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
   expect(screen.getByRole('heading', { name: 'Keratin' }).id).toStrictEqual('destination-headline');
   expect(document.querySelector('#destination-artist')?.getAttribute('data-artist-key')).toStrictEqual('keratin');
@@ -226,19 +272,31 @@ test('history itemId artist key and go to artist open the artist destination', (
 
 test('unresolvable album or track play leaves the full player closed', () => {
   const base = demoLibrary();
+  const baseFirst = base.albums[0];
+  if (baseFirst === undefined) {
+    throw new Error('fixture album missing');
+  }
+  const baseSecond = base.albums[1];
+  if (baseSecond === undefined) {
+    throw new Error('fixture album missing');
+  }
+  const baseSecondTrack = baseSecond.tracks[0];
+  if (baseSecondTrack === undefined) {
+    throw new Error('fixture track missing');
+  }
   const emptyAlbum = {
-    ...base.albums[0]!,
+    ...baseFirst,
     id: 'demo-album-empty',
     title: 'Silent Shelf',
     tracks: [],
   };
   const mismatched = {
-    ...base.albums[1]!,
+    ...baseSecond,
     id: 'demo-album-host',
     title: 'Host Album',
     tracks: [
       {
-        ...base.albums[1]!.tracks[0]!,
+        ...baseSecondTrack,
         id: 'demo-track-orphan',
         albumId: 'demo-album-missing',
         title: 'Orphan Click',
@@ -263,12 +321,12 @@ test('unresolvable album or track play leaves the full player closed', () => {
   // listed below with a play of its own).
   fireEvent.click(document.querySelector('#album-play') as HTMLElement);
   expect(document.querySelector('#player-full')).toBeNull();
-  expect(document.querySelector('#player-empty')).toBeTruthy();
+  expect(document.querySelector('#player-empty')).not.toBeNull();
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' });
   fireEvent.click(screen.getByRole('button', { name: 'Host Album' }));
   fireEvent.click(screen.getByRole('button', { name: 'Orphan Click' }));
   expect(document.querySelector('#player-full')).toBeNull();
-  expect(document.querySelector('#player-empty')).toBeTruthy();
+  expect(document.querySelector('#player-empty')).not.toBeNull();
 });
 
 test('an album page lists other releases by its artist, and nothing for a one-release artist', () => {
@@ -361,4 +419,67 @@ test('a hostile album recommends nothing and is never recommended', () => {
   );
   expect(document.querySelector('#destination-album')?.getAttribute('data-hostile')).toStrictEqual('0');
   expect(document.querySelector('#album-more-by')).toStrictEqual(null);
+});
+
+test('unknown addresses and the search route render their own destinations', () => {
+  const base = {
+    searchLibrary: demoLocalFilter,
+    lyricsFor: () => [] as string[],
+    pluginSlots: [],
+    messages: catalogue(),
+    library: demoLibrary(),
+    itemId: undefined,
+    theme: 'dark' as const,
+    onThemeChange: vi.fn(),
+    onOpenAlbum: vi.fn(),
+    onOpenArtist: vi.fn(),
+    onBackFromAlbum: vi.fn(),
+    onPlayAlbum: vi.fn(),
+    onPlayTrack: vi.fn(),
+    onSeeAll: vi.fn(),
+    width: 'wide' as const,
+  };
+  // An unknown path is the not-found headline, keyed for the page animation.
+  const lost = render(
+    <Destination {...base} match={matchAddress({ pathname: '/nowhere', search: '', hash: '', state: null })} />,
+  );
+  expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
+  lost.unmount();
+  // The search route hands the library to the Search surface.
+  const search = render(
+    <Destination {...base} match={matchAddress({ pathname: '/search', search: '', hash: '', state: null })} />,
+  );
+  expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-search')).not.toBeNull();
+  search.unmount();
+});
+
+test('the library error and retry travel from the destination to the page', () => {
+  const library = demoLibrary();
+  const onLibraryRetry = vi.fn();
+  render(
+    <Destination
+      searchLibrary={demoLocalFilter}
+      lyricsFor={() => []}
+      pluginSlots={[]}
+      match={matchAddress({ pathname: '/library', search: '', hash: '', state: null })}
+      messages={catalogue()}
+      library={library}
+      itemId={undefined}
+      theme="dark"
+      onThemeChange={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onBackFromAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onSeeAll={vi.fn()}
+      width="wide"
+      libraryError="The scan did not finish"
+      onLibraryRetry={onLibraryRetry}
+    />,
+  );
+  expect(document.querySelector('#library-error')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(onLibraryRetry).toHaveBeenCalledTimes(1);
 });

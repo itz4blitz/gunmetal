@@ -99,6 +99,7 @@ export type DestinationMessages = {
   settingsSlotColumnSlot: string;
   settingsSlotColumnPlane: string;
   settingsSlotColumnState: string;
+  settingsSlotColumnVersion: string;
   /* Appended for the layout pass over Settings, Search and Library: setting
      rows with an honest status, the search idle and top-result states, and
      singular count nouns. Append-only. */
@@ -126,6 +127,22 @@ export type DestinationMessages = {
   libraryEmptyArtists: string;
   libraryEmptyTracks: string;
   settingsSlotLoaded: string;
+  /* 2026-10-07 library pass: the Library sort control, honest library error
+     and search filter/empty states. Append-only. */
+  libSortLabel: string;
+  libSortRecent: string;
+  libSortTitle: string;
+  libSortArtist: string;
+  libSortYear: string;
+  libSortName: string;
+  libSortAlbumCount: string;
+  libSortDefault: string;
+  libSortDuration: string;
+  libErrorHeadline: string;
+  libErrorRetry: string;
+  searchFilterHeadline: string;
+  searchFilterHint: string;
+  searchEmptyLibrary: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -229,8 +246,10 @@ export function destinationMessages(): DestinationMessages {
     settingsSlotColumnSlot: 'Extension',
     settingsSlotColumnPlane: 'Runs on',
     settingsSlotColumnState: 'Status',
+    settingsSlotColumnVersion: 'Version',
     /* Layout pass over Settings, Search and Library. Append-only. */
-    settingsThemeHint: 'Dark is the default. OLED uses true black, and High contrast strengthens every edge.',
+    settingsThemeHint:
+      'System follows this device, with Dark as the fallback. OLED uses true black, and High contrast strengthens every edge.',
     settingsUnavailable: 'Not available yet',
     settingsPlaybackLevelling: 'Volume levelling',
     settingsPlaybackLevellingHint: 'Plays tracks at a consistent loudness, from the tags in your files.',
@@ -254,5 +273,21 @@ export function destinationMessages(): DestinationMessages {
     libraryEmptyArtists: 'No artists in this library yet.',
     libraryEmptyTracks: 'No tracks in this library yet.',
     settingsSlotLoaded: 'Loaded',
+    /* 2026-10-07 library pass: the Library sort control, honest library
+       error and search filter/empty states. Append-only. */
+    libSortLabel: 'Sort by',
+    libSortRecent: 'Recently added',
+    libSortTitle: 'Title',
+    libSortArtist: 'Artist',
+    libSortYear: 'Year',
+    libSortName: 'Name',
+    libSortAlbumCount: 'Album count',
+    libSortDefault: 'Library order',
+    libSortDuration: 'Duration',
+    libErrorHeadline: 'The library could not be loaded',
+    libErrorRetry: 'Try again',
+    searchFilterHeadline: 'No results for the current filter',
+    searchFilterHint: 'Turn a type back on to see its results.',
+    searchEmptyLibrary: 'The library is empty — nothing to search yet.',
   };
 }

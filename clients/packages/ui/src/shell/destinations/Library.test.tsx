@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { act } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
 import { hostileCorpus } from '../../../../fake-server/src/hostile.ts';
 import { destinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellLibrary } from '../library-types.ts';
+import { sortAlbums, sortArtists, sortTracks } from './library-sort.ts';
 import { Library } from './Library.tsx';
 
 afterEach(cleanup);
@@ -100,12 +102,12 @@ test('the header totals line re-derives albums · artists · tracks from any cat
   expect(document.querySelector('#library-totals')?.textContent).toStrictEqual('0 albums · 0 artists · 0 tracks');
 });
 
-test('the header is one toolbar: the title and counts lead, the density control trails', () => {
+test('the header is one toolbar: the title and counts lead, the sort and density controls trail', () => {
   renderLibrary();
   const header = document.querySelector('#library-header');
   expect(
     [...(header?.children ?? [])].map((node) => node.id || node.getAttribute('data-library-heading')),
-  ).toStrictEqual(['1', 'library-density']);
+  ).toStrictEqual(['1', 'library-sort', 'library-density']);
   expect(header?.querySelector('[data-library-heading] #destination-headline')?.textContent).toStrictEqual('Library');
   expect(header?.querySelector('[data-library-heading] #library-totals')).not.toBeNull();
   const group = screen.getByRole('group', { name: 'Row density' });
@@ -127,6 +129,113 @@ test('the header is one toolbar: the title and counts lead, the density control 
   expect(
     [...group.querySelectorAll('[data-density-option]')].map((option) => option.getAttribute('aria-pressed')),
   ).toStrictEqual(['false', 'true']);
+});
+
+test('the sort control offers each tab its own choices as a checked radio group', () => {
+  renderLibrary();
+  const sortGroup = () => screen.getByRole('radiogroup', { name: 'Sort by' });
+  const options = () =>
+    [...sortGroup().querySelectorAll('[role="radio"]')].map((radio) => [
+      radio.id,
+      radio.getAttribute('aria-label'),
+      radio.getAttribute('aria-checked'),
+    ]);
+  // Albums: recently added is the arrival order, checked first.
+  expect(options()).toStrictEqual([
+    ['library-sort-albums-recent', 'Recently added', 'true'],
+    ['library-sort-albums-title', 'Title', 'false'],
+    ['library-sort-albums-artist', 'Artist', 'false'],
+    ['library-sort-albums-year', 'Year', 'false'],
+  ]);
+  // The checked option is the group's one tab stop.
+  expect(options().map(([, , checked]) => checked)).toStrictEqual(['true', 'false', 'false', 'false']);
+  // Choosing by pointer re-checks in place.
+  fireEvent.click(screen.getByRole('radio', { name: 'Year' }));
+  expect(options().map(([, , checked]) => checked)).toStrictEqual(['false', 'false', 'false', 'true']);
+  // Each tab remembers its own choice; a fresh tab starts at its default.
+  selectTab('Artists');
+  expect(options()).toStrictEqual([
+    ['library-sort-artists-default', 'Library order', 'true'],
+    ['library-sort-artists-name', 'Name', 'false'],
+    ['library-sort-artists-albums', 'Album count', 'false'],
+  ]);
+  selectTab('Tracks');
+  expect(options()).toStrictEqual([
+    ['library-sort-tracks-default', 'Library order', 'true'],
+    ['library-sort-tracks-title', 'Title', 'false'],
+    ['library-sort-tracks-duration', 'Duration', 'false'],
+  ]);
+  // Back to albums: the year choice survived the trip.
+  selectTab('Albums');
+  expect(options().map(([, , checked]) => checked)).toStrictEqual(['false', 'false', 'false', 'true']);
+});
+
+test('the sort radiogroup moves choice and focus with the arrows, wrapping', () => {
+  renderLibrary();
+  const recent = screen.getByRole('radio', { name: 'Recently added' });
+  const title = screen.getByRole('radio', { name: 'Title' });
+  const artist = screen.getByRole('radio', { name: 'Artist' });
+  const year = screen.getByRole('radio', { name: 'Year' });
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(title);
+  expect(title.getAttribute('aria-checked')).toStrictEqual('true');
+  expect(recent.getAttribute('aria-checked')).toStrictEqual('false');
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(artist);
+  expect(artist.getAttribute('aria-checked')).toStrictEqual('true');
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(year);
+  // Wraps forward to the first option and backward from it.
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(recent);
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'ArrowLeft' });
+  expect(document.activeElement).toStrictEqual(year);
+  expect(year.getAttribute('aria-checked')).toStrictEqual('true');
+  // Enter and Space choose the focused option; other keys are left alone.
+  // The choice flips for real: Recently added first, Enter brings Year back.
+  fireEvent.click(screen.getByRole('radio', { name: 'Recently added' }));
+  expect(screen.getByRole('radio', { name: 'Year' }).getAttribute('aria-checked')).toStrictEqual('false');
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Year' }), { key: 'Enter' });
+  expect(screen.getByRole('radio', { name: 'Year' }).getAttribute('aria-checked')).toStrictEqual('true');
+  // Space chooses as Enter does; Tab on an option is left alone.
+  fireEvent.click(screen.getByRole('radio', { name: 'Recently added' }));
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Year' }), { key: ' ' });
+  expect(screen.getByRole('radio', { name: 'Year' }).getAttribute('aria-checked')).toStrictEqual('true');
+  expect(screen.getByRole('radio', { name: 'Recently added' }).getAttribute('aria-checked')).toStrictEqual('false');
+  fireEvent.click(screen.getByRole('radio', { name: 'Recently added' }));
+  fireEvent.keyDown(screen.getByRole('radio', { name: 'Title' }), { key: 'Tab' });
+  expect(screen.getByRole('radio', { name: 'Title' }).getAttribute('aria-checked')).toStrictEqual('false');
+  // The group ignores keys the arrows do not use.
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Sort by' }), { key: 'Tab' });
+  expect(screen.getByRole('radio', { name: 'Recently added' }).getAttribute('aria-checked')).toStrictEqual('true');
+});
+
+test('the albums grid follows the chosen order without losing the safe labels', () => {
+  const library = demoLibrary();
+  renderLibrary(library);
+  fireEvent.click(screen.getByRole('radio', { name: 'Title' }));
+  const tiles = [...document.querySelectorAll('#library-album-grid [data-album-tile]')].map((tile) => tile.id);
+  const expected = sortAlbums(library.albums, 'title').map((album) => `album-tile-${album.id}`);
+  expect(tiles).toStrictEqual(expected);
+  // Hostile tiles keep their safe label in every order.
+  const hostileTile = document.querySelector('#album-tile-demo-album-08');
+  expect(hostileTile?.getAttribute('data-hostile')).toStrictEqual('1');
+  expect(hostileTile?.textContent).toContain('Hostile metadata (fixture)');
+  expect(document.body.textContent).not.toContain(hostileCorpus());
+});
+
+test('the artists and tracks tabs follow their own orders', () => {
+  const library = demoLibrary();
+  renderLibrary(library);
+  selectTab('Artists');
+  fireEvent.click(screen.getByRole('radio', { name: 'Album count' }));
+  const rows = [...document.querySelectorAll('#library-artist-list [data-artist-row]')].map((row) => row.id);
+  expect(rows).toStrictEqual(sortArtists(library.artists, 'albums').map((artist) => `artist-row-${artist.key}`));
+  selectTab('Tracks');
+  fireEvent.click(screen.getByRole('radio', { name: 'Duration' }));
+  const trackIds = [...document.querySelectorAll('[data-track-row]')].map((row) => row.id);
+  const all = library.albums.flatMap((album) => album.tracks.map((track) => ({ album, track })));
+  expect(trackIds).toStrictEqual(sortTracks(all, 'duration').map((row) => `track-row-${row.track.id}`));
 });
 
 test('tabs follow a roving tabindex: arrows move focus and selection, wrapping at the ends', () => {
@@ -428,6 +537,206 @@ test('a hostile-only library stays usable and never renders corpus text', () => 
   expect(document.body.textContent).not.toContain(hostileCorpus());
 });
 
+test('a library error renders a typed statement with a retry affordance when wired', () => {
+  const base = demoLibrary();
+  // Without a retry the error is honest about having nothing to offer.
+  render(
+    <Library
+      messages={destinationMessages()}
+      library={base}
+      error="The scan did not finish"
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  const errorBlock = document.querySelector('#library-error');
+  expect(errorBlock?.getAttribute('role')).toStrictEqual('alert');
+  expect(errorBlock?.querySelector('[data-library-error-text="1"]')?.textContent).toStrictEqual(
+    'The scan did not finish',
+  );
+  expect(screen.getByRole('heading', { name: 'The library could not be loaded' })).not.toBeNull();
+  // Nothing pretends to work over a failed read.
+  expect(document.querySelector('#library-tabs')).toBeNull();
+  expect(document.querySelector('#library-album-grid')).toBeNull();
+  expect(document.querySelector('#library-density')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  cleanup();
+
+  // With onRetry the statement carries exactly one fixing action.
+  const onRetry = vi.fn();
+  render(
+    <Library
+      messages={destinationMessages()}
+      library={base}
+      error="The scan did not finish"
+      onRetry={onRetry}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(onRetry).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Try again' }), { key: 'Enter' });
+  expect(onRetry).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Try again' }), { key: 'Escape' });
+  expect(onRetry).toHaveBeenCalledTimes(2);
+  cleanup();
+
+  // No error: the surface renders normally, no error chrome anywhere.
+  renderLibrary(base);
+  expect(document.querySelector('#library-error')).toBeNull();
+  expect(document.querySelector('#library-tabs')).not.toBeNull();
+});
+
+function fakeScroller(top: number, height: number): { element: HTMLElement; scrollTo: (value: number) => void } {
+  const element = document.createElement('div');
+  document.body.appendChild(element);
+  let value = top;
+  Object.defineProperty(element, 'scrollTop', { get: () => value, configurable: true });
+  Object.defineProperty(element, 'clientHeight', { value: height, configurable: true });
+  return {
+    element,
+    scrollTo: (next) => {
+      value = next;
+    },
+  };
+}
+
+test('the tracks tab windows its rows to the content pane and keeps every identity', () => {
+  const library = demoLibrary();
+  const all = library.albums.flatMap((album) => album.tracks.map((track) => track.id));
+  if (all.length < 40) {
+    throw new Error('fixture too small to window');
+  }
+  const scroller = fakeScroller(2000, 200);
+  render(
+    <Library
+      messages={destinationMessages()}
+      library={library}
+      getScroller={() => scroller.element}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  selectTab('Tracks');
+  // 2000px down at 52px comfortable rows = row 38 first; with overscan the
+  // window runs from row 30 to row 50 — never the whole table.
+  const shown = [...document.querySelectorAll('[data-track-row]')].map((row) => row.id);
+  const firstVisible = Math.floor(2000 / 52);
+  const expectedEnd = Math.min(all.length, firstVisible + Math.ceil(200 / 52) + 8);
+  expect(shown).toStrictEqual(all.slice(firstVisible - 8, expectedEnd).map((id) => `track-row-${id}`));
+  // Keys and ids stay the rows' own — the window slices, never renumbers,
+  // and the stagger slot follows the absolute list position (capped at 6).
+  expect(document.querySelector(`#track-row-${all[firstVisible]}`)?.getAttribute('data-row-stagger')).toStrictEqual(
+    '6',
+  );
+  // Scrolling moves the window.
+  scroller.scrollTo(5200);
+  act(() => {
+    scroller.element.dispatchEvent(new Event('scroll'));
+  });
+  const afterFirst = Math.floor(5200 / 52);
+  const after = [...document.querySelectorAll('[data-track-row]')].map((row) => row.id);
+  expect(after).toStrictEqual(
+    all
+      .slice(afterFirst - 8, Math.min(all.length, afterFirst + Math.ceil(200 / 52) + 8))
+      .map((id) => `track-row-${id}`),
+  );
+});
+
+test('compact density windows by its own 44px row, comfortable by 52px', () => {
+  const library = demoLibrary();
+  const all = library.albums.flatMap((album) => album.tracks.map((track) => track.id));
+  const scroller = fakeScroller(0, 200);
+  render(
+    <Library
+      messages={destinationMessages()}
+      library={library}
+      getScroller={() => scroller.element}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  selectTab('Tracks');
+  const comfortable = [...document.querySelectorAll('[data-track-row]')].map((row) => row.id);
+  expect(comfortable).toStrictEqual(all.slice(0, Math.ceil(200 / 52) + 8 * 2).map((id) => `track-row-${id}`));
+  fireEvent.click(screen.getByRole('button', { name: 'Compact' }));
+  const compact = [...document.querySelectorAll('[data-track-row]')].map((row) => row.id);
+  expect(compact).toStrictEqual(all.slice(0, Math.ceil(200 / 44) + 8 * 2).map((id) => `track-row-${id}`));
+  expect(compact.length).toBeGreaterThan(comfortable.length);
+});
+
+/** A scriptable stand-in for the browser's IntersectionObserver. */
+class StubObserver {
+  static instances: StubObserver[] = [];
+  readonly observed: Element[] = [];
+  readonly callback: (entries: Array<{ isIntersecting: boolean }>) => void;
+  constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+    this.callback = callback;
+    StubObserver.instances.push(this);
+  }
+  observe(target: Element): void {
+    this.observed.push(target);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+  seeAll(isIntersecting: boolean): void {
+    this.callback([{ isIntersecting }]);
+  }
+}
+
+const asIO = StubObserver as unknown as typeof IntersectionObserver;
+
+test('the album grid defers cover URLs to an injected IntersectionObserver', () => {
+  const library = demoLibrary();
+  StubObserver.instances = [];
+  const view = render(
+    <Library
+      messages={destinationMessages()}
+      library={library}
+      nearViewObserver={asIO}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  // Every tile observed itself; no cover paints its URL yet.
+  expect(StubObserver.instances.length).toStrictEqual(library.albums.length);
+  expect(
+    [...document.querySelectorAll('[data-cover-art="1"]')].filter((node) =>
+      (node.getAttribute('style') ?? '').includes('background-image'),
+    ),
+  ).toStrictEqual([]);
+  act(() => {
+    for (const instance of StubObserver.instances) {
+      instance.seeAll(true);
+    }
+  });
+  const painted = [...document.querySelectorAll('[data-cover-art="1"]')].filter((node) =>
+    (node.getAttribute('style') ?? '').includes('background-image'),
+  );
+  expect(painted.length).toStrictEqual(library.albums.length);
+  view.unmount();
+});
+
+test('without an observer the grid paints every cover immediately (jsdom path)', () => {
+  const library = demoLibrary();
+  renderLibrary(library);
+  const painted = [...document.querySelectorAll('[data-cover-art="1"]')].filter((node) =>
+    (node.getAttribute('style') ?? '').includes('background-image'),
+  );
+  expect(painted.length).toStrictEqual(library.albums.length);
+});
+
 test('area-library.css stays on tokens: no raw colours, no pills, no translucency tricks', async () => {
   const css = await readFile(join(here, '../../../../../apps/demo/public/area-library.css'), 'utf8');
   // Every colour is a --gm token (possibly inside a color-mix).
@@ -487,10 +796,27 @@ test('area-library.css stays on tokens: no raw colours, no pills, no translucenc
   // on-art control scrim, row entrance stagger, search clear affordance.
   expect(css.includes('#library-totals')).toStrictEqual(true);
   expect(css.includes('[data-density-option]')).toStrictEqual(true);
+  expect(css.includes('[data-sort-option]')).toStrictEqual(true);
+  expect(css.includes('#library-sort')).toStrictEqual(true);
   expect(css.includes('[data-artist-play]')).toStrictEqual(true);
   expect(css.includes('[data-album-tile]:hover [data-art-scrim]')).toStrictEqual(true);
   expect(css.includes('gm-row-enter')).toStrictEqual(true);
   expect(css.includes('[data-search-clear]')).toStrictEqual(true);
+  // Render discipline (2026-10-07): off-screen tiles and rows skip layout
+  // and paint; the intrinsic size tracks the density contract.
+  expect(css.includes('content-visibility: auto')).toStrictEqual(true);
+  expect(css.includes('contain-intrinsic-size: auto 240px;')).toStrictEqual(true);
+  expect(css.includes('contain-intrinsic-size: auto 52px;')).toStrictEqual(true);
+  expect(css.includes('contain-intrinsic-size: auto 44px;')).toStrictEqual(true);
+  expect(css.includes('contain-intrinsic-size: auto 56px;')).toStrictEqual(true);
+  // Honest states: the library error statement, the retry affordance, the
+  // empty-library and filtered-out search statements.
+  expect(css.includes('#library-error')).toStrictEqual(true);
+  expect(css.includes('#library-retry')).toStrictEqual(true);
+  expect(css.includes('#search-empty-library')).toStrictEqual(true);
+  expect(css.includes('#search-filter-empty')).toStrictEqual(true);
+  expect(css.includes('[data-library-error-text]')).toStrictEqual(true);
+  expect(css.includes('[data-search-filter-remaining]')).toStrictEqual(true);
   // Machined focus on the search field warms toward the focus ring token.
   expect(css.includes('#search-field:focus')).toStrictEqual(true);
   expect(css.includes('var(--gm-focus-ring)')).toStrictEqual(true);

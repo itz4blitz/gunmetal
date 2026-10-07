@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
@@ -6,18 +6,79 @@ import { artistInitial, countNoun, staggerSlot } from '../format.ts';
 import { Icon, type IconName } from '../Icon.tsx';
 import type { ShellArtist, ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
+import { hostileArtistKeys } from './library-index.ts';
+import {
+  nextSortOption,
+  sortAlbums,
+  sortArtists,
+  sortTracks,
+  type AlbumSort,
+  type ArtistSort,
+  type TrackSort,
+} from './library-sort.ts';
 import { TrackRow } from './TrackRow.tsx';
+import { intersectionObserverFactory } from './near-view.ts';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
 
 export type LibraryTab = 'albums' | 'artists' | 'tracks';
 
 /** Comfortable is the survey default; compact tightens the table to 44px rows. */
 export type LibraryDensity = 'comfortable' | 'compact';
 
+/** The track table's row heights, pinned by the density contract in area-library.css. */
+const TRACK_ROW_HEIGHTS: Record<LibraryDensity, number> = { comfortable: 52, compact: 44 };
+
+/** Each tab's sort choice, remembered across tab switches. */
+export type LibrarySorts = { albums: AlbumSort; artists: ArtistSort; tracks: TrackSort };
+
+const DEFAULT_SORTS: LibrarySorts = { albums: 'recent', artists: 'default', tracks: 'default' };
+
+/** The sort choices a tab offers, keyed to their catalogue labels. */
+function sortOptionsFor(
+  tab: LibraryTab,
+  messages: DestinationMessages,
+): ReadonlyArray<{ key: AlbumSort | ArtistSort | TrackSort; label: string }> {
+  if (tab === 'albums') {
+    return [
+      { key: 'recent', label: messages.libSortRecent },
+      { key: 'title', label: messages.libSortTitle },
+      { key: 'artist', label: messages.libSortArtist },
+      { key: 'year', label: messages.libSortYear },
+    ];
+  }
+  if (tab === 'artists') {
+    return [
+      { key: 'default', label: messages.libSortDefault },
+      { key: 'name', label: messages.libSortName },
+      { key: 'albums', label: messages.libSortAlbumCount },
+    ];
+  }
+  return [
+    { key: 'default', label: messages.libSortDefault },
+    { key: 'title', label: messages.libSortTitle },
+    { key: 'duration', label: messages.libSortDuration },
+  ];
+}
+
 export type LibraryProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   /** Track the shell is playing now; its row paints the brass current state. */
   currentTrackId?: string | undefined;
+  /**
+   * The scroll container the track table windows against; the shell's
+   * content pane by default. Tests inject a stand-in (jsdom has no layout).
+   */
+  getScroller?: (() => HTMLElement | null) | undefined;
+  /**
+   * The grid defers cover URLs until tiles are near the viewport. The
+   * browser constructor by default; undefined (jsdom) paints immediately.
+   */
+  nearViewObserver?: typeof IntersectionObserver | undefined;
+  /** A typed failure of the library read, said instead of a half-working UI. */
+  error?: string | undefined;
+  /** The one fixing action; without it the statement offers nothing. */
+  onRetry?: (() => void) | undefined;
   onOpenAlbum: (albumId: string) => void;
   onOpenArtist: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
@@ -30,11 +91,15 @@ export type LibraryProps = {
 
 /**
  * The name an artist is shown under. An artist of a hostile fixture album is
- * never shown by its own text: the safe catalogue label stands in.
+ * never shown by its own text: the safe catalogue label stands in. The
+ * hostile keys come precomputed (one set per library, not per row).
  */
-export function artistDisplayName(artist: ShellArtist, library: ShellLibrary, messages: DestinationMessages): string {
-  const hostile = artist.albumIds.some((id) => library.albums.some((album) => album.id === id && album.hostile));
-  if (hostile) {
+export function artistDisplayName(
+  artist: ShellArtist,
+  hostileKeys: ReadonlySet<string>,
+  messages: DestinationMessages,
+): string {
+  if (hostileKeys.has(artist.key)) {
     return messages.hostileArtistLabel;
   }
   return artist.name;
@@ -108,6 +173,10 @@ export function Library({
   messages,
   library,
   currentTrackId,
+  getScroller,
+  nearViewObserver,
+  error,
+  onRetry,
   onOpenAlbum,
   onOpenArtist,
   onPlayAlbum,
@@ -119,6 +188,80 @@ export function Library({
 }: LibraryProps) {
   const [tab, setTab] = useState<LibraryTab>('albums');
   const [density, setDensity] = useState<LibraryDensity>('comfortable');
+  const [sorts, setSorts] = useState<LibrarySorts>(DEFAULT_SORTS);
+  // One hostile-key set per library change; every artist row reads it in O(1).
+  const hostileKeys = useMemo(() => hostileArtistKeys(library), [library]);
+  // The flattened track table, once per library change.
+  const allTracks = useMemo(
+    () => library.albums.flatMap((album) => album.tracks.map((track) => ({ album, track }))),
+    [library],
+  );
+  // The rows the content pane can see; a zero read (jsdom) shows everything.
+  const viewport = useContentViewport(getScroller ?? contentScroller);
+  // Undefined in jsdom: no factory, every cover paints immediately.
+  const nearArt = useMemo(
+    () => intersectionObserverFactory(nearViewObserver ?? globalThis.IntersectionObserver),
+    [nearViewObserver],
+  );
+  // The tab's order: sorted copies feed the grid, the list and the window.
+  const sortOptions = sortOptionsFor(tab, messages);
+  const currentSort = sorts[tab];
+  const shownAlbums = useMemo(() => sortAlbums(library.albums, sorts.albums), [library.albums, sorts.albums]);
+  const shownArtists = useMemo(() => sortArtists(library.artists, sorts.artists), [library.artists, sorts.artists]);
+  const sortedTracks = useMemo(() => sortTracks(allTracks, sorts.tracks), [allTracks, sorts.tracks]);
+  const trackWindow = visibleRange(
+    viewport.scrollTop,
+    viewport.viewportHeight,
+    TRACK_ROW_HEIGHTS[density],
+    sortedTracks.length,
+    LIST_OVERSCAN_ROWS,
+  );
+  const shownTracks = sortedTracks.slice(trackWindow.start, trackWindow.end);
+  const chooseSort = (key: AlbumSort | ArtistSort | TrackSort) => {
+    setSorts((prev) => ({ ...prev, [tab]: key }) as LibrarySorts);
+  };
+  // Arrows move the checked option and the focus together, wrapping at the
+  // ends — the Settings radiogroup's automatic model.
+  const onSortKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    const next = nextSortOption(sortOptions, sorts[tab as LibraryTab], event.key);
+    if (next === undefined) {
+      return;
+    }
+    event.preventDefault();
+    chooseSort(next.key as AlbumSort | ArtistSort | TrackSort);
+    document.getElementById(`library-sort-${tab}-${next.key}`)?.focus();
+  };
+  // A failed read says so and offers its one fixing action; nothing else
+  // pretends to work over data the surface cannot see.
+  if (error !== undefined) {
+    return (
+      <View id="destination-library" dataSet={{ density }}>
+        <View id="library-error" accessibilityRole="alert">
+          <Text id="destination-headline" accessibilityRole="header">
+            {messages.libErrorHeadline}
+          </Text>
+          <Text dataSet={{ libraryErrorText: '1' }}>{error}</Text>
+          {onRetry === undefined ? null : (
+            <View
+              id="library-retry"
+              accessibilityRole="button"
+              accessibilityLabel={messages.libErrorRetry}
+              tabIndex={0}
+              onClick={onRetry}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onRetry();
+                }
+              }}
+            >
+              <Text>{messages.libErrorRetry}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
   const tabLabels: Record<LibraryTab, string> = {
     albums: messages.tabAlbums,
     artists: messages.tabArtists,
@@ -158,6 +301,14 @@ export function Library({
             {totalsLine(library, messages)}
           </Text>
         </View>
+        <SortControl
+          tab={tab}
+          label={messages.libSortLabel}
+          options={sortOptions}
+          current={currentSort}
+          onChoose={chooseSort}
+          onKeyDown={onSortKeyDown}
+        />
         <View id="library-density" accessibilityRole="group" accessibilityLabel={messages.densityLabel}>
           <DensityButton
             id="library-density-comfortable"
@@ -208,12 +359,13 @@ export function Library({
       ) : null}
       {view === 'albums' ? (
         <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
-          {library.albums.map((album, index) => (
+          {shownAlbums.map((album, index) => (
             <AlbumTile
               key={album.id}
               album={album}
               messages={messages}
               staggerIndex={index}
+              nearArt={nearArt}
               onOpen={onOpenAlbum}
               onPlay={onPlayAlbum}
               onPlayNext={onPlayNextAlbum}
@@ -225,8 +377,8 @@ export function Library({
       ) : null}
       {view === 'artists' ? (
         <View id="library-artist-list">
-          {library.artists.map((artist, index) => {
-            const rowName = artistDisplayName(artist, library, messages);
+          {shownArtists.map((artist, index) => {
+            const rowName = artistDisplayName(artist, hostileKeys, messages);
             const firstAlbumId = artist.albumIds[0];
             return (
               <View
@@ -287,25 +439,23 @@ export function Library({
             <Text dataSet={{ trackHeadAlbum: '1' }}>{messages.columnAlbum}</Text>
             <Text dataSet={{ trackHeadTime: '1' }}>{messages.columnTime}</Text>
           </View>
-          {library.albums
-            .flatMap((album) => album.tracks.map((track) => ({ album, track })))
-            .map(({ album, track }, index) => (
-              <TrackRow
-                key={track.id}
-                track={track}
-                messages={messages}
-                artistKey={album.artistKey}
-                albumTitle={album.title}
-                hostile={album.hostile}
-                current={track.id === currentTrackId}
-                staggerIndex={index}
-                onPlay={onPlayTrack}
-                onPlayNext={onPlayNextTrack}
-                onAddToQueue={onAddTrackToQueue}
-                onGoToAlbum={onOpenAlbum}
-                onOpenArtist={onOpenArtist}
-              />
-            ))}
+          {shownTracks.map(({ album, track }, index) => (
+            <TrackRow
+              key={track.id}
+              track={track}
+              messages={messages}
+              artistKey={album.artistKey}
+              albumTitle={album.title}
+              hostile={album.hostile}
+              current={track.id === currentTrackId}
+              staggerIndex={trackWindow.start + index}
+              onPlay={onPlayTrack}
+              onPlayNext={onPlayNextTrack}
+              onAddToQueue={onAddTrackToQueue}
+              onGoToAlbum={onOpenAlbum}
+              onOpenArtist={onOpenArtist}
+            />
+          ))}
         </View>
       ) : null}
     </View>
@@ -374,6 +524,67 @@ function DensityButton({ id, icon, label, selected, onSelect }: DensityButtonPro
     >
       <Icon name={icon} size={16} />
       <Text dataSet={{ densityLabel: '1' }}>{label}</Text>
+    </View>
+  );
+}
+
+type SortControlProps = {
+  tab: LibraryTab;
+  label: string;
+  options: ReadonlyArray<{ key: AlbumSort | ArtistSort | TrackSort; label: string }>;
+  current: AlbumSort | ArtistSort | TrackSort;
+  onChoose: (key: AlbumSort | ArtistSort | TrackSort) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
+};
+
+/** One sort choice: a quiet radio in the toolbar, checked where you are. */
+function SortOption({
+  id,
+  label,
+  selected,
+  onChoose,
+}: {
+  id: string;
+  label: string;
+  selected: boolean;
+  onChoose: () => void;
+}) {
+  return (
+    <View
+      id={id}
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      aria-checked={selected}
+      dataSet={{ sortOption: '1', selected: selected ? '1' : '0' }}
+      // Roving tabindex: the checked option is the group's one tab stop.
+      tabIndex={selected ? 0 : -1}
+      onClick={onChoose}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onChoose();
+        }
+      }}
+    >
+      <Text dataSet={{ sortLabel: '1' }}>{label}</Text>
+    </View>
+  );
+}
+
+function SortControl({ tab, label, options, current, onChoose, onKeyDown }: SortControlProps) {
+  return (
+    <View id="library-sort" accessibilityRole="radiogroup" accessibilityLabel={label} onKeyDown={onKeyDown}>
+      {options.map((option) => (
+        <SortOption
+          key={option.key}
+          id={`library-sort-${tab}-${option.key}`}
+          label={option.label}
+          selected={option.key === current}
+          onChoose={() => {
+            onChoose(option.key);
+          }}
+        />
+      ))}
     </View>
   );
 }

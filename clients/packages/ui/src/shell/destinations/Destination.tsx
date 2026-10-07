@@ -1,7 +1,8 @@
+import { useMemo } from 'react';
 import { Text, View } from 'react-native-web';
 import type { MessageCatalogue } from '../../messages/catalogue.ts';
 import type { MatchResult } from '../../router/match.ts';
-import type { ShellAlbum, ShellArtist, ShellLibrary } from '../library-types.ts';
+import type { ShellLibrary } from '../library-types.ts';
 import type { LibrarySearch, LyricsResolver } from '../content.ts';
 import type { PluginSlot } from './settings.ts';
 import type { ThemeId } from '../theme.ts';
@@ -9,29 +10,10 @@ import type { WidthClass } from '../width.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
 import { ArtistDetail } from './ArtistDetail.tsx';
 import { Home } from './Home.tsx';
+import { albumsByArtistIndex, indexAlbums, indexArtists, otherAlbums } from './library-index.ts';
 import { Library } from './Library.tsx';
 import { Search } from './Search.tsx';
 import { Settings } from './Settings.tsx';
-
-/** Reads over the library the surface owns — lookups only, no rules. */
-function findAlbum(library: ShellLibrary, id: string): ShellAlbum | undefined {
-  return library.albums.find((album) => album.id === id);
-}
-
-function findArtist(library: ShellLibrary, key: string): ShellArtist | undefined {
-  return library.artists.find((artist) => artist.key === key);
-}
-
-/** The album artist's other releases, in library order. A hostile album
- * recommends nothing, and is never recommended. */
-function otherAlbumsByArtist(library: ShellLibrary, album: ShellAlbum | undefined): readonly ShellAlbum[] {
-  if (album === undefined || album.hostile) {
-    return [];
-  }
-  return library.albums.filter(
-    (other) => other.artistKey === album.artistKey && other.id !== album.id && !other.hostile,
-  );
-}
 
 export type DestinationProps = {
   searchLibrary: LibrarySearch;
@@ -50,6 +32,17 @@ export type DestinationProps = {
   onPlayTrack: (albumId: string, trackId: string) => void;
   onSeeAll: () => void;
   currentTrackId?: string | undefined;
+  playingAlbumId?: string | undefined;
+  /**
+   * The browsing grids (Library albums, ArtistDetail albums) defer cover
+   * URLs until tiles are near the viewport; the browser constructor by
+   * default, undefined in jsdom — where everything paints immediately.
+   */
+  nearViewObserver?: typeof IntersectionObserver | undefined;
+  /** A typed failure of the library read; the Library page says it honestly. */
+  libraryError?: string | undefined;
+  /** The library read's one fixing action, wired straight through. */
+  onLibraryRetry?: (() => void) | undefined;
   width: WidthClass;
   onPlayNextAlbum?: (albumId: string) => void;
   onAddAlbumToQueue?: (albumId: string) => void;
@@ -81,6 +74,10 @@ export function Destination({
   onPlayTrack,
   onSeeAll,
   currentTrackId,
+  playingAlbumId,
+  nearViewObserver,
+  libraryError,
+  onLibraryRetry,
   width,
   onPlayNextAlbum,
   onAddAlbumToQueue,
@@ -88,6 +85,11 @@ export function Destination({
   onAddTrackToQueue,
 }: DestinationProps) {
   const enterKey = pageKey(match, itemId);
+  // One O(n) index build per library change, shared by every page render —
+  // playback ticks re-render the shell several times a second.
+  const albums = useMemo(() => indexAlbums(library ?? { albums: [], artists: [] }), [library]);
+  const artists = useMemo(() => indexArtists(library ?? { albums: [], artists: [] }), [library]);
+  const byArtist = useMemo(() => albumsByArtistIndex(library ?? { albums: [], artists: [] }), [library]);
 
   if (match.kind === 'not-found') {
     return (
@@ -100,7 +102,7 @@ export function Destination({
   }
 
   if (library !== undefined && itemId !== undefined) {
-    const artist = findArtist(library, itemId);
+    const artist = artists.get(itemId);
     if (artist !== undefined) {
       return (
         <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
@@ -116,12 +118,13 @@ export function Destination({
             onAddAlbumToQueue={onAddAlbumToQueue}
             onPlayTrack={onPlayTrack}
             currentTrackId={currentTrackId}
+            nearViewObserver={nearViewObserver}
           />
         </View>
       );
     }
-    const album = findAlbum(library, itemId);
-    const others = otherAlbumsByArtist(library, album);
+    const album = albums.get(itemId);
+    const others = otherAlbums(byArtist, album);
     return (
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <AlbumDetail
@@ -165,6 +168,7 @@ export function Destination({
           onPlayNextAlbum={onPlayNextAlbum}
           onAddAlbumToQueue={onAddAlbumToQueue}
           onSeeAll={onSeeAll}
+          playingAlbumId={playingAlbumId}
         />
       </View>
     );
@@ -196,6 +200,9 @@ export function Destination({
           messages={messages.destinations}
           library={library}
           currentTrackId={currentTrackId}
+          nearViewObserver={nearViewObserver}
+          error={libraryError}
+          onRetry={onLibraryRetry}
           onOpenAlbum={onOpenAlbum}
           onOpenArtist={onOpenArtist}
           onPlayAlbum={onPlayAlbum}

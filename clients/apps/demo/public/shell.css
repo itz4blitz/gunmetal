@@ -194,6 +194,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-accent-indicator: #d4952f;
   --gm-focus-ring: #f3cd77;
   --gm-progress-track: #2f3842;
+  /* Design-language §4 status colours: honest states, never decoration. */
+  --gm-status-danger: #ff7b74;
+  --gm-status-warning: #ff9b55;
+  --gm-status-success: #5cc98f;
+  --gm-status-info: #7ab8ee;
   --gm-cover-01: #3a5a6e;
   --gm-cover-02: #5c4a3a;
   --gm-cover-03: #2f4f4f;
@@ -223,6 +228,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-accent-indicator: #85550f;
   --gm-focus-ring: #7a4c0c;
   --gm-progress-track: #e3e8ec;
+  --gm-status-danger: #b8322a;
+  --gm-status-warning: #a14f12;
+  --gm-status-success: #1d7348;
+  --gm-status-info: #1d5f9f;
   --gm-edge-highlight: color-mix(in srgb, #ffffff 90%, transparent);
   --gm-raised-edge: inset 0 1px 0 #ffffff;
   --gm-stroke-soft: inset 0 0 0 1px color-mix(in srgb, #16202a 7%, transparent);
@@ -259,6 +268,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-accent-indicator: #d4952f;
   --gm-focus-ring: #f3cd77;
   --gm-progress-track: #2f3842;
+  --gm-status-danger: #ff7b74;
+  --gm-status-warning: #ff9b55;
+  --gm-status-success: #5cc98f;
+  --gm-status-info: #7ab8ee;
   --gm-cover-01: #3a5a6e;
   --gm-cover-02: #5c4a3a;
   --gm-cover-03: #2f4f4f;
@@ -288,6 +301,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-accent-indicator: #ffc857;
   --gm-focus-ring: #ffe9a8;
   --gm-progress-track: #5c5c5c;
+  --gm-status-danger: #ff8a80;
+  --gm-status-warning: #ffb36b;
+  --gm-status-success: #7fe0a8;
+  --gm-status-info: #9fd0ff;
   --gm-edge-highlight: transparent;
   --gm-raised-edge: 0 0 0 0 transparent;
   --gm-stroke-soft: 0 0 0 0 transparent;
@@ -423,7 +440,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--gm-space-5);
   padding: 14px 24px;
   border-bottom: 1px solid var(--gm-line-subtle);
 }
@@ -448,13 +465,37 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: 10px;
 }
 
+/* The lockup: the nut mark beside the wordmark, one logo. */
+#shell-brand-lockup {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
 #shell-wordmark {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.22em;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  --gm-text: var(--gm-text-primary);
-  color: var(--gm-text-primary);
+  /* The polished-metal wordmark (design-language §1): light from above,
+     falling into the muted steel by the baseline. The ink goes transparent
+     through --gm-text so the gradient clips into the letterforms. */
+  --gm-text: transparent;
+  color: transparent;
+  background: linear-gradient(180deg, var(--gm-text-primary) 8%, var(--gm-text-muted) 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Forced colors repaint the canvas: the gradient cannot survive it, so the
+   wordmark falls back to honest system ink. */
+@media (forced-colors: active) {
+  #shell-wordmark {
+    --gm-text: CanvasText;
+    background: none;
+    background-clip: border-box;
+  }
 }
 
 #nav-sidebar #shell-wordmark {
@@ -502,8 +543,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-sidebar {
   grid-area: sidebar;
   flex-direction: column;
-  gap: 2px;
-  padding: 20px 12px 16px;
+  gap: var(--gm-space-1);
+  padding: var(--gm-space-6) var(--gm-space-4) var(--gm-space-5);
   border-right-width: 1px;
 }
 
@@ -511,7 +552,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   grid-area: rail;
   flex-direction: column;
   align-items: stretch;
-  gap: 2px;
+  gap: var(--gm-space-1);
   padding: 12px 6px;
   border-right-width: 1px;
 }
@@ -521,7 +562,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   flex-direction: row;
   justify-content: space-around;
   align-items: stretch;
-  gap: 4px;
+  gap: var(--gm-space-2);
   padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top-width: 1px;
 }
@@ -531,7 +572,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--gm-space-7);
   padding: 28px 24px;
   /* Vertical scroll only: ambient hero layers (blurred artwork) bleed past
      the column on purpose — they must never turn into a horizontal bar. */
@@ -567,17 +608,17 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #token-shell[data-width='compact'] #content {
   scroll-padding-bottom: calc(var(--gm-player-height) + var(--gm-tabs-height));
   /* Phone margins: 16px (design-language §7 compact density). */
-  padding: 16px 16px 24px;
+  padding: var(--gm-space-5) var(--gm-space-5) var(--gm-space-7);
 }
 
 #token-shell[data-width='wide'] #content {
-  padding: 32px;
+  padding: var(--gm-space-8);
   /* The content column fills the space between sidebar and queue; no cap. */
   width: 100%;
 }
 
 #token-shell[data-width='expanded'] #content {
-  padding: 28px 32px;
+  padding: 28px var(--gm-space-8);
 }
 
 #content,
@@ -607,17 +648,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-footer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--gm-space-4);
   margin-top: auto;
   padding-top: 14px;
   /* Bottom-anchored chrome gets its own machined divider. */
   border-top: 1px solid var(--gm-line-subtle);
-}
-
-#theme-switcher {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
 }
 
 #nav-sidebar [id^='nav-item-'],
@@ -697,21 +732,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-weight: 600;
 }
 
-/* Theme switcher: quieter than nav; muted token is the floor (#8f9ba7 on canvas). */
-#theme-switcher [id^='theme-'] {
-  padding: 6px 10px;
-  border-radius: var(--gm-radius-m);
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--gm-motion),
-    color var(--gm-motion),
-    transform var(--gm-motion);
-}
-
 /* Sidebar labels take the type.small ramp; the Text element carries the
    attribute, so the rule lands on the text itself, not the row. */
 #nav-sidebar [data-nav-label] {
@@ -738,16 +758,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   transform: scale(0.98);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
-}
-
-#theme-switcher [id^='theme-']:hover {
-  background: color-mix(in srgb, var(--gm-text-primary) 4%, transparent);
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
-}
-
-#theme-switcher [id^='theme-']:active {
-  transform: scale(0.97);
 }
 
 /* Active nav: brass wash at 14% + a 3px inset indicator on the leading edge
@@ -804,23 +814,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: none;
 }
 
-#theme-switcher [aria-selected='true'] {
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
-  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
-  border-radius: var(--gm-radius-m);
-  box-shadow: none;
-}
-
 #token-shell[data-width='compact'] #nav-footer {
   margin-top: 0;
-}
-
-#token-shell[data-width='compact'] #theme-switcher {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
 }
 
 /* —— Destinations —— */
@@ -1318,6 +1313,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 [data-album-tile]:hover {
   background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+  /* The lift raises the cover past the tile's top: the hovered tile rides
+     above its siblings so no row paints over it. */
+  z-index: 3;
 }
 
 [data-album-tile] {
@@ -1478,16 +1476,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-weight: 500;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
-}
-
-#theme-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-  padding: 4px 10px 4px;
 }
 
 /* —— Cover tiles (anodised steel placeholders, LIB-142) —— */
@@ -2121,9 +2109,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 [data-item-menu] {
-  position: absolute;
-  top: 40px;
-  right: 8px;
   z-index: 9;
   min-width: 160px;
   padding: 6px;
@@ -2499,46 +2484,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   line-height: 16px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-/* Segmented theme control — raised selected segment inside inset track. */
-#settings-appearance #theme-switcher {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--gm-radius-m);
-  background: var(--gm-bg-inset);
-  border: 1px solid var(--gm-line-subtle);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #000 18%, transparent);
-}
-
-#settings-appearance #theme-label {
-  width: 100%;
-  padding: 0 2px 6px;
-}
-
-#settings-appearance #theme-switcher [id^='theme-'] {
-  flex: 1 1 auto;
-  min-width: 4.5rem;
-  text-align: center;
-  padding: 8px 12px;
-  border-radius: calc(var(--gm-radius-m) - 1px);
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-  background: transparent;
-  box-shadow: none;
-}
-
-#settings-appearance #theme-switcher [data-selected='1'],
-#settings-appearance #theme-switcher [aria-selected='true'] {
-  --gm-text: var(--gm-text-primary);
-  color: var(--gm-text-primary);
-  background: var(--gm-bg-raised);
-  box-shadow:
-    var(--gm-raised-edge),
-    0 0 0 1px color-mix(in srgb, var(--gm-accent-fill) 35%, var(--gm-line-subtle));
 }
 
 [data-settings-placeholder],
@@ -2968,7 +2913,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #player-transport [data-player-control]:active,
 #player-actions [data-player-control]:active,
 #player-queue:active,
-#theme-switcher [id^='theme-']:active,
 #queue-sheet-close:active,
 #library-tabs [role='tab']:active,
 [data-search-chip]:active {
@@ -3403,7 +3347,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-sidebar [id^='nav-item-']:focus,
 #nav-rail [id^='nav-item-']:focus,
 #nav-tabs [id^='nav-item-']:focus,
-#theme-switcher [id^='theme-']:focus,
 #nav-item-settings:focus,
 [data-album-tile]:focus,
 [data-album-play]:focus,
@@ -3443,7 +3386,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-sidebar [id^='nav-item-']:focus-visible,
 #nav-rail [id^='nav-item-']:focus-visible,
 #nav-tabs [id^='nav-item-']:focus-visible,
-#theme-switcher [id^='theme-']:focus-visible,
 #nav-item-settings:focus-visible,
 [data-album-tile]:focus-visible,
 [data-album-play]:focus-visible,
@@ -3514,7 +3456,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   #nav-rail [id^='nav-item-']:active,
   #nav-tabs [id^='nav-item-']:active,
   #nav-item-settings:active,
-  #theme-switcher [id^='theme-']:active,
   #queue-sheet-close:active,
   #library-tabs [role='tab']:active,
   [data-search-chip]:active,
@@ -4508,7 +4449,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 [data-item-menu],
 [data-context-menu] {
-  position: absolute;
+  /* Fixed to the window: no pane's scroller clips it, and its left/top
+     are placed by the component through the CSSOM (menu-anchor). */
+  position: fixed;
   z-index: 20;
   min-width: 196px;
   padding: 6px;

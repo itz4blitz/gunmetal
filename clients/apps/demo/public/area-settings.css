@@ -36,7 +36,7 @@
 #token-shell #destination-settings {
   width: 100%;
   max-width: 1120px;
-  gap: 24px;
+  gap: var(--gm-space-7);
 }
 
 #token-shell #destination-settings[data-settings-layout='stack'] {
@@ -49,8 +49,8 @@
   grid-template-areas:
     'head head'
     'nav panes';
-  column-gap: 40px;
-  row-gap: 20px;
+  column-gap: var(--gm-space-9);
+  row-gap: var(--gm-space-6);
   align-items: start;
 }
 
@@ -68,7 +68,7 @@
 
 #token-shell #destination-settings #settings-panels {
   min-width: 0;
-  gap: 32px;
+  gap: var(--gm-space-8);
 }
 
 /* —— Panes: flat, with one heading row —— */
@@ -77,7 +77,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--gm-space-5);
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -88,7 +88,7 @@
 
 /* Stacked panes are separated by a hairline and air, not by boxes. */
 #token-shell #destination-settings[data-settings-layout='stack'] [data-settings-panel] + [data-settings-panel] {
-  padding-top: 32px;
+  padding-top: var(--gm-space-8);
   border-top: 1px solid var(--gm-line-subtle);
 }
 
@@ -150,7 +150,7 @@
   top: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--gm-space-1);
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -164,7 +164,7 @@
   align-items: center;
   justify-content: flex-start;
   min-height: 40px;
-  padding: 8px 12px 8px 16px;
+  padding: var(--gm-space-3) var(--gm-space-4) var(--gm-space-3) var(--gm-space-5);
   border-radius: var(--gm-radius-m);
   background: transparent;
   box-shadow: none;
@@ -216,13 +216,13 @@
       'head'
       'nav'
       'panes';
-    row-gap: 16px;
+    row-gap: var(--gm-space-5);
   }
 
   #token-shell #destination-settings[data-settings-layout='side'] #settings-nav {
     position: static;
     flex-direction: row;
-    gap: 4px;
+    gap: var(--gm-space-2);
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
@@ -248,7 +248,7 @@
 #token-shell #destination-settings [data-settings-group] {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--gm-space-1);
 }
 
 #token-shell #destination-settings [data-settings-group-title] {
@@ -271,9 +271,10 @@
 
 #token-shell #settings-theme-preview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 20px 16px;
-  padding-top: 4px;
+  /* Five choices: System, Dark, Light, OLED, High contrast. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--gm-space-6) var(--gm-space-5);
+  padding-top: var(--gm-space-2);
 }
 
 @container gm-settings-pane (max-width: 439px) {
@@ -306,6 +307,21 @@
   --sw-line: #262e36;
   --sw-accent: #d4952f;
   --sw-text: #e9eef2;
+}
+
+/* System: the choice that follows the device. Its miniature is honest about
+   being both: the canvas splits dark and light while the chrome values are
+   the dark theme's, which is the fallback (design-language §4). */
+#token-shell #destination-settings [data-theme-swatch='system'] {
+  --sw-canvas: #0f1317;
+  --sw-raised: #161c21;
+  --sw-line: #262e36;
+  --sw-accent: #d4952f;
+  --sw-text: #e9eef2;
+}
+
+#token-shell #destination-settings [data-theme-swatch='system'] [data-swatch-stage] {
+  background: linear-gradient(90deg, #0f1317 50%, #f3f5f7 50%);
 }
 
 #token-shell #destination-settings [data-theme-swatch='light'] {
@@ -525,7 +541,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 24px;
+  gap: var(--gm-space-3) var(--gm-space-7);
   min-height: 56px;
   padding: 14px 18px;
 }
@@ -614,7 +630,7 @@
    (Privacy, Extensions). */
 #token-shell #destination-settings [data-settings-statement] {
   max-width: 70ch;
-  padding: 16px 18px;
+  padding: var(--gm-space-5) 18px;
   font-size: var(--gm-type-body-size);
   line-height: var(--gm-type-body-line);
   overflow-wrap: anywhere;
@@ -707,10 +723,12 @@
 }
 
 /* State: the truth, in the same quiet steel tag as a setting's status —
-   never a spinner or a promise. */
+   never a spinner or a promise. A loaded slot is the one honest green
+   light: status.success (§4). "Not loaded" stays steel, because nothing is
+   wrong. */
 #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-state] {
   justify-self: start;
-  padding: 3px 8px;
+  padding: 3px var(--gm-space-3);
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-xs);
   background: var(--gm-bg-inset);
@@ -722,6 +740,12 @@
   white-space: nowrap;
   --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
+}
+
+#token-shell #destination-settings #settings-plugin-slots [data-slot-state='1'] {
+  border-color: color-mix(in srgb, var(--gm-status-success) 55%, transparent);
+  --gm-text: var(--gm-status-success);
+  color: var(--gm-status-success);
 }
 
 /* Narrow pane: the name keeps its line and the plane and state sit under
@@ -737,7 +761,7 @@
       'mark title title'
       '. plane state';
     row-gap: 6px;
-    padding: 12px 16px;
+    padding: var(--gm-space-4) var(--gm-space-5);
   }
 
   #token-shell #destination-settings #settings-plugin-slots [data-plugin-slot] > [data-slot-mark] {
@@ -759,11 +783,11 @@
 
   #token-shell #destination-settings [data-settings-row],
   #token-shell #destination-settings [data-settings-fact] {
-    padding: 12px 16px;
+    padding: var(--gm-space-4) var(--gm-space-5);
   }
 
   #token-shell #destination-settings [data-settings-statement] {
-    padding: 14px 16px;
+    padding: 14px var(--gm-space-5);
   }
 }
 

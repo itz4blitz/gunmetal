@@ -361,7 +361,9 @@ function coverSvg(index) {
   const b3x = between(rng, 60, 580);
   const b3y = between(rng, 60, 580);
   const b3r = between(rng, 330, 460);
-  const sheenRot = between(rng, -40, 40);
+  // The sheen rotation is drawn from the stream to keep every later number
+  // where it was; the sheen itself does not use it.
+  between(rng, -40, 40);
   const grainFreq = between(rng, 0.78, 1.05);
   const grainSeed = 1 + Math.floor(rng() * 900);
   const grainOpacity = between(rng, 0.5, 0.68);

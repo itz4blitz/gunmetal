@@ -9,6 +9,8 @@ export type PluginSlot = {
   plane: PluginPlane;
   featureId: 'INT-075' | 'INT-077' | 'INT-078' | 'INT-081' | 'INT-083';
   loaded: boolean;
+  /** What the slot's manifest advertises, when one exists (ADR 22: data only). */
+  manifest?: { title: string; version: string };
 };
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
@@ -99,8 +101,11 @@ export function settingsSlotPlaneLabel(plane: PluginPlane, messages: Destination
   return messages.settingsSlotClient;
 }
 
-/** A theme's catalogue label: the name on its preview card. */
+/** A choice's catalogue label: the name on its preview card. */
 export function settingsThemeLabel(id: ThemeId, messages: ShellMessages): string {
+  if (id === 'system') {
+    return messages.shellThemeSystem;
+  }
   if (id === 'dark') {
     return messages.themeDark;
   }
@@ -113,7 +118,7 @@ export function settingsThemeLabel(id: ThemeId, messages: ShellMessages): string
   return messages.themeHighContrast;
 }
 
-/** The theme preview cards: the four themes, in theme order. */
+/** The theme preview cards: the five choices, System first. */
 export function settingsSwatchLabels(messages: ShellMessages): readonly { id: ThemeId; label: string }[] {
   return themes().map((id) => ({ id, label: settingsThemeLabel(id, messages) }));
 }

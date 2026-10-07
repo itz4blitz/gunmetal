@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest';
 import { stubPlayback, queuedSnapshot } from './test-playback.ts';
 import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
+import { demoLocalFilter } from '../../../fake-server/src/filter.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
 
@@ -23,6 +24,16 @@ test('wide shell landmarks match the literal list and show Home', () => {
   expect(screen.getByRole('navigation', { name: 'Primary' }).id).toStrictEqual('nav-sidebar');
   expect(screen.getByRole('complementary', { name: 'Queue' }).id).toStrictEqual('right-pane');
   expect(screen.getByRole('region', { name: 'Now playing' }).id).toStrictEqual('player-bar');
+});
+
+test('the brand lockup carries the nut mark beside the wordmark', () => {
+  const { container } = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} showDemoLabel />);
+  const lockup = container.querySelector('#shell-brand-lockup');
+  expect(lockup).not.toBeNull();
+  expect(lockup?.querySelector('svg[data-brand-mark="1"]')).not.toBeNull();
+  expect(lockup?.querySelector('#shell-wordmark')?.textContent).toStrictEqual('Gunmetal');
+  // The brass rule hangs below the lockup, inside the brand block.
+  expect(container.querySelector('#shell-brand-mark #shell-brand-rule')).not.toBeNull();
 });
 
 test('compact, medium and expanded shells expose their landmark lists', () => {
@@ -125,6 +136,216 @@ test('theme changes from the Settings destination reach the composition callback
   expect(themes).toStrictEqual(['light', 'oled', 'high-contrast', 'dark', 'light', 'oled']);
 });
 
+/** A MediaQueryList stand-in whose answer (and listeners) the test controls. */
+function fakeSystemQuery(initial: boolean) {
+  let matches = initial;
+  const listeners: Array<() => void> = [];
+  const mql = {
+    get matches() {
+      return matches;
+    },
+    addEventListener(_type: 'change', listener: () => void) {
+      listeners.push(listener);
+    },
+    removeEventListener(_type: 'change', listener: () => void) {
+      const at = listeners.indexOf(listener);
+      if (at !== -1) {
+        listeners.splice(at, 1);
+      }
+    },
+  };
+  return {
+    query: () => mql,
+    change(next: boolean) {
+      matches = next;
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    listenerCount: () => listeners.length,
+  };
+}
+
+function fakeSettingsStore(initial: string | null) {
+  let stored = initial;
+  return {
+    store: {
+      read: () => stored,
+      write: (value: string) => {
+        stored = value;
+      },
+    },
+    value: () => stored,
+  };
+}
+
+test('the system choice resolves through the injected media query and follows it live', () => {
+  const system = fakeSystemQuery(false);
+  const view = render(
+    <Shell playback={stubPlayback().controller} path="/" widthPx={1600} systemThemeQuery={system.query} />,
+  );
+  const root = view.container.querySelector('#token-shell');
+  // The choice and its resolution are two attributes: what was chosen, and
+  // what the shell paints with.
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('system');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('light');
+  act(() => {
+    system.change(true);
+  });
+  expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('system');
+});
+
+test('a named choice stops following the system, and returning re-arms the listener', () => {
+  const system = fakeSystemQuery(false);
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/settings"
+      widthPx={1600}
+      library={demoLibrary()}
+      systemThemeQuery={system.query}
+    />,
+  );
+  const root = document.querySelector('#token-shell');
+  fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('dark');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
+  expect(system.listenerCount()).toStrictEqual(0);
+  // The OS flipping underneath no longer moves a named theme.
+  act(() => {
+    system.change(true);
+  });
+  expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
+  fireEvent.click(screen.getByRole('radio', { name: 'System' }));
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('system');
+  expect(system.listenerCount()).toStrictEqual(1);
+});
+
+test('when the system query cannot be asked the shell falls back to dark', () => {
+  const view = render(
+    <Shell playback={stubPlayback().controller} path="/" widthPx={1600} systemThemeQuery={() => null} />,
+  );
+  const root = view.container.querySelector('#token-shell');
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('system');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
+});
+
+test('the theme choice is read from the settings store and written back on change', () => {
+  const fake = fakeSettingsStore('{"theme":"oled"}');
+  const view = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/settings"
+      widthPx={1600}
+      library={demoLibrary()}
+      settingsStore={fake.store}
+    />,
+  );
+  const root = view.container.querySelector('#token-shell');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('oled');
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('oled');
+  expect(screen.getByRole('radio', { name: 'OLED' }).getAttribute('aria-checked')).toStrictEqual('true');
+  fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
+  expect(fake.value()).toStrictEqual('{"theme":"light"}');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('light');
+});
+
+test('a broken settings store reads as the system default', () => {
+  const fake = fakeSettingsStore('not json at all');
+  const view = render(
+    <Shell playback={stubPlayback().controller} path="/" widthPx={1600} settingsStore={fake.store} />,
+  );
+  const root = view.container.querySelector('#token-shell');
+  expect(root?.getAttribute('data-theme-choice')).toStrictEqual('system');
+  expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
+});
+
+test('nav links answer Enter and Space and ignore every other key', () => {
+  const navigated: string[] = [];
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/"
+      widthPx={1600}
+      onNavigate={(next) => {
+        navigated.push(next);
+      }}
+    />,
+  );
+  const home = screen.getByRole('link', { name: 'Home' });
+  fireEvent.keyDown(home, { key: ' ' });
+  fireEvent.keyDown(home, { key: 'Enter' });
+  fireEvent.keyDown(home, { key: 'Tab' });
+  expect(navigated).toStrictEqual(['/', '/']);
+});
+
+test('opening an album from search and going back route through onNavigate, landing on /library', () => {
+  const navigated: string[] = [];
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/search"
+      widthPx={1600}
+      library={demoLibrary()}
+      searchLibrary={demoLocalFilter}
+      onNavigate={(next) => {
+        navigated.push(next);
+      }}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Search albums and tracks'), { target: { value: 'Harbour' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  // Search has no detail route of its own: albums open on the library path.
+  expect(navigated).toStrictEqual(['/library']);
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(navigated).toStrictEqual(['/library', '/library']);
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+});
+
+test('on the phone, playing a track row opens the full player with it', () => {
+  const { calls, controller } = stubPlayback();
+  render(<Shell playback={controller} path="/library" widthPx={390} library={demoLibrary()} />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pier at Dusk' }));
+  expect(calls).toStrictEqual(['playTrack', 'openFull']);
+});
+
+test('on the phone the spotlight opens the full player, and see-all and back push history', () => {
+  const { calls, controller } = stubPlayback();
+  const phone = render(<Shell playback={controller} path="/" widthPx={390} library={demoLibrary()} />);
+  fireEvent.click(document.querySelector('#home-spotlight-play') as HTMLElement);
+  expect(calls).toStrictEqual(['playAlbum', 'openFull']);
+  phone.unmount();
+
+  const desk = render(<Shell playback={controller} path="/" widthPx={1600} library={demoLibrary()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'See all' }));
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  // On wide a track row plays in place: the full player stays closed.
+  fireEvent.click(screen.getByRole('tab', { name: 'Tracks' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pier at Dusk' }));
+  expect(calls).toStrictEqual(['playAlbum', 'openFull', 'playTrack']);
+  desk.unmount();
+});
+
+test('the full player rides the shell when the controller has it open, and only with a track', () => {
+  const queued = stubPlayback(queuedSnapshot());
+  const openWithTrack = { ...queued.controller, fullOpen: true };
+  const withTrack = render(<Shell playback={openWithTrack} path="/" widthPx={1600} />);
+  expect(screen.getByRole('dialog', { name: 'Full player' }).id).toStrictEqual('player-full');
+  withTrack.unmount();
+
+  const empty = stubPlayback();
+  const openWithoutTrack = { ...empty.controller, fullOpen: true };
+  render(<Shell playback={openWithoutTrack} path="/" widthPx={1600} />);
+  expect(screen.queryByRole('dialog', { name: 'Full player' })).toBeNull();
+});
+
 test('without callbacks the shell pushes history and follows popstate and resize', () => {
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
@@ -185,8 +406,8 @@ test('nav items expose CSS glyph keys and the sidebar hosts the brand rule', () 
     ['library', 'Library'],
     ['settings', 'Settings'],
   ]);
-  expect(container.querySelector('#nav-sidebar #shell-brand')).toBeTruthy();
-  expect(container.querySelector('#shell-brand-rule')).toBeTruthy();
+  expect(container.querySelector('#nav-sidebar #shell-brand') !== null).toStrictEqual(true);
+  expect(container.querySelector('#shell-brand-rule') !== null).toStrictEqual(true);
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
   expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
 });

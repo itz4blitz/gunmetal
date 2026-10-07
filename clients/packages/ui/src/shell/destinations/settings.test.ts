@@ -68,28 +68,32 @@ test('plugin slot titles and planes are the catalogue literals', () => {
   expect(settingsSlotPlaneLabel('client', messages)).toStrictEqual('Client');
 });
 
-test('the theme preview strip lists the four switcher themes with catalogue labels', () => {
+test('the theme preview strip lists the five choices system-first with catalogue labels', () => {
   const shell = shellMessages();
   expect(settingsSwatchLabels(shell)).toStrictEqual([
+    { id: 'system', label: 'System' },
     { id: 'dark', label: 'Dark' },
     { id: 'light', label: 'Light' },
     { id: 'oled', label: 'OLED' },
     { id: 'high-contrast', label: 'High contrast' },
   ]);
+  expect(settingsThemeLabel('system', shell)).toStrictEqual('System');
   expect(settingsThemeLabel('dark', shell)).toStrictEqual('Dark');
   expect(settingsThemeLabel('high-contrast', shell)).toStrictEqual('High contrast');
 });
 
-test('radio-group arrows step through the themes in order and wrap at both ends', () => {
+test('radio-group arrows step through the five choices in order and wrap at both ends', () => {
+  expect(settingsThemeForKey('system', 'ArrowRight')).toStrictEqual('dark');
   expect(settingsThemeForKey('dark', 'ArrowRight')).toStrictEqual('light');
   expect(settingsThemeForKey('light', 'ArrowDown')).toStrictEqual('oled');
   expect(settingsThemeForKey('oled', 'ArrowRight')).toStrictEqual('high-contrast');
-  expect(settingsThemeForKey('high-contrast', 'ArrowRight')).toStrictEqual('dark');
-  expect(settingsThemeForKey('dark', 'ArrowLeft')).toStrictEqual('high-contrast');
+  expect(settingsThemeForKey('high-contrast', 'ArrowRight')).toStrictEqual('system');
+  expect(settingsThemeForKey('system', 'ArrowLeft')).toStrictEqual('high-contrast');
+  expect(settingsThemeForKey('dark', 'ArrowLeft')).toStrictEqual('system');
   expect(settingsThemeForKey('high-contrast', 'ArrowUp')).toStrictEqual('oled');
   expect(settingsThemeForKey('light', 'ArrowLeft')).toStrictEqual('dark');
   // Every other key leaves the choice alone.
-  expect(settingsThemeForKey('dark', 'Enter')).toStrictEqual(undefined);
+  expect(settingsThemeForKey('system', 'Enter')).toStrictEqual(undefined);
   expect(settingsThemeForKey('dark', 'Tab')).toStrictEqual(undefined);
   expect(settingsThemeForKey('dark', 'a')).toStrictEqual(undefined);
 });

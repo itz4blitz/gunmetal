@@ -1,21 +1,28 @@
+import { useMemo } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial } from '../format.ts';
 import { Icon } from '../Icon.tsx';
 import type { ShellAlbum, ShellArtist, ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
+import { indexAlbums } from './library-index.ts';
+import { intersectionObserverFactory } from './near-view.ts';
 import { TrackRow } from './TrackRow.tsx';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
 
-/** The artist page's read: the artist's albums in library order. */
-function albumsForArtist(library: ShellLibrary, artist: ShellArtist): readonly ShellAlbum[] {
-  const albums: ShellAlbum[] = [];
+/** The all-songs table's row height, pinned by the area CSS row contract. */
+const TRACK_ROW_HEIGHT = 52;
+
+/** The artist page's read: the artist's albums in library order, O(1) per id. */
+function albumsForArtist(albums: ReadonlyMap<string, ShellAlbum>, artist: ShellArtist): readonly ShellAlbum[] {
+  const found: ShellAlbum[] = [];
   for (const id of artist.albumIds) {
-    const found = library.albums.find((album) => album.id === id);
-    if (found !== undefined) {
-      albums.push(found);
+    const album = albums.get(id);
+    if (album !== undefined) {
+      found.push(album);
     }
   }
-  return albums;
+  return found;
 }
 
 /** All songs reads across the artist's own albums; hostile albums never render. */
@@ -46,6 +53,16 @@ export type ArtistDetailProps = {
   library: ShellLibrary;
   messages: DestinationMessages;
   currentTrackId?: string | undefined;
+  /**
+   * The scroll container the all-songs list windows against; the shell's
+   * content pane by default. Tests inject a stand-in (jsdom has no layout).
+   */
+  getScroller?: (() => HTMLElement | null) | undefined;
+  /**
+   * The album grid defers cover URLs until tiles are near the viewport. The
+   * browser constructor by default; undefined (jsdom) paints immediately.
+   */
+  nearViewObserver?: typeof IntersectionObserver | undefined;
   onBack: () => void;
   onOpenAlbum: (albumId: string) => void;
   onPlayAlbum: (albumId: string) => void;
@@ -76,6 +93,8 @@ export function ArtistDetail({
   library,
   messages,
   currentTrackId,
+  getScroller,
+  nearViewObserver,
   onBack,
   onOpenAlbum,
   onPlayAlbum,
@@ -86,6 +105,10 @@ export function ArtistDetail({
   onPlayNextTrack,
   onAddTrackToQueue,
 }: ArtistDetailProps) {
+  // One album index per library change, built before any early return.
+  const albumIndex = useMemo(() => indexAlbums(library), [library]);
+  // The rows the content pane can see; a zero read (jsdom) shows everything.
+  const viewport = useContentViewport(getScroller ?? contentScroller);
   if (artist === undefined) {
     return (
       <View id="destination-artist-missing">
@@ -109,8 +132,21 @@ export function ArtistDetail({
     );
   }
 
-  const albums = albumsForArtist(library, artist);
+  const albums = albumsForArtist(albumIndex, artist);
   const songs = tracksForArtist(albums);
+  const songWindow = visibleRange(
+    viewport.scrollTop,
+    viewport.viewportHeight,
+    TRACK_ROW_HEIGHT,
+    songs.length,
+    LIST_OVERSCAN_ROWS,
+  );
+  const shownSongs = songs.slice(songWindow.start, songWindow.end);
+  // Undefined in jsdom: no factory, every cover paints immediately.
+  const nearArt = useMemo(
+    () => intersectionObserverFactory(nearViewObserver ?? globalThis.IntersectionObserver),
+    [nearViewObserver],
+  );
   const allSongsOpen = onPlayTrack !== undefined && songs.length > 0;
   const first = albums[0];
   const heading = artistHeading(artist, albums, messages);
@@ -207,6 +243,7 @@ export function ArtistDetail({
             album={album}
             messages={messages}
             staggerIndex={index}
+            nearArt={nearArt}
             onOpen={onOpenAlbum}
             onPlay={onPlayAlbum}
             onPlayNext={onPlayNextAlbum}
@@ -229,7 +266,7 @@ export function ArtistDetail({
             <Text>{messages.columnTime}</Text>
           </View>
           <View dataSet={{ artistSongList: '1' }}>
-            {songs.map(({ album, track }) => (
+            {shownSongs.map(({ album, track }) => (
               <TrackRow
                 key={track.id}
                 track={track}

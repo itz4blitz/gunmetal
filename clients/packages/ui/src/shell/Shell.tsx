@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue } from '../messages/catalogue.ts';
+import { BrandMark } from './brand-mark.tsx';
 import { matchAddress, type MatchResult } from '../router/match.ts';
 import { pushPath } from '../router/navigate.ts';
 import { noLyrics, type LibrarySearch, type LyricsResolver } from './content.ts';
 import { Destination } from './destinations/Destination.tsx';
 import type { PluginSlot } from './destinations/settings.ts';
 import type { ShellLibrary } from './library-types.ts';
+import type { TimedLyricsResolver } from './synced-lyrics.ts';
+import { useTransportKeys } from './use-transport-keys.ts';
 import { Icon } from './Icon.tsx';
 import { Nav, navItems } from './Nav.tsx';
 import { PaneResizer } from './PaneResizer.tsx';
@@ -22,7 +25,17 @@ import { PlayerBar } from './PlayerBar.tsx';
 import { PlayerFull } from './PlayerFull.tsx';
 import { QueuePane } from './QueuePane.tsx';
 import type { PlaybackController } from './playback-controller.ts';
-import { defaultTheme, type ThemeId } from './theme.ts';
+import {
+  defaultSystemThemeQuery,
+  noSettingsStore,
+  parseThemeChoice,
+  resolveTheme,
+  serializeThemeChoice,
+  SYSTEM_THEME_QUERY,
+  type SettingsStore,
+  type SystemThemeQuery,
+  type ThemeId,
+} from './theme.ts';
 import { landmarksForClass, widthClass, type WidthClass } from './width.ts';
 
 export type ShellProps = {
@@ -40,10 +53,20 @@ export type ShellProps = {
   searchLibrary?: LibrarySearch | undefined;
   /** Lyrics content resolver (fixture verses today, server lyrics later). */
   lyricsFor?: LyricsResolver | undefined;
+  /** Timed lyrics for synced tracks (line timestamps today, the server's LRC later). */
+  timedLyricsFor?: TimedLyricsResolver | undefined;
   /** Plugin-slot list for the Settings page (server config later). */
   pluginSlots?: readonly PluginSlot[] | undefined;
   /** Where the pane widths are kept between visits (localStorage in apps/demo). */
   layoutStore?: LayoutStore | undefined;
+  /** Where the theme choice is kept between visits (localStorage in apps/demo). */
+  settingsStore?: SettingsStore | undefined;
+  /**
+   * How the shell asks the operating system about its colour scheme
+   * (design-language §4). Defaults to the runtime's matchMedia; null answers
+   * "cannot be asked" and resolves the system choice to dark.
+   */
+  systemThemeQuery?: (query: string) => SystemThemeQuery | null;
   onNavigate?: (path: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
 };
@@ -100,15 +123,22 @@ export function Shell({
   playback,
   searchLibrary = () => ({ albums: [], tracks: [] }),
   lyricsFor = () => noLyrics,
+  timedLyricsFor,
   pluginSlots,
   layoutStore,
+  settingsStore,
+  systemThemeQuery = defaultSystemThemeQuery,
   onNavigate,
   onThemeChange,
 }: ShellProps) {
   const messages = catalogue();
   const [store] = useState<LayoutStore>(() => layoutStore ?? noLayoutStore());
   const [paneWidths, setPaneWidths] = useState<PaneWidths>(() => parsePaneWidths(store.read()));
-  const [theme, setTheme] = useState<ThemeId>(themeProp ?? defaultTheme());
+  const [settings] = useState<SettingsStore>(() => settingsStore ?? noSettingsStore());
+  /* The choice (what was picked, `system` included) and the OS's answer are
+     two states: only their meeting decides what `data-theme` paints. */
+  const [themeChoice, setThemeChoice] = useState<ThemeId>(() => themeProp ?? parseThemeChoice(settings.read()));
+  const [systemDark, setSystemDark] = useState<boolean>(() => systemThemeQuery(SYSTEM_THEME_QUERY)?.matches ?? true);
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
   const [location, setLocation] = useState(() => {
     if (path !== undefined) {
@@ -119,9 +149,30 @@ export function Shell({
 
   useEffect(() => {
     if (themeProp !== undefined) {
-      setTheme(themeProp);
+      setThemeChoice(themeProp);
     }
   }, [themeProp]);
+
+  /* While the choice is `system` the shell follows the operating system
+     live: a change event re-resolves the theme without a reload. A named
+     choice unsubscribes; choosing System again re-arms. */
+  useEffect(() => {
+    if (themeChoice !== 'system') {
+      return;
+    }
+    const query = systemThemeQuery(SYSTEM_THEME_QUERY);
+    if (query === null) {
+      return;
+    }
+    const onSchemeChange = () => {
+      setSystemDark(query.matches);
+    };
+    onSchemeChange();
+    query.addEventListener('change', onSchemeChange);
+    return () => {
+      query.removeEventListener('change', onSchemeChange);
+    };
+  }, [themeChoice, systemThemeQuery]);
 
   useEffect(() => {
     if (widthPx !== undefined) {
@@ -185,10 +236,21 @@ export function Shell({
     [commitPane],
   );
 
+  /* The transport keys answer from wherever the listener is (R1 keyboard
+     proposal): Space, the arrows and Enter, unless a field owns the key. */
+  useTransportKeys({
+    onPlayPause: playback.playPause,
+    onNext: playback.next,
+    onSeekBy: (deltaMs) => {
+      playback.seek(playback.state.positionMs + deltaMs);
+    },
+  });
+
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
   const itemId = match.kind === 'ok' ? match.history.itemId : undefined;
   const pageId = `${location.pathname} ${itemId ?? ''}`;
+  const resolvedTheme = resolveTheme(themeChoice, systemDark);
 
   useLayoutEffect(() => {
     scrollContentToTop();
@@ -248,7 +310,8 @@ export function Shell({
   };
 
   const changeTheme = (next: ThemeId) => {
-    setTheme(next);
+    setThemeChoice(next);
+    settings.write(serializeThemeChoice(next));
     onThemeChange?.(next);
   };
 
@@ -289,7 +352,10 @@ export function Shell({
   const brandBlock = (
     <View id="shell-brand">
       <View id="shell-brand-mark">
-        <Text id="shell-wordmark">{messages.shell.wordmark}</Text>
+        <View id="shell-brand-lockup">
+          <BrandMark size={22} />
+          <Text id="shell-wordmark">{messages.shell.wordmark}</Text>
+        </View>
         <View id="shell-brand-rule" accessibilityRole="none" />
       </View>
       {showDemoLabel ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
@@ -355,7 +421,8 @@ export function Shell({
     <View
       id="token-shell"
       dataSet={{
-        theme,
+        theme: resolvedTheme,
+        themeChoice,
         width,
         landmarks: currentLandmarks.join(' '),
         ...(artTone !== undefined ? { artTone } : {}),
@@ -406,7 +473,7 @@ export function Shell({
             messages={messages}
             library={library}
             itemId={itemId}
-            theme={theme}
+            theme={themeChoice}
             onThemeChange={changeTheme}
             onOpenAlbum={openAlbum}
             onOpenArtist={openAlbum}
@@ -421,6 +488,7 @@ export function Shell({
               navigate('/library');
             }}
             currentTrackId={state.trackId}
+            playingAlbumId={state.albumId}
             width={width}
           />
         </View>
@@ -434,7 +502,13 @@ export function Shell({
           />
         ) : null}
         {showWideQueue ? (
-          <QueuePane messages={messages.shell} playback={state} compactSheet={false} onPlayLine={playback.playTrack} />
+          <QueuePane
+            messages={messages.shell}
+            playback={state}
+            compactSheet={false}
+            onPlayLine={playback.playTrack}
+            onRemoveLine={playback.removeQueueLine}
+          />
         ) : (
           <QueuePane
             messages={messages.shell}
@@ -442,6 +516,7 @@ export function Shell({
             compactSheet
             onCloseSheet={playback.closeQueue}
             onPlayLine={playback.playTrack}
+            onRemoveLine={playback.removeQueueLine}
           />
         )}
         <PlayerBar
@@ -450,28 +525,39 @@ export function Shell({
           albumTitle={playingAlbumTitle}
           compact={width === 'compact'}
           volume={playback.volume}
+          muted={playback.muted}
+          onMuted={playback.setMuted}
+          clock={playback.clock}
           onVolume={playback.setVolume}
           onSeek={playback.seek}
           onPlayPause={playback.playPause}
           onPrevious={playback.previous}
           onNext={playback.next}
+          onToggleShuffle={playback.toggleShuffle}
+          onCycleRepeat={playback.cycleRepeat}
           onToggleQueue={playback.toggleQueue}
           onOpenFull={playback.openFull}
         />
         <PlayerFull
           lyricsFor={lyricsFor}
+          timedLyricsFor={timedLyricsFor}
           messages={messages.shell}
           playback={state}
           open={playback.fullOpen && state.trackId !== undefined}
           placement={width === 'compact' ? 'overlay' : 'pane'}
           albumTitle={playingAlbumTitle}
           volume={playback.volume}
+          muted={playback.muted}
+          onMuted={playback.setMuted}
+          clock={playback.clock}
           onVolume={playback.setVolume}
           onSeek={playback.seek}
           onClose={playback.closeFull}
           onPlayPause={playback.playPause}
           onPrevious={playback.previous}
           onNext={playback.next}
+          onToggleShuffle={playback.toggleShuffle}
+          onCycleRepeat={playback.cycleRepeat}
           onToggleQueue={playback.toggleQueue}
         />
         {width === 'compact' ? (

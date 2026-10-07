@@ -151,6 +151,44 @@ test('the queue names the line that is playing and lists the rest in order', () 
   elsewhere.unmount();
 });
 
+test('each queue line offers its removal, wired to the handler', () => {
+  const messages = catalogue().shell;
+  const onRemoveLine = vi.fn();
+  const view = render(
+    <QueuePane messages={messages} playback={queuedSnapshot()} compactSheet={false} onRemoveLine={onRemoveLine} />,
+  );
+  const remove = screen.getByRole('button', { name: 'Remove from queue: Salt Window' });
+  expect(remove.getAttribute('data-queue-remove')).toStrictEqual('1');
+  expect(remove.id).toStrictEqual('queue-remove-demo-track-01-02');
+  expect(
+    [...document.querySelectorAll('[data-queue-remove="1"]')].map((node) => node.getAttribute('aria-label')),
+  ).toStrictEqual([
+    'Remove from queue: Pier at Dusk',
+    'Remove from queue: Salt Window',
+    'Remove from queue: Low Tide Letter',
+    'Remove from queue: Beacon',
+  ]);
+  fireEvent.click(remove);
+  expect(onRemoveLine).toHaveBeenCalledTimes(1);
+  expect(onRemoveLine).toHaveBeenCalledWith('demo-track-01-02');
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Remove from queue: Pier at Dusk' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Remove from queue: Beacon' }), { key: ' ' });
+  fireEvent.keyDown(remove, { key: 'Tab' });
+  expect(onRemoveLine).toHaveBeenCalledTimes(3);
+  expect(onRemoveLine).toHaveBeenLastCalledWith('demo-track-01-04');
+  view.unmount();
+  // Without a handler there is no remove control at all: nothing inert.
+  const unwired = render(<QueuePane messages={messages} playback={queuedSnapshot()} compactSheet />);
+  expect(document.querySelectorAll('[data-queue-remove="1"]')).toHaveLength(0);
+  unwired.unmount();
+  // The empty queue has nothing to remove.
+  const empty = render(
+    <QueuePane messages={messages} playback={emptySnapshot()} compactSheet={false} onRemoveLine={onRemoveLine} />,
+  );
+  expect(document.querySelectorAll('[data-queue-remove="1"]')).toHaveLength(0);
+  empty.unmount();
+});
+
 test('the queue sheet closes from its button, its scrim and Escape, and only while it is open', () => {
   const messages = catalogue().shell;
   const onCloseSheet = vi.fn();

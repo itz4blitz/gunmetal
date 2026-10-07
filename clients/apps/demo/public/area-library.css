@@ -120,6 +120,65 @@
   outline-offset: 2px;
 }
 
+/* Sort: the same quiet segmented steel as density — where-you-are is the
+   raised plate, never brass (§3). The group's own label is visually
+   hidden; the checked option names itself. */
+#token-shell #library-sort {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+}
+
+#token-shell #library-sort [data-sort-option] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--gm-radius-s);
+  cursor: pointer;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
+}
+
+#token-shell #library-sort [data-sort-label] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 600;
+}
+
+#token-shell #library-sort [data-sort-option]:hover {
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #library-sort [data-sort-option][data-selected='1'] {
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-raised-edge);
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #library-sort [data-sort-option]:focus {
+  outline: none;
+}
+
+#token-shell #library-sort [data-sort-option]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
 /* Narrow column: the control keeps its place beside the title by dropping
    its words. Each option keeps its accessible name and grows to a 44px
    touch target. */
@@ -1469,4 +1528,89 @@
   #token-shell #library-artist-list [data-artist-row] [data-artist-play] {
     transform: none;
   }
+}
+
+/* ==========================================================================
+   Render discipline (2026-10-07): the library answers a growing catalogue,
+   so off-screen tiles and rows skip layout and paint while staying in the
+   a11y tree and tab order. The intrinsic size keeps the scrollbar honest;
+   `auto` lets the browser remember the real size after first paint.
+   ========================================================================== */
+
+#token-shell #library-album-grid [data-album-tile],
+#token-shell #destination-search [data-search-album-grid] [data-album-tile] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
+#token-shell :is(#library-track-list, #search-track-list) [data-track-row] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+
+#token-shell
+  #destination-library[data-density='compact']
+  :is(#library-track-list, #search-track-list)
+  [data-track-row] {
+  contain-intrinsic-size: auto 44px;
+}
+
+#token-shell #library-artist-list [data-artist-row] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
+/* —— Honest states (2026-10-07): a failed read, a filtered-out result —— */
+
+#token-shell #library-error,
+#token-shell #search-empty-library,
+#token-shell #search-filter-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+#token-shell #library-error [data-library-error-text],
+#token-shell #search-filter-empty [data-search-filter-remaining] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell #search-filter-empty [data-search-filter-hint] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#token-shell #library-retry {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  margin-top: 8px;
+  border: 1px solid var(--gm-line-control);
+  border-radius: var(--gm-radius-m);
+  cursor: pointer;
+  transition: background-color var(--gm-motion);
+}
+
+#token-shell #library-retry:hover {
+  background: color-mix(in srgb, var(--gm-text-primary) 6%, transparent);
+}
+
+#token-shell #library-retry:focus {
+  outline: none;
+}
+
+#token-shell #library-retry:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
 }

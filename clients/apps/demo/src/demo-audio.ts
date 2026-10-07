@@ -1,13 +1,14 @@
-// Demo audio engine (fixture tones until CP-019 wires the real engine and
-// the core's decision engine). All logic lives here so it runs in Vitest
-// against a scripted element; the DOM element itself comes from the one
-// dumb adapter in src/browser/audio-element.ts.
+// Demo audio engine until CP-019 wires the real engine and the core's
+// decision engine. All logic lives here so it runs in Vitest against a
+// scripted element; the DOM element itself comes from the one dumb adapter
+// in src/browser/audio-element.ts.
 //
-// The fixture tone is an 8-second loop; the catalogue says a track is
-// 3:34. The element loops and this engine keeps a virtual clock that runs
-// at the catalogue's scale, so progress advances like a real player and
-// tracks hand over at their listed duration. CP-019/WP-030 replace the
-// clock with the core's player state machine.
+// A fixture tone is a short loop under a longer catalogue duration. A file
+// whose length matches that row plays once, and the element's own end
+// hands the track over. CP-019/WP-030 replace this clock.
+
+/** The element events the engine mirrors into honest playback state. */
+export type DemoAudioEvent = 'timeupdate' | 'ended' | 'waiting' | 'stalled' | 'playing' | 'loadedmetadata' | 'error';
 
 export type DemoAudioElement = {
   src: string;
@@ -15,10 +16,12 @@ export type DemoAudioElement = {
   volume: number;
   currentTime: number;
   duration: number;
+  /** The engine reads the reason off a failed element (MediaError or null). */
+  error: { message?: string } | null;
   play(): void | Promise<void>;
   pause(): void;
-  addEventListener(type: 'timeupdate' | 'ended', listener: () => void): void;
-  removeEventListener(type: 'timeupdate' | 'ended', listener: () => void): void;
+  addEventListener(type: DemoAudioEvent, listener: () => void): void;
+  removeEventListener(type: DemoAudioEvent, listener: () => void): void;
 };
 
 export type DemoAudioHooks = {
@@ -26,6 +29,17 @@ export type DemoAudioHooks = {
   onTime: (positionMs: number, durationMs: number) => void;
   /** Fired once when the virtual clock reaches the track's duration. */
   onEnded: () => void;
+  /** Fired when the media is, or stops being, not ready to play through. */
+  onBuffering: (buffering: boolean) => void;
+  /** Fired on the element's error event with the engine's reason ('' if it gave none). */
+  onError: (message: string) => void;
+  /**
+   * Fired from loadedmetadata with the track duration in ms — only when
+   * the engine had to adopt the element's length because the catalogue
+   * gave none. A catalogue duration stays the clock's scale (the demo
+   * fixtures play at that scale on purpose).
+   */
+  onDuration: (durationMs: number) => void;
 };
 
 export type DemoAudio = {
@@ -43,6 +57,21 @@ export type DemoAudio = {
 
 function clampVolume(volume: number): number {
   return Math.max(0, Math.min(1, volume));
+}
+
+/**
+ * A fixture tone is much shorter than the catalogue row it stands in for,
+ * so the element has to loop. A real file is the row's length (or the row
+ * had no length and will adopt the file), so it plays once.
+ */
+export function loopsFixtureTone(catalogueMs: number, fileSeconds: number): boolean {
+  if (!Number.isFinite(fileSeconds) || fileSeconds <= 0) {
+    return true;
+  }
+  if (!(catalogueMs > 0)) {
+    return false;
+  }
+  return fileSeconds * 1000 + 1_500 < catalogueMs;
 }
 
 export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks): DemoAudio {
@@ -74,13 +103,57 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
   const onTime = () => {
     advance();
   };
-  element.addEventListener('timeupdate', onTime);
+  const onWaiting = () => {
+    hooks.onBuffering(true);
+  };
+  const onStalled = () => {
+    hooks.onBuffering(true);
+  };
+  const onPlaying = () => {
+    hooks.onBuffering(false);
+  };
+  const onLoadedMetadata = () => {
+    hooks.onBuffering(false);
+    /* The element's own length is the truth about the track when the
+       catalogue had none to give. A real file's metadata, once adopted,
+       becomes the clock's scale too. */
+    const seconds = element.duration;
+    element.loop = loopsFixtureTone(trackDurationMs, seconds);
+    if (trackDurationMs === 0 && Number.isFinite(seconds) && seconds > 0) {
+      trackDurationMs = seconds * 1000;
+      hooks.onDuration(trackDurationMs);
+    }
+  };
+  const onElementEnded = () => {
+    if (endedFired) {
+      return;
+    }
+    endedFired = true;
+    virtualMs = trackDurationMs > 0 ? trackDurationMs : virtualMs;
+    hooks.onEnded();
+  };
+  const onError = () => {
+    hooks.onError(element.error?.message ?? '');
+  };
+  const listeners: ReadonlyArray<[DemoAudioEvent, () => void]> = [
+    ['timeupdate', onTime],
+    ['waiting', onWaiting],
+    ['stalled', onStalled],
+    ['playing', onPlaying],
+    ['loadedmetadata', onLoadedMetadata],
+    ['ended', onElementEnded],
+    ['error', onError],
+  ];
+  for (const [type, listener] of listeners) {
+    element.addEventListener(type, listener);
+  }
 
   return {
     load(url: string, durationMs: number) {
       trackDurationMs = durationMs;
       virtualMs = 0;
       endedFired = false;
+      element.loop = true;
       element.src = url;
       element.currentTime = 0;
       lastElementSeconds = 0;
@@ -106,7 +179,9 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
       element.volume = clampVolume(volume);
     },
     detach() {
-      element.removeEventListener('timeupdate', onTime);
+      for (const [type, listener] of listeners) {
+        element.removeEventListener(type, listener);
+      }
       element.pause();
     },
   };

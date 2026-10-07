@@ -17,7 +17,7 @@ export type FixtureAlbum = Omit<CatalogueAlbum, 'coverUrl' | 'tracks'> & {
 
 export type DemoAlbum = CatalogueAlbum;
 export type DemoArtist = CatalogueArtist;
-export type DemoLibrary = CatalogueLibrary & { kind: 'demo-fixtures' };
+export type DemoLibrary = CatalogueLibrary & { kind: 'demo-fixtures' | 'folder' };
 
 export type DemoTrack = CatalogueTrack;
 export type DemoTrackFlag = CatalogueTrackFlag;

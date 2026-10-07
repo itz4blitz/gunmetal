@@ -1,4 +1,5 @@
 import { Text, View } from 'react-native-web';
+import { useNearById, type NearViewFactory } from './near-view.ts';
 
 /** An artwork URL from the library (same-origin); the tone plate is the base. */
 export type CoverTileProps = {
@@ -7,6 +8,12 @@ export type CoverTileProps = {
   size?: 'row' | 'grid' | 'detail' | 'bar' | 'full';
   coverId?: string;
   artUrl?: string | undefined;
+  /**
+   * When wired, the art URL waits until the tile is near the viewport (the
+   * library grids pass a factory over IntersectionObserver). Without it —
+   * jsdom, or a host without the API — the art paints immediately.
+   */
+  deferArt?: NearViewFactory | undefined;
 };
 
 /**
@@ -18,17 +25,20 @@ export type CoverTileProps = {
  * (data-cover-art) and the machined edge carries the tile; the plate stays
  * the loading base underneath.
  */
-export function CoverTile({ tone, label, size = 'grid', coverId, artUrl }: CoverTileProps) {
+export function CoverTile({ tone, label, size = 'grid', coverId, artUrl, deferArt }: CoverTileProps) {
+  const id = coverId ?? `cover-${size}`;
   const hasArt = artUrl !== undefined && artUrl !== '';
-  const art = hasArt
-    ? { backgroundImage: `url("${artUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }
-    : undefined;
+  const near = useNearById(hasArt ? deferArt : undefined, id);
+  const art =
+    hasArt && near
+      ? { backgroundImage: `url("${artUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : undefined;
   const showGlyph = !hasArt && (size === 'bar' || size === 'detail' || size === 'full');
   const trimmed = label.trim();
   const glyph = trimmed.length === 0 ? '·' : trimmed.slice(0, 1).toUpperCase();
   return (
     <View
-      id={coverId ?? `cover-${size}`}
+      id={id}
       dataSet={{ cover: tone, size, coverArt: hasArt ? '1' : '0' }}
       accessibilityLabel={label}
       accessibilityRole="image"

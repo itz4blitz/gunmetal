@@ -4,7 +4,9 @@ import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
 import { Icon, type IconName } from './Icon.tsx';
+import { RepeatGlyph } from './player-glyphs.tsx';
 import { formatDuration } from './format.ts';
+import { usePositionMs, type PositionClock } from './position-clock.ts';
 
 export type PlayerBarProps = {
   messages: ShellMessages;
@@ -13,12 +15,19 @@ export type PlayerBarProps = {
   compact?: boolean | undefined;
   volume?: number | undefined;
   onVolume?: ((volume: number) => void) | undefined;
+  /** Whether the output is silenced; wired with onMuted this state is honest. */
+  muted?: boolean | undefined;
+  onMuted?: ((muted: boolean) => void) | undefined;
   onSeek?: ((positionMs: number) => void) | undefined;
   onPlayPause?: (() => void) | undefined;
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;
+  onToggleShuffle?: (() => void) | undefined;
+  onCycleRepeat?: (() => void) | undefined;
   onToggleQueue?: (() => void) | undefined;
   onOpenFull?: (() => void) | undefined;
+  /** The composition root's position clock; without it the snapshot's position is shown. */
+  clock?: PositionClock | undefined;
 };
 
 export function PlayerBar({
@@ -28,15 +37,19 @@ export function PlayerBar({
   compact = false,
   volume,
   onVolume,
+  muted,
+  onMuted,
   onSeek,
   onPlayPause,
   onPrevious,
   onNext,
+  onToggleShuffle,
+  onCycleRepeat,
   onToggleQueue,
   onOpenFull,
+  clock,
 }: PlayerBarProps) {
   const empty = playback.trackId === undefined;
-  const progress = playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
 
   /* The marquee engages only on a measured overflow. The visible width comes
      from the meta block's content box (the clipping parent), so re-measuring
@@ -48,9 +61,8 @@ export function PlayerBar({
       return;
     }
     const measure = () => {
-      const el = globalThis.document.getElementById('player-title');
-      const clip = el?.parentElement ?? null;
-      if (el === null || clip === null || clip.clientWidth <= 0) {
+      const clip = globalThis.document.getElementById('player-title')?.parentElement ?? null;
+      if (clip === null || clip.clientWidth <= 0) {
         return;
       }
       const padding = globalThis.getComputedStyle(clip);
@@ -58,12 +70,14 @@ export function PlayerBar({
         0,
         Math.round(clip.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)),
       );
+      /* The clip is the credit block whose first child is the title. */
+      const el = clip.firstElementChild as HTMLElement;
       const shift = titleMarqueeShift(el.scrollWidth, available);
       if (shift === null) {
-        el.style.removeProperty('--gm-title-shift');
+        el?.style.removeProperty('--gm-title-shift');
         return;
       }
-      el.style.setProperty('--gm-title-shift', `${shift}px`);
+      el?.style.setProperty('--gm-title-shift', `${shift}px`);
     };
     measure();
     globalThis.addEventListener('resize', measure);
@@ -76,36 +90,17 @@ export function PlayerBar({
     onOpenFull?.();
   };
 
-  const seekFromEvent = (event: { currentTarget: HTMLElement; clientX: number }) => {
-    if (onSeek === undefined || empty || playback.durationMs <= 0) {
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) {
-      return;
-    }
-    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    onSeek(Math.round(fraction * playback.durationMs));
-  };
-
-  const seekByKeyboard = (event: { key: string; preventDefault: () => void }) => {
-    if (onSeek === undefined || empty || playback.durationMs <= 0) {
-      return;
-    }
-    const step = 5000;
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      onSeek(Math.max(0, playback.positionMs - step));
-      return;
-    }
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      onSeek(Math.min(playback.durationMs, playback.positionMs + step));
-    }
-  };
-
-  const secondary =
-    albumTitle !== undefined && albumTitle !== '' ? `${playback.artistName} · ${albumTitle}` : playback.artistName;
+  /* One honest state line: the engine's failure reason, or the buffering it
+     reports. Announced without moving focus (design-language §11). */
+  const stateLine =
+    playback.playbackError !== undefined
+      ? {
+          kind: 'error' as const,
+          text: playback.playbackError === '' ? messages.playerPlaybackFailed : playback.playbackError,
+        }
+      : playback.buffering === true
+        ? { kind: 'buffering' as const, text: messages.playerBuffering }
+        : null;
 
   return (
     <View
@@ -113,7 +108,11 @@ export function PlayerBar({
       accessibilityRole="region"
       accessibilityLabel={messages.playerRegion}
       tabIndex={-1}
-      dataSet={{ barEmpty: empty ? '1' : '0' }}
+      dataSet={{
+        barEmpty: empty ? '1' : '0',
+        buffering: playback.buffering === true ? '1' : '0',
+        errored: playback.playbackError !== undefined ? '1' : '0',
+      }}
     >
       {/* —— Left: art + what is playing (or the idle state) —— */}
       <View id="player-left">
@@ -160,7 +159,16 @@ export function PlayerBar({
               }}
             >
               <Text id="player-title">{playback.title}</Text>
-              <Text id="player-artist">{secondary}</Text>
+              <Text id="player-artist">
+                {albumTitle !== undefined && albumTitle !== ''
+                  ? `${playback.artistName} · ${albumTitle}`
+                  : playback.artistName}
+              </Text>
+              {stateLine === null ? null : (
+                <Text id="player-state" accessibilityRole="status" dataSet={{ playerState: stateLine.kind }}>
+                  {stateLine.text}
+                </Text>
+              )}
             </View>
           </>
         )}
@@ -169,6 +177,14 @@ export function PlayerBar({
       {/* —— Centre: transport stacked over the scrubber, one optical centre —— */}
       <View id="player-center">
         <View id="player-transport">
+          <ControlButton
+            id="player-shuffle"
+            label={messages.playerShuffle}
+            onPress={onToggleShuffle}
+            disabled={empty}
+            pressed={playback.shuffleOn === true}
+            glyph="shuffle"
+          />
           <ControlButton
             id="player-prev"
             label={messages.previous}
@@ -186,36 +202,23 @@ export function PlayerBar({
             idle={empty}
           />
           <ControlButton id="player-next" label={messages.next} onPress={onNext} disabled={empty} glyph="next" />
+          <ControlButton
+            id="player-repeat"
+            label={
+              playback.repeatMode === 'one'
+                ? messages.playerRepeatOne
+                : playback.repeatMode === 'all'
+                  ? messages.playerRepeatAll
+                  : messages.playerRepeat
+            }
+            onPress={onCycleRepeat}
+            disabled={empty}
+            pressed={playback.repeatMode === 'all' || playback.repeatMode === 'one'}
+            repeatOne={playback.repeatMode === 'one'}
+            glyph="repeat"
+          />
         </View>
-        <View id="player-progress" dataSet={{ barEmpty: empty ? '1' : '0' }}>
-          <Text id="player-time-elapsed" dataSet={{ scrubberTime: '1' }}>
-            {formatDuration(playback.positionMs)}
-          </Text>
-          <View
-            id="player-scrubber"
-            accessibilityRole="slider"
-            accessibilityLabel={messages.progress}
-            aria-valuemin={0}
-            aria-valuemax={playback.durationMs}
-            aria-valuenow={Math.round(playback.positionMs)}
-            aria-valuetext={`${formatDuration(playback.positionMs)} of ${formatDuration(playback.durationMs)}`}
-            dataSet={{ progress: `${Math.round(progress * 100)}` }}
-            tabIndex={empty ? -1 : 0}
-            onClick={seekFromEvent}
-            onKeyDown={seekByKeyboard}
-          >
-            <View id="player-progress-track">
-              <View
-                id="player-progress-fill"
-                dataSet={{ fill: `${Math.round(progress * 100)}` }}
-                style={{ width: `${Math.round(progress * 100)}%` }}
-              />
-            </View>
-          </View>
-          <Text id="player-time-total" dataSet={{ scrubberTime: '1' }}>
-            {formatDuration(playback.durationMs)}
-          </Text>
-        </View>
+        <ProgressZone messages={messages} playback={playback} empty={empty} onSeek={onSeek} clock={clock} />
       </View>
 
       {/* —— Right: expand · lyrics · volume · queue (extras sleep when empty) —— */}
@@ -257,7 +260,7 @@ export function PlayerBar({
           </View>
         )}
         {empty || compact || volume === undefined || onVolume === undefined ? null : (
-          <VolumeControl messages={messages} volume={volume} onVolume={onVolume} />
+          <VolumeControl messages={messages} volume={volume} muted={muted} onMuted={onMuted} onVolume={onVolume} />
         )}
         <ControlButton
           id="player-queue"
@@ -271,18 +274,100 @@ export function PlayerBar({
   );
 }
 
+type ProgressZoneProps = {
+  messages: ShellMessages;
+  playback: PlayerSnapshot;
+  empty: boolean;
+  onSeek?: ((positionMs: number) => void) | undefined;
+  clock: PositionClock | undefined;
+};
+
+/* The elapsed time, the scrubber and the total. With a position clock this
+   zone — and only this zone — follows the frames; without one it reads the
+   snapshot's position, exactly as before. */
+function ProgressZone({ messages, playback, empty, onSeek, clock }: ProgressZoneProps) {
+  const positionMs = usePositionMs(clock, playback.positionMs);
+  const durationMs = playback.durationMs;
+  const progress = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
+  const seekFromEvent = (event: { currentTarget: HTMLElement; clientX: number }) => {
+    if (onSeek === undefined || empty || durationMs <= 0) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    onSeek(Math.round(fraction * durationMs));
+  };
+  const seekByKeyboard = (event: { key: string; preventDefault: () => void }) => {
+    if (onSeek === undefined || empty || durationMs <= 0) {
+      return;
+    }
+    const step = 5000;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      onSeek(Math.max(0, positionMs - step));
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      onSeek(Math.min(durationMs, positionMs + step));
+    }
+  };
+  return (
+    <View id="player-progress" dataSet={{ barEmpty: empty ? '1' : '0' }}>
+      <Text id="player-time-elapsed" dataSet={{ scrubberTime: '1' }}>
+        {formatDuration(positionMs)}
+      </Text>
+      <View
+        id="player-scrubber"
+        accessibilityRole="slider"
+        accessibilityLabel={messages.progress}
+        aria-valuemin={0}
+        aria-valuemax={durationMs}
+        aria-valuenow={Math.round(positionMs)}
+        aria-valuetext={`${formatDuration(positionMs)} of ${formatDuration(durationMs)}`}
+        dataSet={{ progress: `${Math.round(progress * 100)}` }}
+        tabIndex={empty ? -1 : 0}
+        onClick={seekFromEvent}
+        onKeyDown={seekByKeyboard}
+      >
+        <View id="player-progress-track">
+          <View
+            id="player-progress-fill"
+            dataSet={{ fill: `${Math.round(progress * 100)}` }}
+            style={{ width: `${Math.round(progress * 100)}%` }}
+          />
+        </View>
+      </View>
+      <Text id="player-time-total" dataSet={{ scrubberTime: '1' }}>
+        {formatDuration(durationMs)}
+      </Text>
+    </View>
+  );
+}
+
 type VolumeControlProps = {
   messages: ShellMessages;
   volume: number;
+  muted?: boolean | undefined;
+  onMuted?: ((muted: boolean) => void) | undefined;
   onVolume: (volume: number) => void;
 };
 
 /* The speaker button silences the output and brings it back to where it was:
-   the level it returns to is the last audible one this control saw. */
-function VolumeControl({ messages, volume, onVolume }: VolumeControlProps) {
+   the level it returns to is the last audible one this control saw. When the
+   composition root owns the mute, the button says the truth it is given. */
+function VolumeControl({ messages, volume, muted, onMuted, onVolume }: VolumeControlProps) {
   const [audibleVolume, setAudibleVolume] = useState(defaultAudibleVolume);
-  const muted = volume === 0;
+  const owned = onMuted !== undefined;
+  const silenced = owned ? muted === true : volume === 0;
   const toggleMute = () => {
+    if (owned) {
+      onMuted(!(muted === true));
+      return;
+    }
     if (volume > 0) {
       setAudibleVolume(volume);
     }
@@ -292,9 +377,10 @@ function VolumeControl({ messages, volume, onVolume }: VolumeControlProps) {
     <View id="player-volume" dataSet={{ volume: '1' }}>
       <View
         id="player-volume-icon"
-        dataSet={{ muted: muted ? '1' : '0' }}
+        dataSet={{ muted: silenced ? '1' : '0' }}
         accessibilityRole="button"
-        accessibilityLabel={muted ? messages.unmute : messages.mute}
+        accessibilityLabel={silenced ? messages.unmute : messages.mute}
+        aria-pressed={owned ? silenced : undefined}
         tabIndex={0}
         onClick={toggleMute}
         onKeyDown={(event) => {
@@ -304,7 +390,7 @@ function VolumeControl({ messages, volume, onVolume }: VolumeControlProps) {
           }
         }}
       >
-        <Icon name={muted ? 'mute' : 'volume'} size={18} />
+        <Icon name={silenced ? 'mute' : 'volume'} size={18} />
       </View>
       <input
         id="player-volume-range"
@@ -315,7 +401,11 @@ function VolumeControl({ messages, volume, onVolume }: VolumeControlProps) {
         value={volume}
         aria-label={messages.volume}
         onChange={(event) => {
-          onVolume(Number(event.currentTarget.value));
+          const level = Number(event.currentTarget.value);
+          if (owned && silenced && level > 0) {
+            onMuted(false);
+          }
+          onVolume(level);
         }}
       />
     </View>
@@ -330,7 +420,11 @@ type ControlButtonProps = {
   primary?: boolean | undefined;
   playing?: boolean | undefined;
   idle?: boolean | undefined;
-  glyph?: IconName | undefined;
+  /** A toggle control says whether it is on. */
+  pressed?: boolean | undefined;
+  /** The repeat control draws its own glyph: plain arcs, or with the one. */
+  repeatOne?: boolean | undefined;
+  glyph?: IconName | 'repeat' | undefined;
 };
 
 function ControlButton({
@@ -341,6 +435,8 @@ function ControlButton({
   primary = false,
   playing = false,
   idle = false,
+  pressed,
+  repeatOne,
   glyph,
 }: ControlButtonProps) {
   const control = (
@@ -351,16 +447,14 @@ function ControlButton({
         disabled: disabled ? '1' : '0',
         playing: playing ? '1' : '0',
         idle: idle ? '1' : '0',
+        ...(pressed === undefined ? {} : { pressed: pressed ? '1' : '0' }),
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
       aria-disabled={disabled ? true : undefined}
+      aria-pressed={pressed === undefined ? undefined : pressed}
       tabIndex={disabled ? -1 : 0}
-      onClick={() => {
-        if (!disabled) {
-          onPress?.();
-        }
-      }}
+      onClick={disabled ? undefined : onPress}
       onKeyDown={(event) => {
         if (disabled) {
           return;
@@ -371,7 +465,13 @@ function ControlButton({
         }
       }}
     >
-      {glyph === undefined ? <Text dataSet={{ controlLabel: '1' }}>{label}</Text> : <Icon name={glyph} size={20} />}
+      {glyph === undefined ? (
+        <Text dataSet={{ controlLabel: '1' }}>{label}</Text>
+      ) : glyph === 'repeat' ? (
+        <RepeatGlyph one={repeatOne === true} size={20} />
+      ) : (
+        <Icon name={glyph} size={20} />
+      )}
     </View>
   );
   /* The hex clip-path clips every paint of the button itself, so the focus

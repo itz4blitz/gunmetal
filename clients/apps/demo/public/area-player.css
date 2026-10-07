@@ -918,3 +918,124 @@
     transition: none;
   }
 }
+
+/* —— 4. Transport states and the queue's remove (2026-10-07 player pass) ——
+   Shuffle and repeat flank the transport; the engine's buffering and
+   failure states get one honest line each; queue lines can be removed.
+   Tokens only, like the rest of the sheet. */
+
+/* A pressed transport toggle is a where-you-are mark: brass text on the
+   raised plate the plain controls already carry (§3: brass marks where
+   you are). The unpressed control keeps its resting steel. */
+#token-shell #player-transport [data-pressed='1'],
+#token-shell #player-full-transport [data-pressed='1'] {
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-text);
+}
+
+/* The engine state says itself once, quietly, under the credit: muted
+   while the media settles, a step louder when something failed. */
+#token-shell #player-state,
+#token-shell #player-full-state {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  --gm-text: var(--gm-text-muted);
+}
+
+#token-shell #player-state[data-player-state='error'],
+#token-shell #player-full-state[data-player-state='error'] {
+  --gm-text: var(--gm-text-secondary);
+}
+
+/* Buffering breathes on the fill: liveness, not progress — one slow
+   opacity cycle, far under the flash budget, and gone under reduced
+   motion (where the dimmed state line and the static bar still say it). */
+@keyframes gm-buffering {
+  from {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#token-shell #player-bar[data-buffering='1'] #player-progress-fill,
+#token-shell #player-full[data-buffering='1'] #player-full-progress-fill {
+  animation: gm-buffering 2000ms ease-in-out infinite;
+}
+
+/* Remove this line: a quiet close glyph after the duration, shown on
+   hover or focus with the play action, always on touch widths (no hover
+   there), and never the only way (the wide pane keeps every other verb). */
+#token-shell [data-queue-line] {
+  grid-template-columns: 44px minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    'art title now duration remove'
+    'art artist now duration remove';
+}
+
+#token-shell [data-queue-remove] {
+  grid-area: remove;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--gm-radius-s);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--gm-motion),
+    transform var(--gm-motion);
+}
+
+#token-shell [data-queue-line]:hover [data-queue-remove],
+#token-shell [data-queue-line]:focus-within [data-queue-remove] {
+  opacity: 1;
+}
+
+#token-shell [data-queue-remove]:hover {
+  --gm-text: var(--gm-text-primary);
+}
+
+#token-shell [data-queue-remove]:active {
+  transform: scale(0.97);
+}
+
+#token-shell:is([data-width='compact'], [data-width='medium']) [data-queue-remove] {
+  opacity: 1;
+}
+
+/* The lyric sheet scrolls inside its pane: the mask stays on the pane, the
+   column keeps its reading gap, and following the current line glides on
+   the browser's scroll behaviour — a jump under reduced motion. */
+#token-shell [data-lyrics-scroll='1'] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding-block: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gm-line-control) 45%, transparent) transparent;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #token-shell #player-bar[data-buffering='1'] #player-progress-fill,
+  #token-shell #player-full[data-buffering='1'] #player-full-progress-fill {
+    animation: none;
+  }
+
+  #token-shell [data-queue-remove] {
+    transition: none;
+  }
+
+  #token-shell [data-lyrics-scroll='1'] {
+    scroll-behavior: auto;
+  }
+}

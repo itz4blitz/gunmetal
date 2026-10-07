@@ -1,4 +1,12 @@
 import { expect, test } from 'vitest';
+
+/** The fixture value a test names, or a loud failure — never an asserted maybe. */
+function present<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`${what} is missing from the fixture library`);
+  }
+  return value;
+}
 import { demoLibrary } from '../../../packages/fake-server/src/catalogue.ts';
 import {
   applyAlbumQueue,
@@ -59,5 +67,7 @@ test('demo-local queue helpers insert or append without shuffling', () => {
   expect(nextTrack.queue.map((line) => line.trackId)[1]).toStrictEqual('demo-track-02-02');
   const appendTrack = applyTrackQueue(library, started, 'demo-album-02', 'demo-track-02-02', 'append');
   expect(appendTrack.queue.map((line) => line.trackId).at(-1)).toStrictEqual('demo-track-02-02');
-  expect(playbackFromAlbum(findAlbum(library, 'demo-album-01')!).trackId).toStrictEqual('demo-track-01-01');
+  expect(playbackFromAlbum(present(findAlbum(library, 'demo-album-01'), 'demo-album-01')).trackId).toStrictEqual(
+    'demo-track-01-01',
+  );
 });

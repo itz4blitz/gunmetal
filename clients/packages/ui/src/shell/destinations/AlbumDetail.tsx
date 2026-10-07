@@ -11,6 +11,10 @@ import { useMenuDismiss } from '../menu-dismiss.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
+
+/** The album table's row height, pinned by the area CSS row contract. */
+const TRACK_ROW_HEIGHT = 52;
 
 function albumLyricsTrack(album: ShellAlbum, currentTrackId?: string): ShellTrack | undefined {
   const current = album.tracks.find((track) => track.id === currentTrackId);
@@ -69,6 +73,11 @@ export type AlbumDetailProps = {
   album: ShellAlbum | undefined;
   messages: DestinationMessages;
   currentTrackId?: string | undefined;
+  /**
+   * The scroll container the track table windows against; the shell's
+   * content pane by default. Tests inject a stand-in (jsdom has no layout).
+   */
+  getScroller?: (() => HTMLElement | null) | undefined;
   onBack: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
@@ -133,6 +142,7 @@ export function AlbumDetail({
   album,
   messages,
   currentTrackId,
+  getScroller,
   onBack,
   onPlayAlbum,
   onPlayTrack,
@@ -151,6 +161,8 @@ export function AlbumDetail({
     setMoreOpen(false);
   }, []);
   useMenuDismiss(moreOpen, moreMenuId, closeMore);
+  // The rows the content pane can see; a zero read (jsdom) shows everything.
+  const viewport = useContentViewport(getScroller ?? contentScroller);
 
   if (album === undefined) {
     return (
@@ -326,11 +338,15 @@ export function AlbumDetail({
             accessibilityLabel={messages.shuffle}
             aria-disabled={shuffleWired ? undefined : true}
             tabIndex={0}
-            onClick={() => {
-              if (shuffleWired) {
-                onShuffleAlbum(album.id);
-              }
-            }}
+            // An unwired shuffle has no click handler at all — the control
+            // is inert, exactly as its disabled state says.
+            onClick={
+              shuffleWired
+                ? () => {
+                    onShuffleAlbum(album.id);
+                  }
+                : undefined
+            }
             onKeyDown={(event) => {
               if (shuffleWired && (event.key === 'Enter' || event.key === ' ')) {
                 event.preventDefault();
@@ -492,17 +508,29 @@ export function AlbumDetail({
               <Icon name="clock" size={16} />
             </View>
           </View>
-          {album.hostile
-            ? album.tracks.map((track) => (
-                <HostileTrackRow
-                  key={track.id}
-                  track={track}
-                  current={track.id === currentTrackId}
-                  label={messages.hostileTrackHidden}
-                  onPlay={onPlayTrack}
-                />
-              ))
-            : album.tracks.map(renderTrackRow)}
+          {(() => {
+            // The one contiguous table windows against the page scroll;
+            // per-disc blocks keep their sticky headers eager.
+            const rows = visibleRange(
+              viewport.scrollTop,
+              viewport.viewportHeight,
+              TRACK_ROW_HEIGHT,
+              album.tracks.length,
+              LIST_OVERSCAN_ROWS,
+            );
+            const shown = album.tracks.slice(rows.start, rows.end);
+            return album.hostile
+              ? shown.map((track) => (
+                  <HostileTrackRow
+                    key={track.id}
+                    track={track}
+                    current={track.id === currentTrackId}
+                    label={messages.hostileTrackHidden}
+                    onPlay={onPlayTrack}
+                  />
+                ))
+              : shown.map(renderTrackRow);
+          })()}
         </View>
       )}
       {moreBy === undefined ? null : (

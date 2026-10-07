@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
@@ -9,6 +9,7 @@ import type { ShellAlbum, ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { ArtistAvatar, artistDisplayName } from './Library.tsx';
+import { hostileArtistKeys, indexAlbums } from './library-index.ts';
 import { TrackRow } from './TrackRow.tsx';
 
 export type SearchProps = {
@@ -197,6 +198,9 @@ export function Search({
   const [showAlbums, setShowAlbums] = useState(true);
   const [showTracks, setShowTracks] = useState(true);
   const fieldRef = useRef<HTMLInputElement | null>(null);
+  // One album index per library change; every track hit resolves its album in O(1).
+  const albumIndex = useMemo(() => indexAlbums(library), [library]);
+  const hostileKeys = useMemo(() => hostileArtistKeys(library), [library]);
   const hits = searchLibrary(library, query);
   const hasQuery = query.trim().length > 0;
   const clearQuery = () => {
@@ -205,7 +209,7 @@ export function Search({
   };
   const visibleAlbums = showAlbums ? hits.albums : [];
   const visibleTracks = showTracks ? hits.tracks : [];
-  const albumFor = (track: ShellTrack) => library.albums.find((album) => album.id === track.albumId);
+  const albumFor = (track: ShellTrack): ShellAlbum | undefined => albumIndex.get(track.albumId);
   // The top result is the first album the lookup answered, or else its first
   // track. No top result is the same fact as nothing to show.
   const topAlbum = visibleAlbums[0];
@@ -268,7 +272,7 @@ export function Search({
               </View>
               <View dataSet={{ searchArtistGrid: '1' }}>
                 {library.artists.map((artist) => {
-                  const name = artistDisplayName(artist, library, messages);
+                  const name = artistDisplayName(artist, hostileKeys, messages);
                   const open = () => {
                     onOpenArtist(artist.key);
                   };
@@ -330,7 +334,29 @@ export function Search({
               )}
             </Text>
           </View>
-          {top === undefined ? (
+          {top === undefined && library.albums.length === 0 && library.artists.length === 0 ? (
+            <View id="search-empty-library">
+              <View dataSet={{ searchEmptyMark: '1' }}>
+                <Icon name="library" size={22} />
+              </View>
+              <Text accessibilityRole="header" dataSet={{ searchEmptyTitle: '1' }}>
+                {messages.searchEmptyLibrary}
+              </Text>
+            </View>
+          ) : top === undefined && hits.albums.length + hits.tracks.length > 0 ? (
+            <View id="search-filter-empty">
+              <View dataSet={{ searchEmptyMark: '1' }}>
+                <Icon name="search" size={22} />
+              </View>
+              <Text accessibilityRole="header" dataSet={{ searchEmptyTitle: '1' }}>
+                {messages.searchFilterHeadline}
+              </Text>
+              <Text dataSet={{ searchFilterRemaining: '1' }}>
+                {showAlbums ? messages.tabAlbums : messages.tabTracks}
+              </Text>
+              <Text dataSet={{ searchFilterHint: '1' }}>{messages.searchFilterHint}</Text>
+            </View>
+          ) : top === undefined ? (
             <View id="search-no-hits">
               <View dataSet={{ searchEmptyMark: '1' }}>
                 <Icon name="search" size={22} />

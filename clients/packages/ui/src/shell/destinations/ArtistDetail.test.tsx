@@ -1,11 +1,132 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
 import { destinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { ArtistDetail } from './ArtistDetail.tsx';
 
+/** A lookup that must land: the test names what it could not find. */
+function required<T extends Element>(node: T | null | undefined, what: string): T {
+  if (node === null || node === undefined) {
+    throw new Error(`${what} missing`);
+  }
+  return node;
+}
+
 afterEach(cleanup);
+
+/** A scriptable stand-in for the browser's IntersectionObserver. */
+class StubObserver {
+  static instances: StubObserver[] = [];
+  readonly observed: Element[] = [];
+  readonly callback: (entries: Array<{ isIntersecting: boolean }>) => void;
+  constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+    this.callback = callback;
+    StubObserver.instances.push(this);
+  }
+  observe(target: Element): void {
+    this.observed.push(target);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+  seeAll(isIntersecting: boolean): void {
+    this.callback([{ isIntersecting }]);
+  }
+}
+
+const asIO = StubObserver as unknown as typeof IntersectionObserver;
+
+function fakeScroller(top: number, height: number): { element: HTMLElement; scrollTo: (value: number) => void } {
+  const element = document.createElement('div');
+  document.body.appendChild(element);
+  let value = top;
+  Object.defineProperty(element, 'scrollTop', { get: () => value, configurable: true });
+  Object.defineProperty(element, 'clientHeight', { value: height, configurable: true });
+  return {
+    element,
+    scrollTo: (next) => {
+      value = next;
+    },
+  };
+}
+
+test('the artist album grid defers cover URLs to an injected IntersectionObserver', () => {
+  const library = demoLibrary();
+  const artist = library.artists.find((row) => row.key === 'mira-sol');
+  if (artist === undefined) {
+    throw new Error('fixture artist mira-sol missing');
+  }
+  StubObserver.instances = [];
+  const view = render(
+    <ArtistDetail
+      artist={artist}
+      library={library}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      nearViewObserver={asIO}
+    />,
+  );
+  expect(StubObserver.instances.length).toStrictEqual(artist.albumIds.length);
+  expect(
+    [...document.querySelectorAll('[data-cover-art="1"]')].filter((node) =>
+      (node.getAttribute('style') ?? '').includes('background-image'),
+    ),
+  ).toStrictEqual([]);
+  act(() => {
+    for (const instance of StubObserver.instances) {
+      instance.seeAll(true);
+    }
+  });
+  expect(
+    [...document.querySelectorAll('[data-cover-art="1"]')].filter((node) =>
+      (node.getAttribute('style') ?? '').includes('background-image'),
+    ).length,
+  ).toStrictEqual(artist.albumIds.length);
+  view.unmount();
+});
+
+test('the all-songs list windows its rows against the content pane', () => {
+  const library = demoLibrary();
+  const artist = library.artists.find((row) => row.key === 'mira-sol');
+  if (artist === undefined) {
+    throw new Error('fixture artist mira-sol missing');
+  }
+  const all = library.albums
+    .filter((album) => artist.albumIds.includes(album.id) && !album.hostile)
+    .flatMap((album) => album.tracks.map((track) => track.id));
+  if (all.length < 7) {
+    throw new Error('fixture mira-sol tracks missing');
+  }
+  const scroller = fakeScroller(144, 48);
+  render(
+    <ArtistDetail
+      artist={artist}
+      library={library}
+      messages={destinationMessages()}
+      onBack={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      getScroller={() => scroller.element}
+    />,
+  );
+  const shown = [...document.querySelectorAll('[data-artist-song-list] [data-track-row]')].map((row) => row.id);
+  // 144px down at 52px rows = row 2 first; the overscan reaches past both
+  // ends of a 7-song list, so every row still renders — clamped, honest.
+  expect(shown).toStrictEqual(all.map((id) => `track-row-${id}`));
+  // Scrolling deep enough that the overscan clamps at the list's top moves
+  // the window to the last rows.
+  scroller.scrollTo(572);
+  act(() => {
+    scroller.element.dispatchEvent(new Event('scroll'));
+  });
+  const after = [...document.querySelectorAll('[data-artist-song-list] [data-track-row]')].map((row) => row.id);
+  expect(after).toStrictEqual(all.slice(3).map((id) => `track-row-${id}`));
+});
 
 test('artist detail shows hero image name album grid all songs and plays the first album', () => {
   const library = demoLibrary();
@@ -28,10 +149,10 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   const root = container.querySelector('#destination-artist');
   expect(root?.getAttribute('data-artist-key')).toStrictEqual('mira-sol');
   expect(root?.getAttribute('data-art-tone')).toStrictEqual('01');
-  expect(container.querySelector('[data-artist-hero="1"]')).toBeTruthy();
+  expect(container.querySelector('[data-artist-hero="1"]')).not.toBeNull();
   // The generated artist image fills the nut-shaped hero and blooms behind
   // the header as aria-hidden ambient colour.
-  expect(container.querySelector('[data-artist-avatar-nut="1"]')).toBeTruthy();
+  expect(container.querySelector('[data-artist-avatar-nut="1"]')).not.toBeNull();
   const bloom = container.querySelector('[data-artist-bloom="1"]') as HTMLElement;
   expect(bloom.getAttribute('aria-hidden')).toStrictEqual('true');
   expect(bloom.style.backgroundImage).toContain('/media/artists/mira-sol.svg');
@@ -55,17 +176,17 @@ test('artist detail shows hero image name album grid all songs and plays the fir
   ]);
   expect(screen.getByRole('heading', { name: 'Albums' }).getAttribute('data-section-heading')).toStrictEqual('1');
   expect(container.querySelector('#artist-back svg')?.getAttribute('data-icon')).toStrictEqual('back');
-  expect(container.querySelector('#artist-play[data-brass-hex="1"]')).toBeTruthy();
-  expect(container.querySelector('#artist-album-grid')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Harbour Lights' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Night Shift' })).toBeTruthy();
-  fireEvent.click(document.querySelector('#artist-play')!);
+  expect(container.querySelector('#artist-play[data-brass-hex="1"]')).not.toBeNull();
+  expect(container.querySelector('#artist-album-grid')).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'Harbour Lights' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'Night Shift' })).not.toBeNull();
+  fireEvent.click(required(document.querySelector('#artist-play'), '#artist-play'));
   expect(onPlayAlbum).toHaveBeenCalledWith('demo-album-01');
-  fireEvent.keyDown(document.querySelector('#artist-play')!, { key: 'Enter' });
+  fireEvent.keyDown(required(document.querySelector('#artist-play'), '#artist-play'), { key: 'Enter' });
   expect(onPlayAlbum).toHaveBeenCalledTimes(2);
-  fireEvent.keyDown(document.querySelector('#artist-play')!, { key: ' ' });
+  fireEvent.keyDown(required(document.querySelector('#artist-play'), '#artist-play'), { key: ' ' });
   expect(onPlayAlbum).toHaveBeenCalledTimes(3);
-  fireEvent.keyDown(document.querySelector('#artist-play')!, { key: 'Tab' });
+  fireEvent.keyDown(required(document.querySelector('#artist-play'), '#artist-play'), { key: 'Tab' });
   expect(onPlayAlbum).toHaveBeenCalledTimes(3);
   fireEvent.click(screen.getByRole('button', { name: 'Night Shift' }));
   expect(onOpenAlbum).toHaveBeenCalledWith('demo-album-02');
@@ -74,8 +195,8 @@ test('artist detail shows hero image name album grid all songs and plays the fir
 
   // All songs reads across the artist's own albums (4 + 3 tracks) and plays a row.
   const songs = container.querySelector('#artist-all-songs');
-  expect(songs).toBeTruthy();
-  expect(screen.getByRole('heading', { name: 'All songs' })).toBeTruthy();
+  expect(songs).not.toBeNull();
+  expect(screen.getByRole('heading', { name: 'All songs' })).not.toBeNull();
   // The table head is presentational chrome over the row grid: number,
   // title, album, time — hidden from assistive tech, aligned with the columns.
   const tableHead = container.querySelector('[data-artist-table-head="1"]');
@@ -117,7 +238,7 @@ test('same-name artists carry the catalogue-key disambiguation line; unique name
       onPlayAlbum={vi.fn()}
     />,
   );
-  expect(screen.getByRole('heading', { name: 'Alex Reed' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Alex Reed' })).not.toBeNull();
   expect(document.querySelector('#artist-disambiguation')?.textContent).toStrictEqual('alex-reed-north');
   unmount();
 
@@ -179,9 +300,9 @@ test('missing artist and an artist with no albums stay on chrome without a wash'
   expect(hero.getAttribute('data-artist-image')).toStrictEqual('0');
   expect(hero.textContent).toStrictEqual('?');
   expect(document.querySelector('#destination-headline')?.textContent).toStrictEqual('   ');
-  fireEvent.click(document.querySelector('#artist-play')!);
-  fireEvent.keyDown(document.querySelector('#artist-play')!, { key: 'Enter' });
-  fireEvent.keyDown(document.querySelector('#artist-play')!, { key: ' ' });
+  fireEvent.click(required(document.querySelector('#artist-play'), '#artist-play'));
+  fireEvent.keyDown(required(document.querySelector('#artist-play'), '#artist-play'), { key: 'Enter' });
+  fireEvent.keyDown(required(document.querySelector('#artist-play'), '#artist-play'), { key: ' ' });
   expect(onPlayAlbum).not.toHaveBeenCalled();
   expect(document.querySelector('#artist-all-songs')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));

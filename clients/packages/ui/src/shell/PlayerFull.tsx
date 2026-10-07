@@ -5,13 +5,18 @@ import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
 import { noLyrics, type LyricsResolver } from './content.ts';
 import { Icon, type IconName } from './Icon.tsx';
+import { RepeatGlyph } from './player-glyphs.tsx';
 import { LyricsPane } from './LyricsPane.tsx';
+import { usePositionMs, type PositionClock } from './position-clock.ts';
+import type { SyncedLine, TimedLyricsResolver } from './synced-lyrics.ts';
 import type { PlayerQueueLine, PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
 export type PlayerPlacement = 'overlay' | 'pane';
 
 export type PlayerFullProps = {
   lyricsFor?: LyricsResolver | undefined;
+  /** The resolver's timestamped sheet for synced tracks; the plain one is the fallback. */
+  timedLyricsFor?: TimedLyricsResolver | undefined;
   messages: ShellMessages;
   playback: PlayerSnapshot;
   open: boolean;
@@ -19,13 +24,22 @@ export type PlayerFullProps = {
   albumTitle?: string | undefined;
   volume?: number | undefined;
   onVolume?: ((volume: number) => void) | undefined;
+  /** Whether the output is silenced; wired with onMuted this state is honest. */
+  muted?: boolean | undefined;
+  onMuted?: ((muted: boolean) => void) | undefined;
   /** Seek within the playing track; without it the scrubber only shows progress. */
   onSeek?: ((positionMs: number) => void) | undefined;
   onClose: () => void;
   onPlayPause?: (() => void) | undefined;
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;
+  onToggleShuffle?: (() => void) | undefined;
+  onCycleRepeat?: (() => void) | undefined;
   onToggleQueue?: (() => void) | undefined;
+  /** The composition root's position clock; without it the given position is shown. */
+  clock?: PositionClock | undefined;
+  /** The playing position when no clock is wired (milliseconds). */
+  positionMs?: number | undefined;
 };
 
 function nextPlayerQueueLine(playback: PlayerSnapshot): PlayerQueueLine | undefined {
@@ -60,14 +74,41 @@ function onActivate(action: () => void) {
 }
 
 /**
+ * Where Tab goes inside a dialog's focusable nodes: the last one when
+ * leaving the first backwards, the first one when leaving the last (or
+ * when the focus is outside the dialog at all), and nowhere in between —
+ * the browser keeps the natural order.
+ */
+export function tabWrapTarget(
+  nodes: readonly HTMLElement[],
+  active: Element | null,
+  shiftKey: boolean,
+): HTMLElement | undefined {
+  if (nodes.length === 0) {
+    return undefined;
+  }
+  /* The bounds are of the list itself, which is not empty here. */
+  const first = nodes[0] as HTMLElement;
+  const last = nodes[nodes.length - 1] as HTMLElement;
+  const inside = active instanceof HTMLElement && nodes.includes(active);
+  if (shiftKey) {
+    return active === first || !inside ? last : undefined;
+  }
+  return active === last || !inside ? first : undefined;
+}
+
+/**
  * The now-playing view (SUR-010). Three regions inside one body: the chrome
  * (heading and collapse), the stage (the artwork, or the lyrics that take its
  * place) and the console (title block, scrubber, transport, secondary row,
  * what plays next). The stylesheet sets the console under the stage on a
- * narrow player and beside it on a wide one.
+ * narrow player and beside it on a wide one. As a dialog it is modal: the
+ * focus enters at the collapse control, Tab stays inside, and closing hands
+ * the focus back to the control that opened it.
  */
 export function PlayerFull({
   lyricsFor = () => noLyrics,
+  timedLyricsFor,
   messages,
   playback,
   open,
@@ -75,12 +116,18 @@ export function PlayerFull({
   albumTitle,
   volume,
   onVolume,
+  muted,
+  onMuted,
   onSeek,
   onClose,
   onPlayPause,
   onPrevious,
   onNext,
+  onToggleShuffle,
+  onCycleRepeat,
   onToggleQueue,
+  clock,
+  positionMs,
 }: PlayerFullProps) {
   /* Closing keeps the view mounted for the length of the sheet motion, marked
      as leaving, so it can fold back toward the bar it grew from. */
@@ -132,35 +179,75 @@ export function PlayerFull({
       globalThis.removeEventListener('keydown', onKey);
     };
   }, [open, onClose]);
+  /* The dialog owns the focus while it is open: it takes it at the collapse
+     control and hands it back where it came from (design-language §8). */
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const previous = globalThis.document.activeElement as HTMLElement | null;
+    const first = globalThis.document
+      .getElementById('player-full')
+      ?.querySelector<HTMLElement>('[role="button"][tabindex="0"]');
+    first?.focus();
+    return () => {
+      if (previous !== null && globalThis.document.contains(previous)) {
+        previous.focus();
+      }
+    };
+  }, [open]);
+  /* Tab never leaves the dialog while it is open: at either end it wraps to
+     the other, and a focus that escaped (a click on the scrim) comes back. */
+  const trapTab = (event: {
+    key: string;
+    shiftKey?: boolean;
+    preventDefault: () => void;
+    currentTarget: HTMLElement;
+  }) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const target = tabWrapTarget(
+      [...event.currentTarget.querySelectorAll<HTMLElement>('[tabindex="0"], input')].filter(
+        (node) => node.getAttribute('aria-disabled') !== 'true',
+      ),
+      globalThis.document.activeElement,
+      event.shiftKey === true,
+    );
+    if (target !== undefined) {
+      event.preventDefault();
+      target.focus();
+    }
+  };
 
   if (playback.trackId === undefined || !(open || leaving)) {
     return null;
   }
 
-  const progress = playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
-  const remainingMs = playback.durationMs > 0 ? Math.max(0, playback.durationMs - playback.positionMs) : 0;
   const upNext = nextPlayerQueueLine(playback);
   const fromLabel = albumTitle !== undefined && albumTitle !== '' ? `${messages.playingFrom} ${albumTitle}` : undefined;
   const lyricsShown = canLyrics && lyricsOpen;
-  /* A resolver that has nothing for this track answers with the shared
-     placeholder; the pane then shows the quiet empty state. */
-  const lyrics = canLyrics ? lyricsFor(playback.trackId, playback.lyricsKind) : noLyrics;
-  const seekFromPointer = (event: { currentTarget: HTMLElement; clientX: number }) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (onSeek === undefined || playback.durationMs <= 0 || rect.width <= 0) {
-      return;
-    }
-    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    onSeek(Math.round(fraction * playback.durationMs));
-  };
-  const seekFromKey = (event: { key: string; preventDefault: () => void }) => {
-    const step = SEEK_STEPS[event.key];
-    if (onSeek === undefined || playback.durationMs <= 0 || step === undefined) {
-      return;
-    }
-    event.preventDefault();
-    onSeek(Math.max(0, Math.min(playback.durationMs, playback.positionMs + step)));
-  };
+  /* A synced resolver's timestamped sheet wins over the plain verses; a
+     track it has nothing for falls back to the plain resolver's answer. */
+  const timed =
+    playback.lyricsKind === 'synced' && timedLyricsFor !== undefined
+      ? timedLyricsFor(playback.trackId, 'synced')
+      : undefined;
+  const lyrics =
+    timed !== undefined && timed.length > 0
+      ? timed.map((line) => line.text)
+      : canLyrics
+        ? lyricsFor(playback.trackId, playback.lyricsKind)
+        : noLyrics;
+  const stateLine =
+    playback.playbackError !== undefined
+      ? {
+          kind: 'error' as const,
+          text: playback.playbackError === '' ? messages.playerPlaybackFailed : playback.playbackError,
+        }
+      : playback.buffering === true
+        ? { kind: 'buffering' as const, text: messages.playerBuffering }
+        : null;
   const seekable = onSeek !== undefined && playback.durationMs > 0;
   const toggleLyrics = () => {
     if (canLyrics) {
@@ -185,11 +272,15 @@ export function PlayerFull({
         id="player-full"
         accessibilityRole="dialog"
         accessibilityLabel={messages.playerFullRegion}
+        aria-modal={true}
         dataSet={{
           open: open ? '1' : '0',
           placement,
           queueSheet: queueOpen && queueRaised ? 'over' : 'under',
+          buffering: playback.buffering === true ? '1' : '0',
+          errored: playback.playbackError !== undefined ? '1' : '0',
         }}
+        onKeyDown={trapTab}
       >
         {/* Ambient artwork backdrop: the blurred cover sits under a heavy
             canvas veil, and the veil — not the artwork — carries the text
@@ -229,7 +320,11 @@ export function PlayerFull({
               />
             </View>
             {canLyrics ? (
-              <LyricsPane
+              <LiveLyrics
+                clock={clock}
+                positionMs={positionMs}
+                playback={playback}
+                timed={timed}
                 id="player-full-lyrics"
                 label={messages.lyrics}
                 lines={lyrics}
@@ -244,35 +339,28 @@ export function PlayerFull({
               {fromLabel === undefined ? null : <Text id="player-full-from">{fromLabel}</Text>}
               <Text id="player-full-title">{playback.title}</Text>
               <Text id="player-full-artist">{playback.artistName}</Text>
+              {stateLine === null ? null : (
+                <Text id="player-full-state" accessibilityRole="status" dataSet={{ playerState: stateLine.kind }}>
+                  {stateLine.text}
+                </Text>
+              )}
             </View>
-            <View id="player-full-progress" dataSet={{ progress: `${Math.round(progress * 100)}` }}>
-              <View
-                id="player-full-scrubber"
-                accessibilityRole="slider"
-                accessibilityLabel={messages.progress}
-                aria-valuemin={0}
-                aria-valuemax={playback.durationMs}
-                aria-valuenow={Math.round(playback.positionMs)}
-                aria-valuetext={`${formatDuration(playback.positionMs)} of ${formatDuration(playback.durationMs)}`}
-                dataSet={{ seekable: seekable ? '1' : '0' }}
-                tabIndex={seekable ? 0 : -1}
-                onClick={seekFromPointer}
-                onKeyDown={seekFromKey}
-              >
-                <View id="player-full-progress-track">
-                  <View
-                    id="player-full-progress-fill"
-                    dataSet={{ fill: `${Math.round(progress * 100)}` }}
-                    style={{ width: `${Math.round(progress * 100)}%` }}
-                  />
-                </View>
-              </View>
-              <View id="player-full-time">
-                <Text id="player-full-elapsed">{formatDuration(playback.positionMs)}</Text>
-                <Text id="player-full-remaining">{formatDuration(remainingMs)}</Text>
-              </View>
-            </View>
+            <LiveProgress
+              clock={clock}
+              positionMs={positionMs}
+              playback={playback}
+              messages={messages}
+              seekable={seekable}
+              onSeek={onSeek}
+            />
             <View id="player-full-transport">
+              <FullControl
+                id="player-full-shuffle"
+                label={messages.playerShuffle}
+                onPress={onToggleShuffle}
+                glyph="shuffle"
+                pressed={playback.shuffleOn === true}
+              />
               <FullControl id="player-full-skip-back" label={messages.previous} onPress={onPrevious} glyph="previous" />
               <FullControl
                 id="player-full-play"
@@ -281,13 +369,45 @@ export function PlayerFull({
                 playing={playback.playing}
               />
               <FullControl id="player-full-skip-next" label={messages.next} onPress={onNext} glyph="next" />
+              <FullControl
+                id="player-full-repeat"
+                label={
+                  playback.repeatMode === 'one'
+                    ? messages.playerRepeatOne
+                    : playback.repeatMode === 'all'
+                      ? messages.playerRepeatAll
+                      : messages.playerRepeat
+                }
+                onPress={onCycleRepeat}
+                glyph="repeat"
+                pressed={playback.repeatMode === 'all' || playback.repeatMode === 'one'}
+                repeatOne={playback.repeatMode === 'one'}
+              />
             </View>
             <View id="player-full-footer">
               {volume === undefined || onVolume === undefined ? null : (
                 <View id="player-full-volume" dataSet={{ volume: '1' }}>
-                  <View id="player-full-volume-icon">
-                    <Icon name="volume" size={20} />
-                  </View>
+                  {onMuted === undefined ? (
+                    <View id="player-full-volume-icon" tabIndex={-1}>
+                      <Icon name={(muted ?? false) ? 'mute' : 'volume'} size={20} />
+                    </View>
+                  ) : (
+                    <View
+                      id="player-full-volume-icon"
+                      accessibilityRole="button"
+                      accessibilityLabel={(muted ?? false) ? messages.unmute : messages.mute}
+                      aria-pressed={(muted ?? false) ? true : false}
+                      tabIndex={0}
+                      onClick={() => {
+                        onMuted(!(muted ?? false));
+                      }}
+                      onKeyDown={onActivate(() => {
+                        onMuted(!(muted ?? false));
+                      })}
+                    >
+                      <Icon name={(muted ?? false) ? 'mute' : 'volume'} size={20} />
+                    </View>
+                  )}
                   <input
                     id="player-full-volume-range"
                     type="range"
@@ -356,16 +476,111 @@ export function PlayerFull({
   );
 }
 
+type LiveProps = {
+  clock: PositionClock | undefined;
+  positionMs: number | undefined;
+  playback: PlayerSnapshot;
+};
+
+/* The progress zone follows the frames when a clock is wired; without one it
+   reads the position it was given, exactly as before. Only this zone and the
+   lyric sheet re-render on a frame — not the dialog around them. */
+function LiveProgress({
+  clock,
+  positionMs,
+  playback,
+  messages,
+  seekable,
+  onSeek,
+}: LiveProps & {
+  messages: ShellMessages;
+  seekable: boolean;
+  onSeek: ((positionMs: number) => void) | undefined;
+}) {
+  const at = usePositionMs(clock, positionMs ?? playback.positionMs);
+  const durationMs = playback.durationMs;
+  const progress = durationMs > 0 ? Math.min(1, at / durationMs) : 0;
+  const remainingMs = durationMs > 0 ? Math.max(0, durationMs - at) : 0;
+  const seekFromPointer = (event: { currentTarget: HTMLElement; clientX: number }) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (onSeek === undefined || durationMs <= 0 || rect.width <= 0) {
+      return;
+    }
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    onSeek(Math.round(fraction * durationMs));
+  };
+  const seekFromKey = (event: { key: string; preventDefault: () => void }) => {
+    const step = SEEK_STEPS[event.key];
+    if (onSeek === undefined || durationMs <= 0 || step === undefined) {
+      return;
+    }
+    event.preventDefault();
+    onSeek(Math.max(0, Math.min(durationMs, at + step)));
+  };
+  return (
+    <View id="player-full-progress" dataSet={{ progress: `${Math.round(progress * 100)}` }}>
+      <View
+        id="player-full-scrubber"
+        accessibilityRole="slider"
+        accessibilityLabel={messages.progress}
+        aria-valuemin={0}
+        aria-valuemax={durationMs}
+        aria-valuenow={Math.round(at)}
+        aria-valuetext={`${formatDuration(at)} of ${formatDuration(durationMs)}`}
+        dataSet={{ seekable: seekable ? '1' : '0' }}
+        tabIndex={seekable ? 0 : -1}
+        onClick={seekFromPointer}
+        onKeyDown={seekFromKey}
+      >
+        <View id="player-full-progress-track">
+          <View
+            id="player-full-progress-fill"
+            dataSet={{ fill: `${Math.round(progress * 100)}` }}
+            style={{ width: `${Math.round(progress * 100)}%` }}
+          />
+        </View>
+      </View>
+      <View id="player-full-time">
+        <Text id="player-full-elapsed">{formatDuration(at)}</Text>
+        <Text id="player-full-remaining">{formatDuration(remainingMs)}</Text>
+      </View>
+    </View>
+  );
+}
+
+/* The lyric sheet follows the same clock: the pane owns the line highlight
+   and the follow behaviour; this leaf only keeps the position honest. */
+function LiveLyrics({
+  clock,
+  positionMs,
+  playback,
+  timed,
+  ...pane
+}: LiveProps & {
+  timed: readonly SyncedLine[] | undefined;
+  id: string;
+  label: string;
+  lines: readonly string[];
+  synced: boolean;
+  open: boolean;
+  empty: boolean;
+}) {
+  const at = usePositionMs(clock, positionMs ?? playback.positionMs);
+  return <LyricsPane {...pane} timedLines={timed} positionMs={at} />;
+}
+
 type FullControlProps = {
   id: string;
   label: string;
   onPress?: (() => void) | undefined;
   /** A plain control draws this icon; without one the control is the nut. */
-  glyph?: IconName | undefined;
+  glyph?: IconName | 'repeat' | undefined;
   playing?: boolean | undefined;
+  pressed?: boolean | undefined;
+  repeatOne?: boolean | undefined;
 };
 
-function FullControl({ id, label, onPress, glyph, playing = false }: FullControlProps) {
+function FullControl({ id, label, onPress, glyph, playing = false, pressed, repeatOne }: FullControlProps) {
   const press = () => {
     onPress?.();
   };
@@ -375,14 +590,22 @@ function FullControl({ id, label, onPress, glyph, playing = false }: FullControl
       dataSet={{
         playerControl: glyph === undefined ? 'primary' : 'plain',
         playing: playing ? '1' : '0',
+        ...(pressed === undefined ? {} : { pressed: pressed ? '1' : '0' }),
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
+      aria-pressed={pressed === undefined ? undefined : pressed}
       tabIndex={0}
       onClick={press}
       onKeyDown={onActivate(press)}
     >
-      {glyph === undefined ? <Text dataSet={{ controlLabel: '1' }}>{label}</Text> : <Icon name={glyph} size={28} />}
+      {glyph === undefined ? (
+        <Text dataSet={{ controlLabel: '1' }}>{label}</Text>
+      ) : glyph === 'repeat' ? (
+        <RepeatGlyph one={repeatOne === true} size={28} />
+      ) : (
+        <Icon name={glyph} size={28} />
+      )}
     </View>
   );
   /* The nut's clip-path clips every paint of the button itself, so the focus

@@ -1,11 +1,13 @@
-import { useId, useState } from 'react';
+import { useMemo, useId, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial, staggerSlot } from '../format.ts';
+import { anchorOf, type MenuPoint } from '../menu-anchor.ts';
 import type { ShellAlbum, ShellArtist, ShellLibrary } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+import { hostileArtistKeys, indexAlbums } from './library-index.ts';
 import { Icon } from '../Icon.tsx';
 
 export type HomeProps = {
@@ -61,19 +63,26 @@ function shelfArtists(library: ShellLibrary, albums: readonly ShellAlbum[]): rea
 }
 
 /** Same rule as the Library rows: one hostile release swaps the whole name. */
-function artistDisplayName(artist: ShellArtist, library: ShellLibrary, messages: DestinationMessages): string {
-  const hostile = artist.albumIds.some((id) => library.albums.some((album) => album.id === id && album.hostile));
-  return hostile ? messages.hostileArtistLabel : artist.name;
+function artistDisplayName(
+  artist: ShellArtist,
+  hostileKeys: ReadonlySet<string>,
+  messages: DestinationMessages,
+): string {
+  return hostileKeys.has(artist.key) ? messages.hostileArtistLabel : artist.name;
 }
 
-function artistTone(artist: ShellArtist, albums: readonly ShellAlbum[]): string | undefined {
-  for (const id of artist.albumIds) {
-    const album = albums.find((candidate) => candidate.id === id);
-    if (album !== undefined) {
-      return album.coverTone;
-    }
-  }
-  return undefined;
+/** The tone of the artist's first catalogue release — one lookup per id, no scan. */
+/**
+ * The avatar's data contract: the plate carries the artist's tone when the
+ * catalogue resolves one, and never claims a tone it does not have.
+ */
+export function artistTileData(tone: string | undefined): Record<string, string> {
+  return tone === undefined ? { artistAvatar: '1' } : { artistAvatar: '1', coverTone: tone };
+}
+
+function artistTone(artist: ShellArtist, albums: ReadonlyMap<string, ShellAlbum>): string | undefined {
+  const found = artist.albumIds.map((id) => albums.get(id)).find((album) => album !== undefined);
+  return found?.coverTone;
 }
 
 type ArtistTileProps = {
@@ -116,7 +125,7 @@ function ArtistTile({ artist, name, tone, onOpen, staggerIndex, playing }: Artis
         }}
       >
         <View dataSet={{ artistHexRing: '1' }} aria-hidden="true">
-          <View dataSet={{ artistAvatar: '1', ...(tone === undefined ? {} : { coverTone: tone }) }} style={art}>
+          <View dataSet={artistTileData(tone)} style={art}>
             {hasArt ? null : <Text dataSet={{ artistInitial: '1' }}>{artistInitial(name)}</Text>}
           </View>
         </View>
@@ -162,11 +171,19 @@ export function Home({
   const spotlight = albums[0];
   const homeData = spotlight === undefined ? undefined : { artTone: spotlight.coverTone };
   const artists = shelfArtists(library, albums);
+  // Index reads, built once per library change — never per tile.
+  const hostileKeys = useMemo(() => hostileArtistKeys(library), [library]);
+  const albumIndex = useMemo(() => indexAlbums(library), [library]);
   // Where-you-are reaches the artists shelf through the playing release —
   // no extra wiring beyond the album id the shell already knows (C2).
   const playingArtistKey = albums.find((album) => album.id === playingAlbumId)?.artistKey;
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAt, setMenuAt] = useState<MenuPoint>({ x: 0, y: 0 });
+  const toggleSpotlightMenu = (event: { currentTarget: Element }) => {
+    setMenuAt(anchorOf(event.currentTarget));
+    setMenuOpen((open) => !open);
+  };
   const hasArt = spotlight !== undefined && spotlight.coverUrl !== '';
 
   return (
@@ -240,12 +257,10 @@ export function Home({
                   aria-expanded={menuOpen ? 'true' : 'false'}
                   aria-controls={menuId}
                   tabIndex={0}
-                  onClick={() => {
-                    setMenuOpen((open) => !open);
-                  }}
+                  onClick={toggleSpotlightMenu}
                   onKeyDown={(event) => {
                     activateKey(event, () => {
-                      setMenuOpen((open) => !open);
+                      toggleSpotlightMenu(event);
                     });
                   }}
                 >
@@ -258,6 +273,7 @@ export function Home({
                   menuId={menuId}
                   artistKey={spotlight.artistKey}
                   messages={messages}
+                  at={menuAt}
                   onOpenArtist={onOpenArtist}
                   onPlay={() => {
                     onPlayAlbum(spotlight.id);
@@ -346,8 +362,8 @@ export function Home({
               <ArtistTile
                 key={artist.key}
                 artist={artist}
-                name={artistDisplayName(artist, library, messages)}
-                tone={artistTone(artist, albums)}
+                name={artistDisplayName(artist, hostileKeys, messages)}
+                tone={artistTone(artist, albumIndex)}
                 onOpen={onOpenArtist ?? (() => undefined)}
                 staggerIndex={index}
                 playing={artist.key === playingArtistKey}

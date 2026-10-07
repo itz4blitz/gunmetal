@@ -1279,3 +1279,19 @@
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Render discipline (2026-10-07): the album page's table and the artist
+   page's grid and all-songs list skip the layout and paint of what is
+   off-screen; rows stay in the a11y tree and tab order.
+   ========================================================================== */
+
+#token-shell :is(#destination-album, #destination-artist) [data-track-row] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+
+#token-shell #destination-artist #artist-album-grid [data-album-tile] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}

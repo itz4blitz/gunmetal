@@ -1,4 +1,5 @@
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
+import type { PositionClock } from './position-clock.ts';
 
 /**
  * The playback contract the shell renders against. The composition root
@@ -12,9 +13,24 @@ export type PlaybackController = {
   state: PlayerSnapshot;
   /** Whether the full-screen player is open. */
   fullOpen: boolean;
-  /** Output volume, 0..1. */
+  /** Output volume, 0..1 (the level the range shows even while muted). */
   volume: number;
+  /** Whether the output is silenced. */
+  muted: boolean;
+  /**
+   * The composition root's position clock, when it built one: readouts
+   * that need the playing position subscribe to it instead of the shell
+   * re-rendering on every engine event. Without it the snapshot's
+   * position is the truth the components show.
+   */
+  clock?: PositionClock | undefined;
   setVolume(volume: number): void;
+  setMuted(muted: boolean): void;
+  toggleShuffle(): void;
+  /** Walk the repeat modes: off, all, one, back to off. */
+  cycleRepeat(): void;
+  /** Drop one line from the queue by its track id. */
+  removeQueueLine(trackId: string): void;
   playAlbum(albumId: string): void;
   playTrack(albumId: string, trackId: string): void;
   playNextAlbum(albumId: string): void;

@@ -12,6 +12,7 @@ export type ShellMessages = {
   themeLight: string;
   themeOled: string;
   themeHighContrast: string;
+  shellThemeSystem: string;
   demoData: string;
   primaryNav: string;
   playerRegion: string;
@@ -36,6 +37,15 @@ export type ShellMessages = {
   resizeQueue: string;
   mute: string;
   unmute: string;
+  /* 2026-10-07 player pass: shuffle/repeat states, honest buffering and
+     playback-error copy, and the queue-line remove action. Append-only. */
+  playerShuffle: string;
+  playerRepeat: string;
+  playerRepeatAll: string;
+  playerRepeatOne: string;
+  playerBuffering: string;
+  playerPlaybackFailed: string;
+  playerRemove: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -53,6 +63,7 @@ export function shellMessages(): ShellMessages {
     themeLight: 'Light',
     themeOled: 'OLED',
     themeHighContrast: 'High contrast',
+    shellThemeSystem: 'System',
     demoData: 'Demo data',
     primaryNav: 'Primary',
     playerRegion: 'Now playing',
@@ -77,5 +88,14 @@ export function shellMessages(): ShellMessages {
     resizeQueue: 'Resize queue',
     mute: 'Mute',
     unmute: 'Unmute',
+    /* 2026-10-07 player pass: shuffle/repeat states, honest buffering and
+       playback-error copy, and the queue-line remove action. Append-only. */
+    playerShuffle: 'Shuffle',
+    playerRepeat: 'Repeat',
+    playerRepeatAll: 'Repeat all',
+    playerRepeatOne: 'Repeat one',
+    playerBuffering: 'Buffering…',
+    playerPlaybackFailed: 'This track could not be played.',
+    playerRemove: 'Remove from queue',
   };
 }

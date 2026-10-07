@@ -278,11 +278,6 @@
   align-self: flex-start;
 }
 
-[data-spotlight-actions] [data-item-menu] {
-  top: calc(100% + 8px);
-  right: 0;
-}
-
 /* —— Shelf headers: title · count · hairline see-all (2026) —— */
 
 [data-home-row-head] {
@@ -454,7 +449,9 @@
   scrollbar-width: none;
   scroll-snap-type: x mandatory;
   scroll-padding-inline: 4px;
-  padding: 6px 4px 12px;
+  /* Ten pixels of headroom above: the hover lift raises the cover four
+     pixels and grows it, and the scroller clips whatever leaves the box. */
+  padding: 10px 4px 12px;
 }
 
 [data-artist-shelf]::-webkit-scrollbar {
@@ -703,4 +700,16 @@
 
 #token-shell[data-width='expanded'] [data-album-shelf] [data-album-tile] {
   flex: 0 0 168px;
+}
+
+/* ==========================================================================
+   Render discipline (2026-10-07): the shelves hand a growing catalogue to
+   the browser — off-screen tiles skip layout and paint, stay in the a11y
+   tree and tab order, and keep the shelf's scroll extent honest.
+   ========================================================================== */
+
+#token-shell [data-album-shelf] [data-album-tile],
+#token-shell [data-artist-shelf] [data-artist-tile] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px auto 280px;
 }

@@ -34,7 +34,7 @@ test('go to artist activates by pointer and keyboard and escape only closes', ()
     />,
   );
   const item = screen.getByRole('menuitem', { name: 'Go to artist' });
-  expect(document.querySelector('[data-item-menu="1"]')).toBeTruthy();
+  expect(document.querySelector('[data-item-menu="1"]')).not.toBeNull();
   expect(item.getAttribute('data-go-to-artist')).toStrictEqual('1');
   fireEvent.click(item);
   expect(onOpenArtist).toHaveBeenCalledWith('mira-sol');
@@ -116,4 +116,92 @@ test('optional catalogue handlers stay quiet when omitted', () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
   expect(onClose).toHaveBeenCalledTimes(4);
+});
+
+test('an open menu is placed inside the viewport from its anchor, and a closed one is not', () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 });
+  // jsdom lays nothing out; the placement measures the menu, so the test
+  // lends it the size a real menu has (196 × 190 from the sheets).
+  const real = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    return { width: 196, height: 190, left: 0, top: 0, right: 196, bottom: 190, x: 0, y: 0, toJSON: () => ({}) };
+  };
+  try {
+    const placed = render(
+      <GoToArtistMenu
+        menuId="menu-place"
+        open
+        artistKey="mira-sol"
+        messages={destinationMessages()}
+        onOpenArtist={vi.fn()}
+        onClose={vi.fn()}
+        at={{ x: 20, y: 700 }}
+      />,
+    );
+    const menu = document.querySelector('[data-item-menu="1"]') as HTMLElement;
+    // The anchor is the pointer at (20, 700): the menu's top-left lands
+    // there; 700 + 190 would pass the bottom edge (792), so the menu flips
+    // above the pointer, resting on it.
+    expect(menu.style.getPropertyValue('left')).toStrictEqual('20px');
+    expect(menu.style.getPropertyValue('top')).toStrictEqual('510px');
+    // The portalled menu takes focus so keyboard users are inside it.
+    expect((document.activeElement as HTMLElement).getAttribute('data-menu-item')).toStrictEqual('play');
+    placed.unmount();
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = real;
+  }
+  // A closed menu renders nothing and writes nothing.
+  render(
+    <GoToArtistMenu
+      menuId="menu-place"
+      open={false}
+      artistKey="mira-sol"
+      messages={destinationMessages()}
+      onOpenArtist={vi.fn()}
+      onClose={vi.fn()}
+      at={{ x: 20, y: 700 }}
+    />,
+  );
+  expect(document.querySelector('[data-item-menu="1"]')).toBeNull();
+});
+
+test('closing hands focus back to the trigger the menu opened from', () => {
+  const view = render(
+    <GoToArtistMenu
+      menuId="menu-focus"
+      open={false}
+      artistKey="mira-sol"
+      messages={destinationMessages()}
+      onOpenArtist={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  // The trigger the opener rendered beside the menu.
+  const trigger = document.createElement('button');
+  trigger.setAttribute('aria-controls', 'menu-focus');
+  document.body.append(trigger);
+  // Open, then close: focus lands on the opener, not lost to the void.
+  view.rerender(
+    <GoToArtistMenu
+      menuId="menu-focus"
+      open
+      artistKey="mira-sol"
+      messages={destinationMessages()}
+      onOpenArtist={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  view.rerender(
+    <GoToArtistMenu
+      menuId="menu-focus"
+      open={false}
+      artistKey="mira-sol"
+      messages={destinationMessages()}
+      onOpenArtist={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(document.activeElement).toStrictEqual(trigger);
+  trigger.remove();
 });

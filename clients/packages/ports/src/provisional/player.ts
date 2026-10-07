@@ -36,4 +36,17 @@ export type PlayerSnapshot = {
   lyricsKind: CatalogueLyricsKind;
   queue: readonly PlayerQueueLine[];
   queueOpen: boolean;
+  /* 2026-10-07 player pass: display-only transport state. Every field is
+     optional so existing snapshots stay valid; the verbs that change them
+     remain the composition root's rules, not the UI's. */
+  /** Shuffle is on: next/previous follow the seed's order, not the queue's. */
+  shuffleOn?: boolean | undefined;
+  /** Seed of the shuffle order; fixed while the queue plays through. */
+  shuffleSeed?: number | undefined;
+  /** Repeat mode; missing reads as 'off'. */
+  repeatMode?: 'off' | 'all' | 'one' | undefined;
+  /** True while the engine reports the media not yet ready to play through. */
+  buffering?: boolean | undefined;
+  /** The engine's last playback failure reason; empty when unknown. */
+  playbackError?: string | undefined;
 };
