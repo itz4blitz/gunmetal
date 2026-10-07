@@ -135,7 +135,12 @@ checks() {
   cargo run "$locked" -q -p xtask -- native-code target/native-code.json
 
   echo "==> tests with 100% coverage"
+  # Distro Rust (Arch) ships standard-library coverage mappings whose sources
+  # live under /usr/src/debug/rust; without this filter one uncovered standard
+  # region fails the totals on such a machine. CI's rustup toolchain matches
+  # nothing here, so the gate measures the same code on every machine.
   cargo llvm-cov --locked --workspace \
+    --ignore-filename-regex '^/usr/src/debug/rust/' \
     --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 
   echo "==> documentation tests"
