@@ -16,9 +16,13 @@ files as they are, so the server should send the original and get out of the
 way.
 
 > [!WARNING]
-> **Pre-alpha. You cannot run this yet.** What exists today is the start of
-> the media parser and the engineering rules everything else will be held
-> to. This README describes where the project is going; the
+> **Pre-alpha. The server cannot run your library yet.** What exists today
+> is well past the first parser: the music formats are read (FLAC, MP3, MP4,
+> Ogg/Opus/Vorbis, AIFF, APE), the security foundations are built (signed
+> stream tokens, WebAuthn, pairing codes, the egress gate, the jailed worker
+> sandbox, secrets storage), the server's session, verifier and access-policy
+> layers exist, and a demo client with a working audio transport runs against
+> a fake server. This README describes where the project is going; the
 > [roadmap](#roadmap) shows exactly how far it has got.
 
 ## Why another media server
@@ -93,7 +97,13 @@ so a music library needs no remuxer and gets a usable release out soonest.
 
 - [x] Workspace, quality gate and CI
 - [x] Core: EBML primitives, the encoding underneath MKV and WebM
-- [ ] Core: FLAC, MP3, MP4 and Ogg metadata, artwork and loudness
+- [x] Core: FLAC, MP3, MP4 and Ogg metadata, artwork and loudness
+- [x] Security foundations: signed stream tokens, WebAuthn, pairing codes,
+      the egress address gate, the jailed worker sandbox, secrets storage
+- [x] Server skeleton: sessions, the sign-in verifier, access policy,
+      rate limiting, the stores
+- [x] Demo client: audio transport, player interface and the declarative
+      plugin model, against a fake server
 - [ ] Core: Matroska and MP4 tracks, cues and the segment map
 - [ ] Benchmark: scan time against Jellyfin on the same library
 - [ ] Server: library scan, music model, sign-in, byte serving
