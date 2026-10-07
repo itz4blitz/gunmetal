@@ -1,0 +1,180 @@
+import { useState } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
+import { Text, View } from 'react-native-web';
+import type { DestinationMessages } from '../../messages/en/destinations.ts';
+import { staggerSlot } from '../format.ts';
+import type { ShellAlbum } from '../library-types.ts';
+import { CoverTile } from './CoverTile.tsx';
+import { GoToArtistMenu } from './GoToArtistMenu.tsx';
+
+export type AlbumTileProps = {
+  album: ShellAlbum;
+  messages: DestinationMessages;
+  onOpen: (albumId: string) => void;
+  onPlay?: (albumId: string) => void;
+  onPlayNext?: (albumId: string) => void;
+  onAddToQueue?: (albumId: string) => void;
+  onOpenArtist?: (artistKey: string) => void;
+  staggerIndex?: number;
+};
+
+function displayTitle(album: ShellAlbum, messages: DestinationMessages): string {
+  if (album.hostile) {
+    return messages.hostileAlbumLabel;
+  }
+  return album.title;
+}
+
+function displayArtist(album: ShellAlbum, messages: DestinationMessages): string {
+  if (album.hostile) {
+    return messages.hostileArtistLabel;
+  }
+  return album.artistName;
+}
+
+function activatePlay(
+  albumId: string,
+  onOpen: (albumId: string) => void,
+  onPlay: ((albumId: string) => void) | undefined,
+): void {
+  if (onPlay !== undefined) {
+    onPlay(albumId);
+    return;
+  }
+  onOpen(albumId);
+}
+
+function activateOpenKey(
+  event: KeyboardEvent<HTMLElement>,
+  albumId: string,
+  onOpen: (albumId: string) => void,
+): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    onOpen(albumId);
+  }
+}
+
+export function AlbumTile({
+  album,
+  messages,
+  onOpen,
+  onPlay,
+  onPlayNext,
+  onAddToQueue,
+  onOpenArtist,
+  staggerIndex = 0,
+}: AlbumTileProps) {
+  const title = displayTitle(album, messages);
+  const artist = displayArtist(album, messages);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const openMenu = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenuOpen(true);
+  };
+  return (
+    <View
+      id={`album-tile-${album.id}`}
+      dataSet={{
+        albumTile: album.id,
+        hostile: album.hostile ? '1' : '0',
+        tileStagger: staggerSlot(staggerIndex),
+      }}
+      onContextMenu={
+        onOpenArtist === undefined
+          ? undefined
+          : (event) => {
+              openMenu(event);
+            }
+      }
+    >
+      <View
+        dataSet={{ albumArt: '1' }}
+        onClick={() => {
+          onOpen(album.id);
+        }}
+      >
+        <CoverTile
+          tone={album.coverTone}
+          label={title}
+          size="grid"
+          coverId={`cover-grid-${album.id}`}
+        />
+        <View
+          dataSet={{ albumPlay: '1' }}
+          accessibilityRole="button"
+          accessibilityLabel={messages.playAlbum}
+          tabIndex={0}
+          onClick={(event: MouseEvent<HTMLElement>) => {
+            event.stopPropagation();
+            activatePlay(album.id, onOpen, onPlay);
+          }}
+          onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              event.stopPropagation();
+              activatePlay(album.id, onOpen, onPlay);
+            }
+          }}
+        />
+      </View>
+      <View
+        dataSet={{ albumOpen: '1' }}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        tabIndex={0}
+        onClick={() => {
+          onOpen(album.id);
+        }}
+        onKeyDown={(event) => {
+          activateOpenKey(event, album.id, onOpen);
+        }}
+      >
+        <Text dataSet={{ albumTitle: '1' }}>{title}</Text>
+        <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
+      </View>
+      {onOpenArtist === undefined ? null : (
+        <>
+          <View
+            dataSet={{ itemMore: '1' }}
+            accessibilityRole="button"
+            accessibilityLabel={messages.moreActions}
+            tabIndex={0}
+            onClick={(event: MouseEvent<HTMLElement>) => {
+              openMenu(event);
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                openMenu(event);
+              }
+            }}
+          >
+            <Text>{messages.moreActions}</Text>
+          </View>
+          <GoToArtistMenu
+            open={menuOpen}
+            artistKey={album.artistKey}
+            messages={messages}
+            onOpenArtist={onOpenArtist}
+            onPlay={() => {
+              activatePlay(album.id, onOpen, onPlay);
+            }}
+            onPlayNext={() => {
+              onPlayNext?.(album.id);
+            }}
+            onAddToQueue={() => {
+              onAddToQueue?.(album.id);
+            }}
+            onGoToAlbum={() => {
+              onOpen(album.id);
+            }}
+            onClose={() => {
+              setMenuOpen(false);
+            }}
+          />
+        </>
+      )}
+    </View>
+  );
+}
