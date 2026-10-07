@@ -20,5 +20,10 @@
 //! This file is a registry: it holds only module lines, sorted.
 
 mod export;
+pub mod gain;
 pub mod links;
+pub mod lyrics;
+pub mod player;
+pub mod queue;
+pub mod shuffle;
 pub mod text;
