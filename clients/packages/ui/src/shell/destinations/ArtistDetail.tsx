@@ -2,8 +2,19 @@ import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { artistInitial } from '../format.ts';
 import type { ShellAlbum, ShellArtist, ShellLibrary } from '../library-types.ts';
-import { albumsForArtist } from '../playback.ts';
 import { AlbumTile } from './AlbumTile.tsx';
+
+/** The artist page's read: the artist's albums in library order. */
+function albumsForArtist(library: ShellLibrary, artist: ShellArtist): readonly ShellAlbum[] {
+  const albums: ShellAlbum[] = [];
+  for (const id of artist.albumIds) {
+    const found = library.albums.find((album) => album.id === id);
+    if (found !== undefined) {
+      albums.push(found);
+    }
+  }
+  return albums;
+}
 
 export type ArtistDetailProps = {
   artist: ShellArtist | undefined;
@@ -12,9 +23,9 @@ export type ArtistDetailProps = {
   onBack: () => void;
   onOpenAlbum: (albumId: string) => void;
   onPlayAlbum: (albumId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
-  onPlayNextAlbum?: (albumId: string) => void;
-  onAddAlbumToQueue?: (albumId: string) => void;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
+  onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+  onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
 };
 
 function activateKey(event: { key: string; preventDefault: () => void }, action: () => void): void {
@@ -68,10 +79,7 @@ export function ArtistDetail({
   const first = albums[0];
   const heading = artistHeading(artist, albums, messages);
   const artTone = first?.coverTone;
-  const artistData =
-    artTone === undefined
-      ? { artistKey: artist.key }
-      : { artistKey: artist.key, artTone };
+  const artistData = artTone === undefined ? { artistKey: artist.key } : { artistKey: artist.key, artTone };
 
   return (
     <View id="destination-artist" dataSet={artistData}>
@@ -95,9 +103,7 @@ export function ArtistDetail({
           <Text id="destination-headline" accessibilityRole="header">
             {heading}
           </Text>
-          <Text dataSet={{ artistAlbumCount: '1' }}>
-            {`${albums.length} ${messages.artistAlbumCount}`}
-          </Text>
+          <Text dataSet={{ artistAlbumCount: '1' }}>{`${albums.length} ${messages.artistAlbumCount}`}</Text>
           <View
             id="artist-play"
             accessibilityRole="button"

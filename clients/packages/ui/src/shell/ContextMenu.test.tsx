@@ -41,9 +41,13 @@ test('context menu stays unmounted until open and lists every catalogue action a
     'Go to album',
     'Go to artist',
   ]);
-  expect(
-    [...container.querySelectorAll('[data-menu-label="1"]')].map((node) => node.textContent),
-  ).toStrictEqual(['Play', 'Play next', 'Add to queue', 'Go to album', 'Go to artist']);
+  expect([...container.querySelectorAll('[data-menu-label="1"]')].map((node) => node.textContent)).toStrictEqual([
+    'Play',
+    'Play next',
+    'Add to queue',
+    'Go to album',
+    'Go to artist',
+  ]);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
   expect(onAction).toHaveBeenCalledWith('play-next');
   expect(onClose).toHaveBeenCalledTimes(1);

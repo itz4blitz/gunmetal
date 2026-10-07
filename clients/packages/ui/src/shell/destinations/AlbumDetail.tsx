@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native-web';
-import { demoLyricsLines, demoLyricsVerse } from '../../../../fake-server/src/lyrics.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellAlbum, ShellTrack } from '../library-types.ts';
 import { LyricsPane } from '../LyricsPane.tsx';
+import { noLyrics, type LyricsResolver } from '../content.ts';
 import { CoverTile } from './CoverTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
@@ -16,20 +16,22 @@ function albumLyricsTrack(album: ShellAlbum, currentTrackId?: string): ShellTrac
 }
 
 export type AlbumDetailProps = {
+  lyricsFor?: LyricsResolver | undefined;
   album: ShellAlbum | undefined;
   messages: DestinationMessages;
-  currentTrackId?: string;
+  currentTrackId?: string | undefined;
   onBack: () => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
-  onPlayNextAlbum?: (albumId: string) => void;
-  onAddAlbumToQueue?: (albumId: string) => void;
-  onPlayNextTrack?: (albumId: string, trackId: string) => void;
-  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
+  onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+  onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
+  onPlayNextTrack?: ((albumId: string, trackId: string) => void) | undefined;
+  onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
 };
 
 export function AlbumDetail({
+  lyricsFor = () => noLyrics,
   album,
   messages,
   currentTrackId,
@@ -100,6 +102,7 @@ export function AlbumDetail({
           label={title}
           size="detail"
           coverId={`cover-detail-${album.id}`}
+          artUrl={album.coverUrl}
         />
         <View dataSet={{ albumHeaderText: '1' }}>
           <Text id="destination-headline" accessibilityRole="header">
@@ -178,54 +181,54 @@ export function AlbumDetail({
         <LyricsPane
           id="album-lyrics"
           label={messages.lyricsRegion}
-          lines={demoLyricsLines(demoLyricsVerse(lyricsTrack.id, lyricsTrack.lyricsKind))}
+          lines={lyricsFor(lyricsTrack.id, lyricsTrack.lyricsKind)}
           synced={lyricsTrack.lyricsKind === 'synced'}
           open={lyricsOpen}
         />
       )}
-      {album.discs.length > 1
-        ? album.discs.map((disc) => (
-            <View key={disc.index} dataSet={{ discBlock: `${disc.index}` }}>
-              <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
-                {disc.title === '' ? `${messages.discsHeading} ${disc.index}` : disc.title}
-              </Text>
-              {album.tracks
-                .filter((track) => track.discIndex === disc.index)
-                .map((track) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    messages={messages}
-                    current={track.id === currentTrackId}
-                    artistKey={album.artistKey}
-                    onPlay={onPlayTrack}
-                    onPlayNext={onPlayNextTrack}
-                    onAddToQueue={onAddTrackToQueue}
-                    onOpenArtist={onOpenArtist}
-                  />
-                ))}
-            </View>
-          ))
-        : (
-          <View dataSet={{ discBlock: '1' }}>
+      {album.discs.length > 1 ? (
+        album.discs.map((disc) => (
+          <View key={disc.index} dataSet={{ discBlock: `${disc.index}` }}>
             <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
-              {messages.tracksHeading}
+              {disc.title === '' ? `${messages.discsHeading} ${disc.index}` : disc.title}
             </Text>
-            {album.tracks.map((track) => (
-              <TrackRow
-                key={track.id}
-                track={track}
-                messages={messages}
-                current={track.id === currentTrackId}
-                artistKey={album.artistKey}
-                onPlay={onPlayTrack}
-                onPlayNext={onPlayNextTrack}
-                onAddToQueue={onAddTrackToQueue}
-                onOpenArtist={onOpenArtist}
-              />
-            ))}
+            {album.tracks
+              .filter((track) => track.discIndex === disc.index)
+              .map((track) => (
+                <TrackRow
+                  key={track.id}
+                  track={track}
+                  messages={messages}
+                  current={track.id === currentTrackId}
+                  artistKey={album.artistKey}
+                  onPlay={onPlayTrack}
+                  onPlayNext={onPlayNextTrack}
+                  onAddToQueue={onAddTrackToQueue}
+                  onOpenArtist={onOpenArtist}
+                />
+              ))}
           </View>
-        )}
+        ))
+      ) : (
+        <View dataSet={{ discBlock: '1' }}>
+          <Text accessibilityRole="header" dataSet={{ discHeader: '1', type: 'title2' }}>
+            {messages.tracksHeading}
+          </Text>
+          {album.tracks.map((track) => (
+            <TrackRow
+              key={track.id}
+              track={track}
+              messages={messages}
+              current={track.id === currentTrackId}
+              artistKey={album.artistKey}
+              onPlay={onPlayTrack}
+              onPlayNext={onPlayNextTrack}
+              onAddToQueue={onAddTrackToQueue}
+              onOpenArtist={onOpenArtist}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 }

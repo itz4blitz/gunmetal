@@ -13,9 +13,7 @@ test('empty cards use secondary title, muted body, and a quiet CSS mark', async 
   expect(css.includes('var(--gm-text-secondary)')).toStrictEqual(true);
   expect(css.includes('var(--gm-text-muted)')).toStrictEqual(true);
   expect(css.includes('empty-mark')).toStrictEqual(true);
-  expect(css.includes('.png') || css.includes('.svg') || css.includes('.webp')).toStrictEqual(
-    false,
-  );
+  expect(css.includes('.png') || css.includes('.svg') || css.includes('.webp')).toStrictEqual(false);
 });
 
 test('artist subtitles use text.secondary while captions stay muted', async () => {
@@ -42,6 +40,10 @@ test('album tile hover lifts cover art and fades the brass play control', async 
   expect(css.includes('opacity')).toStrictEqual(true);
   expect(css.includes('flex: 0 0 180px')).toStrictEqual(true);
   expect(css.includes('scroll-snap-type: x mandatory')).toStrictEqual(true);
+  // The shelf never shows a scrollbar and never fades its last tile.
+  expect(css.includes('scrollbar-width: none')).toStrictEqual(true);
+  expect(css.includes('[data-album-row]::-webkit-scrollbar')).toStrictEqual(true);
+  expect(css.includes('mask-image')).toStrictEqual(false);
 });
 
 test('home spotlight wash uses art-surface vars keyed by data-art-tone', async () => {
@@ -52,9 +54,7 @@ test('home spotlight wash uses art-surface vars keyed by data-art-tone', async (
   const spotlight = css.slice(css.indexOf('#home-spotlight'));
   expect(spotlight.includes('min-height: 360px')).toStrictEqual(true);
   expect(css.includes('[data-spotlight-eyebrow]')).toStrictEqual(true);
-  expect(css.includes('[data-type=\'display\']') || css.includes('[data-type="display"]')).toStrictEqual(
-    true,
-  );
+  expect(css.includes("[data-type='display']") || css.includes('[data-type="display"]')).toStrictEqual(true);
 });
 
 test('queue sheet enters and exits over 200ms and respects reduced motion', async () => {
@@ -62,6 +62,17 @@ test('queue sheet enters and exits over 200ms and respects reduced motion', asyn
   expect(css.includes('#queue-sheet[data-queue-open=')).toStrictEqual(true);
   expect(css.includes('200ms')).toStrictEqual(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
+  // A full-height side sheet that slides from the right, and a bottom sheet on
+  // phones — not a floating popover card.
+  const sheet = css.slice(css.indexOf('#queue-sheet {'), css.indexOf('#queue-scrim'));
+  expect(sheet.includes('translateX(105%)')).toStrictEqual(true);
+  expect(sheet.includes('border-radius: 0')).toStrictEqual(true);
+  const compactSheet = css.slice(
+    css.indexOf("#token-shell[data-width='compact'] #queue-sheet {"),
+    css.indexOf("#token-shell[data-width='compact'] #queue-sheet[data-queue-open='1']"),
+  );
+  expect(compactSheet.includes('border-radius: var(--gm-radius-xl)')).toStrictEqual(true);
+  expect(compactSheet.includes('translateY(105%)')).toStrictEqual(true);
 });
 
 test('shell chrome elevates brand rule, nav glyphs, vignette, art-tint and wide breath', async () => {
@@ -73,16 +84,23 @@ test('shell chrome elevates brand rule, nav glyphs, vignette, art-tint and wide 
   expect(css.includes('Canvas depth: subtle top vignette')).toStrictEqual(true);
   expect(css.includes('linear-gradient')).toStrictEqual(true);
   expect(css.includes('[data-art-tone=')).toStrictEqual(true);
-  expect(css.includes('#player-bar::before') || css.includes('#player-bar:before')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('#player-bar::before') || css.includes('#player-bar:before')).toStrictEqual(true);
   expect(css.includes('#demo-label')).toStrictEqual(true);
   expect(css.includes("data-width='wide'] #content") || css.includes('data-width="wide"] #content')).toStrictEqual(
     true,
   );
   expect(css.includes('padding: 32px')).toStrictEqual(true);
-  expect(css.includes('backdrop-filter')).toStrictEqual(true);
+  // The wide content column fills the space to the queue pane (no dead zone).
+  expect(css.includes('max-width: 1120px')).toStrictEqual(false);
+  // Opaque player bar: no translucency, no blur (design-language §2, §7).
+  expect(css.includes('backdrop-filter: blur')).toStrictEqual(false);
   expect(css.includes('clip-path')).toStrictEqual(true);
+  // Selected nav paints from data-selected; RN-web does not emit aria-selected.
+  expect(css.includes("#nav-sidebar [data-selected='1']")).toStrictEqual(true);
+  // Brass stays on play and where-you-are: the demo chip and empty marks go steel.
+  const demoLabel = css.slice(css.indexOf('#demo-label'), css.indexOf('}', css.indexOf('#demo-label')));
+  expect(demoLabel.includes('var(--gm-text-muted)')).toStrictEqual(true);
+  expect(demoLabel.includes('--gm-accent')).toStrictEqual(false);
 });
 
 test('library tabs stick with a brass underline indicator at radius.m, not pills', async () => {
@@ -110,13 +128,9 @@ test('library album grid uses minmax 160px and a 24px gap', async () => {
 test('artist rows are 56px with a hex avatar and tracks raise on hover with tabular duration', async () => {
   const css = await demoShellCss();
   expect(css.includes('[data-artist-avatar]')).toStrictEqual(true);
-  expect(css.includes('clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%)')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%)')).toStrictEqual(true);
   const artistRow = css.slice(css.indexOf('[data-artist-row]'));
-  expect(artistRow.includes('min-height: 56px') || artistRow.includes('height: 56px')).toStrictEqual(
-    true,
-  );
+  expect(artistRow.includes('min-height: 56px') || artistRow.includes('height: 56px')).toStrictEqual(true);
   expect(css.includes('[data-track-duration]')).toStrictEqual(true);
   expect(css.includes('font-variant-numeric: tabular-nums')).toStrictEqual(true);
   expect(css.includes('var(--gm-raised-edge)')).toStrictEqual(true);
@@ -134,17 +148,15 @@ test('settings panels sit on raised machined surfaces and theme is segmented', a
 test('settings app uses a steel side list on wide and brass R2 badges', async () => {
   const css = await demoShellCss();
   expect(css.includes('#settings-nav')).toStrictEqual(true);
-  expect(
-    css.includes("[data-settings-layout='side']") || css.includes('[data-settings-layout="side"]'),
-  ).toStrictEqual(true);
+  expect(css.includes("[data-settings-layout='side']") || css.includes('[data-settings-layout="side"]')).toStrictEqual(
+    true,
+  );
   const sideMarker = css.includes("[data-settings-layout='side']")
     ? "[data-settings-layout='side']"
     : '[data-settings-layout="side"]';
   const side = css.slice(css.indexOf(sideMarker));
   expect(side.includes('flex-direction: row')).toStrictEqual(true);
-  expect(
-    css.includes("[data-settings-badge='R2']") || css.includes('[data-settings-badge="R2"]'),
-  ).toStrictEqual(true);
+  expect(css.includes("[data-settings-badge='R2']") || css.includes('[data-settings-badge="R2"]')).toStrictEqual(true);
   const badgeMarker = css.includes("[data-settings-badge='R2']")
     ? "[data-settings-badge='R2']"
     : '[data-settings-badge="R2"]';
@@ -161,9 +173,7 @@ test('page enter fades over 160ms and scrollbars are thin muted chrome', async (
   expect(css.includes('gm-page-enter') || css.includes('@keyframes')).toStrictEqual(true);
   expect(css.includes('160ms')).toStrictEqual(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
-  expect(css.includes('scrollbar-width: thin') || css.includes('::-webkit-scrollbar')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('scrollbar-width: thin') || css.includes('::-webkit-scrollbar')).toStrictEqual(true);
 });
 
 test('2026 motion staggers tiles, fades heroes without parallax and presses at 0.98', async () => {
@@ -194,18 +204,16 @@ test('context menus sit on overlay at radius.l with brass focus and 160ms motion
   expect(css.includes('160ms')).toStrictEqual(true);
   expect(css.includes('prefers-reduced-motion: reduce')).toStrictEqual(true);
   expect(css.includes('[data-lyrics-line]')).toStrictEqual(true);
-  expect(css.includes('[data-lyrics-line][data-current') || css.includes("[data-lyrics-line][data-current")).toStrictEqual(
-    true,
-  );
+  expect(
+    css.includes('[data-lyrics-line][data-current') || css.includes('[data-lyrics-line][data-current'),
+  ).toStrictEqual(true);
 });
 
 test('album detail wash denser track rows and full player sheet are crafted', async () => {
   const css = await demoShellCss();
   expect(css.includes('#destination-album[data-art-tone]')).toStrictEqual(true);
   expect(css.includes('min-height: 48px')).toStrictEqual(true);
-  expect(css.includes('[data-now-playing=') || css.includes('[data-now-playing=')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('[data-now-playing=') || css.includes('[data-now-playing=')).toStrictEqual(true);
   expect(css.includes('#player-full')).toStrictEqual(true);
   expect(css.includes('#player-full-scrim')).toStrictEqual(true);
   const fullOpenMarker = css.includes("#player-full[data-open='1']")
@@ -218,9 +226,7 @@ test('album detail wash denser track rows and full player sheet are crafted', as
   expect(fullOpenBlock.includes('display: none')).toStrictEqual(false);
   expect(css.includes('#player-expand')).toStrictEqual(true);
   expect(css.includes('#player-art') && css.includes('cursor: pointer')).toStrictEqual(true);
-  expect(css.includes("[data-size='full']") || css.includes('[data-size="full"]')).toStrictEqual(
-    true,
-  );
+  expect(css.includes("[data-size='full']") || css.includes('[data-size="full"]')).toStrictEqual(true);
 });
 
 test('settings side list, artist wash, menus and lyrics pane are crafted', async () => {
@@ -235,12 +241,12 @@ test('settings side list, artist wash, menus and lyrics pane are crafted', async
 
 test('every CLI-141 theme sets color-scheme and paints html through :has', async () => {
   const css = await demoShellCss();
-  expect(css.includes("color-scheme: dark")).toStrictEqual(true);
-  expect(css.includes("color-scheme: light")).toStrictEqual(true);
+  expect(css.includes('color-scheme: dark')).toStrictEqual(true);
+  expect(css.includes('color-scheme: light')).toStrictEqual(true);
   expect(css.includes("html:has(#token-shell[data-theme='light'])")).toStrictEqual(true);
   expect(css.includes("html:has(#token-shell[data-theme='oled'])")).toStrictEqual(true);
   expect(css.includes("html:has(#token-shell[data-theme='high-contrast'])")).toStrictEqual(true);
-  expect(css.includes('#token-shell[data-theme=\'light\']')).toStrictEqual(true);
+  expect(css.includes("#token-shell[data-theme='light']")).toStrictEqual(true);
   const lightShell = css.slice(css.indexOf("#token-shell[data-theme='light']"));
   expect(lightShell.includes('color-scheme: light')).toStrictEqual(true);
 });
@@ -249,9 +255,7 @@ test('wordmark and form controls use theme tokens and Inter, not hardcoded dark 
   const css = await demoShellCss();
   const face = css.slice(css.indexOf('@font-face'), css.indexOf('html,'));
   expect(face.includes("url('/fonts/InterVariable.woff2')")).toStrictEqual(true);
-  expect(css.includes('fonts.googleapis.com') || css.includes('fonts.gstatic.com')).toStrictEqual(
-    false,
-  );
+  expect(css.includes('fonts.googleapis.com') || css.includes('fonts.gstatic.com')).toStrictEqual(false);
   const wordmark = css.slice(css.indexOf('#shell-wordmark'), css.indexOf('#nav-sidebar #shell-wordmark'));
   expect(wordmark.includes('var(--gm-text-primary)')).toStrictEqual(true);
   expect(wordmark.includes('#e9eef2')).toStrictEqual(false);
@@ -266,47 +270,45 @@ test('plugin slots and album license chrome use muted tokens, not a host control
   const css = await demoShellCss();
   expect(css.includes('#settings-plugin-slots')).toStrictEqual(true);
   expect(css.includes('[data-plugin-slot]')).toStrictEqual(true);
-  expect(css.includes("[data-slot-loaded='0']") || css.includes('[data-slot-loaded="0"]')).toStrictEqual(
-    true,
-  );
+  expect(css.includes("[data-slot-loaded='0']") || css.includes('[data-slot-loaded="0"]')).toStrictEqual(true);
   expect(css.includes('[data-album-license]')).toStrictEqual(true);
   expect(css.includes('#search-plugin-notice')).toStrictEqual(true);
   expect(css.includes('#plugin-host') || css.includes('[data-plugin-host]')).toStrictEqual(false);
 });
 
-test('2026 chrome uses icon transport, a compact empty rail, a 360 hero and playing bars', async () => {
+test('2026 chrome uses icon transport, fills the column, and keeps a composed home', async () => {
   const css = await demoShellCss();
   expect(css.includes('#player-prev > *')).toStrictEqual(true);
   expect(css.includes('#player-next > *')).toStrictEqual(true);
   expect(css.includes('font-size: 0 !important')).toStrictEqual(true);
-  expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(
-    true,
-  );
-  expect(css.includes('#player-next::after') || css.includes('#player-next:after')).toStrictEqual(
-    true,
-  );
-  expect(css.includes('#player-queue::after') || css.includes('#player-queue:after')).toStrictEqual(
-    true,
-  );
-  expect(css.includes('#player-full-prev::after') || css.includes('#player-full-prev:after')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('#player-prev::after') || css.includes('#player-prev:after')).toStrictEqual(true);
+  expect(css.includes('#player-next::after') || css.includes('#player-next:after')).toStrictEqual(true);
+  expect(css.includes('#player-queue::after') || css.includes('#player-queue:after')).toStrictEqual(true);
+  expect(css.includes('#player-full-prev::after') || css.includes('#player-full-prev:after')).toStrictEqual(true);
   expect(css.includes('gm-playing-bars')).toStrictEqual(true);
   expect(css.includes('#destination-home')).toStrictEqual(true);
-  expect(css.includes('repeat(3, minmax(0, 1fr))')).toStrictEqual(true);
-  const continueRow = css.slice(css.indexOf('#home-row-continue'));
-  expect(continueRow.includes('min-height: 64px') || continueRow.includes('min-height:64px')).toStrictEqual(
-    true,
-  );
+  // Home is one composed column: hero, then shelves. No placeholder trio.
+  const home = css.slice(css.indexOf('#destination-home'), css.indexOf('}', css.indexOf('#destination-home')));
+  expect(home.includes('flex-direction: column')).toStrictEqual(true);
+  expect(css.includes('repeat(3, minmax(0, 1fr))')).toStrictEqual(false);
+  expect(css.includes('#home-row-continue')).toStrictEqual(false);
   const spotlight = css.slice(css.indexOf('#home-spotlight'));
   expect(spotlight.includes('min-height: 360px')).toStrictEqual(true);
   expect(css.includes('min(400px, 72vw)') || css.includes('min(400px,72vw)')).toStrictEqual(true);
-  expect(css.includes('[data-cover-plate]::after') || css.includes('[data-cover-plate]:after')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('[data-cover-plate]::after') || css.includes('[data-cover-plate]:after')).toStrictEqual(true);
   expect(css.includes('#player-full:has([data-cover=') || css.includes('#player-full:has([data-cover')).toStrictEqual(
     true,
   );
+  // Cover placeholders are machined plates, not letter posters: grid covers
+  // carry no glyph and no sheen layer.
+  const gridGlyph = css.indexOf("[data-size='grid'] [data-cover-label]");
+  expect(gridGlyph).toStrictEqual(-1);
+  expect(css.includes('[data-cover-sheen]')).toStrictEqual(false);
+  // The queue sheet is a real sheet with a scrim behind it.
+  expect(css.includes('#queue-scrim')).toStrictEqual(true);
+  // Hex buttons take their focus ring on a square wrapper (clip-path eats outlines).
+  expect(css.includes("[data-hex-wrap='1']:focus-within")).toStrictEqual(true);
+  expect(css.includes('drop-shadow(0 0 0')).toStrictEqual(false);
 });
 
 test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plate', async () => {
@@ -316,9 +318,9 @@ test('type scale tokens and artwork mix follow canvas, not a hardcoded dark plat
   expect(css.includes('--gm-type-title2-size: 22px')).toStrictEqual(true);
   expect(css.includes('--gm-art-mix: 48%')).toStrictEqual(true);
   expect(css.includes('--gm-art-mix: 18%')).toStrictEqual(true);
-  expect(
-    css.includes('color-mix(in srgb, var(--gm-cover-01) var(--gm-art-mix), var(--gm-bg-canvas))'),
-  ).toStrictEqual(true);
+  expect(css.includes('color-mix(in srgb, var(--gm-cover-01) var(--gm-art-mix), var(--gm-bg-canvas))')).toStrictEqual(
+    true,
+  );
   expect(css.includes('color-mix(in srgb, var(--gm-cover-01) 48%, #0f1317)')).toStrictEqual(false);
   expect(css.includes('::selection')).toStrictEqual(true);
 });
@@ -361,9 +363,7 @@ test('home medium stack, track rows, search chips and album chrome keep their si
   expect(css.includes('height: auto')).toStrictEqual(true);
   expect(css.includes("#token-shell[data-width='compact'] [data-track-row]")).toStrictEqual(true);
   expect(css.includes('#album-lyrics-toggle')).toStrictEqual(true);
-  expect(css.includes('overflow-wrap: anywhere') || css.includes('overflow-wrap:anywhere')).toStrictEqual(
-    true,
-  );
+  expect(css.includes('overflow-wrap: anywhere') || css.includes('overflow-wrap:anywhere')).toStrictEqual(true);
   const chip = css.slice(css.indexOf('[data-search-chip][data-pressed'));
   expect(chip.includes('background: transparent')).toStrictEqual(true);
   expect(chip.includes('border-radius: 999px') || chip.includes('pill')).toStrictEqual(false);

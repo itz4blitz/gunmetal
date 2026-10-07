@@ -20,7 +20,6 @@ export type DestinationMessages = {
   playNext: string;
   addToQueue: string;
   goToAlbum: string;
-  open: string;
   seeAll: string;
   playAlbum: string;
   backToLibrary: string;
@@ -98,7 +97,6 @@ export function destinationMessages(): DestinationMessages {
     playNext: 'Play next',
     addToQueue: 'Add to queue',
     goToAlbum: 'Go to album',
-    open: 'Open',
     seeAll: 'See all',
     playAlbum: 'Play album',
     backToLibrary: 'Back',
@@ -109,15 +107,14 @@ export function destinationMessages(): DestinationMessages {
     searchRecentEmpty: 'No recent searches',
     searchTypeFilter: 'Result types',
     searchDemoLocalNotice: 'Demo-local filter — not CorePort search',
-    searchNoHits: "No matches for this query in Music",
+    searchNoHits: 'No matches for this query in Music',
     settingsAppearance: 'Appearance',
     settingsPlayback: 'Playback',
     settingsPlaybackPlaceholder: 'Gain, crossfade and output arrive with CorePort (CP-020).',
     settingsConnected: 'Connected services',
     settingsConnectedEmpty: 'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
     settingsExtensions: 'Extensions / Plugins',
-    settingsExtensionsBody:
-      'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    settingsExtensionsBody: 'Plugins run as WebAssembly with per-grant consent; none load in this build.',
     settingsBadgeR1: 'R1',
     settingsBadgeR2: 'R2',
     settingsAbout: 'About this connection',
@@ -137,8 +134,7 @@ export function destinationMessages(): DestinationMessages {
     settingsSlotClient: 'Client',
     settingsSlotUnloaded: 'Not loaded',
     licenseLabel: 'License',
-    searchPluginNotice:
-      'A signed catalogue plugin can find releases outside this library. None is loaded.',
+    searchPluginNotice: 'A signed catalogue plugin can find releases outside this library. None is loaded.',
     albumMissing: 'That album is not in the demo library',
     artistMissing: 'That artist is not in the demo library',
     goToArtist: 'Go to artist',

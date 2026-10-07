@@ -1,59 +1,26 @@
-/**
- * Provisional opaque display DTOs for the demo fake-server (CP-011 / CP-012 style).
- * These are NOT Rust catalogue replacements from WP-235. Demo / UI chrome only.
- */
+import type {
+  CatalogueAlbum,
+  CatalogueArtist,
+  CatalogueLibrary,
+  CatalogueLyricsKind,
+  CatalogueTrack,
+  CatalogueTrackFlag,
+} from '../../../packages/ports/src/provisional/catalogue.ts';
 
-export type DemoTrackFlag = 'ok' | 'unplayable' | 'damaged';
+/** A hand-written track before the generated media URLs are attached. */
+export type FixtureTrack = Omit<CatalogueTrack, 'mediaUrl'>;
 
-export type DemoLyricsKind = 'none' | 'plain' | 'synced';
-
-export type DemoDisc = {
-  index: number;
-  title: string;
+/** A hand-written album before the generated cover URL is attached. */
+export type FixtureAlbum = Omit<CatalogueAlbum, 'coverUrl' | 'tracks'> & {
+  tracks: readonly FixtureTrack[];
 };
 
-export type DemoTrack = {
-  id: string;
-  albumId: string;
-  discIndex: number;
-  number: number;
-  title: string;
-  artistName: string;
-  durationMs: number;
-  flag: DemoTrackFlag;
-  lyricsKind: DemoLyricsKind;
-};
+export type DemoAlbum = CatalogueAlbum;
+export type DemoArtist = CatalogueArtist;
+export type DemoLibrary = CatalogueLibrary & { kind: 'demo-fixtures' };
 
-export type DemoLicense = {
-  spdx: 'CC0-1.0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'CC-BY-SA-3.0';
-  attribution: string;
-  source: string;
-};
-
-export type DemoAlbum = {
-  id: string;
-  title: string;
-  artistName: string;
-  /** Distinguishes same-name artists in the demo library. */
-  artistKey: string;
-  year: number;
-  coverTone: string;
-  discs: readonly DemoDisc[];
-  tracks: readonly DemoTrack[];
-  /** True when every text field holds the hostile-metadata corpus (SEC-CLI-001 demo). */
-  hostile: boolean;
-  license?: DemoLicense;
-};
-
-export type DemoArtist = {
-  key: string;
-  name: string;
-  albumIds: readonly string[];
-};
-
-export type DemoLibrary = {
-  /** Permanent notice: fixture data only. */
-  kind: 'demo-fixtures';
-  albums: readonly DemoAlbum[];
-  artists: readonly DemoArtist[];
-};
+export type DemoTrack = CatalogueTrack;
+export type DemoTrackFlag = CatalogueTrackFlag;
+export type DemoLyricsKind = CatalogueLyricsKind;
+export type DemoDisc = CatalogueAlbum['discs'][number];
+export type DemoLicense = NonNullable<CatalogueAlbum['license']>;

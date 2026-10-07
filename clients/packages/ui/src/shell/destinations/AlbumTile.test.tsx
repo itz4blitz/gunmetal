@@ -26,6 +26,7 @@ const album: ShellAlbum = {
   artistKey: 'keratin',
   year: 2024,
   coverTone: '02',
+  coverUrl: '/media/covers/fixture.svg',
   hostile: false,
   discs: [{ index: 1, title: '' }],
   tracks: [
@@ -39,6 +40,7 @@ const album: ShellAlbum = {
       durationMs: 180_000,
       flag: 'ok',
       lyricsKind: 'none',
+      mediaUrl: '/media/audio/fixtures.wav',
     },
   ],
 };
@@ -48,9 +50,7 @@ test('album tile shows title artist hierarchy and opens on activate', () => {
   render(<AlbumTile album={album} messages={messages} onOpen={onOpen} />);
   expect(screen.getByText('Harbour Lights')).toBeTruthy();
   expect(screen.getByText('Keratin')).toBeTruthy();
-  expect(document.querySelector('[data-album-title="1"]')?.textContent).toStrictEqual(
-    'Harbour Lights',
-  );
+  expect(document.querySelector('[data-album-title="1"]')?.textContent).toStrictEqual('Harbour Lights');
   expect(document.querySelector('[data-album-artist="1"]')?.textContent).toStrictEqual('Keratin');
   fireEvent.click(document.querySelector('[data-album-art="1"]')!);
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');
@@ -65,9 +65,7 @@ test('album tile shows title artist hierarchy and opens on activate', () => {
 });
 
 test('play control is a sibling of open — never a nested button', () => {
-  const { container } = render(
-    <AlbumTile album={album} messages={messages} onOpen={vi.fn()} onPlay={vi.fn()} />,
-  );
+  const { container } = render(<AlbumTile album={album} messages={messages} onOpen={vi.fn()} onPlay={vi.fn()} />);
   expect(container.querySelectorAll('button button')).toHaveLength(0);
   const open = screen.getByRole('button', { name: 'Harbour Lights' });
   const play = screen.getByRole('button', { name: 'Play album' });
@@ -80,9 +78,7 @@ test('play control is a sibling of open — never a nested button', () => {
 test('play affordance calls onPlay when provided otherwise onOpen', () => {
   const onOpen = vi.fn();
   const onPlay = vi.fn();
-  const withPlay = render(
-    <AlbumTile album={album} messages={messages} onOpen={onOpen} onPlay={onPlay} />,
-  );
+  const withPlay = render(<AlbumTile album={album} messages={messages} onOpen={onOpen} onPlay={onPlay} />);
   fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
   expect(onPlay).toHaveBeenCalledWith('demo-album-1');
   expect(onOpen).not.toHaveBeenCalled();
@@ -111,14 +107,13 @@ test('hostile album uses catalogue labels on the tile', () => {
   );
   expect(screen.getByRole('button', { name: 'Hostile metadata (fixture)' })).toBeTruthy();
   expect(screen.getByText('Hostile artist (fixture)')).toBeTruthy();
-  expect(document.querySelector('[data-cover-label]')?.textContent).toStrictEqual('H');
+  // Grid covers carry no letter — the hostile label lives in the tile text.
+  expect(document.querySelector('[data-cover-label]')).toBeNull();
 });
 
 test('stagger slots and go to artist open from context and more', () => {
   const onOpenArtist = vi.fn();
-  const first = render(
-    <AlbumTile album={album} messages={messages} onOpen={vi.fn()} staggerIndex={3} />,
-  );
+  const first = render(<AlbumTile album={album} messages={messages} onOpen={vi.fn()} staggerIndex={3} />);
   expect(document.querySelector('[data-tile-stagger="3"]')).toBeTruthy();
   expect(first.container.querySelector('[data-item-more="1"]')).toBeNull();
   fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
@@ -126,13 +121,7 @@ test('stagger slots and go to artist open from context and more', () => {
   first.unmount();
 
   const capped = render(
-    <AlbumTile
-      album={album}
-      messages={messages}
-      onOpen={vi.fn()}
-      onOpenArtist={onOpenArtist}
-      staggerIndex={12}
-    />,
+    <AlbumTile album={album} messages={messages} onOpen={vi.fn()} onOpenArtist={onOpenArtist} staggerIndex={12} />,
   );
   expect(document.querySelector('[data-tile-stagger="6"]')).toBeTruthy();
   fireEvent.contextMenu(document.querySelector('#album-tile-demo-album-1')!);
@@ -177,9 +166,7 @@ test('catalogue menu plays queues and opens the album from the tile', () => {
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');
   armed.unmount();
 
-  const quiet = render(
-    <AlbumTile album={album} messages={messages} onOpen={onOpen} onOpenArtist={vi.fn()} />,
-  );
+  const quiet = render(<AlbumTile album={album} messages={messages} onOpen={onOpen} onOpenArtist={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
   expect(onOpen).toHaveBeenCalledWith('demo-album-1');

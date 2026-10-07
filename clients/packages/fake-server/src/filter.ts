@@ -1,16 +1,20 @@
-import type { DemoAlbum, DemoLibrary, DemoTrack } from './types.ts';
+import type {
+  CatalogueAlbum,
+  CatalogueLibrary,
+  CatalogueTrack,
+} from '../../../packages/ports/src/provisional/catalogue.ts';
 import { allTracks } from './catalogue.ts';
 
 export type DemoLocalFilterHit = {
-  albums: readonly DemoAlbum[];
-  tracks: readonly DemoTrack[];
+  albums: readonly CatalogueAlbum[];
+  tracks: readonly CatalogueTrack[];
 };
 
 /**
  * Demo-local substring filter only — not CorePort search ranking.
  * Labelled as such wherever the UI surfaces results.
  */
-export function demoLocalFilter(library: DemoLibrary, query: string): DemoLocalFilterHit {
+export function demoLocalFilter(library: CatalogueLibrary, query: string): DemoLocalFilterHit {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) {
     return { albums: [], tracks: [] };
@@ -27,10 +31,7 @@ export function demoLocalFilter(library: DemoLibrary, query: string): DemoLocalF
     );
   });
   const tracks = allTracks(library).filter((entry) => {
-    return (
-      entry.title.toLowerCase().includes(needle) ||
-      entry.artistName.toLowerCase().includes(needle)
-    );
+    return entry.title.toLowerCase().includes(needle) || entry.artistName.toLowerCase().includes(needle);
   });
   return { albums, tracks };
 }

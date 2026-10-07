@@ -18,9 +18,7 @@ test('an exact closed path matches its route and empty history', () => {
     route: { path: '/library', surface: 'SUR-022', needsSession: true, needsAdminSession: false },
     history: { scrollY: 0, itemId: undefined },
   });
-  expect(
-    matchAddress({ pathname: '/settings', search: '', hash: '', state: { scrollY: 12 } }),
-  ).toStrictEqual({
+  expect(matchAddress({ pathname: '/settings', search: '', hash: '', state: { scrollY: 12 } })).toStrictEqual({
     kind: 'ok',
     route: { path: '/settings', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
     history: { scrollY: 12, itemId: undefined },
@@ -73,9 +71,7 @@ test('opaque item ids stay in history state and malformed ids refuse the address
   expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'a b' } })).toStrictEqual({
     kind: 'not-found',
   });
-  expect(
-    matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'x'.repeat(129) } }),
-  ).toStrictEqual({
+  expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 'x'.repeat(129) } })).toStrictEqual({
     kind: 'not-found',
   });
   expect(matchAddress({ pathname: '/', search: '', hash: '', state: { itemId: 1 } })).toStrictEqual({

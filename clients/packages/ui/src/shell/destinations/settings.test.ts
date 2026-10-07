@@ -12,14 +12,7 @@ import {
 } from './settings.ts';
 
 test('settings sections are the six 2026 catalogue panes in listed order', () => {
-  expect(settingsSections()).toStrictEqual([
-    'appearance',
-    'playback',
-    'connected',
-    'extensions',
-    'about',
-    'privacy',
-  ]);
+  expect(settingsSections()).toStrictEqual(['appearance', 'playback', 'connected', 'extensions', 'about', 'privacy']);
   expect(defaultSettingsSection()).toStrictEqual('appearance');
 });
 

@@ -140,6 +140,9 @@ The owner directed these in conversation on 2026-10-06.
 |---|---|
 | D-89 Source of truth forge | Forgejo on the Premier tailnet is the source of truth: `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`, hosted on the Unraid box. GitHub is not the working forge. Disclosure (D-63) stays on a public URL until a public reporting path exists. Recorded as [record 16](adr/0016-forgejo-source-of-truth.md). |
 | D-90 Actions runners | Every Actions job runs on the project's self-hosted runners (`[self-hosted, gunmetal-mutants]`). No GitHub-hosted `ubuntu-latest`. Recorded as [record 17](adr/0017-all-actions-on-own-runners.md). |
+| D-91 Forgejo tenants | Palam is its own Forgejo organisation and AWS account. Premier Studio, Palam, and personal repos (`itz4blitz`, `kbdevopz`) stay separate. Premier burst must not live in `palam-cicd`. Recorded as [record 18](adr/0018-forgejo-tenants-and-ecs.md). |
+| D-92 Runner shape | Forgejo burst copies Palam's `ph-ci` shape (Terraform, ephemeral VMs, spend fuse). No new ECS Fargate stack. Recorded as [record 19](adr/0019-copy-palam-ci-shape.md). |
+| D-93 Premier CI account | Dedicated account `premier-cicd` `109792548422` (`aws-premier-cicd@premierstudio.ai`, `us-east-2`). IaC is `PremierStudio/premier-cicd`. Recorded as [record 20](adr/0020-premier-cicd-account.md). |
 
 ## Decide first
 
@@ -2645,3 +2648,35 @@ working forge. See [record 16](adr/0016-forgejo-source-of-truth.md).
 
 Answered 2026-10-06: every Actions job runs on the project's own runners.
 See [record 17](adr/0017-all-actions-on-own-runners.md).
+
+### D-91 Forgejo tenants
+
+- **Question.** Do Palam repositories, Premier Studio repositories, and
+  Justin's and Karlis's personal repositories share one Forgejo
+  organisation and one AWS runner account?
+- **Recommendation.** No. Four tenants: `PremierStudio`, `Palam`,
+  `itz4blitz`, `kbdevopz`. Palam burst compute stays in `palam-cicd`.
+  Premier burst compute stays in `premierstudio`. Personal repos stay
+  under the person's user.
+
+Answered 2026-10-06: tenants stay separate. See
+[record 18](adr/0018-forgejo-tenants-and-ecs.md).
+
+### D-92 Runner shape
+
+- **Question.** Should Forgejo burst runners be a new ECS Fargate stack,
+  or the same shape as Palam's `ph-ci` pool?
+- **Recommendation.** Copy `ph-ci`: Terraform, ephemeral VMs, spend fuse.
+  The Forgejo runner binary and Tailscale join are the only differences.
+
+Answered 2026-10-06: copy Palam's shape; do not invent ECS. See
+[record 19](adr/0019-copy-palam-ci-shape.md).
+
+### D-93 Premier CI account
+
+- **Question.** Where does Premier Forgejo burst compute live in AWS?
+- **Recommendation.** A dedicated member account, not `premierstudio`
+  and not `palam-cicd`.
+
+Answered 2026-10-06: `premier-cicd` `109792548422`. See
+[record 20](adr/0020-premier-cicd-account.md).

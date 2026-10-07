@@ -8,22 +8,14 @@ export type HomeProps = {
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
   onPlayAlbum: (albumId: string) => void;
-  onPlayNextAlbum?: (albumId: string) => void;
-  onAddAlbumToQueue?: (albumId: string) => void;
+  onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+  onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
   onSeeAll: () => void;
 };
 
-function EmptyCard({
-  state,
-  title,
-  body,
-}: {
-  state: string;
-  title: string;
-  body: string;
-}) {
+function EmptyCard({ state, title, body }: { state: string; title: string; body: string }) {
   return (
     <View dataSet={{ emptyRow: '1', emptyCard: '1' }}>
       <View dataSet={{ emptyMark: '1' }} />
@@ -35,10 +27,7 @@ function EmptyCard({
   );
 }
 
-function activateKey(
-  event: { key: string; preventDefault: () => void },
-  action: () => void,
-): void {
+function activateKey(event: { key: string; preventDefault: () => void }, action: () => void): void {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
     action();
@@ -57,8 +46,7 @@ export function Home({
 }: HomeProps) {
   const albums = library.albums.filter((album) => !album.hostile);
   const spotlight = albums[0];
-  const homeData =
-    spotlight === undefined ? undefined : { artTone: spotlight.coverTone };
+  const homeData = spotlight === undefined ? undefined : { artTone: spotlight.coverTone };
 
   return (
     <View id="destination-home" dataSet={homeData}>
@@ -69,40 +57,38 @@ export function Home({
             label={spotlight.title}
             size="detail"
             coverId={`cover-spotlight-${spotlight.id}`}
+            artUrl={spotlight.coverUrl}
           />
           <View dataSet={{ spotlightCopy: '1' }}>
             <Text dataSet={{ spotlightEyebrow: '1' }}>{messages.featured}</Text>
-            <Text
-              accessibilityRole="header"
-              dataSet={{ spotlightTitle: '1', type: 'display' }}
-            >
+            <Text accessibilityRole="header" dataSet={{ spotlightTitle: '1', type: 'display' }}>
               {spotlight.title}
             </Text>
-            <Text dataSet={{ spotlightArtist: '1', type: 'title3' }}>
-              {spotlight.artistName}
-            </Text>
+            <Text dataSet={{ spotlightArtist: '1', type: 'title3' }}>{spotlight.artistName}</Text>
             <View dataSet={{ spotlightActions: '1' }}>
-              <View
-                id="home-spotlight-play"
-                accessibilityRole="button"
-                accessibilityLabel={messages.play}
-                tabIndex={0}
-                dataSet={{ brassHex: '1' }}
-                onClick={() => {
-                  onPlayAlbum(spotlight.id);
-                }}
-                onKeyDown={(event) => {
-                  activateKey(event, () => {
+              <View dataSet={{ hexWrap: '1' }}>
+                <View
+                  id="home-spotlight-play"
+                  accessibilityRole="button"
+                  accessibilityLabel={messages.play}
+                  tabIndex={0}
+                  dataSet={{ brassHex: '1' }}
+                  onClick={() => {
                     onPlayAlbum(spotlight.id);
-                  });
-                }}
-              >
-                <Text>{messages.play}</Text>
+                  }}
+                  onKeyDown={(event) => {
+                    activateKey(event, () => {
+                      onPlayAlbum(spotlight.id);
+                    });
+                  }}
+                >
+                  <Text>{messages.play}</Text>
+                </View>
               </View>
               <View
                 id="home-spotlight-open"
                 accessibilityRole="button"
-                accessibilityLabel={messages.open}
+                accessibilityLabel={messages.goToAlbum}
                 tabIndex={0}
                 dataSet={{ spotlightOpen: '1' }}
                 onClick={() => {
@@ -114,7 +100,7 @@ export function Home({
                   });
                 }}
               >
-                <Text>{messages.open}</Text>
+                <Text>{messages.goToAlbum}</Text>
               </View>
             </View>
           </View>
@@ -124,30 +110,11 @@ export function Home({
           {messages.homeHeadline}
         </Text>
       )}
-      <View id="home-row-continue" dataSet={{ homeRow: 'continue' }}>
-        <EmptyCard
-          state="continue"
-          title={messages.continueListening}
-          body={messages.emptyContinue}
-        />
-      </View>
-      <View id="home-row-played" dataSet={{ homeRow: 'played' }}>
-        <EmptyCard
-          state="played"
-          title={messages.recentlyPlayed}
-          body={messages.emptyRecentlyPlayed}
-        />
-      </View>
-      <View id="home-row-loved" dataSet={{ homeRow: 'loved' }}>
-        <EmptyCard state="loved" title={messages.loved} body={messages.emptyLoved} />
-      </View>
+      {/* History rows (continue / played / loved) stay hidden until C2 wires plays
+          and loves; an empty shell must not spend the first screen on placeholders. */}
       <View id="home-row-recent" dataSet={{ homeRow: 'recent' }}>
         {albums.length === 0 ? (
-          <EmptyCard
-            state="recent"
-            title={messages.recentlyAdded}
-            body={messages.emptyRecentlyAdded}
-          />
+          <EmptyCard state="recent" title={messages.recentlyAdded} body={messages.emptyRecentlyAdded} />
         ) : (
           <>
             <View dataSet={{ homeRowHead: '1' }}>

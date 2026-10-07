@@ -71,7 +71,10 @@ test('cover data URIs are same-origin SVG placeholders without network URLs', ()
   expect(uri.startsWith('data:image/svg+xml;utf8,')).toStrictEqual(true);
   expect(uri.includes('http://') || uri.includes('https://')).toStrictEqual(false);
   expect(decodeURIComponent(uri).includes('#3a5a6e')).toStrictEqual(true);
-  expect(coverDataUri('02', 'A').includes(encodeURIComponent('#5c4a3a')) || decodeURIComponent(coverDataUri('02', 'A')).includes('#5c4a3a')).toStrictEqual(true);
+  expect(
+    coverDataUri('02', 'A').includes(encodeURIComponent('#5c4a3a')) ||
+      decodeURIComponent(coverDataUri('02', 'A')).includes('#5c4a3a'),
+  ).toStrictEqual(true);
   expect(decodeURIComponent(coverDataUri('03', 'A')).includes('#2f4f4f')).toStrictEqual(true);
   expect(decodeURIComponent(coverDataUri('04', 'A')).includes('#4a3f5c')).toStrictEqual(true);
   expect(decodeURIComponent(coverDataUri('05', 'A')).includes('#3f4a32')).toStrictEqual(true);
@@ -89,12 +92,8 @@ test('demo-local filter matches substring on titles and artists and ignores blan
   expect(harbour.tracks.map((track) => track.id)).toStrictEqual([]);
   const mira = demoLocalFilter(library, 'Mira');
   expect(mira.albums.map((album) => album.id)).toStrictEqual(['demo-album-01', 'demo-album-02']);
-  expect(demoLocalFilter(library, 'zabriskie').albums.map((album) => album.id)).toStrictEqual([
-    'demo-album-09',
-  ]);
-  expect(demoLocalFilter(library, 'cc-by-4.0').albums.map((album) => album.id)).toStrictEqual([
-    'demo-album-09',
-  ]);
+  expect(demoLocalFilter(library, 'zabriskie').albums.map((album) => album.id)).toStrictEqual(['demo-album-09']);
+  expect(demoLocalFilter(library, 'cc-by-4.0').albums.map((album) => album.id)).toStrictEqual(['demo-album-09']);
   expect(demoLocalFilter(library, 'Cylinders by Chris').albums.map((album) => album.id)).toStrictEqual([
     'demo-album-09',
   ]);

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "browser-bridge": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "browser-bridge-mcp"
+      ]
+    }
+  }
+}

@@ -1,16 +1,23 @@
 import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
+import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
-import type { PlaybackSnapshot } from './playback.ts';
+import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
 export type QueuePaneProps = {
   messages: ShellMessages;
-  playback: PlaybackSnapshot;
+  playback: PlayerSnapshot;
   compactSheet: boolean;
   onCloseSheet?: () => void;
 };
 
 export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: QueuePaneProps) {
+  const closeOnKey = (event: { key: string; preventDefault: () => void }) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onCloseSheet?.();
+    }
+  };
   const body = (
     <View
       id={compactSheet ? 'queue-sheet' : 'right-pane'}
@@ -18,6 +25,7 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
       accessibilityLabel={messages.rightPane}
       accessibilityElementsHidden={compactSheet ? !playback.queueOpen : undefined}
       dataSet={compactSheet ? { queueOpen: playback.queueOpen ? '1' : '0' } : undefined}
+      onKeyDown={compactSheet ? closeOnKey : undefined}
     >
       <View dataSet={{ queueHeader: '1' }}>
         <Text accessibilityRole="header">{messages.queueHeading}</Text>
@@ -37,7 +45,7 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
               }
             }}
           >
-            <Text>{messages.queue}</Text>
+            <Text>{messages.queueClose}</Text>
           </View>
         ) : null}
       </View>
@@ -60,6 +68,13 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
                 current: line.trackId === playback.trackId ? '1' : '0',
               }}
             >
+              <CoverTile
+                tone={line.coverTone}
+                label={line.title}
+                size="row"
+                coverId={`queue-art-${line.trackId}`}
+                artUrl={line.coverUrl}
+              />
               <Text dataSet={{ queueTitle: '1' }}>{line.title}</Text>
               <Text dataSet={{ queueArtist: '1' }}>{line.artistName}</Text>
               <Text dataSet={{ queueDuration: '1' }}>{formatDuration(line.durationMs)}</Text>
@@ -70,5 +85,20 @@ export function QueuePane({ messages, playback, compactSheet, onCloseSheet }: Qu
     </View>
   );
 
-  return body;
+  if (!compactSheet) {
+    return body;
+  }
+  return (
+    <View dataSet={{ queueLayer: '1' }}>
+      {playback.queueOpen ? (
+        <View
+          id="queue-scrim"
+          onClick={() => {
+            onCloseSheet?.();
+          }}
+        />
+      ) : null}
+      {body}
+    </View>
+  );
 }

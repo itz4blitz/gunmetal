@@ -13,6 +13,7 @@ const album: ShellAlbum = {
   artistKey: 'mira-sol',
   year: 2021,
   coverTone: '01',
+  coverUrl: '/media/covers/fixture.svg',
   hostile: false,
   discs: [{ index: 1, title: '' }],
   tracks: [
@@ -26,6 +27,7 @@ const album: ShellAlbum = {
       durationMs: 214_000,
       flag: 'ok',
       lyricsKind: 'none',
+      mediaUrl: '/media/audio/fixtures.wav',
     },
     {
       id: 'demo-track-01-02',
@@ -37,6 +39,7 @@ const album: ShellAlbum = {
       durationMs: 198_000,
       flag: 'ok',
       lyricsKind: 'none',
+      mediaUrl: '/media/audio/fixtures.wav',
     },
   ],
 };
@@ -45,6 +48,7 @@ test('album detail paints a full-bleed cover-tone header with year track count a
   const onPlayAlbum = vi.fn();
   const { container } = render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -56,9 +60,7 @@ test('album detail paints a full-bleed cover-tone header with year track count a
   expect(root?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(container.querySelector('[data-album-header-large="1"]')).toBeTruthy();
   expect(container.querySelector('[data-album-header-bleed="1"]')).toBeTruthy();
-  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual(
-    'destination-headline',
-  );
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
   expect(container.querySelector('[data-album-artist]')?.textContent).toStrictEqual('Mira Sol');
   expect(screen.getByText('Year 2021')).toBeTruthy();
   expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
@@ -75,6 +77,7 @@ test('album artist control goes to the artist when the opener is provided', () =
   const onOpenArtist = vi.fn();
   render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -97,6 +100,7 @@ test('track rows mark the current track as now playing', () => {
   const onPlayTrack = vi.fn();
   const { container, rerender } = render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       currentTrackId="demo-track-01-02"
@@ -115,6 +119,7 @@ test('track rows mark the current track as now playing', () => {
   expect(onPlayTrack).toHaveBeenCalledWith('demo-album-01', 'demo-track-01-01');
   rerender(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -122,9 +127,7 @@ test('track rows mark the current track as now playing', () => {
       onPlayTrack={onPlayTrack}
     />,
   );
-  expect(container.querySelector('#track-row-demo-track-01-02')?.getAttribute('data-current')).toStrictEqual(
-    '0',
-  );
+  expect(container.querySelector('#track-row-demo-track-01-02')?.getAttribute('data-current')).toStrictEqual('0');
 });
 
 test('album lyrics toggle paints fixture lines as Text and highlights synced first line', () => {
@@ -142,6 +145,7 @@ test('album lyrics toggle paints fixture lines as Text and highlights synced fir
   };
   const { container } = render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={withLyrics}
       messages={destinationMessages()}
       currentTrackId="demo-track-02-02"
@@ -156,13 +160,9 @@ test('album lyrics toggle paints fixture lines as Text and highlights synced fir
   expect(container.querySelector('#album-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
   expect(
     [...container.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
-  ).toStrictEqual([
-    'Floors count themselves in the dark',
-    'steel doors, a held breath',
-    'then the motor starts',
-  ]);
+  ).toStrictEqual(['Hello, hello through the static', 'handshake in the noise', 'hold the line']);
   expect(container.querySelector('#album-lyrics [data-current="1"]')?.textContent).toStrictEqual(
-    'Floors count themselves in the dark',
+    'Hello, hello through the static',
   );
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
   expect(document.querySelector('#album-lyrics')).toBeNull();
@@ -183,6 +183,7 @@ test('a licensed album paints SPDX attribution and source; others omit the row',
   };
   const { unmount } = render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={licensed}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -192,13 +193,12 @@ test('a licensed album paints SPDX attribution and source; others omit the row',
   );
   const row = document.querySelector('#album-license');
   expect(row?.getAttribute('data-album-license')).toStrictEqual('CC-BY-4.0');
-  expect(row?.textContent).toStrictEqual(
-    'License CC-BY-4.0 · Cylinders by Chris Zabriskie · chriszabriskie.com',
-  );
+  expect(row?.textContent).toStrictEqual('License CC-BY-4.0 · Cylinders by Chris Zabriskie · chriszabriskie.com');
   unmount();
 
   render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={album}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -224,6 +224,7 @@ test('album lyrics fall back to the first plain or synced track when the current
   };
   const { container, rerender } = render(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={withLyrics}
       messages={destinationMessages()}
       currentTrackId="demo-track-01-01"
@@ -236,14 +237,11 @@ test('album lyrics fall back to the first plain or synced track when the current
   expect(container.querySelector('#album-lyrics')?.getAttribute('data-synced')).toStrictEqual('0');
   expect(
     [...container.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
-  ).toStrictEqual([
-    'The harbour keeps the letter',
-    'folded under glass',
-    'until the tide comes back',
-  ]);
+  ).toStrictEqual(['Hello, hello through the static', 'handshake in the noise', 'hold the line']);
   expect(container.querySelector('#album-lyrics [data-current="1"]')).toBeNull();
   rerender(
     <AlbumDetail
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       album={withLyrics}
       messages={destinationMessages()}
       onBack={vi.fn()}
@@ -254,5 +252,5 @@ test('album lyrics fall back to the first plain or synced track when the current
   expect(document.querySelector('#album-lyrics')).toBeTruthy();
   expect(
     [...container.querySelectorAll('#album-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent)[0],
-  ).toStrictEqual('The harbour keeps the letter');
+  ).toStrictEqual('Hello, hello through the static');
 });

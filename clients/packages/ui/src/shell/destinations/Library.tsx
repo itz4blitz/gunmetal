@@ -15,10 +15,10 @@ export type LibraryProps = {
   onOpenArtist: (artistKey: string) => void;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
-  onPlayNextAlbum?: (albumId: string) => void;
-  onAddAlbumToQueue?: (albumId: string) => void;
-  onPlayNextTrack?: (albumId: string, trackId: string) => void;
-  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
+  onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+  onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
+  onPlayNextTrack?: ((albumId: string, trackId: string) => void) | undefined;
+  onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
 };
 
 function artistRowName(
@@ -81,9 +81,7 @@ export function Library({
       </View>
       {tab === 'albums' ? (
         <>
-          <Text id="library-section-count">
-            {`${library.albums.length} ${messages.artistAlbumCount}`}
-          </Text>
+          <Text id="library-section-count">{`${library.albums.length} ${messages.artistAlbumCount}`}</Text>
           <View id="library-album-grid" dataSet={{ albumGrid: '1' }}>
             {library.albums.map((album, index) => (
               <AlbumTile
@@ -127,9 +125,7 @@ export function Library({
                   <Text dataSet={{ artistInitial: '1' }}>{artistInitial(rowName)}</Text>
                 </View>
                 <Text dataSet={{ artistName: '1' }}>{rowName}</Text>
-                <Text dataSet={{ artistCount: '1' }}>
-                  {`${artist.albumIds.length} ${messages.artistAlbumCount}`}
-                </Text>
+                <Text dataSet={{ artistCount: '1' }}>{`${artist.albumIds.length} ${messages.artistAlbumCount}`}</Text>
               </View>
             );
           })}
@@ -150,9 +146,7 @@ export function Library({
                   onGoToAlbum={onOpenAlbum}
                   onOpenArtist={onOpenArtist}
                 />
-                <Text dataSet={{ trackAlbumHint: '1' }}>
-                  {`${album.title} · ${formatDuration(track.durationMs)}`}
-                </Text>
+                <Text dataSet={{ trackAlbumHint: '1' }}>{`${album.title} · ${formatDuration(track.durationMs)}`}</Text>
               </View>
             )),
           )}

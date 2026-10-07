@@ -71,7 +71,6 @@ test('missing artist and an artist with no albums stay on chrome without a wash'
   missing.unmount();
 
   const emptyLibrary: ShellLibrary = {
-    kind: 'demo-fixtures',
     albums: library.albums,
     artists: [{ key: 'lonely', name: '   ', albumIds: ['missing-album'] }],
   };

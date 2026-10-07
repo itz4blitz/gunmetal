@@ -1,56 +1,15 @@
 /**
- * Provisional opaque display DTOs accepted by the shell for demo compose.
- * Mirrored by clients/packages/fake-server — NOT Rust catalogue types.
+ * Re-exports of the provisional catalogue DTOs (packages/ports). The shell
+ * reads the library through these types; the real generated declarations
+ * replace them when WP-235/WP-040 land (see ports/src/provisional/).
  */
-
-export type ShellTrackFlag = 'ok' | 'unplayable' | 'damaged';
-
-export type ShellLyricsKind = 'none' | 'plain' | 'synced';
-
-export type ShellDisc = {
-  index: number;
-  title: string;
-};
-
-export type ShellTrack = {
-  id: string;
-  albumId: string;
-  discIndex: number;
-  number: number;
-  title: string;
-  artistName: string;
-  durationMs: number;
-  flag: ShellTrackFlag;
-  lyricsKind: ShellLyricsKind;
-};
-
-export type ShellLicense = {
-  spdx: 'CC0-1.0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'CC-BY-SA-3.0';
-  attribution: string;
-  source: string;
-};
-
-export type ShellAlbum = {
-  id: string;
-  title: string;
-  artistName: string;
-  artistKey: string;
-  year: number;
-  coverTone: string;
-  discs: readonly ShellDisc[];
-  tracks: readonly ShellTrack[];
-  hostile: boolean;
-  license?: ShellLicense;
-};
-
-export type ShellArtist = {
-  key: string;
-  name: string;
-  albumIds: readonly string[];
-};
-
-export type ShellLibrary = {
-  kind: 'demo-fixtures';
-  albums: readonly ShellAlbum[];
-  artists: readonly ShellArtist[];
-};
+export type {
+  CatalogueAlbum as ShellAlbum,
+  CatalogueArtist as ShellArtist,
+  CatalogueDisc as ShellDisc,
+  CatalogueLicense as ShellLicense,
+  CatalogueLibrary as ShellLibrary,
+  CatalogueLyricsKind as ShellLyricsKind,
+  CatalogueTrack as ShellTrack,
+  CatalogueTrackFlag as ShellTrackFlag,
+} from '../../../ports/src/provisional/catalogue.ts';

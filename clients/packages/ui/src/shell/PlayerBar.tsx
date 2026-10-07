@@ -2,18 +2,21 @@ import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
-import type { PlaybackSnapshot } from './playback.ts';
+import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
 export type PlayerBarProps = {
   messages: ShellMessages;
-  playback: PlaybackSnapshot;
-  albumTitle?: string;
-  compact?: boolean;
-  onPlayPause?: () => void;
-  onPrevious?: () => void;
-  onNext?: () => void;
-  onToggleQueue?: () => void;
-  onOpenFull?: () => void;
+  playback: PlayerSnapshot;
+  albumTitle?: string | undefined;
+  compact?: boolean | undefined;
+  volume?: number | undefined;
+  onVolume?: ((volume: number) => void) | undefined;
+  onSeek?: ((positionMs: number) => void) | undefined;
+  onPlayPause?: (() => void) | undefined;
+  onPrevious?: (() => void) | undefined;
+  onNext?: (() => void) | undefined;
+  onToggleQueue?: (() => void) | undefined;
+  onOpenFull?: (() => void) | undefined;
 };
 
 export function PlayerBar({
@@ -21,6 +24,9 @@ export function PlayerBar({
   playback,
   albumTitle,
   compact = false,
+  volume,
+  onVolume,
+  onSeek,
   onPlayPause,
   onPrevious,
   onNext,
@@ -28,20 +34,42 @@ export function PlayerBar({
   onOpenFull,
 }: PlayerBarProps) {
   const empty = playback.trackId === undefined;
-  const progress =
-    playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
+  const progress = playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
 
   const openFull = () => {
     onOpenFull?.();
   };
 
+  const seekFromEvent = (event: { currentTarget: HTMLElement; clientX: number }) => {
+    if (onSeek === undefined || empty || playback.durationMs <= 0) {
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    onSeek(Math.round(fraction * playback.durationMs));
+  };
+
+  const seekByKeyboard = (event: { key: string; preventDefault: () => void }) => {
+    if (onSeek === undefined || empty || playback.durationMs <= 0) {
+      return;
+    }
+    const step = 5000;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      onSeek(Math.max(0, playback.positionMs - step));
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      onSeek(Math.min(playback.durationMs, playback.positionMs + step));
+    }
+  };
+
   return (
-    <View
-      id="player-bar"
-      accessibilityRole="region"
-      accessibilityLabel={messages.playerRegion}
-      tabIndex={-1}
-    >
+    <View id="player-bar" accessibilityRole="region" accessibilityLabel={messages.playerRegion} tabIndex={-1}>
       {empty ? (
         <View id="player-now" dataSet={{ empty: '1' }}>
           <Text id="player-empty">{messages.playerEmpty}</Text>
@@ -62,7 +90,7 @@ export function PlayerBar({
               }
             }}
           >
-            <CoverTile tone={playback.coverTone} label={playback.title} size="bar" />
+            <CoverTile tone={playback.coverTone} label={playback.title} size="bar" artUrl={playback.coverUrl} />
           </View>
           <View
             id="player-meta"
@@ -79,19 +107,12 @@ export function PlayerBar({
           >
             <Text id="player-title">{playback.title}</Text>
             <Text id="player-artist">{playback.artistName}</Text>
-            {albumTitle !== undefined && albumTitle !== '' ? (
-              <Text id="player-album">{albumTitle}</Text>
-            ) : null}
+            {albumTitle !== undefined && albumTitle !== '' ? <Text id="player-album">{albumTitle}</Text> : null}
           </View>
         </>
       )}
       <View id="player-transport">
-        <ControlButton
-          id="player-prev"
-          label={messages.previous}
-          onPress={onPrevious}
-          disabled={empty}
-        />
+        <ControlButton id="player-prev" label={messages.previous} onPress={onPrevious} disabled={empty} />
         <ControlButton
           id="shell-play"
           label={playback.playing ? messages.pause : messages.play}
@@ -102,24 +123,40 @@ export function PlayerBar({
         />
         <ControlButton id="player-next" label={messages.next} onPress={onNext} disabled={empty} />
       </View>
-      <View
-        id="player-progress"
-        accessibilityRole="progressbar"
-        accessibilityLabel={messages.progress}
-        dataSet={{ progress: `${Math.round(progress * 100)}` }}
-      >
-        <View id="player-progress-track">
-          <View
-            id="player-progress-fill"
-            dataSet={{ fill: `${Math.round(progress * 100)}` }}
-            style={{ width: `${Math.round(progress * 100)}%` }}
-          />
+      <View id="player-progress">
+        {empty ? null : (
+          <Text id="player-time-elapsed" dataSet={{ scrubberTime: '1' }}>
+            {formatDuration(playback.positionMs)}
+          </Text>
+        )}
+        <View
+          id="player-scrubber"
+          accessibilityRole="slider"
+          accessibilityLabel={messages.progress}
+          accessibilityValue={{
+            min: 0,
+            max: playback.durationMs,
+            now: playback.positionMs,
+            text: `${formatDuration(playback.positionMs)} of ${formatDuration(playback.durationMs)}`,
+          }}
+          dataSet={{ progress: `${Math.round(progress * 100)}` }}
+          tabIndex={empty ? -1 : 0}
+          onClick={seekFromEvent}
+          onKeyDown={seekByKeyboard}
+        >
+          <View id="player-progress-track">
+            <View
+              id="player-progress-fill"
+              dataSet={{ fill: `${Math.round(progress * 100)}` }}
+              style={{ width: `${Math.round(progress * 100)}%` }}
+            />
+          </View>
         </View>
-        <Text id="player-time">
-          {empty
-            ? '0:00 / 0:00'
-            : `${formatDuration(playback.positionMs)} / ${formatDuration(playback.durationMs)}`}
-        </Text>
+        {empty ? null : (
+          <Text id="player-time-total" dataSet={{ scrubberTime: '1' }}>
+            {formatDuration(playback.durationMs)}
+          </Text>
+        )}
       </View>
       <View id="player-actions">
         {empty ? null : (
@@ -158,13 +195,27 @@ export function PlayerBar({
             <Text dataSet={{ controlLabel: '1' }}>{messages.lyrics}</Text>
           </View>
         )}
-        {compact ? null : <View id="player-device" dataSet={{ deviceSlot: 'empty' }} />}
-        <ControlButton
-          id="player-queue"
-          label={messages.queue}
-          onPress={onToggleQueue}
-          disabled={empty}
-        />
+        {empty || compact || volume === undefined || onVolume === undefined ? null : (
+          <View id="player-volume" dataSet={{ volume: '1' }}>
+            <Text id="player-volume-icon" aria-hidden="true">
+              ♪
+            </Text>
+            <input
+              id="player-volume-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              aria-label={messages.volume}
+              onChange={(event) => {
+                onVolume(Number(event.currentTarget.value));
+              }}
+            />
+          </View>
+        )}
+        {empty || compact ? null : <View id="player-device" dataSet={{ deviceSlot: 'empty' }} />}
+        <ControlButton id="player-queue" label={messages.queue} onPress={onToggleQueue} disabled={empty} />
       </View>
     </View>
   );
@@ -173,21 +224,14 @@ export function PlayerBar({
 type ControlButtonProps = {
   id: string;
   label: string;
-  onPress?: () => void;
-  disabled?: boolean;
-  primary?: boolean;
-  playing?: boolean;
+  onPress?: (() => void) | undefined;
+  disabled?: boolean | undefined;
+  primary?: boolean | undefined;
+  playing?: boolean | undefined;
 };
 
-function ControlButton({
-  id,
-  label,
-  onPress,
-  disabled = false,
-  primary = false,
-  playing = false,
-}: ControlButtonProps) {
-  return (
+function ControlButton({ id, label, onPress, disabled = false, primary = false, playing = false }: ControlButtonProps) {
+  const control = (
     <View
       id={id}
       dataSet={{
@@ -217,4 +261,10 @@ function ControlButton({
       <Text dataSet={{ controlLabel: '1' }}>{label}</Text>
     </View>
   );
+  /* The hex clip-path clips every paint of the button itself, so the focus
+     ring lives on this square wrapper (design-language §8). */
+  if (!primary) {
+    return control;
+  }
+  return <View dataSet={{ hexWrap: '1' }}>{control}</View>;
 }

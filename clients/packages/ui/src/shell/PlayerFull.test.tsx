@@ -1,18 +1,21 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { shellMessages } from '../messages/en/shell.ts';
-import { emptyPlayback, type PlaybackSnapshot } from './playback.ts';
+import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
+import { emptySnapshot } from './test-playback.ts';
 import { PlayerFull } from './PlayerFull.tsx';
 
 afterEach(cleanup);
 
-function playingSnapshot(): PlaybackSnapshot {
+function playingSnapshot(): PlayerSnapshot {
   return {
     trackId: 'demo-track-01-01',
     albumId: 'demo-album-01',
     title: 'Pier at Dusk',
     artistName: 'Mira Sol',
     coverTone: '01',
+    coverUrl: '/media/covers/fixture.svg',
+    mediaUrl: '/media/audio/fixtures.wav',
     playing: true,
     positionMs: 45_000,
     durationMs: 180_000,
@@ -25,6 +28,7 @@ function playingSnapshot(): PlaybackSnapshot {
 test('full player stays unmounted until open and ignores empty playback', () => {
   const closed = render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={playingSnapshot()}
       open={false}
@@ -37,8 +41,9 @@ test('full player stays unmounted until open and ignores empty playback', () => 
 
   const empty = render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
-      playback={emptyPlayback()}
+      playback={emptySnapshot()}
       open
       onClose={vi.fn()}
     />,
@@ -54,6 +59,7 @@ test('open full player shows cover title artist scrubber transport and close', (
   const onNext = vi.fn();
   const { container, rerender } = render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={playingSnapshot()}
       open
@@ -70,11 +76,10 @@ test('open full player shows cover title artist scrubber transport and close', (
   expect(screen.getByText('Pier at Dusk').id).toStrictEqual('player-full-title');
   expect(screen.getByText('Mira Sol').id).toStrictEqual('player-full-artist');
   expect(container.querySelector('#player-full-art [data-size="full"]')).toBeTruthy();
-  expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual(
-    '25',
-  );
+  expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual('25');
   rerender(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={{ ...playingSnapshot(), positionMs: 10, durationMs: 0 }}
       open
@@ -84,9 +89,7 @@ test('open full player shows cover title artist scrubber transport and close', (
       onNext={onNext}
     />,
   );
-  expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual(
-    '0',
-  );
+  expect(container.querySelector('#player-full-progress')?.getAttribute('data-progress')).toStrictEqual('0');
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   expect(onClose).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Enter' });
@@ -105,9 +108,7 @@ test('open full player shows cover title artist scrubber transport and close', (
 });
 
 test('full player transport tolerates missing optional handlers', () => {
-  render(
-    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />,
-  );
+  render(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
   fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
   fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -119,6 +120,7 @@ test('Escape and scrim dismiss the full player while other keys do not', () => {
   const onClose = vi.fn();
   render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={playingSnapshot()}
       open
@@ -137,6 +139,7 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
   const onClose = vi.fn();
   const { rerender } = render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={{ ...playingSnapshot(), lyricsKind: 'plain', trackId: 'demo-track-01-03' }}
       open
@@ -147,15 +150,12 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
   expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('0');
   expect(
     [...document.querySelectorAll('#player-full-lyrics [data-lyrics-line="1"]')].map((node) => node.textContent),
-  ).toStrictEqual([
-    'The harbour keeps the letter',
-    'folded under glass',
-    'until the tide comes back',
-  ]);
+  ).toStrictEqual(['Hello, hello through the static', 'handshake in the noise', 'hold the line']);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Enter' });
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
   rerender(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={{ ...playingSnapshot(), lyricsKind: 'synced', trackId: 'demo-track-02-02' }}
       open
@@ -165,15 +165,11 @@ test('full player lyrics toggle appears for plain and synced kinds and paints Te
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: ' ' });
   expect(document.querySelector('#player-full-lyrics')?.getAttribute('data-synced')).toStrictEqual('1');
   expect(document.querySelector('#player-full-lyrics [data-current="1"]')?.textContent).toStrictEqual(
-    'Floors count themselves in the dark',
+    'Hello, hello through the static',
   );
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lyrics' }), { key: 'Tab' });
-  rerender(
-    <PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={onClose} />,
-  );
-  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-available')).toStrictEqual(
-    '0',
-  );
+  rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open onClose={onClose} />);
+  expect(screen.getByRole('button', { name: 'Lyrics' }).getAttribute('data-lyrics-available')).toStrictEqual('0');
   expect(document.querySelector('#player-full-lyrics')).toBeNull();
   expect(document.querySelector('#player-full-lyrics-unavailable')?.textContent).toStrictEqual(
     'This file has no lyrics.',
@@ -184,6 +180,7 @@ test('open full player paints playing-from, remaining time, up next and pane pla
   const onToggleQueue = vi.fn();
   const { rerender } = render(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={{
         ...playingSnapshot(),
@@ -194,6 +191,8 @@ test('open full player paints playing-from, remaining time, up next and pane pla
             title: 'Pier at Dusk',
             artistName: 'Mira Sol',
             coverTone: '01',
+            coverUrl: '/media/covers/fixture.svg',
+            mediaUrl: '/media/audio/fixtures.wav',
             durationMs: 180_000,
             lyricsKind: 'none',
           },
@@ -203,6 +202,8 @@ test('open full player paints playing-from, remaining time, up next and pane pla
             title: 'Salt Window',
             artistName: 'Mira Sol',
             coverTone: '01',
+            coverUrl: '/media/covers/fixture.svg',
+            mediaUrl: '/media/audio/fixtures.wav',
             durationMs: 200_000,
             lyricsKind: 'none',
           },
@@ -214,13 +215,9 @@ test('open full player paints playing-from, remaining time, up next and pane pla
       onToggleQueue={onToggleQueue}
     />,
   );
-  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual(
-    'overlay',
-  );
+  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('overlay');
   expect(document.querySelector('#player-full-scrim')).toBeTruthy();
-  expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual(
-    'Playing from Harbour Lights',
-  );
+  expect(document.querySelector('#player-full-from')?.textContent).toStrictEqual('Playing from Harbour Lights');
   expect(document.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:45');
   expect(document.querySelector('#player-full-remaining')?.textContent).toStrictEqual('2:15');
   expect(document.querySelector('#player-full-up-next-title')?.textContent).toStrictEqual('Salt Window');
@@ -232,6 +229,7 @@ test('open full player paints playing-from, remaining time, up next and pane pla
   expect(onToggleQueue).toHaveBeenCalledTimes(3);
   rerender(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={playingSnapshot()}
       open
@@ -245,6 +243,7 @@ test('open full player paints playing-from, remaining time, up next and pane pla
   expect(document.querySelector('#player-full-up-next')).toBeNull();
   rerender(
     <PlayerFull
+      lyricsFor={() => ['Hello, hello through the static', 'handshake in the noise', 'hold the line']}
       messages={shellMessages()}
       playback={playingSnapshot()}
       open

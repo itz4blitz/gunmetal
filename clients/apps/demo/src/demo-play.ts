@@ -1,4 +1,4 @@
-import type { ShellLibrary } from './library-types.ts';
+import type { ShellLibrary } from '../../../packages/ui/src/shell/library-types.ts';
 import {
   appendAlbum,
   appendQueue,
@@ -13,10 +13,7 @@ import {
   type PlaybackSnapshot,
 } from './playback.ts';
 
-export function resolveAlbumPlayback(
-  library: ShellLibrary | undefined,
-  albumId: string,
-): PlaybackSnapshot | undefined {
+export function resolveAlbumPlayback(library: ShellLibrary | undefined, albumId: string): PlaybackSnapshot | undefined {
   if (library === undefined) {
     return undefined;
   }

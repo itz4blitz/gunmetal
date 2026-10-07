@@ -1,14 +1,19 @@
-import type { PluginPlane, PluginSlotId } from '../../../../fake-server/src/plugin-slots.ts';
+/** Display types for the plugin-slot list; values arrive via props. */
+export type PluginPlane = 'server' | 'client';
+
+export type PluginSlotId =
+  'metadata-provider' | 'lyrics-provider' | 'search-provider' | 'scrobbler' | 'theme-pack' | 'home-row';
+
+export type PluginSlot = {
+  id: PluginSlotId;
+  plane: PluginPlane;
+  featureId: 'INT-075' | 'INT-077' | 'INT-078' | 'INT-081' | 'INT-083';
+  loaded: boolean;
+};
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { WidthClass } from '../width.ts';
 
-export type SettingsSection =
-  | 'appearance'
-  | 'playback'
-  | 'connected'
-  | 'extensions'
-  | 'about'
-  | 'privacy';
+export type SettingsSection = 'appearance' | 'playback' | 'connected' | 'extensions' | 'about' | 'privacy';
 
 export type SettingsLayout = 'stack' | 'side';
 
@@ -40,10 +45,7 @@ export function settingsRelease(section: SettingsSection): 'R1' | 'R2' {
   return 'R1';
 }
 
-export function settingsSectionTitle(
-  section: SettingsSection,
-  messages: DestinationMessages,
-): string {
+export function settingsSectionTitle(section: SettingsSection, messages: DestinationMessages): string {
   if (section === 'appearance') {
     return messages.settingsAppearance;
   }
@@ -62,9 +64,7 @@ export function settingsSectionTitle(
   return messages.settingsPrivacy;
 }
 
-export function settingsNavItems(
-  messages: DestinationMessages,
-): readonly { id: SettingsSection; label: string }[] {
+export function settingsNavItems(messages: DestinationMessages): readonly { id: SettingsSection; label: string }[] {
   return settingsSections().map((id) => ({
     id,
     label: settingsSectionTitle(id, messages),

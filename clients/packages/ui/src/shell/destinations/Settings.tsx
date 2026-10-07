@@ -4,8 +4,8 @@ import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import { pluginSlots } from '../../../../fake-server/src/plugin-slots.ts';
 import { ThemeSwitcher } from '../ThemeSwitcher.tsx';
+import type { PluginSlot } from './settings.ts';
 import {
   defaultSettingsSection,
   settingsLayout,
@@ -19,6 +19,7 @@ import {
 } from './settings.ts';
 
 export type SettingsProps = {
+  pluginSlots?: readonly PluginSlot[] | undefined;
   messages: DestinationMessages;
   shellMessages: ShellMessages;
   theme: ThemeId;
@@ -66,13 +67,7 @@ function SettingsPane({
   );
 }
 
-export function Settings({
-  messages,
-  shellMessages,
-  theme,
-  onThemeChange,
-  width,
-}: SettingsProps) {
+export function Settings({ pluginSlots = [], messages, shellMessages, theme, onThemeChange, width }: SettingsProps) {
   const layout = settingsLayout(width);
   const [section, setSection] = useState<SettingsSection>(defaultSettingsSection());
   const visible = layout === 'stack' ? settingsSections() : [section];
@@ -83,11 +78,7 @@ export function Settings({
         {messages.settingsHeadline}
       </Text>
       {layout === 'side' ? (
-        <View
-          id="settings-nav"
-          accessibilityRole="tablist"
-          accessibilityLabel={messages.settingsNav}
-        >
+        <View id="settings-nav" accessibilityRole="tablist" accessibilityLabel={messages.settingsNav}>
           {settingsNavItems(messages).map((item) => (
             <View
               key={item.id}
@@ -112,64 +103,62 @@ export function Settings({
         </View>
       ) : null}
       <View id="settings-panels">
-      {visible.includes('appearance') ? (
-        <SettingsPane id="settings-appearance" section="appearance" messages={messages}>
-          <ThemeSwitcher messages={shellMessages} theme={theme} onThemeChange={onThemeChange} />
-        </SettingsPane>
-      ) : null}
-      {visible.includes('playback') ? (
-        <SettingsPane id="settings-playback" section="playback" messages={messages}>
-          <View dataSet={{ settingsStub: 'playback', emptyCard: '1' }}>
-            <Text dataSet={{ settingsPlaceholder: 'playback' }}>
-              {messages.settingsPlaybackPlaceholder}
-            </Text>
-          </View>
-        </SettingsPane>
-      ) : null}
-      {visible.includes('connected') ? (
-        <SettingsPane id="settings-connected" section="connected" messages={messages}>
-          <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-            <View dataSet={{ emptyMark: '1' }} />
-            <Text dataSet={{ emptyState: 'connected' }}>{messages.settingsConnectedEmpty}</Text>
-          </View>
-        </SettingsPane>
-      ) : null}
-      {visible.includes('extensions') ? (
-        <SettingsPane id="settings-extensions" section="extensions" messages={messages}>
-          <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
-            <View dataSet={{ emptyMark: '1' }} />
-            <Text dataSet={{ emptyState: 'extensions' }}>{messages.settingsExtensionsBody}</Text>
-          </View>
-          <View id="settings-plugin-slots">
-            {pluginSlots().map((slot) => (
-              <View
-                key={slot.id}
-                dataSet={{
-                  pluginSlot: slot.id,
-                  slotLoaded: slot.loaded ? '1' : '0',
-                  slotPlane: slot.plane,
-                }}
-              >
-                <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
-                <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
-                <Text dataSet={{ slotState: slot.loaded ? '1' : '0' }}>{messages.settingsSlotUnloaded}</Text>
-              </View>
-            ))}
-          </View>
-        </SettingsPane>
-      ) : null}
-      {visible.includes('about') ? (
-        <SettingsPane id="settings-about" section="about" messages={messages}>
-          <Text dataSet={{ settingsFact: 'data' }}>{messages.settingsAboutData}</Text>
-          <Text dataSet={{ settingsFact: 'address' }}>{messages.settingsAboutAddress}</Text>
-          <Text dataSet={{ settingsFact: 'version' }}>{messages.settingsAboutVersion}</Text>
-        </SettingsPane>
-      ) : null}
-      {visible.includes('privacy') ? (
-        <SettingsPane id="settings-privacy" section="privacy" messages={messages}>
-          <Text dataSet={{ settingsPrivacy: '1' }}>{messages.settingsPrivacyBody}</Text>
-        </SettingsPane>
-      ) : null}
+        {visible.includes('appearance') ? (
+          <SettingsPane id="settings-appearance" section="appearance" messages={messages}>
+            <ThemeSwitcher messages={shellMessages} theme={theme} onThemeChange={onThemeChange} />
+          </SettingsPane>
+        ) : null}
+        {visible.includes('playback') ? (
+          <SettingsPane id="settings-playback" section="playback" messages={messages}>
+            <View dataSet={{ settingsStub: 'playback', emptyCard: '1' }}>
+              <Text dataSet={{ settingsPlaceholder: 'playback' }}>{messages.settingsPlaybackPlaceholder}</Text>
+            </View>
+          </SettingsPane>
+        ) : null}
+        {visible.includes('connected') ? (
+          <SettingsPane id="settings-connected" section="connected" messages={messages}>
+            <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
+              <View dataSet={{ emptyMark: '1' }} />
+              <Text dataSet={{ emptyState: 'connected' }}>{messages.settingsConnectedEmpty}</Text>
+            </View>
+          </SettingsPane>
+        ) : null}
+        {visible.includes('extensions') ? (
+          <SettingsPane id="settings-extensions" section="extensions" messages={messages}>
+            <View dataSet={{ emptyCard: '1', emptyRow: '1' }}>
+              <View dataSet={{ emptyMark: '1' }} />
+              <Text dataSet={{ emptyState: 'extensions' }}>{messages.settingsExtensionsBody}</Text>
+            </View>
+            <View id="settings-plugin-slots">
+              {pluginSlots.map((slot) => (
+                <View
+                  key={slot.id}
+                  dataSet={{
+                    pluginSlot: slot.id,
+                    slotLoaded: slot.loaded ? '1' : '0',
+                    slotPlane: slot.plane,
+                  }}
+                >
+                  <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
+                  <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
+                  <Text dataSet={{ slotState: slot.loaded ? '1' : '0' }}>{messages.settingsSlotUnloaded}</Text>
+                </View>
+              ))}
+            </View>
+          </SettingsPane>
+        ) : null}
+        {visible.includes('about') ? (
+          <SettingsPane id="settings-about" section="about" messages={messages}>
+            <Text dataSet={{ settingsFact: 'data' }}>{messages.settingsAboutData}</Text>
+            <Text dataSet={{ settingsFact: 'address' }}>{messages.settingsAboutAddress}</Text>
+            <Text dataSet={{ settingsFact: 'version' }}>{messages.settingsAboutVersion}</Text>
+          </SettingsPane>
+        ) : null}
+        {visible.includes('privacy') ? (
+          <SettingsPane id="settings-privacy" section="privacy" messages={messages}>
+            <Text dataSet={{ settingsPrivacy: '1' }}>{messages.settingsPrivacyBody}</Text>
+          </SettingsPane>
+        ) : null}
       </View>
     </View>
   );

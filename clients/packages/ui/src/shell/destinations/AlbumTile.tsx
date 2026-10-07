@@ -11,11 +11,11 @@ export type AlbumTileProps = {
   album: ShellAlbum;
   messages: DestinationMessages;
   onOpen: (albumId: string) => void;
-  onPlay?: (albumId: string) => void;
-  onPlayNext?: (albumId: string) => void;
-  onAddToQueue?: (albumId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
-  staggerIndex?: number;
+  onPlay?: ((albumId: string) => void) | undefined;
+  onPlayNext?: ((albumId: string) => void) | undefined;
+  onAddToQueue?: ((albumId: string) => void) | undefined;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
+  staggerIndex?: number | undefined;
 };
 
 function displayTitle(album: ShellAlbum, messages: DestinationMessages): string {
@@ -44,11 +44,7 @@ function activatePlay(
   onOpen(albumId);
 }
 
-function activateOpenKey(
-  event: KeyboardEvent<HTMLElement>,
-  albumId: string,
-  onOpen: (albumId: string) => void,
-): void {
+function activateOpenKey(event: KeyboardEvent<HTMLElement>, albumId: string, onOpen: (albumId: string) => void): void {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
     onOpen(albumId);
@@ -100,6 +96,7 @@ export function AlbumTile({
           label={title}
           size="grid"
           coverId={`cover-grid-${album.id}`}
+          artUrl={album.coverUrl}
         />
         <View
           dataSet={{ albumPlay: '1' }}

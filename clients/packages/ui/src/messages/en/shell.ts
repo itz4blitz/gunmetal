@@ -21,6 +21,7 @@ export type ShellMessages = {
   previous: string;
   next: string;
   queue: string;
+  volume: string;
   queueEmpty: string;
   queueHeading: string;
   queueClose: string;
@@ -57,6 +58,7 @@ export function shellMessages(): ShellMessages {
     previous: 'Previous',
     next: 'Next',
     queue: 'Queue',
+    volume: 'Volume',
     queueEmpty: 'Queue is empty',
     queueHeading: 'Up next',
     queueClose: 'Close queue',

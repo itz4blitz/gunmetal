@@ -1,12 +1,12 @@
 import { cylindersAlbum } from './commons.ts';
 import { hostileCorpus } from './hostile.ts';
-import type { DemoAlbum, DemoArtist, DemoLibrary, DemoTrack } from './types.ts';
+import type { DemoAlbum, DemoArtist, DemoLibrary, DemoTrack, FixtureAlbum, FixtureTrack } from './types.ts';
 
-function track(partial: DemoTrack): DemoTrack {
+function track(partial: FixtureTrack): FixtureTrack {
   return partial;
 }
 
-function harbourLights(): DemoAlbum {
+function harbourLights(): FixtureAlbum {
   return {
     id: 'demo-album-01',
     title: 'Harbour Lights',
@@ -65,7 +65,7 @@ function harbourLights(): DemoAlbum {
   };
 }
 
-function nightShift(): DemoAlbum {
+function nightShift(): FixtureAlbum {
   return {
     id: 'demo-album-02',
     title: 'Night Shift',
@@ -113,7 +113,7 @@ function nightShift(): DemoAlbum {
   };
 }
 
-function twinCities(): DemoAlbum {
+function twinCities(): FixtureAlbum {
   return {
     id: 'demo-album-03',
     title: 'Twin Cities',
@@ -161,7 +161,7 @@ function twinCities(): DemoAlbum {
   };
 }
 
-function glassHour(): DemoAlbum {
+function glassHour(): FixtureAlbum {
   return {
     id: 'demo-album-04',
     title: 'Glass Hour',
@@ -209,7 +209,7 @@ function glassHour(): DemoAlbum {
   };
 }
 
-function stages(): DemoAlbum {
+function stages(): FixtureAlbum {
   return {
     id: 'demo-album-05',
     title: 'Stages',
@@ -271,7 +271,7 @@ function stages(): DemoAlbum {
   };
 }
 
-function radioAtlas(): DemoAlbum {
+function radioAtlas(): FixtureAlbum {
   return {
     id: 'demo-album-06',
     title: 'Radio Atlas',
@@ -330,7 +330,7 @@ function radioAtlas(): DemoAlbum {
   };
 }
 
-function signalLoss(): DemoAlbum {
+function signalLoss(): FixtureAlbum {
   return {
     id: 'demo-album-07',
     title: 'Signal Loss',
@@ -389,7 +389,7 @@ function signalLoss(): DemoAlbum {
   };
 }
 
-function hostileAlbum(): DemoAlbum {
+function hostileAlbum(): FixtureAlbum {
   const payload = hostileCorpus();
   return {
     id: 'demo-album-08',
@@ -427,7 +427,7 @@ function hostileAlbum(): DemoAlbum {
   };
 }
 
-function albumTable(): readonly DemoAlbum[] {
+function albumTable(): readonly FixtureAlbum[] {
   return [
     harbourLights(),
     nightShift(),
@@ -453,12 +453,29 @@ function artistsFrom(albums: readonly DemoAlbum[]): readonly DemoArtist[] {
   }
   return [...byKey.entries()]
     .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([key, row]) => ({ key, name: row.name, albumIds: row.albumIds }));
+    .map(([key, row]) => ({
+      key,
+      name: row.name,
+      albumIds: row.albumIds,
+      // The generated set covers every real demo artist; the hostile-fixture
+      // artist deliberately has no image.
+      imageUrl: key === 'hostile-artist' ? undefined : `/media/artists/${key}.svg`,
+    }));
 }
 
-/** Stage-A demo library: hand-written fixture albums (CP-011). */
+/**
+ * Stage-A demo library: hand-written fixture albums (CP-011) with the
+ * generated media attached. Same-origin URLs served by the demo app itself.
+ */
 export function demoLibrary(): DemoLibrary {
-  const albums = albumTable();
+  const albums: readonly DemoAlbum[] = albumTable().map((album) => ({
+    ...album,
+    coverUrl: `/media/covers/${album.id}.svg`,
+    tracks: album.tracks.map((track) => ({
+      ...track,
+      mediaUrl: `/media/audio/${album.id}.wav`,
+    })),
+  }));
   return {
     kind: 'demo-fixtures',
     albums,
@@ -480,7 +497,7 @@ export function trackById(library: DemoLibrary, id: string): DemoTrack | undefin
   return undefined;
 }
 
-export function allTracks(library: DemoLibrary): readonly DemoTrack[] {
+export function allTracks(library: DemoLibrary | { albums: DemoLibrary['albums'] }): readonly DemoTrack[] {
   const rows: DemoTrack[] = [];
   for (const album of library.albums) {
     for (const entry of album.tracks) {

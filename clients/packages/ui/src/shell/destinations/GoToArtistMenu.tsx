@@ -5,10 +5,10 @@ import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import { catalogueMenuActions, type CatalogueMenuActionId } from '../menu-actions.ts';
 
 export type CatalogueMenuHandlers = {
-  onPlay?: () => void;
-  onPlayNext?: () => void;
-  onAddToQueue?: () => void;
-  onGoToAlbum?: () => void;
+  onPlay?: (() => void) | undefined;
+  onPlayNext?: (() => void) | undefined;
+  onAddToQueue?: (() => void) | undefined;
+  onGoToAlbum?: (() => void) | undefined;
   onOpenArtist: (artistKey: string) => void;
 };
 
@@ -19,11 +19,7 @@ export type GoToArtistMenuProps = CatalogueMenuHandlers & {
   onClose: () => void;
 };
 
-function runAction(
-  id: CatalogueMenuActionId,
-  artistKey: string,
-  handlers: CatalogueMenuHandlers,
-): void {
+function runAction(id: CatalogueMenuActionId, artistKey: string, handlers: CatalogueMenuHandlers): void {
   if (id === 'play') {
     handlers.onPlay?.();
     return;

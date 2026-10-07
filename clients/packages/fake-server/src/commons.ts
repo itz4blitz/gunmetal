@@ -1,10 +1,6 @@
-import type { DemoAlbum, DemoTrack } from './types.ts';
+import type { FixtureAlbum, FixtureTrack } from './types.ts';
 
-function cylindersTrack(
-  number: number,
-  title: string,
-  durationMs: number,
-): DemoTrack {
+function cylindersTrack(number: number, title: string, durationMs: number): FixtureTrack {
   return {
     id: `demo-track-09-0${number}`,
     albumId: 'demo-album-09',
@@ -19,7 +15,7 @@ function cylindersTrack(
 }
 
 /** Real CC BY 4.0 album; lengths from chriszabriskie.com/cylinders (2014). */
-export function cylindersAlbum(): DemoAlbum {
+export function cylindersAlbum(): FixtureAlbum {
   return {
     id: 'demo-album-09',
     title: 'Cylinders',

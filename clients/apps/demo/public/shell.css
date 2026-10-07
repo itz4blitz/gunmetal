@@ -72,6 +72,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-family: Inter, system-ui, sans-serif;
   font-feature-settings: 'tnum' 1;
   background: var(--gm-bg-canvas);
+  /* Nothing may poke in from the right edge (phone sliver fix). */
+  overflow-x: clip;
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
   color-scheme: dark;
@@ -403,8 +405,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #shell-brand-rule {
   width: 36px;
   height: 1px;
-  background: var(--gm-accent-fill);
-  opacity: 0.9;
+  /* Machined steel, not brass — the accent stays on play and where-you-are. */
+  background: var(--gm-line-control);
+  opacity: 0.7;
   border-radius: 1px;
 }
 
@@ -414,10 +417,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  --gm-text: var(--gm-accent-text);
-  color: var(--gm-accent-text);
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--gm-accent-fill) 55%, transparent);
+  border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-s);
   background: transparent;
 }
@@ -491,22 +494,19 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 #token-shell[data-theme='oled'] #content,
 #token-shell[data-theme='high-contrast'] #content {
-  background-image: linear-gradient(
-    to bottom,
-    color-mix(in srgb, #fff 4%, transparent) 0%,
-    transparent 120px
-  );
+  background-image: linear-gradient(to bottom, color-mix(in srgb, #fff 4%, transparent) 0%, transparent 120px);
 }
 
 #token-shell[data-width='compact'] #content {
   scroll-padding-bottom: calc(var(--gm-player-height) + var(--gm-tabs-height));
+  /* Phone margins: 16px (design-language §7 compact density). */
+  padding: 16px 16px 24px;
 }
 
 #token-shell[data-width='wide'] #content {
   padding: 32px;
-  max-width: 1120px;
+  /* The content column fills the space between sidebar and queue; no cap. */
   width: 100%;
-  justify-self: stretch;
 }
 
 #token-shell[data-width='expanded'] #content {
@@ -563,10 +563,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 10px 12px;
   border-radius: var(--gm-radius-m);
   --gm-text: var(--gm-text-secondary);
-  --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
-  cursor: default;
-  transition: background-color var(--gm-motion), color var(--gm-motion);
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
 }
 
 /* Simple CSS glyphs — house / loupe / shelf — no emoji, no image assets. */
@@ -582,17 +583,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 /* Home: peaked roof + doorway via clip-path. */
 [data-nav-glyph='home']::before {
   background: currentColor;
-  clip-path: polygon(
-    50% 6%,
-    94% 42%,
-    94% 94%,
-    62% 94%,
-    62% 62%,
-    38% 62%,
-    38% 94%,
-    6% 94%,
-    6% 42%
-  );
+  clip-path: polygon(50% 6%, 94% 42%, 94% 94%, 62% 94%, 62% 62%, 38% 62%, 38% 94%, 6% 94%, 6% 42%);
 }
 
 /* Search: ring + handle. */
@@ -616,6 +607,43 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
     linear-gradient(currentColor, currentColor) 3px 1px / 11px 1.5px no-repeat,
     linear-gradient(currentColor, currentColor) 3px 5.5px / 10px 1.5px no-repeat,
     linear-gradient(currentColor, currentColor) 3px 10px / 9px 1.5px no-repeat;
+}
+
+/* Settings: two slider tracks with knobs — machined, no gear cliché. */
+[data-nav-glyph='settings']::before {
+  width: 14px;
+  height: 14px;
+  background:
+    linear-gradient(currentColor, currentColor) 2px 0 / 1.6px 14px no-repeat,
+    linear-gradient(currentColor, currentColor) 10.4px 0 / 1.6px 14px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 4px / 6px 1.6px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 9px / 6px 1.6px no-repeat,
+    linear-gradient(currentColor, currentColor) 8.4px 4px / 6px 1.6px no-repeat,
+    linear-gradient(currentColor, currentColor) 8.4px 9px / 6px 1.6px no-repeat;
+}
+
+/* Compact + medium put Settings in the brand bar, right-aligned. */
+#shell-brand #nav-item-settings {
+  margin-left: auto;
+  padding: 8px 10px;
+}
+
+#shell-brand #nav-item-settings [data-nav-label] {
+  display: none;
+}
+
+/* Medium rail: icon over label, like the other rail items. */
+#nav-rail #nav-item-settings {
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 6px;
+  text-align: center;
+}
+
+#nav-rail #nav-item-settings [data-nav-label] {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
 }
 
 #nav-rail [data-nav-glyph] {
@@ -644,12 +672,13 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 6px 10px;
   border-radius: var(--gm-radius-m);
   --gm-text: var(--gm-text-muted);
-  --gm-text: var(--gm-text-muted);
   color: var(--gm-text-muted);
   font-size: 12px;
   font-weight: 500;
-  cursor: default;
-  transition: background-color var(--gm-motion), color var(--gm-motion);
+  cursor: pointer;
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
 }
 
 #nav-sidebar [id^='nav-item-']:hover,
@@ -667,11 +696,16 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-secondary);
 }
 
-/* Active nav: denser brass wash + thicker inset — never pills. */
+/* Active nav: denser brass wash + thicker inset — never pills.
+   data-selected is the paint signal; RN-web does not emit aria-selected on View. */
 #nav-sidebar [aria-selected='true'],
 #nav-rail [aria-selected='true'],
 #nav-tabs [aria-selected='true'],
-#nav-item-settings[aria-selected='true'] {
+#nav-item-settings[aria-selected='true'],
+#nav-sidebar [data-selected='1'],
+#nav-rail [data-selected='1'],
+#nav-tabs [data-selected='1'],
+#nav-item-settings[data-selected='1'] {
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
   background: color-mix(in srgb, var(--gm-accent-fill) 24%, transparent);
@@ -682,11 +716,15 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 #nav-sidebar [aria-selected='true']::before,
 #nav-rail [aria-selected='true']::before,
-#nav-tabs [aria-selected='true']::before {
+#nav-tabs [aria-selected='true']::before,
+#nav-sidebar [data-selected='1']::before,
+#nav-rail [data-selected='1']::before,
+#nav-tabs [data-selected='1']::before {
   opacity: 1;
 }
 
-#nav-tabs [aria-selected='true'] {
+#nav-tabs [aria-selected='true'],
+#nav-tabs [data-selected='1'] {
   box-shadow: inset 0 -3px 0 var(--gm-accent-indicator);
 }
 
@@ -744,22 +782,21 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: 24px;
 }
 
-/* Home: cinematic hero, then a compact empty trio, then the shelf. */
+/* Home: cinematic hero, then the shelves. History rows stay hidden until
+   plays and loves exist (C2); no page spends its first screen on placeholders. */
 #destination-home {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 #home-spotlight,
 #home-row-recent {
-  grid-column: 1 / -1;
+  min-width: 0;
 }
 
 #token-shell[data-width='compact'] #destination-home,
 #token-shell[data-width='medium'] #destination-home {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
@@ -821,7 +858,24 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #token-shell[data-width='medium'] #home-spotlight,
 #token-shell[data-width='compact'] #home-spotlight {
   min-height: 0;
-  gap: 20px;
+  gap: 16px;
+  /* Phone hero: a compact horizontal card — art beside the copy. */
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 12px 0 16px;
+}
+
+#token-shell[data-width='compact'] #home-spotlight [data-size='detail'] {
+  width: 96px;
+  height: 96px;
+  min-width: 96px;
+  min-height: 96px;
+  padding: 0;
+}
+
+#token-shell[data-width='compact'] [data-spotlight-copy] {
+  min-width: 0;
 }
 
 #token-shell[data-width='medium'] #home-spotlight [data-size='detail'] {
@@ -854,8 +908,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
+  /* The one brass eyebrow on Home — where-you-are and play carry the accent. */
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
 }
 
 [data-spotlight-title],
@@ -897,7 +952,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-accent-on);
   color: var(--gm-accent-on);
   clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
-  transition: filter var(--gm-motion), transform var(--gm-motion);
+  transition:
+    filter var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #home-spotlight-play:hover {
@@ -1055,8 +1112,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   right: -1px;
   width: 8px;
   height: 8px;
-  border-top: 1px solid var(--gm-accent-fill);
-  border-right: 1px solid var(--gm-accent-fill);
+  border-top: 1px solid var(--gm-line-control);
+  border-right: 1px solid var(--gm-line-control);
   opacity: 0.85;
 }
 
@@ -1080,20 +1137,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   min-height: 112px;
 }
 
-#home-row-continue [data-empty-card],
-#home-row-played [data-empty-card],
-#home-row-loved [data-empty-card] {
-  min-height: 64px;
-  padding: 14px 14px 14px 48px;
-}
-
-#home-row-continue [data-empty-mark],
-#home-row-played [data-empty-mark],
-#home-row-loved [data-empty-mark] {
-  top: 18px;
-  left: 14px;
-}
-
 [data-settings-stub] {
   padding: 16px 18px;
   border-radius: var(--gm-radius-l);
@@ -1102,10 +1145,21 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   box-shadow: var(--gm-raised-edge);
 }
 
+/* Album shelf: one horizontal row, whole tiles, no visible scrollbar,
+   no permanent edge fade — the row simply scrolls. */
 [data-album-row] {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  display: flex;
+  flex-direction: row;
   gap: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 4px;
+  padding: 6px 4px 12px;
+}
+
+[data-album-row]::-webkit-scrollbar {
+  display: none;
 }
 
 [data-search-albums],
@@ -1152,23 +1206,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   }
 }
 
-[data-album-row] {
-  display: flex;
-  flex-direction: row;
-  gap: 16px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: 4px;
-  padding: 6px 4px 12px;
-  /* Soft edge so the next tile peeks without a hard clip. */
-  mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 calc(100% - 40px),
-    transparent 100%
-  );
-}
-
 [data-album-row] [data-album-tile] {
   flex: 0 0 168px;
   scroll-snap-align: start;
@@ -1185,7 +1222,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  cursor: default;
+  cursor: pointer;
   border-radius: var(--gm-radius-s);
   padding: 4px;
   margin: -4px;
@@ -1314,11 +1351,14 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   font-weight: 600;
   line-height: 20px;
   --gm-text: var(--gm-text-primary);
-  --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
+  /* Two lines under a tile, then an ellipsis (design-language §6). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 /* Titles' subtitles — text.secondary (#b0bbc5 dark), not over-dim muted. */
@@ -1378,7 +1418,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 4px 10px 4px;
 }
 
-/* —— Cover tiles (anodised steel placeholders) —— */
+/* —— Cover tiles (anodised steel placeholders, LIB-142) —— */
 
 #token-shell [data-size='grid'],
 #token-shell [data-size='row'],
@@ -1395,28 +1435,19 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   overflow: hidden;
   isolation: isolate;
   transition: transform var(--gm-motion);
+  /* Machined: one top highlight and one hairline — no sheen stack. */
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #e8f1f8 18%, transparent),
-    inset 0 -2px 0 color-mix(in srgb, #000 40%, transparent),
-    inset 1px 0 0 color-mix(in srgb, #e8f1f8 6%, transparent),
-    inset -1px 0 0 color-mix(in srgb, #000 22%, transparent),
-    0 1px 2px color-mix(in srgb, #000 28%, transparent);
+    inset 0 1px 0 color-mix(in srgb, #e8f1f8 14%, transparent),
+    0 0 0 1px var(--gm-line-subtle);
 }
 
+/* Tiles set the size; the cover fills the cell. */
 #token-shell [data-size='grid'],
 #token-shell [data-size='row'] {
-  width: 168px;
-  height: 168px;
-  padding: 14px;
-}
-
-#token-shell[data-width='expanded'] [data-size='grid'],
-#token-shell[data-width='expanded'] [data-size='row'],
-#token-shell[data-width='wide'] [data-size='grid'],
-#token-shell[data-width='wide'] [data-size='row'] {
-  width: 180px;
-  height: 180px;
-  padding: 14px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  padding: 0;
 }
 
 #token-shell [data-size='detail'] {
@@ -1432,7 +1463,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   min-height: 400px;
 }
 
-#token-shell[data-width='compact'] #home-spotlight [data-size='detail'],
 #token-shell[data-width='compact'] [data-size='detail'] {
   width: min(280px, 72vw);
   height: min(280px, 72vw);
@@ -1471,8 +1501,7 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #token-shell [data-cover-plate],
-#token-shell [data-cover-wash],
-#token-shell [data-cover-sheen] {
+#token-shell [data-cover-wash] {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1481,16 +1510,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #token-shell [data-cover-plate] {
   z-index: 0;
   background:
-    radial-gradient(
-      120% 90% at 18% 12%,
-      color-mix(in srgb, #fff 22%, transparent) 0%,
-      transparent 46%
-    ),
-    radial-gradient(
-      90% 80% at 88% 92%,
-      color-mix(in srgb, #000 42%, transparent) 0%,
-      transparent 55%
-    );
+    radial-gradient(120% 90% at 18% 12%, color-mix(in srgb, #fff 16%, transparent) 0%, transparent 46%),
+    radial-gradient(90% 80% at 88% 92%, color-mix(in srgb, #000 36%, transparent) 0%, transparent 55%);
 }
 
 #token-shell [data-cover-plate]::after {
@@ -1506,25 +1527,12 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   z-index: 1;
   background: linear-gradient(
     158deg,
-    color-mix(in srgb, #f4f8fc 26%, transparent) 0%,
-    color-mix(in srgb, #f4f8fc 6%, transparent) 28%,
+    color-mix(in srgb, #f4f8fc 20%, transparent) 0%,
+    color-mix(in srgb, #f4f8fc 5%, transparent) 28%,
     transparent 48%,
-    color-mix(in srgb, #000 22%, transparent) 78%,
-    color-mix(in srgb, #000 48%, transparent) 100%
+    color-mix(in srgb, #000 20%, transparent) 78%,
+    color-mix(in srgb, #000 42%, transparent) 100%
   );
-}
-
-#token-shell [data-cover-sheen] {
-  z-index: 2;
-  background: linear-gradient(
-    112deg,
-    transparent 22%,
-    color-mix(in srgb, #e8f1f8 4%, transparent) 38%,
-    color-mix(in srgb, #e8f1f8 16%, transparent) 49%,
-    color-mix(in srgb, #e8f1f8 5%, transparent) 58%,
-    transparent 72%
-  );
-  mix-blend-mode: soft-light;
 }
 
 #token-shell [data-cover-label] {
@@ -1537,14 +1545,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   letter-spacing: 0.06em;
   line-height: 1;
   text-transform: uppercase;
-  text-shadow:
-    0 1px 0 color-mix(in srgb, #000 55%, transparent),
-    0 0 22px color-mix(in srgb, #fff 14%, transparent);
-}
-
-#token-shell [data-size='grid'] [data-cover-label],
-#token-shell [data-size='row'] [data-cover-label] {
-  font-size: 42px;
 }
 
 #token-shell [data-size='detail'] [data-cover-label] {
@@ -1633,7 +1633,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
   background: transparent;
-  transition: background-color var(--gm-motion), color var(--gm-motion);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
 }
 
 #library-tabs [role='tab']:hover {
@@ -1689,11 +1691,42 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 10px 12px;
   border-radius: var(--gm-radius-s);
   background: transparent;
-  transition: background-color var(--gm-motion), box-shadow var(--gm-motion);
+  transition:
+    background-color var(--gm-motion),
+    box-shadow var(--gm-motion);
 }
 
 [data-track-row] {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Queue line: art | title over artist | duration on the end. */
+[data-queue-line] {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'art title duration'
+    'art artist duration';
+}
+
+[data-queue-line] [data-queue-art] {
+  grid-area: art;
+}
+
+[data-queue-line] [data-queue-art] [data-size='row'] {
+  width: 40px;
+  height: 40px;
+}
+
+[data-queue-line] [data-queue-title] {
+  grid-area: title;
+}
+
+[data-queue-line] [data-queue-artist] {
+  grid-area: artist;
+}
+
+[data-queue-line] [data-queue-duration] {
+  grid-area: duration;
 }
 
 [data-track-play] {
@@ -1833,17 +1866,52 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: 24px;
 }
 
+/* Kebab "more" control: an icon over the art's top corner, revealed on
+   hover/focus on pointer devices, always visible on touch. */
 [data-item-more] {
-  position: static;
+  position: absolute;
+  top: 8px;
+  right: 8px;
   z-index: 5;
-  padding: 6px 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border-radius: var(--gm-radius-m);
-  background: var(--gm-bg-overlay);
+  background: color-mix(in srgb, var(--gm-bg-overlay) 88%, transparent);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
   border: 1px solid var(--gm-line-subtle);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--gm-motion),
+    background-color var(--gm-motion);
+}
+
+[data-item-more]::before {
+  content: '⋮';
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* RN-web Text pins 14px — hide the visible label; the name is the aria-label. */
+[data-item-more] > * {
+  display: none;
+}
+
+[data-album-tile]:hover [data-item-more],
+[data-album-tile]:focus-within [data-item-more],
+[data-item-more]:focus-visible {
+  opacity: 1;
+}
+
+#token-shell[data-width='compact'] [data-item-more],
+#token-shell[data-width='medium'] [data-item-more] {
+  opacity: 1;
 }
 
 [data-item-menu] {
@@ -1883,7 +1951,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-primary);
   border: 1px solid var(--gm-line-subtle);
   font-weight: 600;
-  transition: background-color var(--gm-motion), transform var(--gm-motion);
+  transition:
+    background-color var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #album-back:hover,
@@ -1917,7 +1987,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-accent-on);
   color: var(--gm-accent-on);
   clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
-  transition: filter var(--gm-motion), transform var(--gm-motion);
+  transition:
+    filter var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #album-play:hover,
@@ -2279,14 +2351,10 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   height: 80px;
   padding: 0 20px;
   z-index: 12;
-  border-top: 1px solid color-mix(in srgb, var(--gm-line-subtle) 70%, var(--gm-line-control));
-  background: color-mix(in srgb, var(--gm-bg-raised) 92%, transparent);
-  backdrop-filter: blur(14px) saturate(1.05);
-  -webkit-backdrop-filter: blur(14px) saturate(1.05);
-  box-shadow:
-    var(--gm-raised-edge),
-    0 -10px 28px color-mix(in srgb, #000 32%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #e8f1f8 10%, transparent);
+  border-top: 1px solid var(--gm-line-subtle);
+  /* Opaque raised surface — design-language: no translucency, no shadows in dark. */
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-raised-edge);
 }
 
 /* Art-tint hairline on the player’s top edge while a track is playing. */
@@ -2329,10 +2397,8 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #token-shell[data-theme='light'] #player-bar {
-  background: color-mix(in srgb, var(--gm-bg-raised) 96%, transparent);
-  box-shadow:
-    0 -8px 22px color-mix(in srgb, #1a2228 10%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+  background: var(--gm-bg-raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
 }
 
 #token-shell[data-theme='high-contrast'] #player-bar {
@@ -2475,7 +2541,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color var(--gm-motion), color var(--gm-motion);
+  transition:
+    background-color var(--gm-motion),
+    color var(--gm-motion);
 }
 
 #player-prev,
@@ -2564,7 +2632,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   align-items: center;
   justify-content: center;
   clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
-  transition: filter var(--gm-motion), transform var(--gm-motion);
+  transition:
+    filter var(--gm-motion),
+    transform var(--gm-motion);
 }
 
 #shell-play[data-player-control='primary']:hover {
@@ -2624,10 +2694,33 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 #player-progress {
   grid-area: scrubber;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'elapsed track total';
+  align-items: center;
+  column-gap: 10px;
+  min-width: 200px;
+}
+
+[data-scrubber-time] {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 16px;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
+#player-scrubber {
+  grid-area: track;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 140px;
+  align-items: center;
+  height: 20px;
+  cursor: pointer;
+  border-radius: var(--gm-radius-xs);
+}
+
+#player-scrubber #player-progress-track {
+  width: 100%;
 }
 
 /* Compact: thin scrubber along the bar's top edge (player.md). */
@@ -2690,40 +2783,67 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   overflow: auto;
 }
 
+/* Queue sheet: a real sheet — full-height side sheet at medium/expanded,
+   bottom sheet at compact (SUR-001 / design-language §7). */
 #queue-sheet {
   position: fixed;
-  right: 16px;
-  bottom: 96px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: 50vh;
-  border: 1px solid var(--gm-line-subtle);
-  border-radius: var(--gm-radius-l);
-  border-left-width: 1px;
+  top: 0;
+  right: 0;
+  bottom: var(--gm-player-height);
+  width: min(360px, 100vw);
+  border: none;
+  border-left: 1px solid var(--gm-line-subtle);
+  border-radius: 0;
   z-index: 20;
-  box-shadow: 0 12px 40px color-mix(in srgb, #000 45%, transparent);
+  box-shadow: none;
   background: var(--gm-bg-raised);
-  opacity: 0;
-  transform: translateY(10px);
+  opacity: 1;
+  transform: translateX(105%);
   pointer-events: none;
-  transition:
-    opacity var(--gm-motion-sheet),
-    transform var(--gm-motion-sheet);
+  transition: transform var(--gm-motion-sheet);
 }
 
 #queue-sheet[data-queue-open='1'] {
-  opacity: 1;
-  transform: translateY(0);
+  transform: translateX(0);
   pointer-events: auto;
 }
 
 #queue-sheet[data-queue-open='0'] {
-  opacity: 0;
-  transform: translateY(10px);
+  transform: translateX(105%);
   pointer-events: none;
 }
 
+/* The medium brand bar stays above the sheet. */
+#token-shell[data-width='medium'] #queue-sheet {
+  top: var(--gm-brand-height);
+}
+
+#queue-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  background: color-mix(in srgb, #000 52%, transparent);
+}
+
 #token-shell[data-width='compact'] #queue-sheet {
-  bottom: 120px;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--gm-player-height) + var(--gm-tabs-height));
+  width: auto;
+  max-height: 62vh;
+  border-left: none;
+  border-top: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-xl) var(--gm-radius-xl) 0 0;
+  transform: translateY(105%);
+}
+
+#token-shell[data-width='compact'] #queue-sheet[data-queue-open='1'] {
+  transform: translateY(0);
+}
+
+#token-shell[data-width='compact'] #queue-sheet[data-queue-open='0'] {
+  transform: translateY(105%);
 }
 
 [data-queue-header] {
@@ -2807,13 +2927,16 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   outline-offset: 2px;
 }
 
-#shell-play:focus-visible,
-#album-play:focus-visible,
-#artist-play:focus-visible,
-#home-spotlight-play:focus-visible {
-  /* Hex clip-path eats outline; draw a square plate behind via drop-shadow */
-  outline: none;
-  filter: drop-shadow(0 0 0 var(--gm-bg-raised)) drop-shadow(0 0 0 2px var(--gm-focus-ring));
+/* Hex clip-path clips every paint of the button, so the focus ring lives on
+   the square wrapper (design-language §8: full-square target, visible ring). */
+[data-hex-wrap='1'] {
+  display: inline-flex;
+  border-radius: var(--gm-radius-m);
+}
+
+[data-hex-wrap='1']:focus-within {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
 }
 
 /* —— Reduced motion —— */
@@ -2999,10 +3122,16 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 @keyframes gm-playing-bars {
   0%,
   100% {
-    background-size: 2px 40%, 2px 80%, 2px 55%;
+    background-size:
+      2px 40%,
+      2px 80%,
+      2px 55%;
   }
   50% {
-    background-size: 2px 80%, 2px 35%, 2px 70%;
+    background-size:
+      2px 80%,
+      2px 35%,
+      2px 70%;
   }
 }
 
@@ -3079,7 +3208,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   height: auto;
   border: 1px solid var(--gm-line-subtle);
   border-radius: var(--gm-radius-l);
-  box-shadow: var(--gm-raised-edge), 0 18px 40px color-mix(in srgb, #000 30%, transparent);
+  box-shadow:
+    var(--gm-raised-edge),
+    0 18px 40px color-mix(in srgb, #000 30%, transparent);
 }
 
 #token-shell[data-width='medium'] #player-full-scrim,
@@ -3089,28 +3220,60 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #player-full:has([data-cover='01']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-01) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-01) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='02']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-02) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-02) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='03']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-03) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-03) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='04']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-04) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-04) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='05']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-05) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-05) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='06']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-06) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-06) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='07']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-07) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-07) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 #player-full:has([data-cover='08']) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--gm-cover-08) var(--gm-art-mix), var(--gm-bg-canvas)) 0%, var(--gm-bg-canvas) 62%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gm-cover-08) var(--gm-art-mix), var(--gm-bg-canvas)) 0%,
+    var(--gm-bg-canvas) 62%
+  );
 }
 
 #player-full[data-open='1'] {
@@ -3323,8 +3486,28 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   color: var(--gm-text-secondary);
 }
 
+#player-volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#player-volume-icon {
+  font-size: 14px;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#player-volume-range {
+  width: 84px;
+  height: 16px;
+  accent-color: var(--gm-accent-fill);
+  cursor: pointer;
+}
+
 #player-device[data-device-slot='empty'] {
-  border: 1px dashed var(--gm-line-subtle);
+  /* R1 device slot keeps its place, quiet: no dashed box. */
+  background: color-mix(in srgb, var(--gm-text-primary) 4%, transparent);
 }
 
 #token-shell[data-width='compact'] #player-lyrics,
@@ -3353,7 +3536,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
   border: none;
-  transition: background-color var(--gm-motion), filter var(--gm-motion);
+  transition:
+    background-color var(--gm-motion),
+    filter var(--gm-motion);
 }
 
 #player-full-prev,
@@ -3554,8 +3739,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   padding: 32px 8px 28px;
   margin: 0 -8px 24px;
   border-radius: var(--gm-radius-l);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--art-surface, var(--gm-bg-raised)) 38%, transparent), transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--art-surface, var(--gm-bg-raised)) 38%, transparent),
+    transparent
+  );
 }
 
 #destination-artist [data-artist-avatar='hero'] {
@@ -3581,15 +3769,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 /* —— Context menus and more affordances —— */
 
-[data-item-more] {
-  padding: 4px 8px;
-  border-radius: var(--gm-radius-s);
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 [data-item-menu],
 [data-context-menu] {
   position: absolute;
@@ -3600,7 +3779,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   border-radius: var(--gm-radius-l);
   background: var(--gm-bg-overlay);
   font-family: Inter, system-ui, sans-serif;
-  box-shadow: var(--gm-raised-edge), 0 12px 32px color-mix(in srgb, #000 28%, transparent);
+  box-shadow:
+    var(--gm-raised-edge),
+    0 12px 32px color-mix(in srgb, #000 28%, transparent);
   animation: gm-menu-enter var(--gm-motion) both;
 }
 
@@ -3642,12 +3823,24 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   position: relative;
 }
 
-[data-tile-stagger='1'] { transition-delay: 20ms; }
-[data-tile-stagger='2'] { transition-delay: 40ms; }
-[data-tile-stagger='3'] { transition-delay: 60ms; }
-[data-tile-stagger='4'] { transition-delay: 80ms; }
-[data-tile-stagger='5'] { transition-delay: 100ms; }
-[data-tile-stagger='6'] { transition-delay: 120ms; }
+[data-tile-stagger='1'] {
+  transition-delay: 20ms;
+}
+[data-tile-stagger='2'] {
+  transition-delay: 40ms;
+}
+[data-tile-stagger='3'] {
+  transition-delay: 60ms;
+}
+[data-tile-stagger='4'] {
+  transition-delay: 80ms;
+}
+[data-tile-stagger='5'] {
+  transition-delay: 100ms;
+}
+[data-tile-stagger='6'] {
+  transition-delay: 120ms;
+}
 
 /* —— Lyrics pane SUR-012 —— */
 
@@ -3715,42 +3908,6 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   [data-tile-stagger] {
     transition-delay: 0ms;
   }
-}
-
-@keyframes gm-tile-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes gm-hero-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-[data-album-tile] {
-  animation: gm-tile-enter 160ms ease both;
-}
-
-[data-album-tile][data-tile-stagger='1'] { animation-delay: 20ms; }
-[data-album-tile][data-tile-stagger='2'] { animation-delay: 40ms; }
-[data-album-tile][data-tile-stagger='3'] { animation-delay: 60ms; }
-[data-album-tile][data-tile-stagger='4'] { animation-delay: 80ms; }
-[data-album-tile][data-tile-stagger='5'] { animation-delay: 100ms; }
-[data-album-tile][data-tile-stagger='6'] { animation-delay: 120ms; }
-
-#home-spotlight,
-[data-artist-hero] {
-  animation: gm-hero-enter 200ms ease both;
 }
 
 [data-brass-hex]:active,

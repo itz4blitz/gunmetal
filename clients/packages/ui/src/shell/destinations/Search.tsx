@@ -1,30 +1,24 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native-web';
-import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
+import type { LibrarySearch, LibrarySearchHits } from '../content.ts';
 import type { ShellLibrary, ShellTrack } from '../library-types.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
 
 export type SearchProps = {
+  searchLibrary?: LibrarySearch | undefined;
   messages: DestinationMessages;
   library: ShellLibrary;
   onOpenAlbum: (albumId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
-  onPlayNextAlbum?: (albumId: string) => void;
-  onAddAlbumToQueue?: (albumId: string) => void;
-  onPlayNextTrack?: (albumId: string, trackId: string) => void;
-  onAddTrackToQueue?: (albumId: string, trackId: string) => void;
+  onPlayNextAlbum?: ((albumId: string) => void) | undefined;
+  onAddAlbumToQueue?: ((albumId: string) => void) | undefined;
+  onPlayNextTrack?: ((albumId: string, trackId: string) => void) | undefined;
+  onAddTrackToQueue?: ((albumId: string, trackId: string) => void) | undefined;
 };
-
-function demoLocalHits(
-  library: ShellLibrary,
-  query: string,
-): { albums: readonly ShellLibrary['albums'][number][]; tracks: readonly ShellTrack[] } {
-  return demoLocalFilter(library, query);
-}
 
 function TypeChip({
   id,
@@ -59,6 +53,7 @@ function TypeChip({
 }
 
 export function Search({
+  searchLibrary = (): LibrarySearchHits => ({ albums: [], tracks: [] }),
   messages,
   library,
   onOpenAlbum,
@@ -73,7 +68,7 @@ export function Search({
   const [query, setQuery] = useState('');
   const [showAlbums, setShowAlbums] = useState(true);
   const [showTracks, setShowTracks] = useState(true);
-  const hits = demoLocalHits(library, query);
+  const hits = searchLibrary(library, query);
   const hasQuery = query.trim().length > 0;
   const visibleAlbums = showAlbums ? hits.albums : [];
   const visibleTracks = showTracks ? hits.tracks : [];
@@ -97,11 +92,7 @@ export function Search({
           }}
         />
       </View>
-      <View
-        id="search-type-chips"
-        accessibilityRole="group"
-        accessibilityLabel={messages.searchTypeFilter}
-      >
+      <View id="search-type-chips" accessibilityRole="group" accessibilityLabel={messages.searchTypeFilter}>
         <TypeChip
           id="search-chip-albums"
           label={messages.tabAlbums}
@@ -128,11 +119,7 @@ export function Search({
       {!hasQuery ? (
         <View id="search-recent" dataSet={{ emptyCard: '1', emptyRow: '1' }}>
           <View dataSet={{ emptyMark: '1' }} />
-          <Text
-            id="search-recent-heading"
-            accessibilityRole="header"
-            dataSet={{ emptyTitle: '1' }}
-          >
+          <Text id="search-recent-heading" accessibilityRole="header" dataSet={{ emptyTitle: '1' }}>
             {messages.searchRecentHeading}
           </Text>
           <Text id="search-recent-empty" dataSet={{ emptyState: 'search-recent' }}>
@@ -193,9 +180,7 @@ export function Search({
                       key={track.id}
                       track={track}
                       messages={messages}
-                      artistKey={
-                        library.albums.find((album) => album.id === track.albumId)?.artistKey
-                      }
+                      artistKey={library.albums.find((album) => album.id === track.albumId)?.artistKey}
                       onPlay={onPlayTrack}
                       onPlayNext={onPlayNextTrack}
                       onAddToQueue={onAddTrackToQueue}

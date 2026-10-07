@@ -9,13 +9,13 @@ import { GoToArtistMenu } from './GoToArtistMenu.tsx';
 export type TrackRowProps = {
   track: ShellTrack;
   messages: DestinationMessages;
-  current?: boolean;
-  artistKey?: string;
+  current?: boolean | undefined;
+  artistKey?: string | undefined;
   onPlay: (albumId: string, trackId: string) => void;
-  onPlayNext?: (albumId: string, trackId: string) => void;
-  onAddToQueue?: (albumId: string, trackId: string) => void;
-  onGoToAlbum?: (albumId: string) => void;
-  onOpenArtist?: (artistKey: string) => void;
+  onPlayNext?: ((albumId: string, trackId: string) => void) | undefined;
+  onAddToQueue?: ((albumId: string, trackId: string) => void) | undefined;
+  onGoToAlbum?: ((albumId: string) => void) | undefined;
+  onOpenArtist?: ((artistKey: string) => void) | undefined;
 };
 
 export function TrackRow({

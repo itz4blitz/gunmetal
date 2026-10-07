@@ -1,28 +1,29 @@
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
-import { demoLyricsLines, demoLyricsVerse } from '../../../fake-server/src/lyrics.ts';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
 import { formatDuration } from './format.ts';
+import { noLyrics, type LyricsResolver } from './content.ts';
 import { LyricsPane } from './LyricsPane.tsx';
-import type { PlaybackSnapshot, QueueLine } from './playback.ts';
+import type { PlayerQueueLine, PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
 export type PlayerPlacement = 'overlay' | 'pane';
 
 export type PlayerFullProps = {
+  lyricsFor?: LyricsResolver | undefined;
   messages: ShellMessages;
-  playback: PlaybackSnapshot;
+  playback: PlayerSnapshot;
   open: boolean;
-  placement?: PlayerPlacement;
-  albumTitle?: string;
+  placement?: PlayerPlacement | undefined;
+  albumTitle?: string | undefined;
   onClose: () => void;
-  onPlayPause?: () => void;
-  onPrevious?: () => void;
-  onNext?: () => void;
-  onToggleQueue?: () => void;
+  onPlayPause?: (() => void) | undefined;
+  onPrevious?: (() => void) | undefined;
+  onNext?: (() => void) | undefined;
+  onToggleQueue?: (() => void) | undefined;
 };
 
-function nextQueueLine(playback: PlaybackSnapshot): QueueLine | undefined {
+function nextPlayerQueueLine(playback: PlayerSnapshot): PlayerQueueLine | undefined {
   const index = playback.queue.findIndex((line) => line.trackId === playback.trackId);
   if (index < 0) {
     return undefined;
@@ -31,6 +32,7 @@ function nextQueueLine(playback: PlaybackSnapshot): QueueLine | undefined {
 }
 
 export function PlayerFull({
+  lyricsFor = () => noLyrics,
   messages,
   playback,
   open,
@@ -68,19 +70,14 @@ export function PlayerFull({
     return null;
   }
 
-  const progress =
-    playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
-  const remainingMs =
-    playback.durationMs > 0 ? Math.max(0, playback.durationMs - playback.positionMs) : 0;
-  const upNext = nextQueueLine(playback);
-  const fromLabel =
-    albumTitle !== undefined && albumTitle !== '' ? `${messages.playingFrom} ${albumTitle}` : undefined;
+  const progress = playback.durationMs > 0 ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
+  const remainingMs = playback.durationMs > 0 ? Math.max(0, playback.durationMs - playback.positionMs) : 0;
+  const upNext = nextPlayerQueueLine(playback);
+  const fromLabel = albumTitle !== undefined && albumTitle !== '' ? `${messages.playingFrom} ${albumTitle}` : undefined;
 
   return (
     <>
-      {placement === 'overlay' ? (
-        <View id="player-full-scrim" dataSet={{ open: '1' }} onClick={onClose} />
-      ) : null}
+      {placement === 'overlay' ? <View id="player-full-scrim" dataSet={{ open: '1' }} onClick={onClose} /> : null}
       <View
         id="player-full"
         accessibilityRole="dialog"
@@ -114,6 +111,7 @@ export function PlayerFull({
             label={playback.title}
             size="full"
             coverId={`cover-full-${playback.trackId}`}
+            artUrl={playback.coverUrl}
           />
         </View>
         <Text id="player-full-title">{playback.title}</Text>
@@ -137,11 +135,7 @@ export function PlayerFull({
           </View>
         </View>
         <View id="player-full-transport">
-          <FullControl
-            id="player-full-prev"
-            label={messages.previous}
-            onPress={onPrevious}
-          />
+          <FullControl id="player-full-prev" label={messages.previous} onPress={onPrevious} />
           <FullControl
             id="player-full-play"
             label={playback.playing ? messages.pause : messages.play}
@@ -208,7 +202,7 @@ export function PlayerFull({
           <LyricsPane
             id="player-full-lyrics"
             label={messages.lyrics}
-            lines={demoLyricsLines(demoLyricsVerse(playback.trackId, playback.lyricsKind))}
+            lines={lyricsFor(playback.trackId ?? '', playback.lyricsKind)}
             synced={playback.lyricsKind === 'synced'}
             open={lyricsOpen}
           />
@@ -223,18 +217,12 @@ export function PlayerFull({
 type FullControlProps = {
   id: string;
   label: string;
-  onPress?: () => void;
-  primary?: boolean;
-  playing?: boolean;
+  onPress?: (() => void) | undefined;
+  primary?: boolean | undefined;
+  playing?: boolean | undefined;
 };
 
-function FullControl({
-  id,
-  label,
-  onPress,
-  primary = false,
-  playing = false,
-}: FullControlProps) {
+function FullControl({ id, label, onPress, primary = false, playing = false }: FullControlProps) {
   return (
     <View
       id={id}

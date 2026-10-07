@@ -25,7 +25,18 @@
   open pull requests there. GitHub is not the working forge. Actions run
   only on the project's self-hosted runners
   ([D-90](docs/decisions.md#d-90-actions-runners),
-  [record 17](docs/adr/0017-all-actions-on-own-runners.md)).
+  [record 17](docs/adr/0017-all-actions-on-own-runners.md)). Palam,
+  Premier Studio, and personal repos (`itz4blitz`, `kbdevopz`) are
+  separate tenants; Premier burst does not live in `palam-cicd`
+  ([D-91](docs/decisions.md#d-91-forgejo-tenants),
+  [record 18](docs/adr/0018-forgejo-tenants-and-ecs.md)).
+  Burst runners copy Palam's `ph-ci` shape, not a new ECS stack
+  ([D-92](docs/decisions.md#d-92-runner-shape),
+  [record 19](docs/adr/0019-copy-palam-ci-shape.md)). Premier burst
+  lives in AWS account `premier-cicd` `109792548422`, IaC
+  `PremierStudio/premier-cicd`
+  ([D-93](docs/decisions.md#d-93-premier-ci-account),
+  [record 20](docs/adr/0020-premier-cicd-account.md)).
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is

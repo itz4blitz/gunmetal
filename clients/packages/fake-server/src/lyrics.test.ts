@@ -1,17 +1,9 @@
 import { expect, test } from 'vitest';
-import {
-  demoFallbackVerse,
-  demoLyricsLines,
-  demoLyricsTable,
-  demoLyricsVerse,
-  noLyricsLine,
-} from './lyrics.ts';
+import { demoFallbackVerse, demoLyricsLines, demoLyricsTable, demoLyricsVerse, noLyricsLine } from './lyrics.ts';
 
 test('lyrics fixtures are plain strings with a none-kind placeholder', () => {
   expect(noLyricsLine()).toStrictEqual('This file has no lyrics.');
-  expect(demoFallbackVerse()).toStrictEqual(
-    'A short demo verse\nlives in this fixture\nno markup, only lines',
-  );
+  expect(demoFallbackVerse()).toStrictEqual('A short demo verse\nlives in this fixture\nno markup, only lines');
   expect(demoLyricsTable()).toStrictEqual({
     'demo-track-01-03': 'The harbour keeps the letter\nfolded under glass\nuntil the tide comes back',
     'demo-track-02-02': 'Floors count themselves in the dark\nsteel doors, a held breath\nthen the motor starts',

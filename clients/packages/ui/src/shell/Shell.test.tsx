@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
+import { stubPlayback } from './test-playback.ts';
 import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
@@ -12,7 +13,7 @@ function landmarkIds(root: HTMLElement): string[] {
 }
 
 test('wide shell landmarks match the literal list and show Home', () => {
-  const { container } = render(<Shell path="/" widthPx={1600} showDemoLabel />);
+  const { container } = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} showDemoLabel />);
   const root = container.querySelector('#token-shell');
   expect(root?.getAttribute('data-width')).toStrictEqual('wide');
   expect(root?.getAttribute('data-theme')).toStrictEqual('dark');
@@ -25,7 +26,7 @@ test('wide shell landmarks match the literal list and show Home', () => {
 });
 
 test('compact, medium and expanded shells expose their landmark lists', () => {
-  const compact = render(<Shell path="/search" widthPx={360} />);
+  const compact = render(<Shell playback={stubPlayback().controller} path="/search" widthPx={360} />);
   expect(landmarkIds(compact.container.querySelector('#token-shell') as HTMLElement)).toStrictEqual([
     ...landmarks(360),
   ]);
@@ -33,15 +34,13 @@ test('compact, medium and expanded shells expose their landmark lists', () => {
   expect(screen.getByRole('navigation', { name: 'Primary' }).id).toStrictEqual('nav-tabs');
   compact.unmount();
 
-  const medium = render(<Shell path="/library" widthPx={800} />);
-  expect(landmarkIds(medium.container.querySelector('#token-shell') as HTMLElement)).toStrictEqual([
-    ...landmarks(800),
-  ]);
+  const medium = render(<Shell playback={stubPlayback().controller} path="/library" widthPx={800} />);
+  expect(landmarkIds(medium.container.querySelector('#token-shell') as HTMLElement)).toStrictEqual([...landmarks(800)]);
   expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
   expect(screen.getByRole('navigation', { name: 'Primary' }).id).toStrictEqual('nav-rail');
   medium.unmount();
 
-  const expanded = render(<Shell path="/settings" widthPx={1200} />);
+  const expanded = render(<Shell playback={stubPlayback().controller} path="/settings" widthPx={1200} />);
   expect(landmarkIds(expanded.container.querySelector('#token-shell') as HTMLElement)).toStrictEqual([
     ...landmarks(1200),
   ]);
@@ -51,28 +50,31 @@ test('compact, medium and expanded shells expose their landmark lists', () => {
 });
 
 test('an unknown path, fragment and query each show Not found', () => {
-  const unknown = render(<Shell path="/nope" widthPx={1600} />);
+  const unknown = render(<Shell playback={stubPlayback().controller} path="/nope" widthPx={1600} />);
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   unknown.unmount();
 
-  const fragment = render(<Shell path="/" hash="#x" widthPx={1600} />);
+  const fragment = render(<Shell playback={stubPlayback().controller} path="/" hash="#x" widthPx={1600} />);
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   fragment.unmount();
 
-  const query = render(<Shell path="/search" search="?q=1" widthPx={1600} />);
+  const query = render(<Shell playback={stubPlayback().controller} path="/search" search="?q=1" widthPx={1600} />);
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   query.unmount();
 
-  const badId = render(<Shell path="/" historyState={{ itemId: 'a/b' }} widthPx={1600} />);
+  const badId = render(
+    <Shell playback={stubPlayback().controller} path="/" historyState={{ itemId: 'a/b' }} widthPx={1600} />,
+  );
   expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
   badId.unmount();
 });
 
-test('nav links and theme buttons call the composition callbacks', () => {
+test('nav links call the composition callbacks; themes switch inside Settings', () => {
   const navigated: string[] = [];
   const themes: string[] = [];
   render(
     <Shell
+      playback={stubPlayback().controller}
       path="/"
       widthPx={1600}
       onNavigate={(next) => {
@@ -90,28 +92,51 @@ test('nav links and theme buttons call the composition callbacks', () => {
   fireEvent.keyDown(screen.getByRole('link', { name: 'Search' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('link', { name: 'Library' }), { key: ' ' });
   fireEvent.keyDown(screen.getByRole('link', { name: 'Settings' }), { key: 'Enter' });
+  expect(navigated).toStrictEqual(['/search', '/library', '/', '/settings', '/search', '/library', '/settings']);
+  // The sidebar no longer hosts a theme stack; the switcher lives in Settings.
+  expect(screen.queryByRole('button', { name: 'Light' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'OLED' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'High contrast' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Dark' })).toBeNull();
+  expect(themes).toStrictEqual([]);
+});
+
+test('theme changes from the Settings destination reach the composition callback', () => {
+  const themes: string[] = [];
+  render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/settings"
+      theme="dark"
+      widthPx={1600}
+      library={demoLibrary()}
+      onThemeChange={(next) => {
+        themes.push(next);
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Light' }));
   fireEvent.click(screen.getByRole('button', { name: 'OLED' }));
   fireEvent.click(screen.getByRole('button', { name: 'High contrast' }));
   fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
   fireEvent.keyDown(screen.getByRole('button', { name: 'Light' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('button', { name: 'OLED' }), { key: ' ' });
-  expect(navigated).toStrictEqual(['/search', '/library', '/', '/settings', '/search', '/library', '/settings']);
   expect(themes).toStrictEqual(['light', 'oled', 'high-contrast', 'dark', 'light', 'oled']);
 });
 
 test('without callbacks the shell pushes history and follows popstate and resize', () => {
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
-  const view = render(<Shell showDemoLabel />);
+  const view = render(<Shell playback={stubPlayback().controller} showDemoLabel />);
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   fireEvent.click(screen.getByRole('link', { name: 'Search' }));
   expect(window.location.pathname).toStrictEqual('/search');
   expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
-  fireEvent.click(screen.getByRole('button', { name: 'Light' }));
-  expect(view.container.querySelector('#token-shell')?.getAttribute('data-theme')).toStrictEqual('light');
-  fireEvent.keyDown(screen.getByRole('link', { name: 'Home' }), { key: 'Tab' });
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Dark' }), { key: 'Tab' });
+  // Theme switching lives in the Settings destination (tested with the real
+  // library above); this shell has no library, so the switcher is not mounted.
+  fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+  expect(screen.getByRole('heading', { name: 'Settings' }).id).toStrictEqual('destination-headline');
+  fireEvent.click(screen.getByRole('link', { name: 'Home' }), { key: 'Tab' });
   fireEvent.keyDown(screen.getByRole('link', { name: 'Settings' }), { key: 'Tab' });
   act(() => {
     window.history.pushState({ scrollY: 0 }, '', '/library');
@@ -127,10 +152,10 @@ test('without callbacks the shell pushes history and follows popstate and resize
 });
 
 test('controlled theme and width props update the shell attributes', () => {
-  const view = render(<Shell path="/" widthPx={800} theme="light" />);
+  const view = render(<Shell playback={stubPlayback().controller} path="/" widthPx={800} theme="light" />);
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-theme')).toStrictEqual('light');
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-width')).toStrictEqual('medium');
-  view.rerender(<Shell path="/" widthPx={1200} theme="oled" />);
+  view.rerender(<Shell playback={stubPlayback().controller} path="/" widthPx={1200} theme="oled" />);
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-theme')).toStrictEqual('oled');
   expect(view.container.querySelector('#token-shell')?.getAttribute('data-width')).toStrictEqual('expanded');
 });
@@ -143,16 +168,10 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
 }
 
 test('nav items expose CSS glyph keys and the sidebar hosts the brand rule', () => {
-  const { container } = render(<Shell path="/" widthPx={1600} showDemoLabel />);
-  expect(container.querySelector('#nav-item-home')?.getAttribute('data-nav-glyph')).toStrictEqual(
-    'home',
-  );
-  expect(container.querySelector('#nav-item-search')?.getAttribute('data-nav-glyph')).toStrictEqual(
-    'search',
-  );
-  expect(container.querySelector('#nav-item-library')?.getAttribute('data-nav-glyph')).toStrictEqual(
-    'library',
-  );
+  const { container } = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} showDemoLabel />);
+  expect(container.querySelector('#nav-item-home')?.getAttribute('data-nav-glyph')).toStrictEqual('home');
+  expect(container.querySelector('#nav-item-search')?.getAttribute('data-nav-glyph')).toStrictEqual('search');
+  expect(container.querySelector('#nav-item-library')?.getAttribute('data-nav-glyph')).toStrictEqual('library');
   expect(container.querySelector('#nav-sidebar #shell-brand')).toBeTruthy();
   expect(container.querySelector('#shell-brand-rule')).toBeTruthy();
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
@@ -161,22 +180,34 @@ test('nav items expose CSS glyph keys and the sidebar hosts the brand rule', () 
 
 test('shell sets data-art-tone from cover while playing and clears it when paused', () => {
   const library = demoLibrary();
-  const { container } = render(<Shell path="/" widthPx={1600} library={library} />);
-  const root = container.querySelector('#token-shell') as HTMLElement;
-  expect(root.getAttribute('data-art-tone')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Harbour Lights' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Play album' }));
-  expect(root.getAttribute('data-art-tone')).toStrictEqual('01');
-  expect(document.querySelector('#player-full')).toBeNull();
-  fireEvent.click(document.querySelector('#player-expand')!);
-  expect(document.querySelector('#player-full')?.getAttribute('data-open')).toStrictEqual('1');
-  expect(document.querySelector('#player-full')?.getAttribute('data-placement')).toStrictEqual('pane');
-  fireEvent.click(document.querySelector('#shell-play')!);
-  expect(root.getAttribute('data-art-tone')).toBeNull();
+  const base = {
+    trackId: 'demo-track-01-01',
+    albumId: 'demo-album-01',
+    title: 'Pier at Dusk',
+    artistName: 'Mira Sol',
+    coverTone: '01',
+    coverUrl: '/media/covers/fixture.svg',
+    mediaUrl: '/media/audio/fixtures.wav',
+    playing: true,
+    positionMs: 0,
+    durationMs: 214_000,
+    lyricsKind: 'none' as const,
+    queue: [],
+    queueOpen: false,
+  };
+  const playing = render(
+    <Shell path="/" widthPx={1600} library={library} playback={stubPlayback({ ...base }).controller} />,
+  );
+  expect(playing.container.querySelector('#token-shell')?.getAttribute('data-art-tone')).toStrictEqual('01');
+  playing.unmount();
+  const paused = render(
+    <Shell path="/" widthPx={1600} library={library} playback={stubPlayback({ ...base, playing: false }).controller} />,
+  );
+  expect(paused.container.querySelector('#token-shell')?.getAttribute('data-art-tone')).toBeNull();
 });
 
 test('skip links are the first focusable items and move focus to content and player', () => {
-  const { container } = render(<Shell path="/" widthPx={1600} />);
+  const { container } = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} />);
   const root = container.querySelector('#token-shell') as HTMLElement;
   const skipContent = screen.getByRole('link', { name: 'Skip to content' });
   const skipPlayer = screen.getByRole('link', { name: 'Skip to player' });

@@ -11,14 +11,7 @@ test('first-party extension points exist on both planes and none are loaded', ()
     'theme-pack',
     'home-row',
   ]);
-  expect(slots.map((slot) => slot.plane)).toStrictEqual([
-    'server',
-    'server',
-    'server',
-    'server',
-    'client',
-    'client',
-  ]);
+  expect(slots.map((slot) => slot.plane)).toStrictEqual(['server', 'server', 'server', 'server', 'client', 'client']);
   expect(slots.map((slot) => slot.featureId)).toStrictEqual([
     'INT-077',
     'INT-078',
@@ -34,10 +27,6 @@ test('first-party extension points exist on both planes and none are loaded', ()
 test('a slot marked loaded is the only one the host index would return', () => {
   const slots = pluginSlots();
   const armed = { ...slots[0]!, loaded: true };
-  expect(loadedPluginSlots([armed, ...slots.slice(1)]).map((slot) => slot.id)).toStrictEqual([
-    'metadata-provider',
-  ]);
-  expect(loadedPluginSlots([{ ...slots[4]!, loaded: true }]).map((slot) => slot.plane)).toStrictEqual([
-    'client',
-  ]);
+  expect(loadedPluginSlots([armed, ...slots.slice(1)]).map((slot) => slot.id)).toStrictEqual(['metadata-provider']);
+  expect(loadedPluginSlots([{ ...slots[4]!, loaded: true }]).map((slot) => slot.plane)).toStrictEqual(['client']);
 });

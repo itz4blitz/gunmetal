@@ -1,34 +1,15 @@
+import type { PlayerQueueLine, PlayerSnapshot } from '../../../packages/ports/src/provisional/player.ts';
 import type {
   ShellAlbum,
   ShellArtist,
   ShellLibrary,
   ShellLyricsKind,
   ShellTrack,
-} from './library-types.ts';
+} from '../../../packages/ui/src/shell/library-types.ts';
 
-export type QueueLine = {
-  trackId: string;
-  albumId: string;
-  title: string;
-  artistName: string;
-  coverTone: string;
-  durationMs: number;
-  lyricsKind: ShellLyricsKind;
-};
-
-export type PlaybackSnapshot = {
-  trackId: string | undefined;
-  albumId: string | undefined;
-  title: string;
-  artistName: string;
-  coverTone: string;
-  playing: boolean;
-  positionMs: number;
-  durationMs: number;
-  lyricsKind: ShellLyricsKind;
-  queue: readonly QueueLine[];
-  queueOpen: boolean;
-};
+/** Demo-side aliases of the provisional player types (ports/src/provisional). */
+export type QueueLine = PlayerQueueLine;
+export type PlaybackSnapshot = PlayerSnapshot;
 
 export function emptyPlayback(): PlaybackSnapshot {
   return {
@@ -37,6 +18,8 @@ export function emptyPlayback(): PlaybackSnapshot {
     title: '',
     artistName: '',
     coverTone: '01',
+    coverUrl: '',
+    mediaUrl: '',
     playing: false,
     positionMs: 0,
     durationMs: 0,
@@ -53,6 +36,8 @@ function lineFrom(album: ShellAlbum, track: ShellTrack): QueueLine {
     title: track.title,
     artistName: track.artistName,
     coverTone: album.coverTone,
+    coverUrl: album.coverUrl,
+    mediaUrl: track.mediaUrl,
     durationMs: track.durationMs,
     lyricsKind: track.lyricsKind,
   };
@@ -79,6 +64,8 @@ export function playbackFromAlbum(album: ShellAlbum): PlaybackSnapshot {
     title: first.title,
     artistName: first.artistName,
     coverTone: album.coverTone,
+    coverUrl: album.coverUrl,
+    mediaUrl: first.mediaUrl,
     playing: true,
     positionMs: 0,
     durationMs: first.durationMs,
@@ -91,8 +78,7 @@ export function playbackFromAlbum(album: ShellAlbum): PlaybackSnapshot {
 export function playbackFromTrack(album: ShellAlbum, track: ShellTrack): PlaybackSnapshot {
   const playable = playableTracks(album);
   const startIndex = playable.findIndex((entry) => entry.id === track.id);
-  const ordered =
-    startIndex >= 0 ? [...playable.slice(startIndex), ...playable.slice(0, startIndex)] : playable;
+  const ordered = startIndex >= 0 ? [...playable.slice(startIndex), ...playable.slice(0, startIndex)] : playable;
   const active = ordered[0] ?? track;
   const queue = ordered.map((entry) => lineFrom(album, entry));
   return {
@@ -101,6 +87,8 @@ export function playbackFromTrack(album: ShellAlbum, track: ShellTrack): Playbac
     title: active.title,
     artistName: active.artistName,
     coverTone: album.coverTone,
+    coverUrl: album.coverUrl,
+    mediaUrl: active.mediaUrl,
     playing: true,
     positionMs: 0,
     durationMs: active.durationMs,
@@ -165,6 +153,8 @@ export function stepQueue(snapshot: PlaybackSnapshot, direction: -1 | 1): Playba
     title: line.title,
     artistName: line.artistName,
     coverTone: line.coverTone,
+    coverUrl: line.coverUrl,
+    mediaUrl: line.mediaUrl,
     positionMs: 0,
     durationMs: line.durationMs,
     lyricsKind: line.lyricsKind,
@@ -179,6 +169,8 @@ export function playFromLine(line: QueueLine): PlaybackSnapshot {
     title: line.title,
     artistName: line.artistName,
     coverTone: line.coverTone,
+    coverUrl: line.coverUrl,
+    mediaUrl: line.mediaUrl,
     playing: true,
     positionMs: 0,
     durationMs: line.durationMs,
@@ -245,6 +237,15 @@ export function togglePlaying(snapshot: PlaybackSnapshot): PlaybackSnapshot {
     return snapshot;
   }
   return { ...snapshot, playing: !snapshot.playing };
+}
+
+/** Demo-only display state: clamps the reported position into the track. */
+export function seekTo(snapshot: PlaybackSnapshot, positionMs: number): PlaybackSnapshot {
+  if (snapshot.trackId === undefined || snapshot.durationMs <= 0) {
+    return snapshot;
+  }
+  const clamped = Math.max(0, Math.min(snapshot.durationMs, positionMs));
+  return { ...snapshot, positionMs: clamped };
 }
 
 export function setQueueOpen(snapshot: PlaybackSnapshot, queueOpen: boolean): PlaybackSnapshot {

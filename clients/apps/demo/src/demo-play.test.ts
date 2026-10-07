@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
+import { demoLibrary } from '../../../packages/fake-server/src/catalogue.ts';
 import {
   applyAlbumQueue,
   applyPlayback,
@@ -15,18 +15,12 @@ test('resolve playback helpers refuse missing library albums and mismatched trac
   expect(resolveAlbumPlayback(library, 'missing')).toStrictEqual(undefined);
   const album = resolveAlbumPlayback(library, 'demo-album-01');
   expect(album?.trackId).toStrictEqual('demo-track-01-01');
-  expect(resolveTrackPlayback(undefined, 'demo-album-01', 'demo-track-01-01')).toStrictEqual(
-    undefined,
-  );
+  expect(resolveTrackPlayback(undefined, 'demo-album-01', 'demo-track-01-01')).toStrictEqual(undefined);
   expect(resolveTrackPlayback(library, 'demo-album-01', 'missing')).toStrictEqual(undefined);
   expect(resolveTrackPlayback(library, 'wrong-album', 'demo-track-01-01')).toStrictEqual(undefined);
-  expect(resolveTrackPlayback(library, 'demo-album-01', 'demo-track-01-02')?.trackId).toStrictEqual(
-    'demo-track-01-02',
-  );
+  expect(resolveTrackPlayback(library, 'demo-album-01', 'demo-track-01-02')?.trackId).toStrictEqual('demo-track-01-02');
   expect(applyPlayback(library, 'demo-album-02', undefined).title).toStrictEqual('Clock In');
-  expect(applyPlayback(library, 'demo-album-02', 'demo-track-02-02').title).toStrictEqual(
-    'Freight Elevator',
-  );
+  expect(applyPlayback(library, 'demo-album-02', 'demo-track-02-02').title).toStrictEqual('Freight Elevator');
   expect(applyPlayback(undefined, 'demo-album-01', undefined).trackId).toStrictEqual(undefined);
   expect(applyPlayback(library, 'missing', 'missing').trackId).toStrictEqual(undefined);
 });
@@ -57,9 +51,7 @@ test('demo-local queue helpers insert or append without shuffling', () => {
   expect(applyTrackQueue(undefined, started, 'demo-album-02', 'demo-track-02-02', 'next').queue).toStrictEqual(
     started.queue,
   );
-  expect(applyTrackQueue(library, started, 'demo-album-01', 'missing', 'next').queue).toStrictEqual(
-    started.queue,
-  );
+  expect(applyTrackQueue(library, started, 'demo-album-01', 'missing', 'next').queue).toStrictEqual(started.queue);
   expect(applyTrackQueue(library, started, 'wrong-album', 'demo-track-02-02', 'append').queue).toStrictEqual(
     started.queue,
   );

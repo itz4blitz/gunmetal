@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
+import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import { destinationMessages } from '../../messages/en/destinations.ts';
 import { Search } from './Search.tsx';
 
@@ -14,6 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 function renderSearch() {
   return render(
     <Search
+      searchLibrary={demoLocalFilter}
       messages={destinationMessages()}
       library={demoLibrary()}
       onOpenAlbum={vi.fn()}

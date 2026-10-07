@@ -16,6 +16,7 @@ const track: ShellTrack = {
   durationMs: 214_000,
   flag: 'ok',
   lyricsKind: 'none',
+  mediaUrl: '/media/audio/fixtures.wav',
 };
 
 test('go to artist context is only armed when both the key and the opener exist', () => {
@@ -26,15 +27,11 @@ test('go to artist context is only armed when both the key and the opener exist'
   expect(screen.queryByRole('menuitem', { name: 'Go to artist' })).toBeNull();
   none.unmount();
 
-  const keyOnly = render(
-    <TrackRow track={track} messages={messages} artistKey="mira-sol" onPlay={vi.fn()} />,
-  );
+  const keyOnly = render(<TrackRow track={track} messages={messages} artistKey="mira-sol" onPlay={vi.fn()} />);
   expect(keyOnly.container.querySelector('[data-item-more="1"]')).toBeNull();
   keyOnly.unmount();
 
-  const openerOnly = render(
-    <TrackRow track={track} messages={messages} onPlay={vi.fn()} onOpenArtist={vi.fn()} />,
-  );
+  const openerOnly = render(<TrackRow track={track} messages={messages} onPlay={vi.fn()} onOpenArtist={vi.fn()} />);
   expect(openerOnly.container.querySelector('[data-item-more="1"]')).toBeNull();
   openerOnly.unmount();
 });

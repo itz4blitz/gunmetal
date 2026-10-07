@@ -1,12 +1,7 @@
 export type PluginPlane = 'server' | 'client';
 
 export type PluginSlotId =
-  | 'metadata-provider'
-  | 'lyrics-provider'
-  | 'search-provider'
-  | 'scrobbler'
-  | 'theme-pack'
-  | 'home-row';
+  'metadata-provider' | 'lyrics-provider' | 'search-provider' | 'scrobbler' | 'theme-pack' | 'home-row';
 
 export type PluginSlot = {
   id: PluginSlotId;

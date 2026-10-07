@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
+import { demoLibrary } from '../../../packages/fake-server/src/catalogue.ts';
 import {
   albumsForArtist,
   appendAlbum,
@@ -42,10 +42,7 @@ test('playing skips unplayable and damaged fixture tracks when building the queu
   const library = demoLibrary();
   const album = findAlbum(library, 'demo-album-07');
   const snapshot = playbackFromAlbum(album!);
-  expect(snapshot.queue.map((line) => line.trackId)).toStrictEqual([
-    'demo-track-07-01',
-    'demo-track-07-04',
-  ]);
+  expect(snapshot.queue.map((line) => line.trackId)).toStrictEqual(['demo-track-07-01', 'demo-track-07-04']);
   expect(snapshot.lyricsKind).toStrictEqual('synced');
   const fromDamaged = findTrack(library, 'demo-track-07-03');
   const rotated = playbackFromTrack(fromDamaged!.album, fromDamaged!.track);
@@ -117,6 +114,8 @@ test('play next inserts after the current row and add to queue only appends', ()
     title: 'Freight Elevator',
     artistName: 'Mira Sol',
     coverTone: '02',
+    coverUrl: '/media/covers/demo-album-02.svg',
+    mediaUrl: '/media/audio/demo-album-02.wav',
     durationMs: 232_000,
     lyricsKind: 'synced',
   });

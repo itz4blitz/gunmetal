@@ -40,7 +40,7 @@ export function Nav({ id, label, items, activePath, onNavigate, brand, footer }:
           <View
             key={item.path}
             id={`nav-item-${itemId}`}
-            dataSet={{ navGlyph: itemId }}
+            dataSet={{ navGlyph: itemId, selected: selected ? '1' : '0' }}
             accessibilityRole="link"
             accessibilityLabel={item.label}
             accessibilityState={{ selected }}

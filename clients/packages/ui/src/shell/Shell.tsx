@@ -3,23 +3,16 @@ import { Text, View } from 'react-native-web';
 import { catalogue } from '../messages/catalogue.ts';
 import { matchAddress, type MatchResult } from '../router/match.ts';
 import { pushPath } from '../router/navigate.ts';
+import { noLyrics, type LibrarySearch, type LyricsResolver } from './content.ts';
 import { Destination } from './destinations/Destination.tsx';
+import type { PluginSlot } from './destinations/settings.ts';
 import type { ShellLibrary } from './library-types.ts';
 import { Nav, navItems } from './Nav.tsx';
-import { applyAlbumQueue, applyPlayback, applyTrackQueue } from './demo-play.ts';
-import {
-  emptyPlayback,
-  findAlbum,
-  setQueueOpen,
-  stepQueue,
-  togglePlaying,
-  type PlaybackSnapshot,
-} from './playback.ts';
 import { PlayerBar } from './PlayerBar.tsx';
 import { PlayerFull } from './PlayerFull.tsx';
 import { QueuePane } from './QueuePane.tsx';
+import type { PlaybackController } from './playback-controller.ts';
 import { defaultTheme, type ThemeId } from './theme.ts';
-import { ThemeSwitcher } from './ThemeSwitcher.tsx';
 import { landmarksForClass, widthClass, type WidthClass } from './width.ts';
 
 export type ShellProps = {
@@ -31,6 +24,14 @@ export type ShellProps = {
   theme?: ThemeId;
   showDemoLabel?: boolean;
   library?: ShellLibrary;
+  /** The composition root's playback implementation (see PlaybackController). */
+  playback: PlaybackController;
+  /** Library search read (demo filter today, ServerPort search later). */
+  searchLibrary?: LibrarySearch | undefined;
+  /** Lyrics content resolver (fixture verses today, server lyrics later). */
+  lyricsFor?: LyricsResolver | undefined;
+  /** Plugin-slot list for the Settings page (server config later). */
+  pluginSlots?: readonly PluginSlot[] | undefined;
   onNavigate?: (path: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
 };
@@ -69,14 +70,16 @@ export function Shell({
   theme: themeProp,
   showDemoLabel = false,
   library,
+  playback,
+  searchLibrary = () => ({ albums: [], tracks: [] }),
+  lyricsFor = () => noLyrics,
+  pluginSlots,
   onNavigate,
   onThemeChange,
 }: ShellProps) {
   const messages = catalogue();
   const [theme, setTheme] = useState<ThemeId>(themeProp ?? defaultTheme());
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
-  const [playback, setPlayback] = useState<PlaybackSnapshot>(() => emptyPlayback());
-  const [fullPlayerOpen, setFullPlayerOpen] = useState(false);
   const [location, setLocation] = useState(() => {
     if (path !== undefined) {
       return { pathname: path, search, hash, state: historyState };
@@ -180,45 +183,10 @@ export function Shell({
     onThemeChange?.(next);
   };
 
-  const playAlbum = (albumId: string) => {
-    const next = applyPlayback(library, albumId, undefined);
-    setPlayback(next);
-    if (width === 'compact' && next.trackId !== undefined) {
-      setFullPlayerOpen(true);
-    }
-  };
-
-  const playTrack = (albumId: string, trackId: string) => {
-    const next = applyPlayback(library, albumId, trackId);
-    setPlayback(next);
-    if (width === 'compact' && next.trackId !== undefined) {
-      setFullPlayerOpen(true);
-    }
-  };
-
-  const playNextAlbum = (albumId: string) => {
-    setPlayback((current) => applyAlbumQueue(library, current, albumId, 'next'));
-  };
-
-  const addAlbumToQueue = (albumId: string) => {
-    setPlayback((current) => applyAlbumQueue(library, current, albumId, 'append'));
-  };
-
-  const playNextTrack = (albumId: string, trackId: string) => {
-    setPlayback((current) => applyTrackQueue(library, current, albumId, trackId, 'next'));
-  };
-
-  const addTrackToQueue = (albumId: string, trackId: string) => {
-    setPlayback((current) => applyTrackQueue(library, current, albumId, trackId, 'append'));
-  };
-
-  const themeFooter = (
-    <ThemeSwitcher messages={messages.shell} theme={theme} onThemeChange={changeTheme} />
-  );
-
   const settingsLink = (
     <View
       id="nav-item-settings"
+      dataSet={{ navGlyph: 'settings', selected: activePath === '/settings' ? '1' : '0' }}
       accessibilityRole="link"
       accessibilityLabel={messages.shell.navSettings}
       accessibilityState={{ selected: activePath === '/settings' }}
@@ -233,24 +201,20 @@ export function Shell({
         }
       }}
     >
-      <Text>{messages.shell.navSettings}</Text>
+      <Text dataSet={{ navLabel: '1' }}>{messages.shell.navSettings}</Text>
     </View>
   );
 
-  const navFooter = (
-    <View id="nav-footer">
-      {settingsLink}
-      {themeFooter}
-    </View>
-  );
+  /* The theme switcher lives in Settings; the rail and the brand bar stay quiet. */
+  const navFooter = <View id="nav-footer">{settingsLink}</View>;
 
   const showWideQueue = width === 'wide';
   const sidebarBrand = width === 'expanded' || width === 'wide';
-  const artTone = playback.playing && playback.trackId !== undefined ? playback.coverTone : undefined;
+  const topBarBrand = !sidebarBrand;
+  const state = playback.state;
+  const artTone = state.playing && state.trackId !== undefined ? state.coverTone : undefined;
   const playingAlbumTitle =
-    library !== undefined && playback.albumId !== undefined
-      ? findAlbum(library, playback.albumId)?.title
-      : undefined;
+    library !== undefined && state.albumId !== undefined ? findAlbumTitle(library, state.albumId) : undefined;
 
   const brandBlock = (
     <View id="shell-brand">
@@ -259,6 +223,7 @@ export function Shell({
         <View id="shell-brand-rule" accessibilityRole="none" />
       </View>
       {showDemoLabel ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
+      {topBarBrand ? settingsLink : null}
     </View>
   );
 
@@ -302,6 +267,20 @@ export function Shell({
     </View>
   );
 
+  /* On the phone, playing opens the full player (SUR-010). */
+  const playAlbum = (albumId: string) => {
+    playback.playAlbum(albumId);
+    if (width === 'compact') {
+      playback.openFull();
+    }
+  };
+  const playTrack = (albumId: string, trackId: string) => {
+    playback.playTrack(albumId, trackId);
+    if (width === 'compact') {
+      playback.openFull();
+    }
+  };
+
   return (
     <View
       id="token-shell"
@@ -341,6 +320,9 @@ export function Shell({
         ) : null}
         <View id="content" accessibilityRole="main" tabIndex={-1}>
           <Destination
+            searchLibrary={searchLibrary}
+            lyricsFor={lyricsFor}
+            pluginSlots={pluginSlots ?? []}
             match={match}
             messages={messages}
             library={library}
@@ -352,72 +334,48 @@ export function Shell({
             onBackFromAlbum={backFromAlbum}
             onPlayAlbum={playAlbum}
             onPlayTrack={playTrack}
-            onPlayNextAlbum={playNextAlbum}
-            onAddAlbumToQueue={addAlbumToQueue}
-            onPlayNextTrack={playNextTrack}
-            onAddTrackToQueue={addTrackToQueue}
+            onPlayNextAlbum={playback.playNextAlbum}
+            onAddAlbumToQueue={playback.addAlbumToQueue}
+            onPlayNextTrack={playback.playNextTrack}
+            onAddTrackToQueue={playback.addTrackToQueue}
             onSeeAll={() => {
               navigate('/library');
             }}
-            currentTrackId={playback.trackId}
+            currentTrackId={state.trackId}
             width={width}
           />
-          {width === 'compact' ? navFooter : null}
         </View>
         {showWideQueue ? (
-          <QueuePane messages={messages.shell} playback={playback} compactSheet={false} />
+          <QueuePane messages={messages.shell} playback={state} compactSheet={false} />
         ) : (
-          <QueuePane
-            messages={messages.shell}
-            playback={playback}
-            compactSheet
-            onCloseSheet={() => {
-              setPlayback((current) => setQueueOpen(current, false));
-            }}
-          />
+          <QueuePane messages={messages.shell} playback={state} compactSheet onCloseSheet={playback.closeQueue} />
         )}
         <PlayerBar
           messages={messages.shell}
-          playback={playback}
+          playback={state}
           albumTitle={playingAlbumTitle}
           compact={width === 'compact'}
-          onPlayPause={() => {
-            setPlayback((current) => togglePlaying(current));
-          }}
-          onPrevious={() => {
-            setPlayback((current) => stepQueue(current, -1));
-          }}
-          onNext={() => {
-            setPlayback((current) => stepQueue(current, 1));
-          }}
-          onToggleQueue={() => {
-            setPlayback((current) => setQueueOpen(current, !current.queueOpen));
-          }}
-          onOpenFull={() => {
-            setFullPlayerOpen(true);
-          }}
+          volume={playback.volume}
+          onVolume={playback.setVolume}
+          onSeek={playback.seek}
+          onPlayPause={playback.playPause}
+          onPrevious={playback.previous}
+          onNext={playback.next}
+          onToggleQueue={playback.toggleQueue}
+          onOpenFull={playback.openFull}
         />
         <PlayerFull
+          lyricsFor={lyricsFor}
           messages={messages.shell}
-          playback={playback}
-          open={fullPlayerOpen && playback.trackId !== undefined}
+          playback={state}
+          open={playback.fullOpen && state.trackId !== undefined}
           placement={width === 'compact' ? 'overlay' : 'pane'}
           albumTitle={playingAlbumTitle}
-          onClose={() => {
-            setFullPlayerOpen(false);
-          }}
-          onPlayPause={() => {
-            setPlayback((current) => togglePlaying(current));
-          }}
-          onPrevious={() => {
-            setPlayback((current) => stepQueue(current, -1));
-          }}
-          onNext={() => {
-            setPlayback((current) => stepQueue(current, 1));
-          }}
-          onToggleQueue={() => {
-            setPlayback((current) => setQueueOpen(current, !current.queueOpen));
-          }}
+          onClose={playback.closeFull}
+          onPlayPause={playback.playPause}
+          onPrevious={playback.previous}
+          onNext={playback.next}
+          onToggleQueue={playback.toggleQueue}
         />
         {width === 'compact' ? (
           <Nav
@@ -431,4 +389,8 @@ export function Shell({
       </View>
     </View>
   );
+}
+
+function findAlbumTitle(library: ShellLibrary, albumId: string): string | undefined {
+  return library.albums.find((album) => album.id === albumId)?.title;
 }

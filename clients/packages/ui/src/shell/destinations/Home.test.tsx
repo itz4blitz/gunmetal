@@ -26,22 +26,13 @@ test('spotlight uses the first recently-added fixture with art tone and actions'
   expect(home?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(document.querySelector('#home-spotlight')).toBeTruthy();
   expect(document.querySelector('#cover-spotlight-demo-album-01')).toBeTruthy();
-  expect(
-    document.querySelector('#home-spotlight [data-spotlight-eyebrow="1"]')?.textContent,
-  ).toStrictEqual('Featured');
+  expect(document.querySelector('#home-spotlight [data-spotlight-eyebrow="1"]')?.textContent).toStrictEqual('Featured');
   expect(screen.getByRole('heading', { name: 'Harbour Lights' })).toBeTruthy();
-  expect(
-    document.querySelector('#home-spotlight [data-spotlight-artist="1"]')?.textContent,
-  ).toStrictEqual('Mira Sol');
+  expect(document.querySelector('#home-spotlight [data-spotlight-artist="1"]')?.textContent).toStrictEqual('Mira Sol');
   expect(document.querySelector('#destination-headline')).toBeNull();
   expect(screen.queryByRole('heading', { name: 'Home' })).toBeNull();
-  expect(
-    [...document.querySelectorAll('#destination-home > [id^="home-"]')].map((node) => node.id),
-  ).toStrictEqual([
+  expect([...document.querySelectorAll('#destination-home > [id^="home-"]')].map((node) => node.id)).toStrictEqual([
     'home-spotlight',
-    'home-row-continue',
-    'home-row-played',
-    'home-row-loved',
     'home-row-recent',
   ]);
 
@@ -54,13 +45,13 @@ test('spotlight uses the first recently-added fixture with art tone and actions'
   fireEvent.keyDown(document.querySelector('#home-spotlight-play')!, { key: 'Tab' });
   expect(onPlayAlbum).toHaveBeenCalledTimes(3);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Go to album' }));
   expect(onOpenAlbum).toHaveBeenCalledWith('demo-album-01');
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Open' }), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Go to album' }), { key: 'Enter' });
   expect(onOpenAlbum).toHaveBeenCalledTimes(2);
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Open' }), { key: ' ' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Go to album' }), { key: ' ' });
   expect(onOpenAlbum).toHaveBeenCalledTimes(3);
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Open' }), { key: 'Tab' });
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Go to album' }), { key: 'Tab' });
   expect(onOpenAlbum).toHaveBeenCalledTimes(3);
 
   fireEvent.click(screen.getByRole('button', { name: 'See all' }));
@@ -77,7 +68,6 @@ test('home without browsable albums omits spotlight and art tone', () => {
   const base = demoLibrary();
   const hostile = base.albums.find((album) => album.hostile)!;
   const library: ShellLibrary = {
-    kind: 'demo-fixtures',
     albums: [hostile],
     artists: base.artists,
   };
