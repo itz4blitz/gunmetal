@@ -23,5 +23,5 @@ test('the demo app is deprecated and tells a person to open the web client', asy
   expect(html.includes('Deprecated. Open clients/apps/web.')).toStrictEqual(true);
   expect(config.includes('Deprecated. Open clients/apps/web.')).toStrictEqual(true);
   expect(config.includes('192.168.1.120')).toStrictEqual(false);
-  expect(config.includes("target: 'http://127.0.0.1:8788'")).toStrictEqual(true);
+  expect(config.includes("target: 'http://127.0.0.1:4875'")).toStrictEqual(true);
 });

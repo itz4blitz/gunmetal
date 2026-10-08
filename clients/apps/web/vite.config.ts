@@ -21,8 +21,8 @@ export default defineConfig({
     headers,
     // Dev only. The built client asks for these paths on its own origin.
     proxy: {
-      '/library.json': { target: 'http://127.0.0.1:8788', changeOrigin: true },
-      '/media/library': { target: 'http://127.0.0.1:8788', changeOrigin: true },
+      '/library.json': { target: 'http://127.0.0.1:4875', changeOrigin: true },
+      '/media/library': { target: 'http://127.0.0.1:4875', changeOrigin: true },
     },
   },
   preview: {

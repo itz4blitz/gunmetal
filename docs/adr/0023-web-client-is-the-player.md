@@ -44,7 +44,7 @@ without a native shell.
    where `{id}` is 16 hex characters. A cover, when present, is
    `GET /media/library/covers/{id}.jpg` or `.png`. Production code does not
    name a host. The Vite dev server may proxy those two paths to
-   `http://127.0.0.1:8788`. That proxy is not part of the built client.
+   `http://127.0.0.1:4875`, the address `gunmetal serve` binds by default. That proxy is not part of the built client.
 
 4. **The web client's security boot stays.** WebAssembly and a secure
    context are still required before the player mounts (SEC-API-052). The

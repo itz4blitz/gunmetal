@@ -167,7 +167,7 @@ pnpm test      # vitest; playwright drives the e2e suite
 
 `pnpm dev` is the client. It loads `/library.json` and `/media/library/{id}`
 from the same origin. In development those two paths are proxied to
-`http://127.0.0.1:8788`, where `gunmetal serve` listens. A missing library
+`http://127.0.0.1:4875`, where `gunmetal serve` listens. A missing library
 falls back to the fixture catalogue. The built client uses the relative
 paths only. There is no Electron or Tauri shell: desktops use this page
 ([record 23](docs/adr/0023-web-client-is-the-player.md)).

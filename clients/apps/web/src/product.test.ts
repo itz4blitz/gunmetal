@@ -39,7 +39,7 @@ test('the web document is the player you open, with same-origin sheets and no na
   expect(entry.includes('electron')).toStrictEqual(false);
   expect(entry.includes('tauri')).toStrictEqual(false);
   const config = await text('apps/web/vite.config.ts');
-  expect(config.includes("target: 'http://127.0.0.1:8788'")).toStrictEqual(true);
+  expect(config.includes("target: 'http://127.0.0.1:4875'")).toStrictEqual(true);
   expect(config.includes("'/library.json'")).toStrictEqual(true);
   expect(config.includes("'/media/library'")).toStrictEqual(true);
   expect(config.includes('192.168.1.120')).toStrictEqual(false);

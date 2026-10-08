@@ -23,8 +23,8 @@ export default defineConfig({
     // Deprecated. Open clients/apps/web. A down host fails the fetch and the app
     // keeps the fixture catalogue. Dev only: the page asks for same-origin paths.
     proxy: {
-      '/library.json': { target: 'http://127.0.0.1:8788', changeOrigin: true },
-      '/media/library': { target: 'http://127.0.0.1:8788', changeOrigin: true },
+      '/library.json': { target: 'http://127.0.0.1:4875', changeOrigin: true },
+      '/media/library': { target: 'http://127.0.0.1:4875', changeOrigin: true },
     },
     // Tailnet-only access (tailscale serve fronts this loopback port with
     // HTTPS); the exact host is allow-listed, nothing wild-carded.
