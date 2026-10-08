@@ -17,7 +17,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 function renderSettings(width: WidthClass, onThemeChange: (theme: ThemeId) => void = () => {}) {
   return render(
     <Settings
-      pluginSlots={pluginSlots()}
+      pluginSlots={pluginSlots(true)}
       messages={destinationMessages()}
       shellMessages={shellMessages()}
       theme="dark"
@@ -111,7 +111,7 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
   expect(document.querySelector('#settings-about [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
   expect(document.querySelector('#settings-privacy [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
   expect(document.querySelector('#settings-connected [data-settings-badge="R2"]')?.textContent).toStrictEqual('R2');
-  expect(document.querySelector('#settings-extensions [data-settings-badge="R2"]')?.textContent).toStrictEqual('R2');
+  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
   expect(document.querySelector('[data-settings-placeholder="playback"]')?.textContent).toStrictEqual(
     'Gain, crossfade and output arrive with CorePort (CP-020).',
   );
@@ -119,46 +119,20 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
     'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
   );
   expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    'These jobs belong to this library. They are not plugins, and this build has no plugin host.',
   );
   // The old decorative empty marks are gone: every pane is rows now.
   expect(document.querySelectorAll('#destination-settings [data-empty-mark]').length).toStrictEqual(0);
   expect(document.querySelectorAll('#destination-settings [data-empty-card]').length).toStrictEqual(0);
-  // The slot list reads as a table: one column head, then hairline rows.
+  // The jobs list is rows, not a plugin table: no version column, no R2 badge, no load bit.
   expect(document.querySelectorAll('#settings-extensions #settings-plugin-slots').length).toStrictEqual(1);
-  expect(
-    [...(document.querySelector('#settings-plugin-slots')?.children ?? [])].map((node) =>
-      node.hasAttribute('data-slot-head') ? 'head' : node.getAttribute('data-plugin-slot'),
-    ),
-  ).toStrictEqual([
-    'head',
-    'metadata-provider',
-    'lyrics-provider',
-    'search-provider',
-    'scrobbler',
-    'theme-pack',
-    'home-row',
-  ]);
-  expect(document.querySelector('[data-slot-head-title]')?.textContent).toStrictEqual('Extension');
-  expect(document.querySelector('[data-slot-head-plane]')?.textContent).toStrictEqual('Runs on');
-  expect(document.querySelector('[data-slot-head-state]')?.textContent).toStrictEqual('Status');
-  expect(
-    [...document.querySelectorAll('#settings-plugin-slots [data-plugin-slot]')].map((node) => [
-      node.getAttribute('data-plugin-slot'),
-      node.getAttribute('data-slot-plane'),
-      node.getAttribute('data-slot-loaded'),
-      node.querySelector('[data-slot-title]')?.textContent,
-      node.querySelector('[data-slot-plane]')?.textContent,
-      node.querySelector('[data-slot-state]')?.textContent,
-    ]),
-  ).toStrictEqual([
-    ['metadata-provider', 'server', '0', 'Metadata and artwork', 'Server', 'Not loaded'],
-    ['lyrics-provider', 'server', '0', 'Lyrics lookup', 'Server', 'Not loaded'],
-    ['search-provider', 'server', '0', 'Catalogue search', 'Server', 'Not loaded'],
-    ['scrobbler', 'server', '0', 'Scrobblers', 'Server', 'Not loaded'],
-    ['theme-pack', 'client', '0', 'Themes', 'Client', 'Not loaded'],
-    ['home-row', 'client', '0', 'Home rows', 'Client', 'Not loaded'],
-  ]);
+  expect(document.querySelector('[data-slot-head]')).toBeNull();
+  expect(document.querySelector('[data-slot-version]')).toBeNull();
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('R2')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('WebAssembly')).toStrictEqual(false);
+  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
   // About is a definition list: muted label, primary value, one row per fact.
   expect(document.querySelector('#settings-about-facts')?.getAttribute('data-settings-facts')).toStrictEqual('1');
   expect(document.querySelector('[data-settings-fact="data"] [data-fact-label]')?.textContent).toStrictEqual('Library');
@@ -235,6 +209,33 @@ test('playback and connected services list what is coming as rows with an honest
   }
 });
 
+function extensionJobs(): (string | null)[][] {
+  return [...document.querySelectorAll('#settings-plugin-slots [data-settings-row]')].map((row) => [
+    row.getAttribute('data-settings-row'),
+    row.getAttribute('data-job-status'),
+    row.querySelector('[data-slot-title]')?.textContent ?? null,
+    row.querySelector('[data-job-detail]')?.textContent ?? null,
+    row.querySelector('[data-settings-row-status]')?.textContent ?? null,
+  ]);
+}
+
+function jobsWhileCoversAreServed(): (string | null)[][] {
+  return [
+    ['metadata-provider', 'on', 'Metadata and artwork', 'Built into this library host. Cover Art Archive.', 'On'],
+    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
+    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
+    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    [
+      'theme-pack',
+      'not-a-plugin',
+      'Themes',
+      'Not a separate plugin. Themes are the settings appearance control.',
+      null,
+    ],
+    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
+  ];
+}
+
 test('with no plugin slots to list, the extensions pane keeps its statement and draws no empty table', () => {
   render(
     <Settings
@@ -246,20 +247,18 @@ test('with no plugin slots to list, the extensions pane keeps its statement and 
     />,
   );
   expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    'These jobs belong to this library. They are not plugins, and this build has no plugin host.',
   );
   expect(document.querySelector('#settings-plugin-slots')).toBeNull();
   expect(document.querySelector('[data-slot-head]')).toBeNull();
-  expect(document.querySelectorAll('[data-plugin-slot]').length).toStrictEqual(0);
+  expect(document.querySelectorAll('#settings-extensions [data-settings-row]').length).toStrictEqual(0);
+  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
 });
 
-test('a slot row tells the truth about its slot: loaded reads Loaded, anything else reads Not loaded', () => {
+test('when the host is not serving covers, metadata stays built in and does not read On or Not loaded', () => {
   render(
     <Settings
-      pluginSlots={[
-        { id: 'theme-pack', plane: 'client', featureId: 'INT-081', loaded: true },
-        { id: 'scrobbler', plane: 'server', featureId: 'INT-075', loaded: false },
-      ]}
+      pluginSlots={pluginSlots(false)}
       messages={destinationMessages()}
       shellMessages={shellMessages()}
       theme="dark"
@@ -267,18 +266,76 @@ test('a slot row tells the truth about its slot: loaded reads Loaded, anything e
       width="compact"
     />,
   );
-  expect(
-    [...document.querySelectorAll('#settings-plugin-slots [data-plugin-slot]')].map((node) => [
-      node.getAttribute('data-plugin-slot'),
-      node.getAttribute('data-slot-loaded'),
-      node.querySelector('[data-slot-plane]')?.textContent,
-      node.querySelector('[data-slot-state]')?.getAttribute('data-slot-state'),
-      node.querySelector('[data-slot-state]')?.textContent,
-    ]),
-  ).toStrictEqual([
-    ['theme-pack', '1', 'Client', '1', 'Loaded'],
-    ['scrobbler', '0', 'Server', '0', 'Not loaded'],
+  expect(extensionJobs()).toStrictEqual([
+    [
+      'metadata-provider',
+      'not-serving',
+      'Metadata and artwork',
+      'Built into this library host. Cover Art Archive.',
+      null,
+    ],
+    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
+    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
+    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    [
+      'theme-pack',
+      'not-a-plugin',
+      'Themes',
+      'Not a separate plugin. Themes are the settings appearance control.',
+      null,
+    ],
+    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
   ]);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
+  expect(document.querySelector('[data-slot-version]')).toBeNull();
+  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+});
+
+test('a route section of extensions shows that pane, and a later route section follows it', () => {
+  const view = render(
+    <Settings
+      section="extensions"
+      pluginSlots={pluginSlots(true)}
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-extensions')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(document.querySelector('#settings-nav-extensions')?.getAttribute('aria-selected')).toStrictEqual('true');
+  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
+  fireEvent.click(screen.getByRole('tab', { name: 'Appearance' }));
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  expect(document.querySelector('#settings-extensions')).toBeNull();
+  view.rerender(
+    <Settings
+      section="privacy"
+      pluginSlots={pluginSlots(true)}
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-privacy')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  view.rerender(
+    <Settings
+      pluginSlots={pluginSlots(true)}
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  expect(document.querySelector('#settings-privacy')).toBeNull();
 });
 
 // Verifies: SEC-EXT-018, SEC-TM-065

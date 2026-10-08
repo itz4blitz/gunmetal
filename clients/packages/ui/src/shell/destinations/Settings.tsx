@@ -12,10 +12,11 @@ import {
   settingsLayout,
   settingsNavItems,
   settingsPlaybackRows,
+  settingsJobDetail,
+  settingsJobStatusLabel,
   settingsRelease,
   settingsSectionTitle,
   settingsSections,
-  settingsSlotPlaneLabel,
   settingsSlotTitle,
   settingsSwatchLabels,
   settingsThemeForKey,
@@ -24,6 +25,8 @@ import {
 } from './settings.ts';
 
 export type SettingsProps = {
+  /** When a route names a section, that pane is the one shown. Not a second settings app. */
+  section?: SettingsSection | undefined;
   pluginSlots?: readonly PluginSlot[] | undefined;
   messages: DestinationMessages;
   shellMessages: ShellMessages;
@@ -41,6 +44,9 @@ function activateKey(event: { key: string; preventDefault: () => void }, action:
 
 function ReleaseBadge({ section, messages }: { section: SettingsSection; messages: DestinationMessages }) {
   const release = settingsRelease(section);
+  if (release === undefined) {
+    return null;
+  }
   return (
     <Text dataSet={{ settingsBadge: release }}>
       {release === 'R1' ? messages.settingsBadgeR1 : messages.settingsBadgeR2}
@@ -131,10 +137,43 @@ function ThemeSwatch({
   );
 }
 
-export function Settings({ pluginSlots = [], messages, shellMessages, theme, onThemeChange, width }: SettingsProps) {
+function JobRow({ job, messages }: { job: PluginSlot; messages: DestinationMessages }) {
+  const detail = settingsJobDetail(job.id, messages);
+  const status = settingsJobStatusLabel(job.status, messages);
+  return (
+    <View dataSet={{ settingsRow: job.id, jobStatus: job.status }}>
+      <View dataSet={{ settingsRowText: '1' }}>
+        <Text dataSet={{ settingsRowLabel: '1', slotTitle: job.id }}>{settingsSlotTitle(job.id, messages)}</Text>
+        {detail === undefined ? null : <Text dataSet={{ settingsRowHint: '1', jobDetail: job.id }}>{detail}</Text>}
+      </View>
+      {status === undefined ? null : <Text dataSet={{ settingsRowStatus: '1', slotState: job.status }}>{status}</Text>}
+    </View>
+  );
+}
+
+export function Settings({
+  section: routedSection,
+  pluginSlots = [],
+  messages,
+  shellMessages,
+  theme,
+  onThemeChange,
+  width,
+}: SettingsProps) {
   const layout = settingsLayout(width);
-  const [section, setSection] = useState<SettingsSection>(defaultSettingsSection());
+  const [picked, setPicked] = useState<{ route: SettingsSection | undefined; section: SettingsSection }>({
+    route: routedSection,
+    section: routedSection ?? defaultSettingsSection(),
+  });
+  let section = picked.section;
+  if (picked.route !== routedSection) {
+    section = routedSection ?? defaultSettingsSection();
+    setPicked({ route: routedSection, section });
+  }
   const visible = layout === 'stack' ? settingsSections() : [section];
+  const choose = (next: SettingsSection) => {
+    setPicked({ route: routedSection, section: next });
+  };
 
   return (
     <View id="destination-settings" dataSet={{ settingsLayout: layout }}>
@@ -153,11 +192,11 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
               dataSet={{ settingsNavItem: item.id, selected: section === item.id ? '1' : '0' }}
               tabIndex={0}
               onClick={() => {
-                setSection(item.id);
+                choose(item.id);
               }}
               onKeyDown={(event) => {
                 activateKey(event, () => {
-                  setSection(item.id);
+                  choose(item.id);
                 });
               }}
             >
@@ -232,38 +271,12 @@ export function Settings({ pluginSlots = [], messages, shellMessages, theme, onT
                 {messages.settingsExtensionsBody}
               </Text>
             </View>
-            {/* A table of the slots a plugin could fill. With no slots to
-                list there is no table: a column head over nothing reads as
-                broken. */}
+            {/* Jobs, not a plugin table. An empty list draws no heading over nothing. */}
             {pluginSlots.length === 0 ? null : (
-              <View id="settings-plugin-slots">
-                <View dataSet={{ slotHead: '1' }}>
-                  <View dataSet={{ slotHeadLead: '1' }} />
-                  <Text dataSet={{ slotHeadTitle: '1' }}>{messages.settingsSlotColumnSlot}</Text>
-                  <Text dataSet={{ slotHeadPlane: '1' }}>{messages.settingsSlotColumnPlane}</Text>
-                  <Text dataSet={{ slotHeadVersion: '1' }}>{messages.settingsSlotColumnVersion}</Text>
-                  <Text dataSet={{ slotHeadState: '1' }}>{messages.settingsSlotColumnState}</Text>
-                </View>
-                {pluginSlots.map((slot) => {
-                  // The row says what the slot is, never a fixed word.
-                  const state = slot.loaded
-                    ? { flag: '1', label: messages.settingsSlotLoaded }
-                    : { flag: '0', label: messages.settingsSlotUnloaded };
-                  return (
-                    <View
-                      key={slot.id}
-                      dataSet={{ pluginSlot: slot.id, slotLoaded: state.flag, slotPlane: slot.plane }}
-                    >
-                      <View dataSet={{ slotMark: '1' }} />
-                      <Text dataSet={{ slotTitle: slot.id }}>{settingsSlotTitle(slot.id, messages)}</Text>
-                      <Text dataSet={{ slotPlane: slot.plane }}>{settingsSlotPlaneLabel(slot.plane, messages)}</Text>
-                      <Text dataSet={{ slotVersion: '1' }}>
-                        {slot.manifest === undefined ? '—' : slot.manifest.version}
-                      </Text>
-                      <Text dataSet={{ slotState: state.flag }}>{state.label}</Text>
-                    </View>
-                  );
-                })}
+              <View id="settings-plugin-slots" dataSet={{ settingsRows: 'extensions-jobs' }}>
+                {pluginSlots.map((job) => (
+                  <JobRow key={job.id} job={job} messages={messages} />
+                ))}
               </View>
             )}
           </SettingsPane>

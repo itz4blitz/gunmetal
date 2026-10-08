@@ -4,7 +4,7 @@ import type { MessageCatalogue } from '../../messages/catalogue.ts';
 import type { MatchResult } from '../../router/match.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import type { LibrarySearch, LyricsResolver } from '../content.ts';
-import type { PluginSlot } from './settings.ts';
+import { settingsSectionFromPath, type PluginSlot, type SettingsSection } from './settings.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
@@ -19,6 +19,8 @@ export type DestinationProps = {
   searchLibrary: LibrarySearch;
   lyricsFor: LyricsResolver;
   pluginSlots: readonly PluginSlot[];
+  /** Settings section from the route, when one arrives. The same settings page, not a second app. */
+  section?: SettingsSection | undefined;
   match: MatchResult;
   messages: MessageCatalogue;
   library: ShellLibrary | undefined;
@@ -61,6 +63,7 @@ export function Destination({
   searchLibrary,
   lyricsFor,
   pluginSlots,
+  section,
   match,
   messages,
   library,
@@ -218,6 +221,7 @@ export function Destination({
   return (
     <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
       <Settings
+        section={section ?? settingsSectionFromPath(match.route.path)}
         pluginSlots={pluginSlots}
         messages={messages.destinations}
         shellMessages={messages.shell}

@@ -168,25 +168,104 @@ test('pane widths persist in localStorage and come back on the next visit', () =
   window.localStorage.clear();
 });
 
-test('the settings extensions table lists the six fixture plugin slots, none loaded', () => {
+function extensionJobRows(): (string | null)[][] {
+  return [...document.querySelectorAll('#settings-plugin-slots [data-settings-row]')].map((row) => [
+    row.getAttribute('data-settings-row'),
+    row.getAttribute('data-job-status'),
+    row.querySelector('[data-slot-title]')?.textContent ?? null,
+    row.querySelector('[data-job-detail]')?.textContent ?? null,
+    row.querySelector('[data-settings-row-status]')?.textContent ?? null,
+  ]);
+}
+
+test('settings extensions lists first-party jobs, and fixture art is not Cover Art Archive on', () => {
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
-  const table = document.querySelector('#settings-plugin-slots');
-  expect(table).not.toBeNull();
-  const slotTitles = [...(table as HTMLElement).querySelectorAll('[data-slot-title]')].map((node) => node.textContent);
-  expect(slotTitles).toStrictEqual([
-    'Metadata and artwork',
-    'Lyrics lookup',
-    'Catalogue search',
-    'Scrobblers',
-    'Themes',
-    'Home rows',
+  expect(document.querySelector('#settings-extensions')).not.toBeNull();
+  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+  expect(document.querySelector('[data-slot-version]')).toBeNull();
+  expect(extensionJobRows()).toStrictEqual([
+    [
+      'metadata-provider',
+      'not-serving',
+      'Metadata and artwork',
+      'Built into this library host. Cover Art Archive.',
+      null,
+    ],
+    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
+    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
+    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    [
+      'theme-pack',
+      'not-a-plugin',
+      'Themes',
+      'Not a separate plugin. Themes are the settings appearance control.',
+      null,
+    ],
+    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
   ]);
-  // Every slot is unloaded in this build: the fixture carries no runtimes.
-  expect((table as HTMLElement).querySelectorAll('[data-slot-loaded="1"]')).toHaveLength(0);
+});
+
+test('settings extensions says Cover Art Archive is on when the library host serves covers', () => {
+  window.history.pushState(null, '', '/');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+  const album = 'a'.repeat(16);
+  const artist = 'b'.repeat(16);
+  const track = 'c'.repeat(16);
+  const library: DemoLibrary = {
+    kind: 'folder',
+    albums: [
+      {
+        id: album,
+        title: 'St. Elsewhere',
+        artistName: 'Gnarls Barkley',
+        artistKey: artist,
+        year: 2006,
+        coverTone: '01',
+        coverUrl: `/media/library/covers/${album}.jpg`,
+        discs: [{ index: 1, title: '' }],
+        hostile: false,
+        tracks: [
+          {
+            id: track,
+            albumId: album,
+            discIndex: 1,
+            number: 1,
+            title: 'Crazy',
+            artistName: 'Gnarls Barkley',
+            durationMs: 178_000,
+            flag: 'ok',
+            lyricsKind: 'none',
+            mediaUrl: `/media/library/${track}`,
+          },
+        ],
+      },
+    ],
+    artists: [{ key: artist, name: 'Gnarls Barkley', albumIds: [album] }],
+  };
+  render(<App library={library} />);
+  fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
+  expect(extensionJobRows()).toStrictEqual([
+    ['metadata-provider', 'on', 'Metadata and artwork', 'Built into this library host. Cover Art Archive.', 'On'],
+    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
+    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
+    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    [
+      'theme-pack',
+      'not-a-plugin',
+      'Themes',
+      'Not a separate plugin. Themes are the settings appearance control.',
+      null,
+    ],
+    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
+  ]);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
+  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
 });
 
 test('playing never opens the queue sheet; the queue control does, and it stays open across plays', () => {

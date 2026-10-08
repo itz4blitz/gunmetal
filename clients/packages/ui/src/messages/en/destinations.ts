@@ -143,6 +143,12 @@ export type DestinationMessages = {
   searchFilterHeadline: string;
   searchFilterHint: string;
   searchEmptyLibrary: string;
+  /* First-party jobs on the extensions pane. Append-only. */
+  settingsJobOn: string;
+  settingsJobNotInBuild: string;
+  settingsJobCoverArt: string;
+  settingsJobThemes: string;
+  settingsJobHome: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -185,7 +191,8 @@ export function destinationMessages(): DestinationMessages {
     settingsConnected: 'Connected services',
     settingsConnectedEmpty: 'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
     settingsExtensions: 'Extensions / Plugins',
-    settingsExtensionsBody: 'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    settingsExtensionsBody:
+      'These jobs belong to this library. They are not plugins, and this build has no plugin host.',
     settingsBadgeR1: 'R1',
     settingsBadgeR2: 'R2',
     settingsAbout: 'About this connection',
@@ -289,5 +296,10 @@ export function destinationMessages(): DestinationMessages {
     searchFilterHeadline: 'No results for the current filter',
     searchFilterHint: 'Turn a type back on to see its results.',
     searchEmptyLibrary: 'The library is empty — nothing to search yet.',
+    settingsJobOn: 'On',
+    settingsJobNotInBuild: 'Not in this build',
+    settingsJobCoverArt: 'Built into this library host. Cover Art Archive.',
+    settingsJobThemes: 'Not a separate plugin. Themes are the settings appearance control.',
+    settingsJobHome: 'Not a separate plugin.',
   };
 }

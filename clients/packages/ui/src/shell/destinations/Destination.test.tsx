@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { stubPlayback, queuedSnapshot } from '../test-playback.ts';
 import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
+import { pluginSlots } from '../../../../fake-server/src/plugin-slots.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { catalogue } from '../../messages/catalogue.ts';
 import { matchAddress } from '../../router/match.ts';
@@ -17,7 +18,10 @@ function required<T extends Element>(node: T | null | undefined, what: string): 
   return node;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.pushState(null, '', '/');
+});
 
 test('missing album itemId and empty shell without library keep closed routes', () => {
   const library = demoLibrary();
@@ -41,21 +45,25 @@ test('missing album itemId and empty shell without library keep closed routes', 
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
   missing.unmount();
 
+  window.history.pushState(null, '', '/');
   const emptyHome = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   emptyHome.unmount();
+  window.history.pushState(null, '', '/search');
   const emptySearch = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/search" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
   emptySearch.unmount();
+  window.history.pushState(null, '', '/library');
   const emptyLibrary = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/library" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
   emptyLibrary.unmount();
+  window.history.pushState(null, '', '/settings');
   const emptySettings = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/settings" widthPx={1600} />,
   );
@@ -452,6 +460,71 @@ test('unknown addresses and the search route render their own destinations', () 
   expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
   expect(document.querySelector('#destination-search')).not.toBeNull();
   search.unmount();
+});
+
+test('the extensions route shows that settings pane without a second app', () => {
+  render(
+    <Destination
+      searchLibrary={demoLocalFilter}
+      lyricsFor={() => []}
+      pluginSlots={pluginSlots(true)}
+      match={{
+        kind: 'ok',
+        route: { path: '/settings/extensions', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
+        history: { scrollY: 0, itemId: undefined },
+      }}
+      messages={catalogue()}
+      library={demoLibrary()}
+      itemId={undefined}
+      theme="dark"
+      onThemeChange={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onBackFromAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onSeeAll={vi.fn()}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#destination-settings')).not.toBeNull();
+  expect(document.querySelector('#settings-extensions')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(
+    document.querySelector('#settings-extensions [data-settings-row="metadata-provider"] [data-settings-row-status]')
+      ?.textContent,
+  ).toStrictEqual('On');
+});
+
+test('a route section of extensions shows that settings pane, not a second app', () => {
+  render(
+    <Destination
+      searchLibrary={demoLocalFilter}
+      lyricsFor={() => []}
+      pluginSlots={pluginSlots(true)}
+      section="extensions"
+      match={matchAddress({ pathname: '/settings', search: '', hash: '', state: null })}
+      messages={catalogue()}
+      library={demoLibrary()}
+      itemId={undefined}
+      theme="dark"
+      onThemeChange={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onBackFromAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onSeeAll={vi.fn()}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#destination-settings')).not.toBeNull();
+  expect(document.querySelector('#settings-extensions')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(
+    document.querySelector('#settings-extensions [data-settings-row="metadata-provider"] [data-settings-row-status]')
+      ?.textContent,
+  ).toStrictEqual('On');
 });
 
 test('the library error and retry travel from the destination to the page', () => {
