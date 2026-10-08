@@ -26,11 +26,6 @@ on:
       - .github/workflows/fuzz.yml
   workflow_dispatch:
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 concurrency:
   group: fuzz-${{ github.ref }}
   cancel-in-progress: true
@@ -51,8 +46,6 @@ jobs:
   targets:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
-    permissions:
-      contents: read
     outputs:
       harnesses: ${{ steps.list.outputs.harnesses }}
     steps:
@@ -71,8 +64,6 @@ jobs:
     needs: targets
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 90
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -117,8 +108,6 @@ jobs:
   canary:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 45
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
