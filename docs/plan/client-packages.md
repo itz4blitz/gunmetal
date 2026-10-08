@@ -280,7 +280,9 @@ the parts R2 replaces with native modules and UniFFI.
 ## Toolchain
 
 Each choice is the plainest well-known tool that satisfies the baseline.
-Record 12 holds the reasoning and the alternatives.
+Record 12 holds the reasoning and the alternatives. Open the web client
+with `pnpm --dir clients dev` (`clients/apps/web`). Do not open the demo:
+it is deprecated ([record 23](../adr/0023-web-client-is-the-player.md)).
 
 | Job | Choice | Why |
 |---|---|---|
@@ -704,9 +706,13 @@ list already in order). It verifies no credential and enforces no
 permission, so no test of the fake proves a security property of the
 server.
 
-**How it stays out of the product.** Only `apps/demo` imports it. The
-production build fails if the bundle holds any module of `fake-server` or
-`fixtures` (CP-056), and the demo shows a permanent "Demo data" label.
+**How it stays out of the product.** The fixture catalogue is not the
+server. `apps/web` is the client you open
+([record 23](../adr/0023-web-client-is-the-player.md)). It composes the
+player modules that still live under `apps/demo`, including this fixture
+fallback when `/library.json` is missing, and that fallback still shows
+the "Demo data" label. `apps/demo` is deprecated. CP-056 still fails a
+production build that holds `fake-server` once that check exists.
 
 ## Core logic before the WASM facade
 

@@ -2,12 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 
-test('the shell stylesheet uses the dark canvas and primary text token colours', async () => {
+test('the shell stylesheet is the player sheet: token colours and a same-origin font', async () => {
   const css = await readFile(join(process.cwd(), 'apps/web/public/shell.css'), 'utf8');
   expect(css.includes('background: #0f1317')).toStrictEqual(true);
   expect(css.includes('color: #e9eef2')).toStrictEqual(true);
-  expect(css.includes('background: #d4952f')).toStrictEqual(true);
-  expect(css.includes('url(')).toStrictEqual(false);
+  expect(css.includes('--gm-accent-fill: #d4952f')).toStrictEqual(true);
+  expect(css.includes("url('/fonts/InterVariable.woff2')")).toStrictEqual(true);
+  expect(css.includes('http://')).toStrictEqual(false);
+  expect(css.includes('https://')).toStrictEqual(false);
 });
 
 // Verifies: SEC-API-052, CLI-002

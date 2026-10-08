@@ -1,0 +1,6 @@
+{
+  "name": "@gunmetal/demo",
+  "private": true,
+  "type": "module",
+  "description": "Deprecated. Open clients/apps/web. This package remains so its tests can prove the player the web client imports."
+}

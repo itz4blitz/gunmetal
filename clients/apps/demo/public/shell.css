@@ -1221,6 +1221,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 [data-album-shelf] {
   display: flex;
   flex-direction: row;
+  /* Hug each card. Stretching to the tallest wrapped title paints the
+     hover plate as an empty slab under a one-line name. */
+  align-items: flex-start;
   gap: 16px;
   overflow-x: auto;
   scrollbar-width: none;

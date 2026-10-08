@@ -1,10 +1,38 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Deprecated. Open clients/apps/web. -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gunmetal demo</title>
-    <link rel="icon" href="/favicon.svg" />
+    <title>Gunmetal — music, movies and TV</title>
+    <meta
+      name="description"
+      content="Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original file and gets out of the way."
+    />
+    <meta name="application-name" content="Gunmetal" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0f1317" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f3f5f7" media="(prefers-color-scheme: light)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta property="og:title" content="Gunmetal — music, movies and TV" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en" />
+    <meta
+      property="og:description"
+      content="Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original file and gets out of the way."
+    />
+    <meta property="og:image" content="/favicon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Gunmetal — music, movies and TV" />
+    <meta
+      name="twitter:description"
+      content="Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original file and gets out of the way."
+    />
+    <meta name="twitter:image" content="/favicon.svg" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="license" href="https://www.gnu.org/licenses/agpl-3.0.html" />
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/shell.css" />
     <link rel="stylesheet" href="/area-home.css" />
@@ -14,8 +42,40 @@
     <link rel="stylesheet" href="/area-lyrics.css" />
     <link rel="stylesheet" href="/area-player.css" />
     <link rel="stylesheet" href="/system.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Gunmetal",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web",
+        "description": "Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original file and gets out of the way.",
+        "browserRequirements": "Requires JavaScript.",
+        "featureList": [
+          "Play music, movies and TV from a library you keep",
+          "Send the original file from your server",
+          "Come back to what you were playing"
+        ],
+        "about": [
+          { "@type": "Thing", "name": "Music" },
+          { "@type": "Thing", "name": "Movies" },
+          { "@type": "Thing", "name": "Television" }
+        ],
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "image": "/favicon.svg"
+      }
+    </script>
   </head>
   <body>
+    <noscript>
+      <header>
+        <h1>Gunmetal</h1>
+        <p>
+          Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original
+          file and gets out of the way.
+        </p>
+      </header>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/entry.tsx"></script>
   </body>

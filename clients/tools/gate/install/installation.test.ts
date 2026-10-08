@@ -23,7 +23,7 @@ function check(directory: string, env = process.env): unknown {
 }
 const passed = { status: 0, signal: null, stderr: '', result: {
   runtime: { node: '24.20.0', pnpm: '12.7.0' },
-  pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['package.json'], findings: [],
+  pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['apps/demo/package.json', 'package.json'], findings: [],
 } };
 function refusal(rule: string, path: string, message: string): unknown {
   return { status: 1, signal: null, stderr: '', result: [{ rule, path, message }] };
