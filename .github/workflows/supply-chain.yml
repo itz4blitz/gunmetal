@@ -10,17 +10,10 @@ on:
     - cron: "23 5 * * *"
   workflow_dispatch:
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 jobs:
   deny:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,8 +35,6 @@ jobs:
     if: failure()
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
-    permissions:
-      issues: write
     steps:
       - name: Open or update the tracking issue
         env:

@@ -17,11 +17,6 @@ on:
   schedule:
     - cron: "41 3 * * *"
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -31,8 +26,6 @@ jobs:
   checks:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 60
-    permissions:
-      contents: read
     steps:
       # Every action is pinned to a full commit SHA (SEC-SUP-010).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,8 +72,6 @@ jobs:
     # hours, and the limit leaves room for the workspace to double. A
     # timed-out shard fails `gate`.
     timeout-minutes: 900
-    permissions:
-      contents: read
     strategy:
       # A missed mutant in one shard must not hide the others' results.
       fail-fast: false
@@ -117,8 +108,6 @@ jobs:
   core-32-bit:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,8 +133,6 @@ jobs:
   locked-self-test:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -172,8 +159,6 @@ jobs:
   gate-switches-self-test:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -208,7 +193,6 @@ jobs:
     needs: [checks, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
-    permissions: {}
     steps:
       - name: Every job succeeded
         env:

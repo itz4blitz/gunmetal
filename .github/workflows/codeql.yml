@@ -15,11 +15,6 @@ on:
   schedule:
     - cron: "17 5 * * 1"
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: true
@@ -29,8 +24,6 @@ jobs:
     name: languages
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
-    permissions:
-      contents: read
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
     steps:
@@ -56,12 +49,6 @@ jobs:
     needs: languages
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 60
-    # Read-only scopes; nothing is uploaded (upload: never), so the job
-    # never writes (SEC-SUP-012).
-    permissions:
-      contents: read # check out the tree to analyse
-      actions: read # fingerprinting the local SARIF reads this workflow run
-      security-events: read # CodeQL reads its feature flags from code scanning
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.languages.outputs.matrix) }}
@@ -112,7 +99,6 @@ jobs:
     if: always()
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
-    permissions: {}
     steps:
       - name: Every language passed
         env:

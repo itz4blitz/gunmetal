@@ -10,11 +10,6 @@ on:
   push:
     branches: [main, "wave-*"]
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 concurrency:
   group: workflow-lint-${{ github.ref }}
   cancel-in-progress: true
@@ -23,8 +18,6 @@ jobs:
   zizmor:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,8 +114,6 @@ jobs:
   actionlint:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -149,8 +140,6 @@ jobs:
   reuse:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -162,8 +151,6 @@ jobs:
   js-deps:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
