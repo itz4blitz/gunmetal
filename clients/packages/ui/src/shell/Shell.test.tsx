@@ -6,7 +6,10 @@ import { demoLocalFilter } from '../../../fake-server/src/filter.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.pushState(null, '', '/');
+});
 
 function landmarkIds(root: HTMLElement): string[] {
   const order = ['nav-sidebar', 'nav-rail', 'content', 'right-pane', 'player-bar', 'nav-tabs'];
@@ -103,7 +106,16 @@ test('nav links call the composition callbacks; themes switch inside Settings', 
   fireEvent.keyDown(screen.getByRole('link', { name: 'Search' }), { key: 'Enter' });
   fireEvent.keyDown(screen.getByRole('link', { name: 'Library' }), { key: ' ' });
   fireEvent.keyDown(screen.getByRole('link', { name: 'Settings' }), { key: 'Enter' });
-  expect(navigated).toStrictEqual(['/search', '/library', '/', '/settings', '/search', '/library', '/settings']);
+  expect(navigated).toStrictEqual([
+    '/search',
+    '/library',
+    '/',
+    '/settings/appearance',
+    '/search',
+    '/library',
+    '/settings/appearance',
+  ]);
+  expect(window.location.pathname).toStrictEqual('/settings/appearance');
   // The sidebar no longer hosts a theme stack; the switcher lives in Settings.
   expect(screen.queryByRole('button', { name: 'Light' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'OLED' })).toBeNull();
@@ -344,6 +356,126 @@ test('the full player rides the shell when the controller has it open, and only 
   const openWithoutTrack = { ...empty.controller, fullOpen: true };
   render(<Shell playback={openWithoutTrack} path="/" widthPx={1600} />);
   expect(screen.queryByRole('dialog', { name: 'Full player' })).toBeNull();
+});
+
+test('opening a path renders that destination from location.pathname', () => {
+  window.history.pushState(null, '', '/library');
+  const library = render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  expect(window.location.pathname).toStrictEqual('/library');
+  library.unmount();
+
+  window.history.pushState(null, '', '/search');
+  const search = render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
+  expect(window.location.pathname).toStrictEqual('/search');
+  search.unmount();
+
+  window.history.pushState(null, '', '/');
+  render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
+  expect(window.location.pathname).toStrictEqual('/');
+});
+
+test('a parent path does not hide the library the address already names', () => {
+  window.history.pushState(null, '', '/library');
+  const hidden = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} library={demoLibrary()} />);
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  expect(window.location.pathname).toStrictEqual('/library');
+  act(() => {
+    window.history.pushState({ scrollY: 0 }, '', '/search');
+    window.dispatchEvent(new PopStateEvent('popstate', { state: { scrollY: 0 } }));
+  });
+  expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
+  hidden.unmount();
+
+  window.history.pushState(null, '', '/nope');
+  render(<Shell playback={stubPlayback().controller} path="/library" widthPx={1600} />);
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+});
+
+test('clicking Library, Search or Home writes that path so a reload stays there', () => {
+  window.history.pushState(null, '', '/');
+  const first = render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  fireEvent.click(screen.getByRole('link', { name: 'Library' }));
+  expect(window.location.pathname).toStrictEqual('/library');
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  first.unmount();
+
+  const reloaded = render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(window.location.pathname).toStrictEqual('/library');
+  expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
+  fireEvent.click(screen.getByRole('link', { name: 'Search' }));
+  expect(window.location.pathname).toStrictEqual('/search');
+  fireEvent.click(screen.getByRole('link', { name: 'Home' }));
+  expect(window.location.pathname).toStrictEqual('/');
+  expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
+  reloaded.unmount();
+});
+
+test('settings subsections are sidebar routes and /settings resolves to appearance', () => {
+  window.history.pushState(null, '', '/');
+  const { container } = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
+  const sidebar = container.querySelector('#nav-sidebar');
+  expect([...(sidebar?.querySelectorAll('[data-nav-label]') ?? [])].map((node) => node.textContent)).toStrictEqual([
+    'Home',
+    'Search',
+    'Library',
+    'Appearance',
+    'Playback',
+    'Extensions / Plugins',
+    'About this connection',
+    'Privacy',
+    'Settings',
+  ]);
+  expect(container.querySelector('#nav-item-settings')?.getAttribute('data-selected')).toStrictEqual('0');
+  fireEvent.click(screen.getByRole('link', { name: 'Playback' }));
+  expect(window.location.pathname).toStrictEqual('/settings/playback');
+  expect(container.querySelector('#nav-item-settings-playback')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(container.querySelector('#nav-item-settings-playback')?.getAttribute('data-nav-glyph')).toStrictEqual(
+    'settings-playback',
+  );
+  expect(screen.getByRole('heading', { name: 'Settings' }).id).toStrictEqual('destination-headline');
+  expect(container.querySelector('#settings-playback')).not.toBeNull();
+  expect(container.querySelector('#settings-appearance')).toBeNull();
+});
+
+test('opening /settings replaces the address with appearance and keeps a refused address', () => {
+  window.history.pushState(null, '', '/settings');
+  const settings = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
+  expect(window.location.pathname).toStrictEqual('/settings/appearance');
+  expect(
+    settings.container.querySelector('#nav-item-settings-appearance')?.getAttribute('data-selected'),
+  ).toStrictEqual('1');
+  expect(settings.container.querySelector('#nav-item-settings')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(screen.getByRole('heading', { name: 'Settings' }).id).toStrictEqual('destination-headline');
+  expect(settings.container.querySelector('#settings-appearance')).not.toBeNull();
+  expect(settings.container.querySelector('#settings-playback')).toBeNull();
+  settings.unmount();
+
+  window.history.pushState(null, '', '/settings?x=1');
+  const query = render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(window.location.pathname).toStrictEqual('/settings');
+  expect(window.location.search).toStrictEqual('?x=1');
+  expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
+  query.unmount();
+
+  window.history.pushState(null, '', '/settings#x');
+  render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
+  expect(window.location.pathname).toStrictEqual('/settings');
+  expect(window.location.hash).toStrictEqual('#x');
+  expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
+});
+
+test('a controlled path does not follow popstate away from itself', () => {
+  window.history.pushState(null, '', '/');
+  render(<Shell playback={stubPlayback().controller} path="/search" widthPx={1600} />);
+  expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
+  act(() => {
+    window.history.pushState(null, '', '/library');
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  });
+  expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
 });
 
 test('without callbacks the shell pushes history and follows popstate and resize', () => {

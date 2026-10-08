@@ -24,6 +24,52 @@ export type AddressParts = {
   state: unknown;
 };
 
+export type ParentAddress = {
+  path: string | undefined;
+  search: string;
+  hash: string;
+  state: unknown;
+};
+
+// `/settings` is the appearance section. Every other path is already canonical.
+export function canonicalPath(path: string): string {
+  if (path === '/settings') {
+    return '/settings/appearance';
+  }
+  return path;
+}
+
+function closedPath(path: string): boolean {
+  return routes().some((entry) => entry.path === path);
+}
+
+// A parent path is a controlled preview. It must not hide a closed route the
+// browser is already on. `/` is also the document default, so a parent path
+// still applies there and on an address that is not a route.
+export function browserWins(livePath: string, parentPath: string | undefined): boolean {
+  if (parentPath === undefined) {
+    return true;
+  }
+  return livePath !== '/' && livePath !== parentPath && closedPath(livePath);
+}
+
+export function addressOnLoad(live: AddressParts, parent: ParentAddress): AddressParts {
+  if (parent.path !== undefined && !browserWins(live.pathname, parent.path)) {
+    return {
+      pathname: canonicalPath(parent.path),
+      search: parent.search,
+      hash: parent.hash,
+      state: parent.state,
+    };
+  }
+  return {
+    pathname: canonicalPath(live.pathname),
+    search: live.search,
+    hash: live.hash,
+    state: live.state,
+  };
+}
+
 // Provisional opaque IDs until WP-235 generated ID types land. Kept out of the URL (SEC-CLI-025).
 function parseItemId(value: unknown): { ok: true; itemId: string | undefined } | { ok: false } {
   if (value === undefined) {

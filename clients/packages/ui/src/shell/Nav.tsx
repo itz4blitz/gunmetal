@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
+import type { DestinationMessages } from '../messages/en/destinations.ts';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { Icon, type IconName } from './Icon.tsx';
 
@@ -9,16 +10,24 @@ export type NavItem = {
   icon: IconName;
 };
 
-export function navItems(messages: ShellMessages): readonly NavItem[] {
+export function navItems(messages: ShellMessages, destinations: DestinationMessages): readonly NavItem[] {
   return [
     { path: '/', label: messages.navHome, icon: 'home' },
     { path: '/search', label: messages.navSearch, icon: 'search' },
     { path: '/library', label: messages.navLibrary, icon: 'library' },
+    { path: '/settings/appearance', label: destinations.settingsAppearance, icon: 'settings' },
+    { path: '/settings/playback', label: destinations.settingsPlayback, icon: 'settings' },
+    { path: '/settings/extensions', label: destinations.settingsExtensions, icon: 'settings' },
+    { path: '/settings/about', label: destinations.settingsAbout, icon: 'settings' },
+    { path: '/settings/privacy', label: destinations.settingsPrivacy, icon: 'settings' },
   ];
 }
 
 function glyphKey(path: string): string {
-  return path === '/' ? 'home' : path.slice(1);
+  if (path === '/') {
+    return 'home';
+  }
+  return path.slice(1).replaceAll('/', '-');
 }
 
 export type NavProps = {

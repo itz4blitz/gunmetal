@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue } from '../messages/catalogue.ts';
 import { BrandMark } from './brand-mark.tsx';
-import { matchAddress, type MatchResult } from '../router/match.ts';
-import { pushPath } from '../router/navigate.ts';
+import { addressOnLoad, browserWins, canonicalPath, matchAddress, type MatchResult } from '../router/match.ts';
+import { pushPath, replacePath } from '../router/navigate.ts';
 import { noLyrics, type LibrarySearch, type LyricsResolver } from './content.ts';
 import { Destination } from './destinations/Destination.tsx';
 import type { PluginSlot } from './destinations/settings.ts';
@@ -140,12 +140,9 @@ export function Shell({
   const [themeChoice, setThemeChoice] = useState<ThemeId>(() => themeProp ?? parseThemeChoice(settings.read()));
   const [systemDark, setSystemDark] = useState<boolean>(() => systemThemeQuery(SYSTEM_THEME_QUERY)?.matches ?? true);
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
-  const [location, setLocation] = useState(() => {
-    if (path !== undefined) {
-      return { pathname: path, search, hash, state: historyState };
-    }
-    return readLocation();
-  });
+  const [location, setLocation] = useState(() =>
+    addressOnLoad(readLocation(), { path, search, hash, state: historyState }),
+  );
 
   useEffect(() => {
     if (themeProp !== undefined) {
@@ -189,18 +186,39 @@ export function Shell({
   }, [widthPx]);
 
   useEffect(() => {
-    if (path !== undefined) {
-      setLocation({ pathname: path, search, hash, state: historyState });
+    const live = readLocation();
+    const parent = { path, search, hash, state: historyState };
+    const urlWins = browserWins(live.pathname, path);
+    if (!urlWins) {
+      setLocation(addressOnLoad(live, parent));
       return;
     }
+    if (path !== undefined) {
+      setLocation(addressOnLoad(live, parent));
+    }
     const onPop = () => {
-      setLocation(readLocation());
+      const next = readLocation();
+      setLocation(addressOnLoad(next, { path: undefined, search: '', hash: '', state: next.state }));
     };
     globalThis.addEventListener('popstate', onPop);
     return () => {
       globalThis.removeEventListener('popstate', onPop);
     };
   }, [path, search, hash, historyState]);
+
+  /* `/settings` is appearance. Replace it so the address bar matches the page.
+     A query or a fragment is a refused address and stays as the browser has it. */
+  useLayoutEffect(() => {
+    if (path !== undefined) {
+      return;
+    }
+    const live = readLocation();
+    const next = canonicalPath(live.pathname);
+    if (next === live.pathname || live.search !== '' || live.hash !== '') {
+      return;
+    }
+    replacePath(globalThis.history, next);
+  }, [path, location.pathname]);
 
   useLayoutEffect(() => {
     applyPaneWidth('sidebar', paneWidths.sidebar);
@@ -255,16 +273,16 @@ export function Shell({
   useLayoutEffect(() => {
     scrollContentToTop();
   }, [pageId]);
-  const items = navItems(messages.shell);
+  const items = navItems(messages.shell, messages.destinations);
   const currentLandmarks = landmarksForClass(width);
 
   const navigate = (next: string) => {
+    const pathname = canonicalPath(next);
+    pushPath(globalThis.history, pathname);
+    setLocation({ pathname, search: '', hash: '', state: { scrollY: 0, itemId: undefined } });
     if (onNavigate !== undefined) {
-      onNavigate(next);
-      return;
+      onNavigate(pathname);
     }
-    pushPath(globalThis.history, next);
-    setLocation({ pathname: next, search: '', hash: '', state: { scrollY: 0, itemId: undefined } });
   };
 
   const openAlbum = (albumId: string) => {
@@ -318,10 +336,10 @@ export function Shell({
   const settingsLink = (
     <View
       id="nav-item-settings"
-      dataSet={{ navGlyph: 'settings', selected: activePath === '/settings' ? '1' : '0' }}
+      dataSet={{ navGlyph: 'settings', selected: activePath.startsWith('/settings') ? '1' : '0' }}
       accessibilityRole="link"
       accessibilityLabel={messages.shell.navSettings}
-      accessibilityState={{ selected: activePath === '/settings' }}
+      accessibilityState={{ selected: activePath.startsWith('/settings') }}
       tabIndex={0}
       onClick={() => {
         navigate('/settings');
