@@ -143,6 +143,7 @@ The owner directed these in conversation on 2026-10-06.
 | D-91 Forgejo tenants | Palam is its own Forgejo organisation and AWS account. Premier Studio, Palam, and personal repos (`itz4blitz`, `kbdevopz`) stay separate. Premier burst must not live in `palam-cicd`. Recorded as [record 18](adr/0018-forgejo-tenants-and-ecs.md). |
 | D-92 Runner shape | Forgejo burst copies Palam's `ph-ci` shape (Terraform, ephemeral VMs, spend fuse). No new ECS Fargate stack. Recorded as [record 19](adr/0019-copy-palam-ci-shape.md). |
 | D-93 Premier CI account | Dedicated account `premier-cicd` `109792548422` (`aws-premier-cicd@premierstudio.ai`, `us-east-2`). IaC is `PremierStudio/premier-cicd`. Recorded as [record 20](adr/0020-premier-cicd-account.md). |
+| D-94 Forgejo action references | Third-party Actions are absolute SHA-pinned GitHub URLs, because the runner resolves short names against `data.forgejo.org` and that mirror does not have them. `permissions:` stays despite Forgejo's warning. Recorded as [record 23](adr/0023-forgejo-action-references.md). |
 
 ## Decide first
 
@@ -2680,3 +2681,16 @@ Answered 2026-10-06: copy Palam's shape; do not invent ECS. See
 
 Answered 2026-10-06: `premier-cicd` `109792548422`. See
 [record 20](adr/0020-premier-cicd-account.md).
+
+### D-94 Forgejo action references
+
+- **Question.** Short `uses: owner/repo@sha` names fail on the Forgejo
+  runners, and every run warns that `permissions:` is unsupported. Remove
+  the field, or keep it and point third-party actions at GitHub by URL?
+- **Recommendation.** Keep `permissions:` (SEC-SUP-012, zizmor). Fetch
+  actions the `data.forgejo.org` mirror does not have from
+  `https://github.com/...@<sha>`. Declare `gunmetal-mutants` for
+  actionlint. Read the gate's `needs` with `node`, not `jq`.
+
+Answered 2026-10-08: that is the CI fix. See
+[record 23](adr/0023-forgejo-action-references.md).

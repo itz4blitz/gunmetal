@@ -16,6 +16,8 @@ on:
     branches: [main, "wave-*"]
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
+# Forgejo ignores this field and warns. It stays: zizmor requires it
+# (record 23).
 permissions: {}
 
 concurrency:
@@ -40,7 +42,7 @@ jobs:
           persist-credentials: false
       # The exact toolchain from rust-toolchain.toml (SEC-SUP-038), with the
       # browser's target.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown

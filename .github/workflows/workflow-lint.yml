@@ -11,6 +11,8 @@ on:
     branches: [main, "wave-*"]
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
+# Forgejo ignores this field and warns. It stays: zizmor requires it
+# (record 23).
 permissions: {}
 
 concurrency:
@@ -27,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
       # crates.io checksums the crate; --locked uses zizmor's own lockfile
@@ -155,7 +157,7 @@ jobs:
           persist-credentials: false
       # Docker action pinned by commit SHA. The image is the action's own
       # Dockerfile at that commit (SEC-SUP-010, SEC-SUP-030).
-      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+      - uses: https://github.com/fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
 
   js-deps:
     runs-on: [self-hosted, gunmetal-mutants]
@@ -166,7 +168,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
       - run: cargo run --locked --quiet -p xtask -- js-deps
