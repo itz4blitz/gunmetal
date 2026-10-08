@@ -37,6 +37,11 @@
   `PremierStudio/premier-cicd`
   ([D-93](docs/decisions.md#d-93-premier-ci-account),
   [record 20](docs/adr/0020-premier-cicd-account.md)).
+  Third-party Actions `uses:` lines are absolute SHA-pinned GitHub URLs.
+  Short `owner/repo@sha` names resolve against `data.forgejo.org`, which
+  does not have them. `permissions:` stays; Forgejo warns and ignores it
+  ([D-94](docs/decisions.md#d-94-forgejo-action-references),
+  [record 23](docs/adr/0023-forgejo-action-references.md)).
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is

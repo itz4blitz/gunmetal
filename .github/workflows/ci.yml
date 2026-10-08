@@ -18,6 +18,8 @@ on:
     - cron: "41 3 * * *"
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
+# Forgejo ignores this field and warns. It stays: zizmor requires it
+# (record 23).
 permissions: {}
 
 concurrency:
@@ -38,23 +40,28 @@ jobs:
           persist-credentials: false
       # The exact toolchain from rust-toolchain.toml (SEC-SUP-038). rustup
       # also reads that file, so it wins if the two ever disagree.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy, llvm-tools-preview
       # Caching is for this CI only: release workflows must never restore or
       # save caches (SEC-SUP-015).
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: https://github.com/Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Exact tool versions, downloaded with SHA-256 verification; no fallback
       # to unverified installers (SEC-SUP-011).
-      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+      - uses: https://github.com/taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
-          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2
+          tool: cargo-llvm-cov@0.9.1,cargo-deny@0.20.2
           fallback: none
       # cargo-vet publishes no prebuilt binaries after 0.10.0, so build the
       # exact version from crates.io; cargo checks each crate's checksum
       # against the index, and --locked uses cargo-vet's own lockfile.
-      - run: cargo install cargo-vet --version 0.10.2 --locked
+      # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39. The
+      # runner image is Debian bookworm (glibc 2.36), so build that pin
+      # the same way (record 23).
+      - run: |
+          cargo install cargo-vet --version 0.10.2 --locked
+          cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
@@ -85,17 +92,15 @@ jobs:
           persist-credentials: false
           # The diff-scoped mutation run needs the base branch's history.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
       # The shards share one cache; only the first saves it.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: https://github.com/Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ matrix.shard == 0 }}
-      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
-        with:
-          tool: cargo-mutants@27.1.0
-          fallback: none
+      # No musl build, and the gnu build needs glibc 2.39 (record 23).
+      - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           # The base branch, only for a pull request into a wave branch
@@ -118,13 +123,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
           targets: i686-unknown-linux-gnu
-      # The 32-bit C runtime the linker needs, from the runner's own signed
-      # Ubuntu archive.
-      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-multilib
+      # The 32-bit C runtime the linker needs. The Forgejo image runs as
+      # root and does not install sudo (record 23).
+      - run: |
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends gcc-multilib
+          else
+            apt-get update
+            apt-get install --yes --no-install-recommends gcc-multilib
+          fi
       - run: cargo test --locked -p gunmetal-core --target i686-unknown-linux-gnu
 
   # SEC-SUP-020: proves the gate refuses a manifest that Cargo.lock does not
@@ -138,7 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
@@ -202,9 +214,17 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          wrong=$(jq -r '[to_entries[] | select(.value.result != "success") | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")
-          if [[ -n "$wrong" ]]; then
-            echo "::error::the gate fails: $wrong"
-            exit 1
-          fi
+          # The runner image is node:22-bookworm, which has node and not jq.
+          node <<'NODE'
+          const needs = JSON.parse(process.env.NEEDS);
+          const wrong = [];
+          for (const [key, value] of Object.entries(needs)) {
+            const result = value && Object.hasOwn(value, "result") ? value.result : null;
+            console.log(`${key}: ${result}`);
+            if (result !== "success") wrong.push(`${key} ended as ${result}`);
+          }
+          if (wrong.length > 0) {
+            console.log(`::error::the gate fails: ${wrong.join(", ")}`);
+            process.exit(1);
+          }
+          NODE

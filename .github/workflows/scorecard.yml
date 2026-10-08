@@ -10,6 +10,8 @@ on:
     - cron: "41 4 * * 1"
 
 # Nothing by default; the job asks for what it needs (SEC-SUP-012).
+# Forgejo ignores this field and warns. It stays: zizmor requires it
+# (record 23).
 permissions: {}
 
 jobs:
@@ -28,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+      - uses: https://github.com/ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: results.json
           results_format: json
@@ -37,7 +39,7 @@ jobs:
           # a private one anyway. When the repository goes public, set this
           # to true and grant id-token: write to this job.
           publish_results: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: https://github.com/dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
       - run: cargo run --locked --quiet -p xtask -- repo scorecard results.json
