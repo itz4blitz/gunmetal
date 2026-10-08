@@ -51,12 +51,17 @@ jobs:
       # to unverified installers (SEC-SUP-011).
       - uses: https://github.com/taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
-          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2
+          tool: cargo-llvm-cov@0.9.1,cargo-deny@0.20.2
           fallback: none
       # cargo-vet publishes no prebuilt binaries after 0.10.0, so build the
       # exact version from crates.io; cargo checks each crate's checksum
       # against the index, and --locked uses cargo-vet's own lockfile.
-      - run: cargo install cargo-vet --version 0.10.2 --locked
+      # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39. The
+      # runner image is Debian bookworm (glibc 2.36), so build that pin
+      # the same way (record 23).
+      - run: |
+          cargo install cargo-vet --version 0.10.2 --locked
+          cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
@@ -94,10 +99,8 @@ jobs:
       - uses: https://github.com/Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ matrix.shard == 0 }}
-      - uses: https://github.com/taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
-        with:
-          tool: cargo-mutants@27.1.0
-          fallback: none
+      # No musl build, and the gnu build needs glibc 2.39 (record 23).
+      - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           # The base branch, only for a pull request into a wave branch
@@ -124,9 +127,16 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: i686-unknown-linux-gnu
-      # The 32-bit C runtime the linker needs, from the runner's own signed
-      # Ubuntu archive.
-      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-multilib
+      # The 32-bit C runtime the linker needs. The Forgejo image runs as
+      # root and does not install sudo (record 23).
+      - run: |
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends gcc-multilib
+          else
+            apt-get update
+            apt-get install --yes --no-install-recommends gcc-multilib
+          fi
       - run: cargo test --locked -p gunmetal-core --target i686-unknown-linux-gnu
 
   # SEC-SUP-020: proves the gate refuses a manifest that Cargo.lock does not

@@ -33,7 +33,13 @@ The runner image is `node:22-bookworm`. It has `node` and not `jq`.
    the field to silence it.
 3. **The gate job reads `needs` with `node`, not `jq`.** The image
    already has `node`.
-4. **`gunmetal-mutants` is declared in `.github/actionlint.yaml`.**
+4. **`cargo-mutants` is built on the runner with `cargo install --locked`
+   at 27.1.0.** Its only Linux binary needs glibc 2.39. Bookworm has
+   2.36. crates.io checksums the crate, and `--locked` uses the crate's
+   own lockfile, the same way `cargo-vet` is installed.
+5. **`apt-get` runs without `sudo` when `sudo` is not installed.** The
+   job container runs as root.
+6. **`gunmetal-mutants` is declared in `.github/actionlint.yaml`.**
    actionlint otherwise treats that label as unknown and fails the
    workflow-lint job. The same file ignores actionlint's complaint that
    an absolute `https://github.com/...@sha` use is empty: its grammar
