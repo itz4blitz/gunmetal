@@ -153,6 +153,55 @@ test('playing bar shows the merged credit line, volume and a lyrics control', ()
   expect(onOpenFull).toHaveBeenCalledTimes(3);
 });
 
+test('a playing track of 274307 ms names its title, artist and album and shows 4:34', () => {
+  const playback: PlayerSnapshot = {
+    ...playingSnapshot(),
+    trackId: '3a8aad1a64dab285',
+    albumId: '1c5249c6fc2673be',
+    title: 'Behold The Crown',
+    artistName: 'After The Burial',
+    coverUrl: '/media/library/covers/1c5249c6fc2673be.jpg',
+    mediaUrl: '/media/library/3a8aad1a64dab285',
+    positionMs: 83_000,
+    durationMs: 274_307,
+  };
+  const view = (albumTitle: string | undefined, coverUrl: string) => (
+    <PlayerBar messages={shellMessages()} playback={{ ...playback, coverUrl }} albumTitle={albumTitle} />
+  );
+  const { container, rerender } = render(view('Evergreen', playback.coverUrl));
+  // The opener's name must not swallow the track facts.
+  expect(screen.getByRole('heading', { name: 'Behold The Crown' }).id).toStrictEqual('player-title');
+  const artist = screen.getByRole('group', { name: 'After The Burial' });
+  expect(artist.textContent).toStrictEqual('After The Burial');
+  expect(artist.parentElement?.id).toStrictEqual('player-artist');
+  const album = screen.getByRole('group', { name: 'Evergreen' });
+  expect(album.textContent).toStrictEqual('Evergreen');
+  expect(album.parentElement?.id).toStrictEqual('player-artist');
+  expect(container.querySelector('#player-artist')?.textContent).toStrictEqual('After The Burial · Evergreen');
+  expect(container.querySelector('#player-album')).toBeNull();
+  expect(screen.getByText('1:23').id).toStrictEqual('player-time-elapsed');
+  expect(screen.getByText('4:34').id).toStrictEqual('player-time-total');
+  expect(screen.getByRole('slider', { name: 'Progress' }).getAttribute('aria-valuetext')).toStrictEqual('1:23 of 4:34');
+  expect(screen.queryByText('Demo data')).toBeNull();
+  const cover = screen.getByRole('img', { name: 'Behold The Crown' });
+  expect(cover.id).toStrictEqual('cover-bar');
+  expect(cover.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect((cover as HTMLElement).style.backgroundImage).toContain('/media/library/covers/1c5249c6fc2673be.jpg');
+  expect(cover.querySelector('[data-cover-label]')).toBeNull();
+  // A missing cover stays the tone-plate placeholder, initial and all.
+  rerender(view('Evergreen', ''));
+  const plate = screen.getByRole('img', { name: 'Behold The Crown' });
+  expect(plate.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(plate.querySelector('[data-cover-label]')?.textContent).toStrictEqual('B');
+  expect((plate as HTMLElement).style.backgroundImage).toStrictEqual('');
+  expect(screen.getByText('4:34').id).toStrictEqual('player-time-total');
+  // An empty album title is not a credit, and the artist name stays on the line.
+  rerender(view('', playback.coverUrl));
+  expect(screen.queryByRole('group', { name: 'Evergreen' })).toBeNull();
+  expect(screen.getByRole('group', { name: 'After The Burial' }).id).toStrictEqual('player-artist');
+  expect(container.querySelector('#player-artist')?.textContent).toStrictEqual('After The Burial');
+});
+
 test('empty bar hides extras but keeps the queue toggle mounted', () => {
   const onOpenFull = vi.fn();
   const { container } = render(
