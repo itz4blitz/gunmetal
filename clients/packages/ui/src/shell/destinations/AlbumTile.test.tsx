@@ -26,6 +26,8 @@ const messages = {
   goToArtist: 'Go to artist',
   moreActions: 'More',
   contextMenu: 'Actions',
+  trackCountOne: 'track',
+  trackCountLabel: 'tracks',
 } as DestinationMessages;
 
 const album: ShellAlbum = {
@@ -311,4 +313,56 @@ test('nearArt defers the cover URL until the tile reports itself near', async ()
   expect(document.querySelector('#cover-grid-demo-album-1')?.getAttribute('style')).toContain('background-image');
   unmount();
   expect(disconnected).toStrictEqual(true);
+});
+
+test('a folder cover URL is painted on the tile, and an empty cover is not', () => {
+  const folder = '/media/library/covers/aaaaaaaaaaaaaaaa.jpg';
+  const painted = render(<AlbumTile album={{ ...album, coverUrl: folder }} messages={messages} onOpen={vi.fn()} />);
+  const cover = required(painted.container.querySelector('#cover-grid-demo-album-1'), 'folder cover') as HTMLElement;
+  expect(cover.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect(cover.style.backgroundImage).toContain(folder);
+  painted.unmount();
+
+  const bare = render(<AlbumTile album={{ ...album, coverUrl: '' }} messages={messages} onOpen={vi.fn()} />);
+  const plate = required(bare.container.querySelector('#cover-grid-demo-album-1'), 'empty cover') as HTMLElement;
+  expect(plate.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(plate.style.backgroundImage).toStrictEqual('');
+});
+
+test('the tile states year, track count and total duration as text', () => {
+  // 180_000 + 65_000 = 245_000 ms = 4:05. The year is a catalogue fact, not a label.
+  const two = {
+    ...album,
+    year: 2024,
+    tracks: [
+      album.tracks[0],
+      {
+        ...album.tracks[0],
+        id: 't2',
+        number: 2,
+        title: 'Second',
+        durationMs: 65_000,
+      },
+    ],
+  };
+  if (two.tracks[0] === undefined) {
+    throw new Error('fixture track missing');
+  }
+  const view = render(<AlbumTile album={two} messages={messages} onOpen={vi.fn()} />);
+  expect(view.container.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('2024 · 2 tracks · 4:05');
+  view.unmount();
+
+  const one = render(<AlbumTile album={album} messages={messages} onOpen={vi.fn()} />);
+  expect(one.container.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('2024 · 1 track · 3:00');
+});
+
+test('a year of 0 is omitted — the tile never prints 0 for an unknown year', () => {
+  const undated = render(<AlbumTile album={{ ...album, year: 0 }} messages={messages} onOpen={vi.fn()} />);
+  expect(undated.container.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('1 track · 3:00');
+  expect(undated.container.querySelector('[data-album-year]')).toBeNull();
+  expect(screen.queryByText('0')).toBeNull();
+  undated.unmount();
+
+  const negative = render(<AlbumTile album={{ ...album, year: -1 }} messages={messages} onOpen={vi.fn()} />);
+  expect(negative.container.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('1 track · 3:00');
 });

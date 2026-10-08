@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Text, View } from 'react-native-web';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
-import { staggerSlot } from '../format.ts';
+import { countNoun, formatDuration, staggerSlot } from '../format.ts';
 import { anchorOf, type MenuPoint } from '../menu-anchor.ts';
 import type { ShellAlbum } from '../library-types.ts';
 import { CoverTile } from './CoverTile.tsx';
@@ -37,6 +37,23 @@ function displayArtist(album: ShellAlbum, messages: DestinationMessages): string
     return messages.hostileArtistLabel;
   }
   return album.artistName;
+}
+
+function albumDurationMs(album: ShellAlbum): number {
+  return album.tracks.reduce((total, track) => total + track.durationMs, 0);
+}
+
+/**
+ * Year only when the catalogue recorded one. An unknown year is omitted —
+ * never printed as 0. Track count and total time are always stated.
+ */
+function albumFacts(album: ShellAlbum, messages: DestinationMessages): string {
+  const count = countNoun(album.tracks.length, messages.trackCountOne, messages.trackCountLabel);
+  const duration = formatDuration(albumDurationMs(album));
+  if (album.year > 0) {
+    return `${album.year} · ${count} · ${duration}`;
+  }
+  return `${count} · ${duration}`;
 }
 
 function activatePlay(
@@ -181,6 +198,7 @@ export function AlbumTile({
       >
         <Text dataSet={{ albumTitle: '1' }}>{title}</Text>
         <Text dataSet={{ albumArtist: '1' }}>{artist}</Text>
+        <Text dataSet={{ albumFacts: '1' }}>{albumFacts(album, messages)}</Text>
       </View>
       {onOpenArtist === undefined ? null : (
         <GoToArtistMenu
