@@ -191,7 +191,7 @@
   letter-spacing: 0.14em;
 }
 
-/* Meta line: year · track count — true metadata, muted, tabular. */
+/* Meta line: artist · year · track count — true metadata, muted, tabular. */
 [data-spotlight-meta] {
   font-size: var(--gm-type-small-size);
   line-height: var(--gm-type-small-line);
