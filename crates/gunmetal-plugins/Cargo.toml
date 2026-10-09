@@ -1,0 +1,20 @@
+[package]
+name = "gunmetal-plugins"
+description = "Plugin host decisions: closed manifests, grants, limits and install rules. No runtime is linked."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
+gunmetal-egress = { path = "../gunmetal-egress", version = "0.0.0" }
+toml = { workspace = true, features = ["parse"] }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
