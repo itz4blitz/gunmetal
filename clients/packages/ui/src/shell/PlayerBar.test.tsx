@@ -474,6 +474,8 @@ test('with a position clock the readouts follow the frames, not the snapshot', (
   expect(container.querySelector('#player-time-elapsed')?.textContent).toStrictEqual('0:47');
   expect(container.querySelector('#player-scrubber')?.getAttribute('aria-valuenow')).toStrictEqual('47000');
   expect(container.querySelector('#player-progress-fill')?.getAttribute('data-fill')).toStrictEqual('26');
+  // A whole percent of a long track is several seconds. The paint has to move between those steps.
+  expect(container.querySelector('#player-progress-fill')?.getAttribute('style')).toContain('26.111');
   clock.detach();
 });
 

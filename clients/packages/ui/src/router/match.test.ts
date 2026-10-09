@@ -55,7 +55,7 @@ test('an unknown path, a fragment and a query string each refuse the address', (
   expect(matchAddress({ pathname: '/album', search: '', hash: '', state: null })).toStrictEqual({
     kind: 'not-found',
   });
-  expect(matchAddress({ pathname: '/settings/connected', search: '', hash: '', state: null })).toStrictEqual({
+  expect(matchAddress({ pathname: '/settings/nope', search: '', hash: '', state: null })).toStrictEqual({
     kind: 'not-found',
   });
   expect(matchAddress({ pathname: '/settings/appearance/', search: '', hash: '', state: null })).toStrictEqual({
@@ -129,6 +129,47 @@ test('the browser wins when no parent path is passed, including at /', () => {
   expect(browserWins('/', '/library')).toStrictEqual(false);
   expect(browserWins('/search', '/search')).toStrictEqual(false);
   expect(browserWins('/nope', '/library')).toStrictEqual(false);
+  expect(browserWins('/music/albums/harbour-lights', '/')).toStrictEqual(true);
+  expect(browserWins('/watch/shows/the-wire', '/library')).toStrictEqual(true);
+});
+
+test('a media address is a typed route, and a query or a bad key is not', () => {
+  expect(matchAddress({ pathname: '/music/artists/mira-sol', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/music/artists/mira-sol', surface: 'SUR-024', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+    media: { kind: 'artist', key: 'mira-sol', path: '/music/artists/mira-sol' },
+  });
+  expect(matchAddress({ pathname: '/music/albums/harbour-lights', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/music/albums/harbour-lights', surface: 'SUR-025', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+    media: { kind: 'album', key: 'harbour-lights', path: '/music/albums/harbour-lights' },
+  });
+  expect(matchAddress({ pathname: '/music/tracks/pier-at-dusk', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/music/tracks/pier-at-dusk', surface: 'SUR-016', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+    media: { kind: 'track', key: 'pier-at-dusk', path: '/music/tracks/pier-at-dusk' },
+  });
+  expect(matchAddress({ pathname: '/watch/movies/inception', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/watch/movies/inception', surface: 'SUR-040', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+    media: { kind: 'movie', key: 'inception', path: '/watch/movies/inception' },
+  });
+  expect(matchAddress({ pathname: '/watch/shows/the-wire', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/watch/shows/the-wire', surface: 'SUR-041', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+    media: { kind: 'show', key: 'the-wire', path: '/watch/shows/the-wire' },
+  });
+  expect(matchAddress({ pathname: '/music/albums/harbour-lights', search: '?x=1', hash: '', state: null })).toStrictEqual({
+    kind: 'not-found',
+  });
+  expect(
+    matchAddress({ pathname: '/music/albums/harbour-lights', search: '', hash: '', state: { itemId: 'a/b' } }),
+  ).toStrictEqual({ kind: 'not-found' });
 });
 
 test('settings resolves to appearance and every other path stays itself', () => {

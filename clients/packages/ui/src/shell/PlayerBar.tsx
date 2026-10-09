@@ -6,7 +6,7 @@ import { CoverTile } from './destinations/CoverTile.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 import { RepeatGlyph } from './player-glyphs.tsx';
 import { formatDuration } from './format.ts';
-import { usePositionMs, type PositionClock } from './position-clock.ts';
+import { progressFillWidth, usePositionMs, type PositionClock } from './position-clock.ts';
 
 export type PlayerBarProps = {
   messages: ShellMessages;
@@ -357,7 +357,7 @@ function ProgressZone({ messages, playback, empty, onSeek, clock }: ProgressZone
           <View
             id="player-progress-fill"
             dataSet={{ fill: `${Math.round(progress * 100)}` }}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: progressFillWidth(positionMs, durationMs) }}
           />
         </View>
       </View>

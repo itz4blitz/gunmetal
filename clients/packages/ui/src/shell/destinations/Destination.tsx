@@ -4,9 +4,18 @@ import type { MessageCatalogue } from '../../messages/catalogue.ts';
 import type { MatchResult } from '../../router/match.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import type { LibrarySearch, LyricsResolver } from '../content.ts';
-import { settingsSectionFromPath, type PluginSlot, type SettingsSection } from './settings.ts';
+import {
+  settingsSectionFromPath,
+  settingsSectionPath,
+  type PluginSlot,
+  type SettingsCrossfadeSeconds,
+  type SettingsLevelling,
+  type SettingsSection,
+} from './settings.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
+import { extensionIdFromPath } from '../../plugins/repository.ts';
+import { labelFromKey } from '../../router/media-path.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
 import { ArtistDetail } from './ArtistDetail.tsx';
 import { Home } from './Home.tsx';
@@ -14,6 +23,7 @@ import { albumsByArtistIndex, indexAlbums, indexArtists, otherAlbums } from './l
 import { Library } from './Library.tsx';
 import { Search } from './Search.tsx';
 import { Settings } from './Settings.tsx';
+import { Store } from './Store.tsx';
 
 export type DestinationProps = {
   searchLibrary: LibrarySearch;
@@ -33,6 +43,7 @@ export type DestinationProps = {
   onPlayAlbum: (albumId: string) => void;
   onPlayTrack: (albumId: string, trackId: string) => void;
   onSeeAll: () => void;
+  onOpenPath?: ((path: string) => void) | undefined;
   currentTrackId?: string | undefined;
   playingAlbumId?: string | undefined;
   /**
@@ -45,11 +56,22 @@ export type DestinationProps = {
   libraryError?: string | undefined;
   /** The library read's one fixing action, wired straight through. */
   onLibraryRetry?: (() => void) | undefined;
+  /** A folder library is served by this origin. Search drops the demo-local notice. */
+  served?: boolean | undefined;
+  /** About-page library size. Set only when the library is a folder. */
+  libraryFact?: string | undefined;
   width: WidthClass;
   onPlayNextAlbum?: (albumId: string) => void;
   onAddAlbumToQueue?: (albumId: string) => void;
   onPlayNextTrack?: (albumId: string, trackId: string) => void;
   onAddTrackToQueue?: (albumId: string, trackId: string) => void;
+  levelling?: SettingsLevelling | undefined;
+  onLevelling?: ((levelling: SettingsLevelling) => void) | undefined;
+  crossfadeSeconds?: SettingsCrossfadeSeconds | undefined;
+  onCrossfade?: ((seconds: SettingsCrossfadeSeconds) => void) | undefined;
+  outputs?: readonly { id: string; label: string }[] | undefined;
+  sinkId?: string | undefined;
+  onOutput?: ((id: string) => void) | undefined;
 };
 
 function pageKey(match: MatchResult, itemId: string | undefined): string {
@@ -76,16 +98,26 @@ export function Destination({
   onPlayAlbum,
   onPlayTrack,
   onSeeAll,
+  onOpenPath,
   currentTrackId,
   playingAlbumId,
   nearViewObserver,
   libraryError,
   onLibraryRetry,
+  served,
+  libraryFact,
   width,
   onPlayNextAlbum,
   onAddAlbumToQueue,
   onPlayNextTrack,
   onAddTrackToQueue,
+  levelling,
+  onLevelling,
+  crossfadeSeconds,
+  onCrossfade,
+  outputs,
+  sinkId,
+  onOutput,
 }: DestinationProps) {
   const enterKey = pageKey(match, itemId);
   // One O(n) index build per library change, shared by every page render —
@@ -100,6 +132,27 @@ export function Destination({
         <Text id="destination-headline" accessibilityRole="header">
           {messages.destinations.notFoundHeadline}
         </Text>
+      </View>
+    );
+  }
+
+  if (match.route.path === '/store') {
+    return (
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
+        <Store messages={messages.destinations} onOpenPath={onOpenPath} />
+      </View>
+    );
+  }
+
+  if (match.media !== undefined && itemId === undefined) {
+    return (
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1', mediaKind: match.media.kind }}>
+        <Text id="destination-headline" accessibilityRole="header">
+          {labelFromKey(match.media.key)}
+        </Text>
+        {library === undefined ? null : (
+          <Text dataSet={{ mediaEmpty: match.media.kind }}>{mediaEmpty(match.media.kind, messages)}</Text>
+        )}
       </View>
     );
   }
@@ -181,6 +234,7 @@ export function Destination({
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Search
           searchLibrary={searchLibrary}
+          served={served}
           messages={messages.destinations}
           library={library}
           currentTrackId={currentTrackId}
@@ -222,15 +276,41 @@ export function Destination({
     <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
       <Settings
         section={section ?? settingsSectionFromPath(match.route.path)}
+        extensionId={extensionIdFromPath(match.route.path)}
+        onOpenPath={onOpenPath}
         pluginSlots={pluginSlots}
+        libraryFact={libraryFact}
         messages={messages.destinations}
         shellMessages={messages.shell}
         theme={theme}
         onThemeChange={onThemeChange}
+        levelling={levelling}
+        onLevelling={onLevelling}
+        crossfadeSeconds={crossfadeSeconds}
+        onCrossfade={onCrossfade}
+        outputs={outputs}
+        sinkId={sinkId}
+        onOutput={onOutput}
         width={width}
       />
     </View>
   );
+}
+
+function mediaEmpty(kind: 'artist' | 'album' | 'track' | 'movie' | 'show', messages: MessageCatalogue): string {
+  if (kind === 'movie') {
+    return messages.destinations.mediaMovieEmpty;
+  }
+  if (kind === 'show') {
+    return messages.destinations.mediaShowEmpty;
+  }
+  if (kind === 'artist') {
+    return messages.destinations.mediaArtistEmpty;
+  }
+  if (kind === 'track') {
+    return messages.destinations.mediaTrackEmpty;
+  }
+  return messages.destinations.mediaAlbumEmpty;
 }
 
 function headlineForEmpty(match: Extract<MatchResult, { kind: 'ok' }>, messages: MessageCatalogue): string {

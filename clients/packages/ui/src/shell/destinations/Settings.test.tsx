@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
 import { destinationMessages } from '../../messages/en/destinations.ts';
 import { pluginSlots } from '../../../../fake-server/src/plugin-slots.ts';
@@ -104,22 +104,19 @@ test('expanded and wide settings put a left list beside one selected pane', () =
   expect(document.querySelector('#settings-extensions')).toBeNull();
 });
 
-test('each stacked pane carries an honest R1 or R2 badge and the catalogue body', () => {
+test('each stacked pane shows the catalogue body and no release badge', () => {
+  const messages = destinationMessages();
   renderSettings('compact');
-  expect(document.querySelector('#settings-appearance [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
-  expect(document.querySelector('#settings-playback [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
-  expect(document.querySelector('#settings-about [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
-  expect(document.querySelector('#settings-privacy [data-settings-badge="R1"]')?.textContent).toStrictEqual('R1');
-  expect(document.querySelector('#settings-connected [data-settings-badge="R2"]')?.textContent).toStrictEqual('R2');
-  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+  // Release badges are not a product promise. No pane renders one.
+  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
   expect(document.querySelector('[data-settings-placeholder="playback"]')?.textContent).toStrictEqual(
-    'Gain, crossfade and output arrive with CorePort (CP-020).',
+    messages.settingsPlaybackPlaceholder,
   );
   expect(document.querySelector('#settings-connected [data-empty-state="connected"]')?.textContent).toStrictEqual(
-    'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
+    messages.settingsConnectedEmpty,
   );
   expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'These jobs belong to this library. They are not plugins, and this build has no plugin host.',
+    'The extensions this server knows. Cover art runs here. The others are records a package can target. Nothing is downloaded.',
   );
   // The old decorative empty marks are gone: every pane is rows now.
   expect(document.querySelectorAll('#destination-settings [data-empty-mark]').length).toStrictEqual(0);
@@ -136,25 +133,75 @@ test('each stacked pane carries an honest R1 or R2 badge and the catalogue body'
   // About is a definition list: muted label, primary value, one row per fact.
   expect(document.querySelector('#settings-about-facts')?.getAttribute('data-settings-facts')).toStrictEqual('1');
   expect(document.querySelector('[data-settings-fact="data"] [data-fact-label]')?.textContent).toStrictEqual('Library');
+  // Unset libraryFact keeps the catalogue sentence, whatever the message agent set it to.
   expect(document.querySelector('[data-settings-fact="data"] [data-fact-value]')?.textContent).toStrictEqual(
-    'Demo data',
+    messages.settingsAboutData,
   );
   expect(document.querySelector('[data-settings-fact="address"] [data-fact-label]')?.textContent).toStrictEqual(
     'Address',
   );
   expect(document.querySelector('[data-settings-fact="address"] [data-fact-value]')?.textContent).toStrictEqual(
-    'loopback',
+    messages.settingsAboutAddress,
   );
   expect(document.querySelector('[data-settings-fact="version"] [data-fact-label]')?.textContent).toStrictEqual(
     'Version',
   );
-  expect(document.querySelector('[data-settings-fact="version"] [data-fact-value]')?.textContent).toStrictEqual('demo');
-  expect(document.querySelector('[data-settings-privacy]')?.textContent).toStrictEqual(
-    'History and loves stay on this profile; this demo has no server yet.',
+  expect(document.querySelector('[data-settings-fact="version"] [data-fact-value]')?.textContent).toStrictEqual(
+    messages.settingsAboutVersion,
   );
+  expect(document.querySelector('[data-settings-privacy]')?.textContent).toStrictEqual(messages.settingsPrivacyBody);
 });
 
-test('playback and connected services list what is coming as rows with an honest status, never a dead control', () => {
+test('a library fact replaces the about data message and hides the playback placeholder', () => {
+  const messages = destinationMessages();
+  render(
+    <Settings
+      libraryFact="36 albums · 10 artists"
+      pluginSlots={pluginSlots(true)}
+      messages={messages}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="compact"
+    />,
+  );
+  const about = document.querySelector('#settings-about');
+  expect(about?.textContent?.includes('Demo data')).toStrictEqual(false);
+  expect(about?.textContent).toStrictEqual(
+    [
+      messages.settingsAbout,
+      messages.settingsAboutDataLabel,
+      '36 albums · 10 artists',
+      messages.settingsAboutAddressLabel,
+      messages.settingsAboutAddress,
+      messages.settingsAboutVersionLabel,
+      messages.settingsAboutVersion,
+    ].join(''),
+  );
+  expect(document.querySelector('[data-settings-fact="data"] [data-fact-value]')?.textContent).toStrictEqual(
+    '36 albums · 10 artists',
+  );
+  expect(document.querySelector('[data-settings-fact="data"] [data-fact-value]')?.textContent).not.toStrictEqual(
+    messages.settingsAboutData,
+  );
+  expect(document.querySelector('[data-settings-placeholder="playback"]')).toBeNull();
+  expect(
+    document.querySelector('#settings-playback')?.textContent?.includes(messages.settingsPlaybackPlaceholder),
+  ).toStrictEqual(false);
+  expect(document.querySelector('#settings-playback')?.textContent?.includes('Not connected')).toStrictEqual(false);
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Volume levelling' }))).toStrictEqual([
+    ['Off', 'Off', 'true', '0'],
+    ['Track', 'Track', 'false', '-1'],
+    ['Album', 'Album', 'false', '-1'],
+  ]);
+  expect(
+    document.querySelector('#settings-playback [data-settings-row="levelling"] [data-settings-row-hint]')?.textContent,
+  ).toStrictEqual('Plays tracks at a consistent loudness, from the tags in your files.');
+  expect(document.querySelectorAll('#settings-playback [data-settings-row-status]').length).toStrictEqual(0);
+  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
+});
+
+test('connected services stay unavailable, and playback settings are live radio groups', () => {
   renderSettings('compact');
   const rows = (pane: string) =>
     [...document.querySelectorAll(`${pane} [data-settings-row]`)].map((row) => [
@@ -162,52 +209,261 @@ test('playback and connected services list what is coming as rows with an honest
       row.getAttribute('data-row-state'),
       row.querySelector('[data-settings-row-label]')?.textContent,
       row.querySelector('[data-settings-row-hint]')?.textContent,
-      row.querySelector('[data-settings-row-status]')?.textContent,
+      row.querySelector('[data-settings-row-status]')?.textContent ?? null,
     ]);
   expect(rows('#settings-playback')).toStrictEqual([
     [
       'levelling',
-      'unavailable',
+      null,
       'Volume levelling',
       'Plays tracks at a consistent loudness, from the tags in your files.',
-      'Not available yet',
+      null,
     ],
-    [
-      'crossfade',
-      'unavailable',
-      'Crossfade',
-      'Blends the end of one track into the start of the next.',
-      'Not available yet',
-    ],
-    [
-      'output',
-      'unavailable',
-      'Output device',
-      'Chooses the speakers or headphones this device plays through.',
-      'Not available yet',
-    ],
+    ['crossfade', null, 'Crossfade', 'Blends the end of one track into the start of the next.', null],
+    ['output', null, 'Output device', 'Chooses the speakers or headphones this device plays through.', null],
   ]);
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Volume levelling' }))).toStrictEqual([
+    ['Off', 'Off', 'true', '0'],
+    ['Track', 'Track', 'false', '-1'],
+    ['Album', 'Album', 'false', '-1'],
+  ]);
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Crossfade' }))).toStrictEqual([
+    ['Off', 'Off', 'true', '0'],
+    ['2 seconds', '2 seconds', 'false', '-1'],
+    ['4 seconds', '4 seconds', 'false', '-1'],
+    ['6 seconds', '6 seconds', 'false', '-1'],
+    ['8 seconds', '8 seconds', 'false', '-1'],
+    ['12 seconds', '12 seconds', 'false', '-1'],
+  ]);
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Output device' }))).toStrictEqual([
+    ['Default', 'Default', 'true', '0'],
+  ]);
+  // No callback is wired: choosing does not throw, and the controlled value stays.
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Volume levelling' })).getByRole('radio', { name: 'Album' }),
+  );
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Crossfade' })).getByRole('radio', { name: '8 seconds' }),
+  );
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Output device' })).getByRole('radio', { name: 'Default' }),
+  );
+  expect(
+    within(screen.getByRole('radiogroup', { name: 'Volume levelling' }))
+      .getByRole('radio', { name: 'Off' })
+      .getAttribute('aria-checked'),
+  ).toStrictEqual('true');
+  expect(
+    within(screen.getByRole('radiogroup', { name: 'Crossfade' }))
+      .getByRole('radio', { name: 'Off' })
+      .getAttribute('aria-checked'),
+  ).toStrictEqual('true');
+  expect(
+    within(screen.getByRole('radiogroup', { name: 'Output device' }))
+      .getByRole('radio', { name: 'Default' })
+      .getAttribute('aria-checked'),
+  ).toStrictEqual('true');
   expect(rows('#settings-connected')).toStrictEqual([
     [
       'scrobble',
       'unavailable',
       'Scrobbling',
       'Sends what you play to a listening-history service you link yourself.',
-      'Not available yet',
+      'Not connected',
     ],
-    ['lyrics', 'unavailable', 'Lyrics lookup', 'Finds lyrics for tracks whose files have none.', 'Not available yet'],
+    ['lyrics', 'unavailable', 'Lyrics lookup', 'Finds lyrics for tracks whose files have none.', 'Not connected'],
   ]);
-  // Nothing in these panes can be pressed, toggled or focused: a setting that
-  // is not wired shows its status as words.
-  for (const pane of ['#settings-playback', '#settings-connected']) {
-    expect(document.querySelectorAll(`${pane} [tabindex]`).length).toStrictEqual(0);
-    expect(
-      document.querySelectorAll(
-        `${pane} [role="switch"], ${pane} [role="checkbox"], ${pane} [role="button"], ${pane} input`,
-      ).length,
-    ).toStrictEqual(0);
-  }
+  // A service that is not wired shows its status as words: nothing there can be pressed or focused.
+  expect(document.querySelectorAll('#settings-connected [tabindex]').length).toStrictEqual(0);
+  expect(
+    document.querySelectorAll(
+      '#settings-connected [role="switch"], #settings-connected [role="checkbox"], #settings-connected [role="button"], #settings-connected [role="radio"], #settings-connected input',
+    ).length,
+  ).toStrictEqual(0);
+  expect(document.querySelector('#settings-playback')?.textContent?.includes('Not connected')).toStrictEqual(false);
 });
+
+test('playback volume levelling, crossfade and output device are radio groups that report the choice', () => {
+  const messages = destinationMessages();
+  const levellingPicks: ('off' | 'track' | 'album')[] = [];
+  const fadePicks: (0 | 2 | 4 | 6 | 8 | 12)[] = [];
+  const outputPicks: string[] = [];
+  const outputs = [
+    { id: 'speakers', label: 'Studio speakers' },
+    { id: 'headphones', label: 'Headphones' },
+  ];
+  const tree = (next: {
+    levelling: 'off' | 'track' | 'album';
+    crossfadeSeconds: 0 | 2 | 4 | 6 | 8 | 12;
+    sinkId: string;
+    width?: 'compact' | 'wide';
+    section?: 'playback';
+  }) => (
+    <Settings
+      section={next.section}
+      messages={messages}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width={next.width ?? 'compact'}
+      levelling={next.levelling}
+      onLevelling={(value) => {
+        levellingPicks.push(value);
+      }}
+      crossfadeSeconds={next.crossfadeSeconds}
+      onCrossfade={(value) => {
+        fadePicks.push(value);
+      }}
+      outputs={outputs}
+      sinkId={next.sinkId}
+      onOutput={(id) => {
+        outputPicks.push(id);
+      }}
+    />
+  );
+  const view = render(tree({ levelling: 'track', crossfadeSeconds: 4, sinkId: 'headphones' }));
+
+  const levelling = screen.getByRole('radiogroup', { name: 'Volume levelling' });
+  const crossfade = screen.getByRole('radiogroup', { name: 'Crossfade' });
+  const output = screen.getByRole('radiogroup', { name: 'Output device' });
+  expect(radioReport(levelling)).toStrictEqual([
+    ['Off', 'Off', 'false', '-1'],
+    ['Track', 'Track', 'true', '0'],
+    ['Album', 'Album', 'false', '-1'],
+  ]);
+  expect(radioReport(crossfade)).toStrictEqual([
+    ['Off', 'Off', 'false', '-1'],
+    ['2 seconds', '2 seconds', 'false', '-1'],
+    ['4 seconds', '4 seconds', 'true', '0'],
+    ['6 seconds', '6 seconds', 'false', '-1'],
+    ['8 seconds', '8 seconds', 'false', '-1'],
+    ['12 seconds', '12 seconds', 'false', '-1'],
+  ]);
+  expect(radioReport(output)).toStrictEqual([
+    ['Default', 'Default', 'false', '-1'],
+    ['Studio speakers', 'Studio speakers', 'false', '-1'],
+    ['Headphones', 'Headphones', 'true', '0'],
+  ]);
+  expect(within(levelling).getByRole('radio', { name: 'Off' }).textContent).toStrictEqual('Off');
+  expect(within(levelling).getByRole('radio', { name: 'Track' }).textContent).toStrictEqual('Track');
+  expect(within(levelling).getByRole('radio', { name: 'Album' }).textContent).toStrictEqual('Album');
+  expect(within(crossfade).getByRole('radio', { name: '12 seconds' }).textContent).toStrictEqual('12 seconds');
+  expect(within(output).getByRole('radio', { name: 'Default' }).textContent).toStrictEqual('Default');
+  expect(
+    document.querySelector('#settings-playback [data-settings-row="levelling"] [data-settings-row-hint]')?.textContent,
+  ).toStrictEqual(messages.settingsPlaybackLevellingHint);
+  expect(
+    document.querySelector('#settings-playback [data-settings-row="crossfade"] [data-settings-row-hint]')?.textContent,
+  ).toStrictEqual(messages.settingsPlaybackCrossfadeHint);
+  expect(
+    document.querySelector('#settings-playback [data-settings-row="output"] [data-settings-row-hint]')?.textContent,
+  ).toStrictEqual(messages.settingsPlaybackOutputHint);
+  for (const id of ['levelling', 'crossfade', 'output']) {
+    expect(
+      document
+        .querySelector(`#settings-playback [data-settings-row="${id}"]`)
+        ?.textContent?.includes('Not connected'),
+    ).toStrictEqual(false);
+    expect(
+      document.querySelector(`#settings-playback [data-settings-row="${id}"] [data-settings-row-status]`),
+    ).toBeNull();
+  }
+  expect([
+    document.querySelector('#settings-connected [data-settings-row="lyrics"]')?.getAttribute('data-row-state'),
+    document.querySelector('#settings-connected [data-settings-row="lyrics"] [data-settings-row-label]')?.textContent,
+    document.querySelector('#settings-connected [data-settings-row="lyrics"] [data-settings-row-status]')?.textContent,
+    document.querySelector('#settings-connected [data-settings-row="scrobble"]')?.getAttribute('data-row-state'),
+    document.querySelector('#settings-connected [data-settings-row="scrobble"] [data-settings-row-status]')
+      ?.textContent,
+  ]).toStrictEqual(['unavailable', 'Lyrics lookup', 'Not connected', 'unavailable', 'Not connected']);
+  expect(screen.queryByRole('radiogroup', { name: 'Lyrics lookup' })).toBeNull();
+  expect(screen.queryByRole('radiogroup', { name: 'Scrobbling' })).toBeNull();
+
+  fireEvent.click(within(levelling).getByRole('radio', { name: 'Album' }));
+  fireEvent.click(within(levelling).getByRole('radio', { name: 'Off' }));
+  fireEvent.keyDown(within(levelling).getByRole('radio', { name: 'Album' }), { key: 'Enter' });
+  fireEvent.keyDown(within(levelling).getByRole('radio', { name: 'Track' }), { key: ' ' });
+  fireEvent.keyDown(within(levelling).getByRole('radio', { name: 'Off' }), { key: 'Tab' });
+  fireEvent.keyDown(within(levelling).getByRole('radio', { name: 'Off' }), { key: 'a' });
+  fireEvent.keyDown(levelling, { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(within(levelling).getByRole('radio', { name: 'Album' }));
+  fireEvent.keyDown(levelling, { key: 'ArrowDown' });
+  fireEvent.keyDown(levelling, { key: 'ArrowLeft' });
+  expect(document.activeElement).toStrictEqual(within(levelling).getByRole('radio', { name: 'Off' }));
+  fireEvent.keyDown(levelling, { key: 'ArrowUp' });
+  fireEvent.keyDown(levelling, { key: 'Home' });
+  expect(levellingPicks).toStrictEqual(['album', 'off', 'album', 'track', 'album', 'album', 'off', 'off']);
+
+  fireEvent.click(within(crossfade).getByRole('radio', { name: '12 seconds' }));
+  fireEvent.click(within(crossfade).getByRole('radio', { name: 'Off' }));
+  fireEvent.keyDown(crossfade, { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(within(crossfade).getByRole('radio', { name: '6 seconds' }));
+  expect(fadePicks).toStrictEqual([12, 0, 6]);
+  view.rerender(tree({ levelling: 'album', crossfadeSeconds: 12, sinkId: 'headphones' }));
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Crossfade' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(
+    within(screen.getByRole('radiogroup', { name: 'Crossfade' })).getByRole('radio', { name: 'Off' }),
+  );
+  view.rerender(tree({ levelling: 'off', crossfadeSeconds: 0, sinkId: 'headphones' }));
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Crossfade' }), { key: 'ArrowLeft' });
+  expect(fadePicks).toStrictEqual([12, 0, 6, 0, 12]);
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Volume levelling' }), { key: 'ArrowLeft' });
+  expect(levellingPicks[levellingPicks.length - 1]).toStrictEqual('album');
+
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Output device' })).getByRole('radio', { name: 'Default' }),
+  );
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Output device' })).getByRole('radio', { name: 'Studio speakers' }),
+  );
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Output device' }), { key: 'ArrowRight' });
+  expect(document.activeElement).toStrictEqual(
+    within(screen.getByRole('radiogroup', { name: 'Output device' })).getByRole('radio', { name: 'Default' }),
+  );
+  expect(outputPicks).toStrictEqual(['', 'speakers', '']);
+  view.rerender(tree({ levelling: 'off', crossfadeSeconds: 0, sinkId: '' }));
+  fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Output device' }), { key: 'ArrowLeft' });
+  expect(outputPicks[outputPicks.length - 1]).toStrictEqual('headphones');
+  view.rerender(tree({ levelling: 'off', crossfadeSeconds: 0, sinkId: 'unplugged' }));
+  const unplugged = screen.getByRole('radiogroup', { name: 'Output device' });
+  expect(radioReport(unplugged)).toStrictEqual([
+    ['Default', 'Default', 'false', '0'],
+    ['Studio speakers', 'Studio speakers', 'false', '-1'],
+    ['Headphones', 'Headphones', 'false', '-1'],
+  ]);
+  const beforeMiss = outputPicks.length;
+  fireEvent.keyDown(unplugged, { key: 'ArrowRight' });
+  fireEvent.keyDown(unplugged, { key: 'ArrowUp' });
+  expect(outputPicks.length).toStrictEqual(beforeMiss);
+  fireEvent.keyDown(within(unplugged).getByRole('radio', { name: 'Studio speakers' }), { key: 'Enter' });
+  expect(outputPicks[outputPicks.length - 1]).toStrictEqual('speakers');
+
+  view.unmount();
+  render(tree({ levelling: 'off', crossfadeSeconds: 0, sinkId: '', width: 'wide', section: 'playback' }));
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Volume levelling' }))).toStrictEqual([
+    ['Off', 'Off', 'true', '0'],
+    ['Track', 'Track', 'false', '-1'],
+    ['Album', 'Album', 'false', '-1'],
+  ]);
+  expect(radioReport(screen.getByRole('radiogroup', { name: 'Output device' }))).toStrictEqual([
+    ['Default', 'Default', 'true', '0'],
+    ['Studio speakers', 'Studio speakers', 'false', '-1'],
+    ['Headphones', 'Headphones', 'false', '-1'],
+  ]);
+  expect(document.querySelector('#settings-playback')?.textContent?.includes('Not connected')).toStrictEqual(false);
+});
+
+function radioReport(group: HTMLElement): (string | null)[][] {
+  return within(group)
+    .getAllByRole('radio')
+    .map((radio) => [
+      radio.getAttribute('aria-label'),
+      radio.textContent,
+      radio.getAttribute('aria-checked'),
+      radio.getAttribute('tabindex'),
+    ]);
+}
 
 function extensionJobs(): (string | null)[][] {
   return [...document.querySelectorAll('#settings-plugin-slots [data-settings-row]')].map((row) => [
@@ -221,18 +477,19 @@ function extensionJobs(): (string | null)[][] {
 
 function jobsWhileCoversAreServed(): (string | null)[][] {
   return [
-    ['metadata-provider', 'on', 'Metadata and artwork', 'Built into this library host. Cover Art Archive.', 'On'],
-    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
-    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
-    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    ['cover-art', 'On', 'Metadata and artwork', 'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.', 'On'],
+    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
+    ['catalogue-search', 'Not in this build', 'Catalog search', 'Would search a remote catalog and return matches as data.', 'Not in this build'],
+    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
+    ['themes', 'Not in this build', 'Themes', 'Would add theme packs as data on top of the built-in themes.', 'Not in this build'],
+    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
     [
-      'theme-pack',
-      'not-a-plugin',
-      'Themes',
-      'Not a separate plugin. Themes are the settings appearance control.',
-      null,
+      'url-style',
+      'On',
+      'Address style',
+      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
+      'On',
     ],
-    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
   ];
 }
 
@@ -247,12 +504,11 @@ test('with no plugin slots to list, the extensions pane keeps its statement and 
     />,
   );
   expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'These jobs belong to this library. They are not plugins, and this build has no plugin host.',
+    'The extensions this server knows. Cover art runs here. The others are records a package can target. Nothing is downloaded.',
   );
-  expect(document.querySelector('#settings-plugin-slots')).toBeNull();
+  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
   expect(document.querySelector('[data-slot-head]')).toBeNull();
-  expect(document.querySelectorAll('#settings-extensions [data-settings-row]').length).toStrictEqual(0);
-  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
 });
 
 test('when the host is not serving covers, metadata stays built in and does not read On or Not loaded', () => {
@@ -266,30 +522,29 @@ test('when the host is not serving covers, metadata stays built in and does not 
       width="compact"
     />,
   );
-  expect(extensionJobs()).toStrictEqual([
-    [
-      'metadata-provider',
-      'not-serving',
-      'Metadata and artwork',
-      'Built into this library host. Cover Art Archive.',
-      null,
-    ],
-    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
-    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
-    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
-    [
-      'theme-pack',
-      'not-a-plugin',
-      'Themes',
-      'Not a separate plugin. Themes are the settings appearance control.',
-      null,
-    ],
-    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
-  ]);
+  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
+  cleanup();
+  const opened: string[] = [];
+  render(
+    <Settings
+      section="extensions"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+      onOpenPath={(path) => {
+        opened.push(path);
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Playback' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Metadata and artwork' }));
+  expect(opened).toStrictEqual(['/settings/playback', '/settings/extensions/cover-art']);
   expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
   expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
   expect(document.querySelector('[data-slot-version]')).toBeNull();
-  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
 });
 
 test('a route section of extensions shows that pane, and a later route section follows it', () => {
@@ -339,6 +594,113 @@ test('a route section of extensions shows that pane, and a later route section f
 });
 
 // Verifies: SEC-EXT-018, SEC-TM-065
+test('an extension page is a labeled record, not a dump of fields', () => {
+  const opened: string[] = [];
+  render(
+    <Settings
+      section="extensions"
+      extensionId="lyrics"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+      onOpenPath={(path) => {
+        opened.push(path);
+      }}
+    />,
+  );
+  const page = document.querySelector('#extension-detail');
+  expect(page).not.toBeNull();
+  expect(page?.getAttribute('data-extension-id')).toStrictEqual('lyrics');
+  expect(page?.getAttribute('data-extension-status')).toStrictEqual('not-in-build');
+  expect(within(page as HTMLElement).getByRole('heading', { name: 'Lyrics lookup' }).id).toStrictEqual(
+    'extension-title',
+  );
+  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('Not in this build');
+  expect(page?.querySelector('[data-extension-summary]')?.textContent).toStrictEqual(
+    'Would fetch lyrics for tracks whose files have none.',
+  );
+  expect(
+    [...(page?.querySelectorAll('[data-extension-fact]') ?? [])].map((fact) => [
+      fact.querySelector('[data-fact-label]')?.textContent,
+      fact.querySelector('[data-fact-value]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['Identifier', 'lyrics'],
+    ['Version', '1.0.0'],
+    ['Runs on', 'Server'],
+    ['Slot', 'lyrics-provider'],
+    ['Interface', 'gunmetal.extensions/1'],
+    ['Maintained in', 'itz4blitz/gunmetal-extensions'],
+  ]);
+  expect([...(page?.querySelectorAll('[data-extension-detail]') ?? [])].map((line) => line.textContent)).toStrictEqual([
+    'This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.',
+  ]);
+  expect(page?.querySelector('[data-extension-section="does"] [data-extension-section-title]')?.textContent).toStrictEqual(
+    'What it does',
+  );
+  expect([...(page?.querySelectorAll('[data-extension-grant]') ?? [])].map((grant) => grant.textContent)).toStrictEqual([
+    'lyrics:read',
+  ]);
+  expect(page?.querySelector('[data-extension-ships]')?.textContent).toStrictEqual(
+    'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
+  );
+  expect(page?.querySelector('[data-extension-title-row] [data-extension-status]')?.textContent).toStrictEqual(
+    'Not in this build',
+  );
+  expect(page?.querySelector('[data-extension-grants]')?.getAttribute('aria-label')).toStrictEqual('Grants');
+  expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')).toBeNull();
+  expect(document.querySelector('#extension-detail script')).toBeNull();
+  expect(document.querySelector('#extension-detail iframe')).toBeNull();
+  expect(screen.queryByRole('button', { name: /install|enable|load plugin/i })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to extensions' }));
+  expect(opened).toStrictEqual(['/settings/extensions']);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Back to extensions' }), { key: 'Enter' });
+  expect(opened).toStrictEqual(['/settings/extensions', '/settings/extensions']);
+});
+
+test('an extension that this library already runs says On and names its grant', () => {
+  render(
+    <Settings
+      section="extensions"
+      extensionId="cover-art"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  const page = document.querySelector('#extension-detail');
+  expect(page?.getAttribute('data-extension-status')).toStrictEqual('on');
+  expect(within(page as HTMLElement).getByRole('heading', { name: 'Metadata and artwork' }).id).toStrictEqual(
+    'extension-title',
+  );
+  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('On');
+  expect(
+    [...(page?.querySelectorAll('[data-extension-fact]') ?? [])].map((fact) => [
+      fact.getAttribute('data-extension-fact'),
+      fact.querySelector('[data-fact-value]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['identifier', 'cover-art'],
+    ['version', '1.0.0'],
+    ['plane', 'Server'],
+    ['slot', 'metadata-provider'],
+    ['interface', 'gunmetal.extensions/1'],
+    ['maintained', 'itz4blitz/gunmetal-extensions'],
+  ]);
+  expect([...(page?.querySelectorAll('[data-extension-detail]') ?? [])].map((line) => line.textContent)).toStrictEqual([
+    'Runs inside this library host. It is not a downloaded package.',
+    'Album art comes from embedded pictures first, then Cover Art Archive.',
+    'Artist photos come from the Wikidata portrait on the MusicBrainz artist.',
+  ]);
+  expect([...(page?.querySelectorAll('[data-extension-grant]') ?? [])].map((grant) => grant.textContent)).toStrictEqual([
+    'library:write-artwork',
+  ]);
+});
+
 test('the extensions pane names Wasm grants and this build loads no plugin host', async () => {
   renderSettings('compact');
   expect(document.querySelector('[data-plugin-host]')).toBeNull();

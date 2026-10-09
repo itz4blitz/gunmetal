@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, expect, test, vi } from 'vitest';
 import type { DemoLibrary } from '../../../packages/fake-server/src/types.ts';
 import { App } from './App.tsx';
 
@@ -10,7 +10,7 @@ test('the demo app mounts the shell with fixture home rows and demo data', () =>
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
   expect(screen.getByText('Gunmetal').id).toStrictEqual('shell-wordmark');
-  expect(screen.getByText('Demo data').id).toStrictEqual('demo-label');
+  expect(screen.getByText('Fixture library').id).toStrictEqual('demo-label');
   expect(document.querySelector('#destination-headline')).toBeNull();
   expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual('01');
   expect(document.querySelector('#home-spotlight')).not.toBeNull();
@@ -189,23 +189,36 @@ test('settings extensions lists first-party jobs, and fixture art is not Cover A
   expect(document.querySelector('[data-slot-version]')).toBeNull();
   expect(extensionJobRows()).toStrictEqual([
     [
-      'metadata-provider',
-      'not-serving',
+      'cover-art',
+      'On',
       'Metadata and artwork',
-      'Built into this library host. Cover Art Archive.',
-      null,
+      'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
+      'On',
     ],
-    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
-    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
-    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
+    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
     [
-      'theme-pack',
-      'not-a-plugin',
-      'Themes',
-      'Not a separate plugin. Themes are the settings appearance control.',
-      null,
+      'catalogue-search',
+      'Not in this build',
+      'Catalog search',
+      'Would search a remote catalog and return matches as data.',
+      'Not in this build',
     ],
-    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
+    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
+    [
+      'themes',
+      'Not in this build',
+      'Themes',
+      'Would add theme packs as data on top of the built-in themes.',
+      'Not in this build',
+    ],
+    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
+    [
+      'url-style',
+      'On',
+      'Address style',
+      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
+      'On',
+    ],
   ]);
 });
 
@@ -250,18 +263,37 @@ test('settings extensions says Cover Art Archive is on when the library host ser
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
   expect(extensionJobRows()).toStrictEqual([
-    ['metadata-provider', 'on', 'Metadata and artwork', 'Built into this library host. Cover Art Archive.', 'On'],
-    ['lyrics-provider', 'not-in-build', 'Lyrics lookup', null, 'Not in this build'],
-    ['search-provider', 'not-in-build', 'Catalogue search', null, 'Not in this build'],
-    ['scrobbler', 'not-in-build', 'Scrobblers', null, 'Not in this build'],
     [
-      'theme-pack',
-      'not-a-plugin',
-      'Themes',
-      'Not a separate plugin. Themes are the settings appearance control.',
-      null,
+      'cover-art',
+      'On',
+      'Metadata and artwork',
+      'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
+      'On',
     ],
-    ['home-row', 'not-a-plugin', 'Home rows', 'Not a separate plugin.', null],
+    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
+    [
+      'catalogue-search',
+      'Not in this build',
+      'Catalog search',
+      'Would search a remote catalog and return matches as data.',
+      'Not in this build',
+    ],
+    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
+    [
+      'themes',
+      'Not in this build',
+      'Themes',
+      'Would add theme packs as data on top of the built-in themes.',
+      'Not in this build',
+    ],
+    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
+    [
+      'url-style',
+      'On',
+      'Address style',
+      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
+      'On',
+    ],
   ]);
   expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
   expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
@@ -293,4 +325,249 @@ test('playing never opens the queue sheet; the queue control does, and it stays 
   expect(sheetOpen()).toStrictEqual('1');
   fireEvent.click(document.querySelector('#player-queue') as HTMLElement);
   expect(sheetOpen()).toStrictEqual('0');
+});
+
+test('playback preferences are read from gunmetal.playback and a control writes them back', () => {
+  window.localStorage.clear();
+  window.localStorage.setItem('gunmetal.playback', '{"levelling":"album","crossfadeSeconds":8,"sinkId":""}');
+  window.history.pushState(null, '', '/settings/playback');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+  render(<App />);
+  const levelling = screen.getByRole('radiogroup', { name: 'Volume levelling' });
+  const crossfade = screen.getByRole('radiogroup', { name: 'Crossfade' });
+  expect(within(levelling).getByRole('radio', { name: 'Album' }).getAttribute('aria-checked')).toStrictEqual('true');
+  expect(within(crossfade).getByRole('radio', { name: '8 seconds' }).getAttribute('aria-checked')).toStrictEqual(
+    'true',
+  );
+  fireEvent.click(within(levelling).getByRole('radio', { name: 'Track' }));
+  expect(window.localStorage.getItem('gunmetal.playback')).toStrictEqual(
+    '{"levelling":"track","crossfadeSeconds":8,"sinkId":""}',
+  );
+  fireEvent.click(within(crossfade).getByRole('radio', { name: 'Off' }));
+  expect(window.localStorage.getItem('gunmetal.playback')).toStrictEqual(
+    '{"levelling":"track","crossfadeSeconds":0,"sinkId":""}',
+  );
+  fireEvent.click(
+    within(screen.getByRole('radiogroup', { name: 'Output device' })).getByRole('radio', { name: 'Default' }),
+  );
+  expect(window.localStorage.getItem('gunmetal.playback')).toStrictEqual(
+    '{"levelling":"track","crossfadeSeconds":0,"sinkId":""}',
+  );
+  window.localStorage.clear();
+});
+
+test('a blocked playback store is not remembered and does not throw', () => {
+  const real = window.localStorage;
+  const reads: string[] = [];
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem(key: string): string | null {
+        reads.push(key);
+        throw new DOMException('denied', 'SecurityError');
+      },
+      setItem(): void {
+        throw new DOMException('full', 'QuotaExceededError');
+      },
+      removeItem(): void {},
+      clear(): void {},
+      key(): string | null {
+        return null;
+      },
+      length: 0,
+    },
+  });
+  try {
+    window.history.pushState(null, '', '/settings/playback');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    const blockedRead = render(<App />);
+    expect(reads[0]).toStrictEqual('gunmetal.playback');
+    expect(
+      within(screen.getByRole('radiogroup', { name: 'Volume levelling' }))
+        .getByRole('radio', { name: 'Off' })
+        .getAttribute('aria-checked'),
+    ).toStrictEqual('true');
+    blockedRead.unmount();
+  } finally {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: real });
+  }
+
+  const kept = new Map<string, string>([
+    ['gunmetal.playback', '{"levelling":"track","crossfadeSeconds":4,"sinkId":""}'],
+  ]);
+  const writes: string[] = [];
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem(key: string): string | null {
+        return kept.get(key) ?? null;
+      },
+      setItem(key: string, value: string): void {
+        writes.push(`${key} ${value}`);
+        throw new DOMException('full', 'QuotaExceededError');
+      },
+      removeItem(): void {},
+      clear(): void {},
+      key(): string | null {
+        return null;
+      },
+      length: kept.size,
+    },
+  });
+  try {
+    render(<App />);
+    fireEvent.click(
+      within(screen.getByRole('radiogroup', { name: 'Volume levelling' })).getByRole('radio', { name: 'Album' }),
+    );
+    expect(
+      within(screen.getByRole('radiogroup', { name: 'Volume levelling' }))
+        .getByRole('radio', { name: 'Album' })
+        .getAttribute('aria-checked'),
+    ).toStrictEqual('true');
+    expect(writes).toStrictEqual([
+      'gunmetal.playback {"levelling":"album","crossfadeSeconds":4,"sinkId":""}',
+    ]);
+    expect(kept.get('gunmetal.playback')).toStrictEqual('{"levelling":"track","crossfadeSeconds":4,"sinkId":""}');
+  } finally {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: real });
+  }
+});
+
+test('output devices are listed once and choosing one writes the sink', async () => {
+  window.localStorage.clear();
+  const calls: string[] = [];
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      enumerateDevices: () => {
+        calls.push('enumerate');
+        return Promise.resolve([
+          { kind: 'audioinput', deviceId: 'mic', label: 'Mic', groupId: 'g' },
+          { kind: 'audiooutput', deviceId: 'speakers', label: 'Studio speakers', groupId: 'g' },
+          { kind: 'videoinput', deviceId: 'cam', label: 'Camera', groupId: 'g' },
+        ]);
+      },
+    },
+  });
+  try {
+    window.history.pushState(null, '', '/settings/playback');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    render(<App />);
+    const speakers = await screen.findByRole('radio', { name: 'Studio speakers' });
+    expect(screen.queryByRole('radio', { name: 'Mic' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Camera' })).toBeNull();
+    expect(calls).toStrictEqual(['enumerate']);
+    fireEvent.click(speakers);
+    expect(window.localStorage.getItem('gunmetal.playback')).toStrictEqual(
+      '{"levelling":"off","crossfadeSeconds":0,"sinkId":"speakers"}',
+    );
+    expect(calls).toStrictEqual(['enumerate']);
+  } finally {
+    Reflect.deleteProperty(navigator, 'mediaDevices');
+    window.localStorage.clear();
+  }
+});
+
+test('a finished activity job reloads a served library, and a zero count does not', async () => {
+  const album = 'a'.repeat(16);
+  const artist = 'b'.repeat(16);
+  const track = 'c'.repeat(16);
+  const folder = {
+    kind: 'folder',
+    albums: [
+      {
+        id: album,
+        title: 'St. Elsewhere',
+        artistName: 'Gnarls Barkley',
+        artistKey: artist,
+        year: 2006,
+        coverTone: '01',
+        coverUrl: `/media/library/covers/${album}.jpg`,
+        discs: [{ index: 1, title: '' }],
+        hostile: false,
+        tracks: [
+          {
+            id: track,
+            albumId: album,
+            discIndex: 1,
+            number: 1,
+            title: 'Crazy',
+            artistName: 'Gnarls Barkley',
+            durationMs: 178_000,
+            flag: 'ok',
+            lyricsKind: 'none',
+            mediaUrl: `/media/library/${track}`,
+          },
+        ],
+      },
+    ],
+    artists: [{ key: artist, name: 'Gnarls Barkley', albumIds: [album] }],
+  };
+  let done = 1;
+  let libraryOk = false;
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url === '/activity.json') {
+        return {
+          ok: true,
+          json: async () => ({ jobs: [{ id: 'artwork', label: 'Fetching album art', done, total: 4 }] }),
+        };
+      }
+      return { ok: libraryOk, json: async () => folder };
+    }),
+  );
+  try {
+    window.history.pushState(null, '', '/');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    render(<App />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: 'Harbour Lights' })).not.toBeNull();
+
+    done = 0;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole('heading', { name: 'Harbour Lights' })).not.toBeNull();
+
+    done = 2;
+    libraryOk = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole('heading', { name: 'St. Elsewhere' })).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('a device list that arrives after unmount is ignored', async () => {
+  window.localStorage.clear();
+  let resolveDevices: (devices: MediaDeviceInfo[]) => void = () => {};
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      enumerateDevices: () =>
+        new Promise<MediaDeviceInfo[]>((resolve) => {
+          resolveDevices = resolve;
+        }),
+    },
+  });
+  try {
+    window.history.pushState(null, '', '/');
+    const view = render(<App />);
+    view.unmount();
+    resolveDevices([{ kind: 'audiooutput', deviceId: 'late', label: 'Late', groupId: 'g' } as MediaDeviceInfo]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.querySelector('#token-shell')).toBeNull();
+  } finally {
+    Reflect.deleteProperty(navigator, 'mediaDevices');
+  }
 });

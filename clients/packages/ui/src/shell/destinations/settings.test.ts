@@ -32,7 +32,8 @@ test('a settings route names its pane, and any other path names none', () => {
   expect(settingsSectionFromPath('/settings/extensions')).toStrictEqual('extensions');
   expect(settingsSectionFromPath('/settings/about')).toStrictEqual('about');
   expect(settingsSectionFromPath('/settings/privacy')).toStrictEqual('privacy');
-  expect(settingsSectionFromPath('/settings/connected')).toStrictEqual(undefined);
+  expect(settingsSectionFromPath('/settings/connected')).toStrictEqual('connected');
+  expect(settingsSectionFromPath('/settings/extensions/cover-art')).toStrictEqual('extensions');
   expect(settingsSectionFromPath('/library')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('')).toStrictEqual(undefined);
 });
@@ -93,7 +94,7 @@ test('plugin slot titles and planes are the catalogue literals', () => {
   const messages = destinationMessages();
   expect(settingsSlotTitle('metadata-provider', messages)).toStrictEqual('Metadata and artwork');
   expect(settingsSlotTitle('lyrics-provider', messages)).toStrictEqual('Lyrics lookup');
-  expect(settingsSlotTitle('search-provider', messages)).toStrictEqual('Catalogue search');
+  expect(settingsSlotTitle('search-provider', messages)).toStrictEqual('Catalog search');
   expect(settingsSlotTitle('scrobbler', messages)).toStrictEqual('Scrobblers');
   expect(settingsSlotTitle('theme-pack', messages)).toStrictEqual('Themes');
   expect(settingsSlotTitle('home-row', messages)).toStrictEqual('Home rows');

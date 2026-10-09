@@ -11,6 +11,7 @@ export type PluginSlot = {
   id: PluginSlotId;
   status: FirstPartyJobStatus;
 };
+import { extensionIdFromPath } from '../../plugins/repository.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
 import { themes, type ThemeId } from '../theme.ts';
@@ -39,7 +40,10 @@ export function settingsSectionFromPath(path: string): SettingsSection | undefin
   if (path === '/settings/playback') {
     return 'playback';
   }
-  if (path === '/settings/extensions') {
+  if (path === '/settings/connected') {
+    return 'connected';
+  }
+  if (path === '/settings/extensions' || extensionIdFromPath(path) !== undefined) {
     return 'extensions';
   }
   if (path === '/settings/about') {
@@ -89,6 +93,25 @@ export function settingsSectionTitle(section: SettingsSection, messages: Destina
     return messages.settingsAbout;
   }
   return messages.settingsPrivacy;
+}
+
+export function settingsSectionPath(section: SettingsSection): string {
+  if (section === 'appearance') {
+    return '/settings/appearance';
+  }
+  if (section === 'playback') {
+    return '/settings/playback';
+  }
+  if (section === 'connected') {
+    return '/settings/connected';
+  }
+  if (section === 'extensions') {
+    return '/settings/extensions';
+  }
+  if (section === 'about') {
+    return '/settings/about';
+  }
+  return '/settings/privacy';
 }
 
 export function settingsNavItems(messages: DestinationMessages): readonly { id: SettingsSection; label: string }[] {
@@ -189,8 +212,14 @@ export function settingsThemeForKey(current: ThemeId, key: string): ThemeId | un
 /** One setting row's words: what the setting is called and what it does. */
 export type SettingsRowCopy = { id: string; label: string; hint: string };
 
-/** Playback settings that arrive with the playback controller; none is wired yet. */
-export function settingsPlaybackRows(messages: DestinationMessages): readonly SettingsRowCopy[] {
+export type SettingsLevelling = 'off' | 'track' | 'album';
+
+export type SettingsCrossfadeSeconds = 0 | 2 | 4 | 6 | 8 | 12;
+
+/** Label and hint for each playback setting. The pane renders each as a control. */
+export function settingsPlaybackRows(
+  messages: DestinationMessages,
+): readonly [SettingsRowCopy, SettingsRowCopy, SettingsRowCopy] {
   return [
     { id: 'levelling', label: messages.settingsPlaybackLevelling, hint: messages.settingsPlaybackLevellingHint },
     { id: 'crossfade', label: messages.settingsPlaybackCrossfade, hint: messages.settingsPlaybackCrossfadeHint },

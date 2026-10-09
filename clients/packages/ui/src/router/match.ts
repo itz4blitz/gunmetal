@@ -1,9 +1,12 @@
 import { routes, type Route } from '../routes.ts';
+import { parseMediaPath, type MediaKind, type MediaRoute } from './media-path.ts';
 
 export type MatchOk = {
   kind: 'ok';
   route: Route;
   history: HistoryState;
+  /** Set when the path is a media address. Absent for a static page. */
+  media?: MediaRoute;
 };
 
 export type MatchNotFound = {
@@ -40,7 +43,7 @@ export function canonicalPath(path: string): string {
 }
 
 function closedPath(path: string): boolean {
-  return routes().some((entry) => entry.path === path);
+  return routes().some((entry) => entry.path === path) || parseMediaPath(path) !== undefined;
 }
 
 // A parent path is a controlled preview. It must not hide a closed route the
@@ -119,12 +122,17 @@ export function parseHistoryState(state: unknown): { ok: true; value: HistorySta
   return { ok: true, value: { scrollY, itemId: item.itemId } };
 }
 
-// Exact path match only. A query string or fragment refuses the address (CP-009).
+// Static paths match exactly. A media path is one closed parameter.
+// A query string or fragment refuses the address (CP-009, SEC-CLI-025).
 export function matchAddress(parts: AddressParts): MatchResult {
   if (parts.search !== '' || parts.hash !== '') {
     return { kind: 'not-found' };
   }
-  const route = routes().find((entry) => entry.path === parts.pathname);
+  const media = parseMediaPath(parts.pathname);
+  const route =
+    media === undefined
+      ? routes().find((entry) => entry.path === parts.pathname)
+      : { path: media.path, surface: surfaceFor(media.kind), needsSession: true, needsAdminSession: false };
   if (route === undefined) {
     return { kind: 'not-found' };
   }
@@ -132,5 +140,24 @@ export function matchAddress(parts: AddressParts): MatchResult {
   if (!history.ok) {
     return { kind: 'not-found' };
   }
-  return { kind: 'ok', route, history: history.value };
+  if (media === undefined) {
+    return { kind: 'ok', route, history: history.value };
+  }
+  return { kind: 'ok', route, history: { scrollY: 0, itemId: undefined }, media };
+}
+
+function surfaceFor(kind: MediaKind): string {
+  if (kind === 'artist') {
+    return 'SUR-024';
+  }
+  if (kind === 'album') {
+    return 'SUR-025';
+  }
+  if (kind === 'track') {
+    return 'SUR-016';
+  }
+  if (kind === 'show') {
+    return 'SUR-041';
+  }
+  return 'SUR-040';
 }

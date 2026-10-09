@@ -14,6 +14,8 @@ import { TrackRow } from './TrackRow.tsx';
 
 export type SearchProps = {
   searchLibrary?: LibrarySearch | undefined;
+  /** A served library is not the demo-local filter, so that notice is not drawn. */
+  served?: boolean | undefined;
   messages: DestinationMessages;
   library: ShellLibrary;
   /** Track the shell is playing now; its row paints the brass current state. */
@@ -182,6 +184,7 @@ function TopResult({
 
 export function Search({
   searchLibrary = (): LibrarySearchHits => ({ albums: [], tracks: [] }),
+  served = false,
   messages,
   library,
   currentTrackId,
@@ -428,9 +431,9 @@ export function Search({
               ) : null}
             </>
           )}
-          {/* What this lookup is, and is not: one quiet line each. */}
+          {/* The plugin line always; the demo-local line only while this is not served. */}
           <View id="search-notices">
-            <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>
+            {served ? null : <Text id="search-demo-notice">{messages.searchDemoLocalNotice}</Text>}
             <Text id="search-plugin-notice">{messages.searchPluginNotice}</Text>
           </View>
         </View>

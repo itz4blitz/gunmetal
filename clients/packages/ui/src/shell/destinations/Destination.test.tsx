@@ -9,6 +9,7 @@ import { catalogue } from '../../messages/catalogue.ts';
 import { matchAddress } from '../../router/match.ts';
 import { Shell } from '../Shell.tsx';
 import { Destination } from './Destination.tsx';
+import { Store } from './Store.tsx';
 
 /** A lookup that must land: the test names what it could not find. */
 function required<T extends Element>(node: T | null | undefined, what: string): T {
@@ -370,6 +371,7 @@ test('an album page lists other releases by its artist, and nothing for a one-re
     'album-tile-demo-album-01',
   ]);
   view.unmount();
+  window.history.pushState(null, '', '/library');
 
   // The Compound has one release in the fixture: no section at all.
   render(
@@ -491,7 +493,7 @@ test('the extensions route shows that settings pane without a second app', () =>
   expect(document.querySelector('#settings-extensions')).not.toBeNull();
   expect(document.querySelector('#settings-appearance')).toBeNull();
   expect(
-    document.querySelector('#settings-extensions [data-settings-row="metadata-provider"] [data-settings-row-status]')
+    document.querySelector('#settings-extensions [data-settings-row="cover-art"] [data-settings-row-status]')
       ?.textContent,
   ).toStrictEqual('On');
 });
@@ -522,7 +524,7 @@ test('a route section of extensions shows that settings pane, not a second app',
   expect(document.querySelector('#settings-extensions')).not.toBeNull();
   expect(document.querySelector('#settings-appearance')).toBeNull();
   expect(
-    document.querySelector('#settings-extensions [data-settings-row="metadata-provider"] [data-settings-row-status]')
+    document.querySelector('#settings-extensions [data-settings-row="cover-art"] [data-settings-row-status]')
       ?.textContent,
   ).toStrictEqual('On');
 });
@@ -555,4 +557,148 @@ test('the library error and retry travel from the destination to the page', () =
   expect(document.querySelector('#library-error')).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(onLibraryRetry).toHaveBeenCalledTimes(1);
+});
+
+test('a media address with no item shows the kind, and a loaded library says it is missing', () => {
+  const base = {
+    searchLibrary: demoLocalFilter,
+    lyricsFor: () => [] as string[],
+    pluginSlots: [],
+    messages: catalogue(),
+    theme: 'dark' as const,
+    onThemeChange: vi.fn(),
+    onOpenAlbum: vi.fn(),
+    onOpenArtist: vi.fn(),
+    onBackFromAlbum: vi.fn(),
+    onPlayAlbum: vi.fn(),
+    onPlayTrack: vi.fn(),
+    onSeeAll: vi.fn(),
+    width: 'wide' as const,
+  };
+  const waiting = render(
+    <Destination
+      {...base}
+      library={undefined}
+      itemId={undefined}
+      match={matchAddress({ pathname: '/music/albums/harbour-lights', search: '', hash: '', state: null })}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('[data-media-empty]')).toBeNull();
+  waiting.unmount();
+
+  const cases = [
+    ['/music/albums/not-here', 'album', 'That album is not in this library.'],
+    ['/music/artists/not-here', 'artist', 'That artist is not in this library.'],
+    ['/music/tracks/not-here', 'track', 'That song is not in this library.'],
+    ['/watch/movies/inception', 'movie', 'Movies are not connected to this library yet. This address is ready for them.'],
+    ['/watch/shows/the-wire', 'show', 'TV shows are not connected to this library yet. This address is ready for them.'],
+  ] as const;
+  for (const [pathname, kind, copy] of cases) {
+    const view = render(
+      <Destination
+        {...base}
+        library={demoLibrary()}
+        itemId={undefined}
+        match={matchAddress({ pathname, search: '', hash: '', state: null })}
+      />,
+    );
+    expect(document.querySelector('[data-media-kind]')?.getAttribute('data-media-kind')).toStrictEqual(kind);
+    expect(document.querySelector('[data-media-empty]')?.textContent).toStrictEqual(copy);
+    view.unmount();
+  }
+});
+
+// Verifies: SEC-EXT-018
+test('the store route shows the catalogue and opens an extension page, not settings', () => {
+  const onOpenPath = vi.fn();
+  render(
+    <Destination
+      searchLibrary={demoLocalFilter}
+      lyricsFor={() => []}
+      pluginSlots={[]}
+      match={matchAddress({ pathname: '/store', search: '', hash: '', state: null })}
+      messages={catalogue()}
+      library={demoLibrary()}
+      itemId={undefined}
+      theme="dark"
+      onThemeChange={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onBackFromAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onSeeAll={vi.fn()}
+      onOpenPath={onOpenPath}
+      width="wide"
+    />,
+  );
+  expect(matchAddress({ pathname: '/store', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/store', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+  });
+  expect(screen.getByRole('heading', { name: 'Store' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-store')).not.toBeNull();
+  expect(document.querySelector('#destination-settings')).toBeNull();
+  expect(document.querySelector('[data-store-home]')?.textContent).toStrictEqual('itz4blitz/gunmetal-extensions');
+  expect(document.querySelector('[data-store-lede]')?.textContent).toStrictEqual(
+    'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
+  );
+  expect(
+    [...document.querySelectorAll('[data-store-card]')].map((node) => [
+      node.getAttribute('data-store-card'),
+      node.querySelector('[data-store-status]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['cover-art', 'On this server'],
+    ['lyrics', 'In the store'],
+    ['catalogue-search', 'In the store'],
+    ['scrobble', 'In the store'],
+    ['themes', 'In the store'],
+    ['home-rows', 'In the store'],
+    ['url-style', 'On this server'],
+  ]);
+  const card = screen.getByRole('button', { name: 'Metadata and artwork' });
+  expect(card.getAttribute('data-store-card')).toStrictEqual('cover-art');
+  expect(card.textContent).toContain(
+    'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
+  );
+  expect(card.textContent).toContain('On this server');
+  expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+  fireEvent.click(card);
+  expect(onOpenPath).toHaveBeenCalledTimes(1);
+  expect(onOpenPath).toHaveBeenCalledWith('/settings/extensions/cover-art');
+  fireEvent.keyDown(card, { key: 'Enter' });
+  expect(onOpenPath).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(card, { key: ' ' });
+  expect(onOpenPath).toHaveBeenCalledTimes(3);
+  fireEvent.keyDown(card, { key: 'Tab' });
+  expect(onOpenPath).toHaveBeenCalledTimes(3);
+});
+
+test('a record that arrived from a merged pull request is listed and not opened as a page', () => {
+  const onOpenPath = vi.fn();
+  render(
+    <Store
+      messages={catalogue().destinations}
+      listings={[
+        {
+          id: 'desk-lamp',
+          title: 'Desk lamp',
+          version: '1.0.0',
+          plane: 'client',
+          slot: 'theme-pack',
+          status: 'not-in-build',
+          summary: 'Would add a lamp colour as data.',
+          detail: ['A merge lists it.'],
+          grants: ['theme:apply'],
+        },
+      ]}
+      onOpenPath={onOpenPath}
+    />,
+  );
+  expect(document.querySelector('[data-store-card="desk-lamp"]')?.textContent).toContain('In the store');
+  fireEvent.click(screen.getByRole('button', { name: 'Desk lamp' }));
+  expect(onOpenPath).not.toHaveBeenCalled();
 });

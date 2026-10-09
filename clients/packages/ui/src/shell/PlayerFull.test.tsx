@@ -801,6 +801,7 @@ test('with a position clock the times and scrubber follow the frames', () => {
   expect(container.querySelector('#player-full-elapsed')?.textContent).toStrictEqual('0:47');
   expect(container.querySelector('#player-full-remaining')?.textContent).toStrictEqual('2:13');
   expect(container.querySelector('#player-full-scrubber')?.getAttribute('aria-valuenow')).toStrictEqual('47000');
+  expect(container.querySelector('#player-full-progress-fill')?.getAttribute('style')).toContain('26.111');
   clock.detach();
   unmount();
 });
