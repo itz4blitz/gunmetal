@@ -64,7 +64,7 @@ if ! find "${rustup_dir}/toolchains" -type f -name rustc -print -quit 2>/dev/nul
     -e RUSTUP_HOME=/usr/local/rustup \
     -v "${rustup_dir}:/usr/local/rustup" \
     --entrypoint bash \
-    jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc "rustup toolchain install ${channel} --profile minimal --component clippy,rustfmt && rustup default ${channel}"
 fi
 # The linter ships a bundled stdlib for this channel. Installing rust-src
@@ -76,7 +76,7 @@ if [[ -d "${rustup_dir}/toolchains/${channel}-x86_64-unknown-linux-gnu/lib/rustl
     -e RUSTUP_HOME=/usr/local/rustup \
     -v "${rustup_dir}:/usr/local/rustup" \
     --entrypoint bash \
-    jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc "rustup component remove rust-src --toolchain ${channel}"
 fi
 # cargo metadata refreshes the pinned channel and writes rustup's temp files
@@ -98,7 +98,7 @@ if [[ ! -f "${plugin_jar}" || "${src_file}" -nt "${plugin_jar}" || "${plugin_src
     -v "${plugin_src}:/src:ro" \
     -v "${build_dir}:/out" \
     --entrypoint bash \
-    jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc 'rm -rf /out/classes && mkdir -p /out/classes && /opt/idea/jbr/bin/javac --release 25 -encoding UTF-8 -cp "/opt/idea/lib/*:/opt/idea/plugins/intellij-rust/lib/modules/intellij.rustrover.core.jar" -d /out/classes /src/src/local/gunmetal/qodana/RustModelTracker.java && chmod -R a+rwX /out'
   mkdir -p "${plugin_root}/lib"
   python3 - "${build_dir}/classes" "${plugin_src}/META-INF/plugin.xml" "${plugin_jar}" <<'PY'
@@ -113,7 +113,7 @@ PY
   docker run --rm --user 0:0 \
     -v "${build_dir}:/out" \
     --entrypoint bash \
-    jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc 'rm -rf /out/classes'
   rm -rf "${build_dir}"
 fi
@@ -122,7 +122,7 @@ log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 set +e
 qodana scan \
-  --linter jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+  --linter jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
   --within-docker=true \
   --project-dir "${PWD}" \
   --repository-root "${PWD}" \
@@ -146,7 +146,7 @@ docker run --rm --user 0:0 \
   -v "${results_dir}:/results" \
   -v "${cache_dir}:/cache" \
   --entrypoint chown \
-  jetbrains/qodana-rust@sha256:5cd4b4d1e9cc8870fc75c7be89af61165423aa73fefe61f59027f1def7e57a91 \
+  jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
   -R "$(id -u):$(id -g)" /results /cache >/dev/null
 
 if grep -q 'Analysis scope: 0 packages' "${log}"; then
