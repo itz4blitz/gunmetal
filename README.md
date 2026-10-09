@@ -171,6 +171,7 @@ crates/                  the Rust workspace
   gunmetal-core          parsers, protocol types, domain logic (pure, no I/O)
   gunmetal-server        sessions, the sign-in verifier, access policy, routes
   gunmetal-egress        the outbound gate: address classes, grants, limits
+  gunmetal-plugins       plugin host decisions; no runtime is linked
   gunmetal-worker        the jailed worker: sandbox profile, IPC, limits
   gunmetal-secrets       AEAD, key derivation, nonces
   gunmetal-store         the SQLite catalog
