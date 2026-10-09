@@ -234,6 +234,7 @@ test('the catalogue returns trusted shell and destination strings', () => {
       settingsExtensionShips:
         'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
       /* Store page. The catalogue this server already holds. Append-only. */
+      storeHeadline: 'Store',
       storeLede:
         'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
       storeOn: 'On this server',
@@ -245,6 +246,7 @@ test('the catalogue returns trusted shell and destination strings', () => {
       settingsExtensionChoice: 'Install saves your choice on this server. It does not download or run a package.',
       storeInstall: 'Install',
       storeUninstall: 'Uninstall',
+      storeSaved: 'Saved',
     },
   });
 });

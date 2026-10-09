@@ -99,7 +99,7 @@ test('catalogue actions invoke optional handlers when they are provided', () => 
   expect(onClose).toHaveBeenCalledTimes(8);
 });
 
-test('optional catalogue handlers stay quiet when omitted', () => {
+test('items whose handlers are omitted are not offered at all', () => {
   const onClose = vi.fn();
   render(
     <GoToArtistMenu
@@ -111,11 +111,11 @@ test('optional catalogue handlers stay quiet when omitted', () => {
       onClose={onClose}
     />,
   );
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
-  expect(onClose).toHaveBeenCalledTimes(4);
+  // Only what is wired: go to artist. A dead item would close the menu and
+  // do nothing, which is worse than not showing it.
+  expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toStrictEqual(['Go to artist']);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to artist' }));
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 test('an open menu is placed inside the viewport from its anchor, and a closed one is not', () => {
@@ -146,7 +146,7 @@ test('an open menu is placed inside the viewport from its anchor, and a closed o
     expect(menu.style.getPropertyValue('left')).toStrictEqual('20px');
     expect(menu.style.getPropertyValue('top')).toStrictEqual('510px');
     // The portalled menu takes focus so keyboard users are inside it.
-    expect((document.activeElement as HTMLElement).getAttribute('data-menu-item')).toStrictEqual('play');
+    expect((document.activeElement as HTMLElement).getAttribute('data-menu-item')).toStrictEqual('go-to-artist');
     placed.unmount();
   } finally {
     HTMLElement.prototype.getBoundingClientRect = real;

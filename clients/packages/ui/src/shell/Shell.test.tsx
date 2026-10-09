@@ -337,6 +337,15 @@ test('nav links answer Enter and Space and ignore every other key', () => {
   expect(navigated).toStrictEqual(['/', '/']);
 });
 
+test('the arrow keys seek the playing position through the transport listener', () => {
+  const { calls, controller } = stubPlayback();
+  render(<Shell playback={controller} path="/" widthPx={1600} />);
+  fireEvent.keyDown(document, { key: 'ArrowRight' });
+  fireEvent.keyDown(document, { key: 'ArrowLeft' });
+  fireEvent.keyDown(document, { key: 'ArrowDown' });
+  expect(calls).toStrictEqual(['seek', 'seek']);
+});
+
 test('opening an album from search pushes its address, and back returns to the library', () => {
   const navigated: string[] = [];
   render(
@@ -805,7 +814,9 @@ test('home, library and search each offer Pin, and a pin of a default route is n
     fireEvent.keyDown(screen.getByRole('button', { name: 'Pins the page to the sidebar' }), { key: 'Tab' });
     expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
     fireEvent.keyDown(screen.getByRole('button', { name: 'Pins the page to the sidebar' }), { key: 'Enter' });
-    expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+    expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual(
+      'destination-pin',
+    );
     expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
       `[{"path":"${path}","label":"${labels[index]}"}]`,
     );
@@ -1006,9 +1017,9 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/music/albums/harbour-lights","label":"Harbour Lights"}]',
   );
-  expect(view.container.querySelector('#nav-item-music-albums-harbour-lights')?.getAttribute('data-selected')).toStrictEqual(
-    '1',
-  );
+  expect(
+    view.container.querySelector('#nav-item-music-albums-harbour-lights')?.getAttribute('data-selected'),
+  ).toStrictEqual('1');
   expect(view.container.querySelector('#nav-item-library')?.getAttribute('data-selected')).toStrictEqual('0');
   expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
 
@@ -1038,7 +1049,9 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
   fireEvent.click(screen.getByRole('link', { name: 'Home' }));
   fireEvent.keyDown(screen.getByRole('link', { name: 'Mira Sol' }), { key: 'Enter' });
   expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
-  expect(view.container.querySelector('#nav-item-music-artists-mira-sol')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(view.container.querySelector('#nav-item-music-artists-mira-sol')?.getAttribute('data-selected')).toStrictEqual(
+    '1',
+  );
 
   fireEvent.click(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }));
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
@@ -1054,10 +1067,7 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
 });
 
 test('a stored album pin is a sidebar link that opens that album', () => {
-  window.localStorage.setItem(
-    'gunmetal.pins',
-    '[{"path":"/library","label":"Night Shift","itemId":"demo-album-02"}]',
-  );
+  window.localStorage.setItem('gunmetal.pins', '[{"path":"/library","label":"Night Shift","itemId":"demo-album-02"}]');
   const view = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} library={demoLibrary()} />);
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
@@ -1305,10 +1315,7 @@ test('an id address rewrites to the slug, and a slug or a missing watch address 
 });
 
 test('a stored item pin opens that album, and an unknown item falls back to the library', () => {
-  window.localStorage.setItem(
-    'gunmetal.pins',
-    '[{"path":"/library","label":"Missing","itemId":"missing-album"}]',
-  );
+  window.localStorage.setItem('gunmetal.pins', '[{"path":"/library","label":"Missing","itemId":"missing-album"}]');
   const missing = render(
     <Shell playback={stubPlayback().controller} path="/search" widthPx={1600} library={demoLibrary()} />,
   );

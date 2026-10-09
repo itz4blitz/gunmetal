@@ -526,8 +526,16 @@ test('a media address with no item shows the kind, and a loaded library says it 
     ['/music/albums/not-here', 'album', 'That album is not in this library.'],
     ['/music/artists/not-here', 'artist', 'That artist is not in this library.'],
     ['/music/tracks/not-here', 'track', 'That song is not in this library.'],
-    ['/watch/movies/inception', 'movie', 'Movies are not connected to this library yet. This address is ready for them.'],
-    ['/watch/shows/the-wire', 'show', 'TV shows are not connected to this library yet. This address is ready for them.'],
+    [
+      '/watch/movies/inception',
+      'movie',
+      'Movies are not connected to this library yet. This address is ready for them.',
+    ],
+    [
+      '/watch/shows/the-wire',
+      'show',
+      'TV shows are not connected to this library yet. This address is ready for them.',
+    ],
   ] as const;
   for (const [pathname, kind, copy] of cases) {
     const view = render(
@@ -577,10 +585,8 @@ test('the store route shows the catalogue and opens an extension page, not setti
   expect(screen.getByRole('heading', { name: 'Store' }).id).toStrictEqual('destination-headline');
   expect(document.querySelector('#destination-store')).not.toBeNull();
   expect(document.querySelector('#destination-settings')).toBeNull();
-  expect(document.querySelector('[data-store-home]')?.textContent).toStrictEqual('itz4blitz/gunmetal-extensions');
-  expect(document.querySelector('[data-store-lede]')?.textContent).toStrictEqual(
-    'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
-  );
+  expect(document.querySelector('[data-store-home]')).toBeNull();
+  expect(document.querySelector('[data-store-lede]')).toBeNull();
   expect(
     [...document.querySelectorAll('[data-store-card]')].map((node) => [
       node.getAttribute('data-store-card'),
@@ -605,6 +611,9 @@ test('the store route shows the catalogue and opens an extension page, not setti
   expect(screen.getByRole('button', { name: 'Install Lyrics lookup' })).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Install Lyrics lookup' }));
   expect(onOpenPath).not.toHaveBeenCalled();
+  // Uninstalling a job the server runs turns its card Off right there.
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall Metadata and artwork' }));
+  expect(document.querySelector('[data-store-card="cover-art"] [data-store-status]')?.textContent).toStrictEqual('Off');
   fireEvent.click(card);
   expect(onOpenPath).toHaveBeenCalledTimes(1);
   expect(onOpenPath).toHaveBeenCalledWith('/store/cover-art');
@@ -618,7 +627,7 @@ test('the store route shows the catalogue and opens an extension page, not setti
 
 test('a record that arrived from a merged pull request is listed and not opened as a page', () => {
   const onOpenPath = vi.fn();
-  render(
+  const view = render(
     <Store
       messages={catalogue().destinations}
       listings={[
@@ -638,6 +647,11 @@ test('a record that arrived from a merged pull request is listed and not opened 
     />,
   );
   expect(document.querySelector('[data-store-card="desk-lamp"]')?.textContent).toContain('In the store');
-  fireEvent.click(screen.getByRole('button', { name: 'Desk lamp' }));
+  const card = view.container.querySelector('[data-store-card="desk-lamp"]');
+  // This build has no page for the id, so the card is a heading and a
+  // summary, not a button that promises one.
+  expect(card?.getAttribute('role')).toBeNull();
+  expect(card?.getAttribute('tabindex')).toBeNull();
+  fireEvent.click(card as Element);
   expect(onOpenPath).not.toHaveBeenCalled();
 });

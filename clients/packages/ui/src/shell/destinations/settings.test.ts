@@ -11,6 +11,7 @@ import {
   settingsPlaybackRows,
   settingsRelease,
   settingsSectionFromPath,
+  settingsSectionPath,
   settingsSectionTitle,
   settingsSections,
   settingsSlotPlaneLabel,
@@ -35,6 +36,14 @@ test('a settings route names its pane, and any other path names none', () => {
   expect(settingsSectionFromPath('/store')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('/library')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('')).toStrictEqual(undefined);
+});
+
+test('every section answers its settings address', () => {
+  expect(settingsSectionPath('appearance')).toStrictEqual('/settings/appearance');
+  expect(settingsSectionPath('playback')).toStrictEqual('/settings/playback');
+  expect(settingsSectionPath('connected')).toStrictEqual('/settings/connected');
+  expect(settingsSectionPath('about')).toStrictEqual('/settings/about');
+  expect(settingsSectionPath('privacy')).toStrictEqual('/settings/privacy');
 });
 
 test('settings layout is a left list on expanded and wide and stacked on compact', () => {

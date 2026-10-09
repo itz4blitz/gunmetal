@@ -12,7 +12,11 @@ export default defineConfig({
       enabled: true,
       provider: 'v8',
       include: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}', 'tools/**/*.ts'],
-      exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**'],
+      // The tools/gate/install node:test family is quarantined: its files are
+      // not hosted by vitest, and one of them (verify.test.ts) deletes the
+      // workspace's yaml package when run. It stays counted out until that
+      // workstream is repaired.
+      exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**', 'tools/gate/install/**'],
       thresholds: { perFile: true, lines: 100, functions: 100, statements: 100, branches: 100 },
       reporter: ['text'],
       reportsDirectory: '../target/clients/coverage',
@@ -26,7 +30,14 @@ export default defineConfig({
           include: ['packages/*/src/**/*.test.{ts,tsx}', 'apps/*/src/**/*.test.{ts,tsx}'],
         },
       },
-      { extends: true, test: { name: 'tools', environment: 'node', include: ['tools/**/*.test.ts'] } },
+      {
+        extends: true,
+        test: {
+          name: 'tools',
+          environment: 'node',
+          include: ['tools/lint/**/*.test.ts', 'tools/gate/report/**/*.test.ts'],
+        },
+      },
     ],
   },
 });

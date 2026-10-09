@@ -168,136 +168,45 @@ test('pane widths persist in localStorage and come back on the next visit', () =
   window.localStorage.clear();
 });
 
-function extensionJobRows(): (string | null)[][] {
-  return [...document.querySelectorAll('#settings-plugin-slots [data-settings-row]')].map((row) => [
-    row.getAttribute('data-settings-row'),
-    row.getAttribute('data-job-status'),
-    row.querySelector('[data-slot-title]')?.textContent ?? null,
-    row.querySelector('[data-job-detail]')?.textContent ?? null,
-    row.querySelector('[data-settings-row-status]')?.textContent ?? null,
+function storeRows(): (string | null)[][] {
+  return [...document.querySelectorAll('[data-store-card]')].map((node) => [
+    node.getAttribute('data-store-card'),
+    node.querySelector('[data-store-status]')?.textContent ?? null,
   ]);
 }
 
-test('settings extensions lists first-party jobs, and fixture art is not Cover Art Archive on', () => {
+test('settings keeps its five sections and the store lists the records', () => {
+  window.localStorage.clear();
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
-  fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
-  expect(document.querySelector('#settings-extensions')).not.toBeNull();
-  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
-  expect(document.querySelector('[data-slot-version]')).toBeNull();
-  expect(extensionJobRows()).toStrictEqual([
-    [
-      'cover-art',
-      'On',
-      'Metadata and artwork',
-      'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
-      'On',
-    ],
-    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
-    [
-      'catalogue-search',
-      'Not in this build',
-      'Catalog search',
-      'Would search a remote catalog and return matches as data.',
-      'Not in this build',
-    ],
-    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
-    [
-      'themes',
-      'Not in this build',
-      'Themes',
-      'Would add theme packs as data on top of the built-in themes.',
-      'Not in this build',
-    ],
-    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
-    [
-      'url-style',
-      'On',
-      'Address style',
-      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
-      'On',
-    ],
+  expect(document.querySelector('#settings-extensions')).toBeNull();
+  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toStrictEqual([
+    'Appearance',
+    'Playback',
+    'Connected services',
+    'About this connection',
+    'Privacy',
   ]);
-});
-
-test('settings extensions says Cover Art Archive is on when the library host serves covers', () => {
-  window.history.pushState(null, '', '/');
-  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
-  const album = 'a'.repeat(16);
-  const artist = 'b'.repeat(16);
-  const track = 'c'.repeat(16);
-  const library: DemoLibrary = {
-    kind: 'folder',
-    albums: [
-      {
-        id: album,
-        title: 'St. Elsewhere',
-        artistName: 'Gnarls Barkley',
-        artistKey: artist,
-        year: 2006,
-        coverTone: '01',
-        coverUrl: `/media/library/covers/${album}.jpg`,
-        discs: [{ index: 1, title: '' }],
-        hostile: false,
-        tracks: [
-          {
-            id: track,
-            albumId: album,
-            discIndex: 1,
-            number: 1,
-            title: 'Crazy',
-            artistName: 'Gnarls Barkley',
-            durationMs: 178_000,
-            flag: 'ok',
-            lyricsKind: 'none',
-            mediaUrl: `/media/library/${track}`,
-          },
-        ],
-      },
-    ],
-    artists: [{ key: artist, name: 'Gnarls Barkley', albumIds: [album] }],
-  };
-  render(<App library={library} />);
-  fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
-  fireEvent.click(screen.getByRole('tab', { name: 'Extensions / Plugins' }));
-  expect(extensionJobRows()).toStrictEqual([
-    [
-      'cover-art',
-      'On',
-      'Metadata and artwork',
-      'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
-      'On',
-    ],
-    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
-    [
-      'catalogue-search',
-      'Not in this build',
-      'Catalog search',
-      'Would search a remote catalog and return matches as data.',
-      'Not in this build',
-    ],
-    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
-    [
-      'themes',
-      'Not in this build',
-      'Themes',
-      'Would add theme packs as data on top of the built-in themes.',
-      'Not in this build',
-    ],
-    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
-    [
-      'url-style',
-      'On',
-      'Address style',
-      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
-      'On',
-    ],
+  fireEvent.click(screen.getByRole('link', { name: 'Store' }));
+  expect(document.querySelector('#destination-store')).not.toBeNull();
+  expect(storeRows()).toStrictEqual([
+    ['cover-art', 'On this server'],
+    ['lyrics', 'In the store'],
+    ['catalogue-search', 'In the store'],
+    ['scrobble', 'In the store'],
+    ['themes', 'In the store'],
+    ['home-rows', 'In the store'],
+    ['url-style', 'On this server'],
   ]);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions [data-settings-badge]')).toBeNull();
+  expect(document.querySelector('#destination-store [data-slot-version]')).toBeNull();
+  // A record opens inside the store; back returns to the list.
+  fireEvent.click(screen.getByRole('button', { name: 'Metadata and artwork' }));
+  expect(document.querySelector('[data-store-detail="cover-art"]')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to store' }));
+  expect(document.querySelector('[data-store-detail="cover-art"]')).toBeNull();
+  expect(storeRows().length).toStrictEqual(7);
 });
 
 test('playing never opens the queue sheet; the queue control does, and it stays open across plays', () => {
@@ -424,9 +333,7 @@ test('a blocked playback store is not remembered and does not throw', () => {
         .getByRole('radio', { name: 'Album' })
         .getAttribute('aria-checked'),
     ).toStrictEqual('true');
-    expect(writes).toStrictEqual([
-      'gunmetal.playback {"levelling":"album","crossfadeSeconds":4,"sinkId":""}',
-    ]);
+    expect(writes).toStrictEqual(['gunmetal.playback {"levelling":"album","crossfadeSeconds":4,"sinkId":""}']);
     expect(kept.get('gunmetal.playback')).toStrictEqual('{"levelling":"track","crossfadeSeconds":4,"sinkId":""}');
   } finally {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: real });

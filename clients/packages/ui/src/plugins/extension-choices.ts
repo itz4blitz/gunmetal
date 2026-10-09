@@ -67,6 +67,18 @@ const SETTINGS: Record<string, readonly ExtensionSetting[]> = {
   ],
 };
 
+/** The saved choices document, or null when the host has no storage or denies it. */
+export function savedChoicesRaw(): string | null {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return null;
+    }
+    return localStorage.getItem(EXTENSION_CHOICES_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export type ExtensionChoice = {
   installed: boolean;
   values: Record<string, string>;
@@ -108,7 +120,10 @@ function choiceRecord(value: unknown, id: string, status: 'on' | 'not-in-build')
 }
 
 /** Read saved choices. Anything unreadable is the default for that id. */
-export function parseChoices(raw: string | null, ids: readonly { id: string; status: 'on' | 'not-in-build' }[]): ExtensionChoices {
+export function parseChoices(
+  raw: string | null,
+  ids: readonly { id: string; status: 'on' | 'not-in-build' }[],
+): ExtensionChoices {
   let parsed: unknown = undefined;
   if (raw !== null && raw !== '') {
     try {
@@ -117,7 +132,8 @@ export function parseChoices(raw: string | null, ids: readonly { id: string; sta
       parsed = undefined;
     }
   }
-  const saved = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  const saved =
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
   const choices: ExtensionChoices = {};
   for (const entry of ids) {
     choices[entry.id] = choiceRecord(saved[entry.id], entry.id, entry.status);
@@ -130,7 +146,11 @@ export function installChoice(choices: ExtensionChoices, id: string, status: 'on
   return { ...choices, [id]: { ...current, installed: true } };
 }
 
-export function uninstallChoice(choices: ExtensionChoices, id: string, status: 'on' | 'not-in-build'): ExtensionChoices {
+export function uninstallChoice(
+  choices: ExtensionChoices,
+  id: string,
+  status: 'on' | 'not-in-build',
+): ExtensionChoices {
   const current = choices[id] ?? defaultChoice(id, status);
   return { ...choices, [id]: { ...current, installed: false } };
 }

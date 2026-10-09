@@ -304,6 +304,24 @@ test('volume sits in the secondary row only when it is wired, and reports the ne
   fireEvent.change(range, { target: { value: '0.9' } });
   expect(onVolume).toHaveBeenCalledTimes(1);
   expect(onVolume).toHaveBeenCalledWith(0.9);
+  // Raising the slider while muted unmutes first, like the bar.
+  const onMuted = vi.fn();
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0}
+      muted
+      onVolume={onVolume}
+      onMuted={onMuted}
+      onClose={vi.fn()}
+    />,
+  );
+  const mutedRange = screen.getByRole('slider', { name: 'Volume' });
+  fireEvent.change(mutedRange, { target: { value: '0.3' } });
+  expect(onMuted).toHaveBeenCalledWith(false);
+  expect(onVolume).toHaveBeenLastCalledWith(0.3);
   rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open volume={0.4} onClose={vi.fn()} />);
   expect(container.querySelector('#player-full-volume')).toBeNull();
   rerender(

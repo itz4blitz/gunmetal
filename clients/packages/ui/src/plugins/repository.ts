@@ -7,7 +7,7 @@
  * anything a record names (INT-074, SEC-EXT-018).
  */
 
-import { EXTENSION_CHOICES_KEY, parseChoices } from './extension-choices.ts';
+import { EXTENSION_CHOICES_KEY, parseChoices, savedChoicesRaw } from './extension-choices.ts';
 
 export const EXTENSION_REPOSITORY_ID = 'gunmetal.extensions';
 export const EXTENSION_REPOSITORY_VERSION = '1';
@@ -20,10 +20,7 @@ export type AddressStyle = 'slug' | 'id';
  * extension. Slugs are what the address bar shows. Ids still open.
  */
 export function addressStyle(): AddressStyle {
-  if (typeof localStorage === 'undefined') {
-    return 'slug';
-  }
-  const saved = parseChoices(localStorage.getItem(EXTENSION_CHOICES_KEY), [{ id: 'url-style', status: 'on' }]);
+  const saved = parseChoices(savedChoicesRaw(), [{ id: 'url-style', status: 'on' }]);
   const choice = saved['url-style'];
   if (choice?.installed === true && choice.values.style === 'id') {
     return 'id';
@@ -54,13 +51,7 @@ export function officialExtensionsRepository(): {
 }
 
 export type ExtensionId =
-  | 'cover-art'
-  | 'lyrics'
-  | 'catalogue-search'
-  | 'scrobble'
-  | 'themes'
-  | 'home-rows'
-  | 'url-style';
+  'cover-art' | 'lyrics' | 'catalogue-search' | 'scrobble' | 'themes' | 'home-rows' | 'url-style';
 
 export type ExtensionPlane = 'server' | 'client';
 
@@ -103,7 +94,9 @@ function records(): readonly ExtensionRecord[] {
       slot: 'lyrics-provider',
       status: 'not-in-build',
       summary: 'Would fetch lyrics for tracks whose files have none.',
-      detail: ['This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.'],
+      detail: [
+        'This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.',
+      ],
       grants: ['lyrics:read'],
     },
     {
@@ -125,7 +118,9 @@ function records(): readonly ExtensionRecord[] {
       slot: 'scrobbler',
       status: 'not-in-build',
       summary: 'Would send plays to a service the owner names.',
-      detail: ['Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.'],
+      detail: [
+        'Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.',
+      ],
       grants: ['scrobble:write'],
     },
     {

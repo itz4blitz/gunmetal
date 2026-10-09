@@ -135,6 +135,62 @@ test('each stacked pane shows the catalogue body and no release badge', () => {
   expect(document.querySelector('[data-settings-privacy]')?.textContent).toStrictEqual(messages.settingsPrivacyBody);
 });
 
+test('a route change moves the open pane, and a tab click reports the path when the shell owns routing', () => {
+  const opened: string[] = [];
+  const view = render(
+    <Settings
+      section="appearance"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  // A later route names another pane: the page follows it.
+  view.rerender(
+    <Settings
+      section="privacy"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-privacy')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(document.querySelector('#settings-nav-privacy')?.getAttribute('aria-selected')).toStrictEqual('true');
+  // With the shell owning the address, a tab click reports the section path.
+  view.rerender(
+    <Settings
+      section="privacy"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+      onOpenPath={(path) => opened.push(path)}
+    />,
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Playback' }));
+  expect(opened).toStrictEqual(['/settings/playback']);
+  expect(document.querySelector('#settings-privacy')).not.toBeNull();
+  // A later route that names no section falls back to appearance.
+  view.rerender(
+    <Settings
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  expect(document.querySelector('#settings-privacy')).toBeNull();
+});
+
 test('a library fact replaces the about data message and hides the playback placeholder', () => {
   const messages = destinationMessages();
   render(
@@ -343,9 +399,7 @@ test('playback volume levelling, crossfade and output device are radio groups th
   ).toStrictEqual(messages.settingsPlaybackOutputHint);
   for (const id of ['levelling', 'crossfade', 'output']) {
     expect(
-      document
-        .querySelector(`#settings-playback [data-settings-row="${id}"]`)
-        ?.textContent?.includes('Not connected'),
+      document.querySelector(`#settings-playback [data-settings-row="${id}"]`)?.textContent?.includes('Not connected'),
     ).toStrictEqual(false);
     expect(
       document.querySelector(`#settings-playback [data-settings-row="${id}"] [data-settings-row-status]`),

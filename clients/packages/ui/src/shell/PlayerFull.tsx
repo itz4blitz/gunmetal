@@ -417,7 +417,11 @@ export function PlayerFull({
                     value={volume}
                     aria-label={messages.volume}
                     onChange={(event) => {
-                      onVolume(Number(event.currentTarget.value));
+                      const level = Number(event.currentTarget.value);
+                      if ((muted ?? false) && level > 0) {
+                        onMuted?.(false);
+                      }
+                      onVolume(level);
                     }}
                   />
                 </View>

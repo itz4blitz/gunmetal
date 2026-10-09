@@ -744,14 +744,17 @@ test('the rail controls carry icons and the track list sits under a hidden colum
   expect(heads[0]?.querySelector('[data-track-table-number="1"]')?.textContent).toStrictEqual('#');
   expect(heads[0]?.querySelector('[data-track-table-title="1"]')?.textContent).toStrictEqual('Title');
   expect(heads[0]?.querySelector('[data-track-table-time="1"] svg')?.getAttribute('data-icon')).toStrictEqual('clock');
-  // The column row comes before the first track row.
+  // The column row comes before the first track row. Spacers that stand in
+  // for windowed-out rows are chrome and do not count as content.
   const block = container.querySelector('[data-disc-block]');
-  const order = [...(block?.children ?? [])].map((child) => {
-    if (child.hasAttribute('data-track-table-head')) {
-      return 'columns';
-    }
-    return child.hasAttribute('data-album-row') ? 'row' : 'heading';
-  });
+  const order = [...(block?.children ?? [])]
+    .filter((child) => !child.hasAttribute('data-list-spacer'))
+    .map((child) => {
+      if (child.hasAttribute('data-track-table-head')) {
+        return 'columns';
+      }
+      return child.hasAttribute('data-album-row') ? 'row' : 'heading';
+    });
   expect(order).toStrictEqual(['heading', 'columns', 'row', 'row']);
 });
 

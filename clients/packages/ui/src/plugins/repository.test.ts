@@ -42,7 +42,9 @@ test('the repository is the closed list extensions target', () => {
         slot: 'lyrics-provider',
         status: 'not-in-build',
         summary: 'Would fetch lyrics for tracks whose files have none.',
-        detail: ['This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.'],
+        detail: [
+          'This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.',
+        ],
         grants: ['lyrics:read'],
       },
       {
@@ -64,7 +66,9 @@ test('the repository is the closed list extensions target', () => {
         slot: 'scrobbler',
         status: 'not-in-build',
         summary: 'Would send plays to a service the owner names.',
-        detail: ['Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.'],
+        detail: [
+          'Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.',
+        ],
         grants: ['scrobble:write'],
       },
       {
@@ -119,6 +123,20 @@ test('the repository is the closed list extensions target', () => {
   );
   expect(addressStyle()).toStrictEqual('slug');
   localStorage.removeItem('gunmetal.extension.choices');
+  // A host with no storage, or one that denies the read, answers the default.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Reflect.deleteProperty(globalThis, 'localStorage');
+  expect(addressStyle()).toStrictEqual('slug');
+  Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new Error('denied');
+    },
+  });
+  expect(addressStyle()).toStrictEqual('slug');
+  Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+  expect(addressStyle()).toStrictEqual('slug');
   expect(EXTENSION_REPOSITORY_ID).toStrictEqual('gunmetal.extensions');
   expect(EXTENSION_REPOSITORY_VERSION).toStrictEqual('1');
 });

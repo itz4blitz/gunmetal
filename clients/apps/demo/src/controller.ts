@@ -88,6 +88,8 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
     playing: state.playing,
   };
   const shuffleSeedRef = useRef(0);
+  const sessionStateRef = useRef(state);
+  sessionStateRef.current = state;
 
   useEffect(() => {
     const audio = createDemoAudio(wiring?.createElement?.() ?? createAudioElement(), {
@@ -98,7 +100,16 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
         setState((current) => (current.trackId === undefined ? current : { ...current, positionMs }));
       },
       onEnded: () => {
-        setState((current) => advanceQueue(current));
+        const current = sessionStateRef.current;
+        const stepped = advanceQueue(current);
+        if (stepped.playing && stepped.trackId === current.trackId) {
+          /* Repeat one, or the next line is the same track: track id and
+             media url do not change, so the load effect never runs. The
+             engine must restart in place or the bar sticks at the end. */
+          audioRef.current?.load(stepped.mediaUrl, stepped.durationMs);
+          audioRef.current?.setPlaying(true);
+        }
+        setState(stepped);
       },
       onBuffering: (buffering) => {
         setState((current) => (current.trackId === undefined ? current : { ...current, buffering }));
@@ -155,8 +166,6 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
   }, [state.trackId]);
 
   const sessionStore = wiring?.sessionStore;
-  const sessionStateRef = useRef(state);
-  sessionStateRef.current = state;
   useEffect(() => {
     if (sessionStore === undefined) {
       return;
@@ -227,6 +236,10 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
 
   /* The lock screen follows the same truth: metadata, state, position and
      the transport verbs, pushed on every change (CLI-070). */
+  const seekEngine = (positionMs: number) => {
+    holdReports.current = false;
+    audioRef.current?.seek(positionMs);
+  };
   useEffect(() => {
     const bridge =
       wiring?.mediaSession !== undefined
@@ -261,12 +274,14 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
           setState((current) => (current.trackId === undefined ? current : { ...current, playing: false }));
         },
         seekTo: (positionMs) => {
+          seekEngine(positionMs);
           setState((current) => seekTo(current, positionMs));
         },
         seekBy: (deltaMs) => {
-          setState((current) =>
-            seekTo(current, Math.max(0, Math.min(current.durationMs, current.positionMs + deltaMs))),
-          );
+          const current = sessionStateRef.current;
+          const target = Math.max(0, Math.min(current.durationMs, current.positionMs + deltaMs));
+          seekEngine(target);
+          setState((snapshot) => seekTo(snapshot, target));
         },
       },
     );
@@ -334,8 +349,7 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
       setState((current) => stepQueue(current, 1));
     },
     seek: (positionMs) => {
-      holdReports.current = false;
-      audioRef.current?.seek(positionMs);
+      seekEngine(positionMs);
       setState((current) => seekTo(current, positionMs));
     },
     toggleQueue: () => {

@@ -3,6 +3,7 @@ import {
   defaultChoice,
   installChoice,
   parseChoices,
+  savedChoicesRaw,
   serializeChoices,
   setChoiceValue,
   settingsFor,
@@ -46,12 +47,36 @@ describe('extension choices', () => {
     expect(setChoiceValue({}, 'url-style', 'on', 'style', 'id')['url-style']?.values.style).toStrictEqual('id');
     expect(parseChoices('[]', ids)['cover-art']).toStrictEqual(defaultChoice('cover-art', 'on'));
     expect(parseChoices('{"cover-art":[]}', ids)['cover-art']).toStrictEqual(defaultChoice('cover-art', 'on'));
-    expect(parseChoices('{"cover-art":{"values":[]}}', ids)['cover-art']).toStrictEqual(defaultChoice('cover-art', 'on'));
+    expect(parseChoices('{"cover-art":{"values":[]}}', ids)['cover-art']).toStrictEqual(
+      defaultChoice('cover-art', 'on'),
+    );
     const raw = serializeChoices(next);
     expect(parseChoices(raw, ids)['url-style']?.values.style).toStrictEqual('id');
     expect(parseChoices('{', ids)['cover-art']).toStrictEqual(defaultChoice('cover-art', 'on'));
-    expect(parseChoices('{"cover-art":{"installed":"yes","values":{"archive":"maybe"}}}', ids)['cover-art']).toStrictEqual(
-      defaultChoice('cover-art', 'on'),
-    );
+    expect(
+      parseChoices('{"cover-art":{"installed":"yes","values":{"archive":"maybe"}}}', ids)['cover-art'],
+    ).toStrictEqual(defaultChoice('cover-art', 'on'));
+  });
+
+  test('savedChoicesRaw reads storage and answers null when it is absent or denied', () => {
+    localStorage.setItem('gunmetal.extension.choices', '{"cover-art":{"installed":true}}');
+    expect(savedChoicesRaw()).toStrictEqual('{"cover-art":{"installed":true}}');
+    localStorage.removeItem('gunmetal.extension.choices');
+    expect(savedChoicesRaw()).toStrictEqual(null);
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    // A host with no storage at all (a non-browser runtime).
+    Reflect.deleteProperty(globalThis, 'localStorage');
+    expect(savedChoicesRaw()).toStrictEqual(null);
+    Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+    // A browser that denies the read (third-party or private contexts).
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('denied');
+      },
+    });
+    expect(savedChoicesRaw()).toStrictEqual(null);
+    Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+    expect(typeof localStorage).toStrictEqual('object');
   });
 });
