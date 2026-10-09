@@ -13,6 +13,16 @@ import {
   officialExtensionsRepository,
   type ExtensionId,
 } from '../../plugins/repository.ts';
+import {
+  EXTENSION_CHOICES_KEY,
+  installChoice,
+  parseChoices,
+  serializeChoices,
+  setChoiceValue,
+  settingsFor,
+  uninstallChoice,
+  type ExtensionChoices,
+} from '../../plugins/extension-choices.ts';
 import type { PluginSlot } from './settings.ts';
 import {
   defaultSettingsSection,
@@ -346,20 +356,48 @@ function extensionFacts(
   ];
 }
 
+function choiceStatus(
+  record: NonNullable<ReturnType<typeof extensionById>>,
+  installed: boolean,
+  messages: DestinationMessages,
+): string {
+  if (installed && record.status === 'on') {
+    return messages.settingsJobOn;
+  }
+  if (installed) {
+    return messages.settingsExtensionSaved;
+  }
+  if (record.status === 'on') {
+    return messages.settingsExtensionOff;
+  }
+  return messages.settingsJobNotInBuild;
+}
+
 function ExtensionPage({
   id,
   messages,
+  installed,
+  values,
+  onInstall,
+  onUninstall,
+  onSetting,
   onBack,
 }: {
   id: ExtensionId;
   messages: DestinationMessages;
+  installed: boolean;
+  values: Record<string, string>;
+  onInstall: () => void;
+  onUninstall: () => void;
+  onSetting: (settingId: string, value: string) => void;
   onBack: () => void;
 }) {
   const record = extensionById(id);
   if (record === undefined) {
     return null;
   }
-  const status = record.status === 'on' ? messages.settingsJobOn : messages.settingsJobNotInBuild;
+  const status = choiceStatus(record, installed, messages);
+  const settings = settingsFor(record.id);
   return (
     <View id="extension-detail" dataSet={{ extensionId: record.id, extensionStatus: record.status }}>
       <View
@@ -396,6 +434,46 @@ function ExtensionPage({
           ))}
         </View>
         <Text dataSet={{ extensionShips: '1' }}>{messages.settingsExtensionShips}</Text>
+        <Text dataSet={{ extensionChoice: '1' }}>{messages.settingsExtensionChoice}</Text>
+        <View
+          dataSet={{ extensionInstall: installed ? 'uninstall' : 'install' }}
+          accessibilityRole="button"
+          accessibilityLabel={installed ? messages.settingsExtensionUninstall : messages.settingsExtensionInstall}
+          tabIndex={0}
+          onClick={installed ? onUninstall : onInstall}
+          onKeyDown={(event) => {
+            activateKey(event, installed ? onUninstall : onInstall);
+          }}
+        >
+          <Text>{installed ? messages.settingsExtensionUninstall : messages.settingsExtensionInstall}</Text>
+        </View>
+        {settings.map((setting) => (
+          <View key={setting.id} dataSet={{ extensionSetting: setting.id }}>
+            <Text dataSet={{ extensionSettingLabel: '1' }}>{setting.label}</Text>
+            {setting.options.map((option) => {
+              const selected = (values[setting.id] ?? setting.defaultValue) === option.id;
+              return (
+                <View
+                  key={option.id}
+                  dataSet={{ extensionOption: option.id, extensionOptionSelected: selected ? '1' : '0' }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${setting.label} ${option.label}`}
+                  tabIndex={0}
+                  onClick={() => {
+                    onSetting(setting.id, option.id);
+                  }}
+                  onKeyDown={(event) => {
+                    activateKey(event, () => {
+                      onSetting(setting.id, option.id);
+                    });
+                  }}
+                >
+                  <Text>{option.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </View>
       <View dataSet={{ extensionRecord: '1' }}>
         <View id="extension-facts" dataSet={{ settingsFacts: '1' }}>
@@ -462,6 +540,18 @@ export function Settings({
   };
   const openExtension = (id: ExtensionId) => {
     onOpenPath?.(`/settings/extensions/${id}`);
+  };
+  const listed = extensionRepository().extensions.map((entry) => ({ id: entry.id, status: entry.status }));
+  const [choices, setChoices] = useState<ExtensionChoices>(() =>
+    parseChoices(typeof localStorage === 'undefined' ? null : localStorage.getItem(EXTENSION_CHOICES_KEY), listed),
+  );
+  const remember = (next: ExtensionChoices) => {
+    setChoices(next);
+    try {
+      localStorage.setItem(EXTENSION_CHOICES_KEY, serializeChoices(next));
+    } catch {
+      // A store that cannot write is not remembered. The choice still shows.
+    }
   };
 
   return (
@@ -582,6 +672,26 @@ export function Settings({
               <ExtensionPage
                 id={extensionId}
                 messages={messages}
+                installed={choices[extensionId]?.installed === true}
+                values={choices[extensionId]?.values ?? {}}
+                onInstall={() => {
+                  const record = extensionById(extensionId);
+                  if (record !== undefined) {
+                    remember(installChoice(choices, extensionId, record.status));
+                  }
+                }}
+                onUninstall={() => {
+                  const record = extensionById(extensionId);
+                  if (record !== undefined) {
+                    remember(uninstallChoice(choices, extensionId, record.status));
+                  }
+                }}
+                onSetting={(settingId, value) => {
+                  const record = extensionById(extensionId);
+                  if (record !== undefined) {
+                    remember(setChoiceValue(choices, extensionId, record.status, settingId, value));
+                  }
+                }}
                 onBack={() => {
                   choose('extensions');
                 }}

@@ -7,6 +7,8 @@
  * anything a record names (INT-074, SEC-EXT-018).
  */
 
+import { EXTENSION_CHOICES_KEY, parseChoices } from './extension-choices.ts';
+
 export const EXTENSION_REPOSITORY_ID = 'gunmetal.extensions';
 export const EXTENSION_REPOSITORY_VERSION = '1';
 
@@ -18,6 +20,14 @@ export type AddressStyle = 'slug' | 'id';
  * extension. Slugs are what the address bar shows. Ids still open.
  */
 export function addressStyle(): AddressStyle {
+  if (typeof localStorage === 'undefined') {
+    return 'slug';
+  }
+  const saved = parseChoices(localStorage.getItem(EXTENSION_CHOICES_KEY), [{ id: 'url-style', status: 'on' }]);
+  const choice = saved['url-style'];
+  if (choice?.installed === true && choice.values.style === 'id') {
+    return 'id';
+  }
   return 'slug';
 }
 

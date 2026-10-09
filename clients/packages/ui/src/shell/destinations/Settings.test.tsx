@@ -653,7 +653,15 @@ test('an extension page is a labeled record, not a dump of fields', () => {
   expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')).toBeNull();
   expect(document.querySelector('#extension-detail script')).toBeNull();
   expect(document.querySelector('#extension-detail iframe')).toBeNull();
-  expect(screen.queryByRole('button', { name: /install|enable|load plugin/i })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Install' })).not.toBeNull();
+  expect(page?.querySelector('[data-extension-choice]')?.textContent).toStrictEqual(
+    'Install saves your choice on this server. It does not download or run a package.',
+  );
+  localStorage.removeItem('gunmetal.extension.choices');
+  fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual(
+    'Saved. This server does not run it yet.',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Back to extensions' }));
   expect(opened).toStrictEqual(['/settings/extensions']);
   fireEvent.keyDown(screen.getByRole('button', { name: 'Back to extensions' }), { key: 'Enter' });
@@ -678,6 +686,11 @@ test('an extension that this library already runs says On and names its grant', 
     'extension-title',
   );
   expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('On');
+  expect(screen.getByRole('button', { name: 'Uninstall' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'Cover Art Archive On' })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
+  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('Off');
+  localStorage.removeItem('gunmetal.extension.choices');
   expect(
     [...(page?.querySelectorAll('[data-extension-fact]') ?? [])].map((fact) => [
       fact.getAttribute('data-extension-fact'),
@@ -708,7 +721,7 @@ test('the extensions pane names Wasm grants and this build loads no plugin host'
   expect(document.querySelector('#settings-extensions iframe')).toBeNull();
   expect(document.querySelector('[data-plugin-row]')).toBeNull();
   expect(document.querySelector('[data-plugin-grant]')).toBeNull();
-  expect(screen.queryByRole('button', { name: /install|enable|load plugin/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /load plugin/i })).toBeNull();
   const settingsSource = await readFile(join(here, 'Settings.tsx'), 'utf8');
   const logicSource = await readFile(join(here, 'settings.ts'), 'utf8');
   const combined = `${settingsSource}\n${logicSource}`;

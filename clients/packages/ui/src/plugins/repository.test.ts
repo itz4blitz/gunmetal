@@ -108,6 +108,17 @@ test('the repository is the closed list extensions target', () => {
     ],
   });
   expect(addressStyle()).toStrictEqual('slug');
+  localStorage.setItem(
+    'gunmetal.extension.choices',
+    JSON.stringify({ 'url-style': { installed: true, values: { style: 'id' } } }),
+  );
+  expect(addressStyle()).toStrictEqual('id');
+  localStorage.setItem(
+    'gunmetal.extension.choices',
+    JSON.stringify({ 'url-style': { installed: false, values: { style: 'id' } } }),
+  );
+  expect(addressStyle()).toStrictEqual('slug');
+  localStorage.removeItem('gunmetal.extension.choices');
   expect(EXTENSION_REPOSITORY_ID).toStrictEqual('gunmetal.extensions');
   expect(EXTENSION_REPOSITORY_VERSION).toStrictEqual('1');
 });

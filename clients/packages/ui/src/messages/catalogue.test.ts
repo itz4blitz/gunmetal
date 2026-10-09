@@ -238,6 +238,13 @@ test('the catalogue returns trusted shell and destination strings', () => {
         'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
       storeOn: 'On this server',
       storeCatalogue: 'In the store',
+      settingsExtensionInstall: 'Install',
+      settingsExtensionUninstall: 'Uninstall',
+      settingsExtensionOff: 'Off',
+      settingsExtensionSaved: 'Saved. This server does not run it yet.',
+      settingsExtensionChoice: 'Install saves your choice on this server. It does not download or run a package.',
+      storeInstall: 'Install',
+      storeUninstall: 'Uninstall',
     },
   });
 });

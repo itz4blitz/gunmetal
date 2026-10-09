@@ -612,6 +612,7 @@ test('a media address with no item shows the kind, and a loaded library says it 
 // Verifies: SEC-EXT-018
 test('the store route shows the catalogue and opens an extension page, not settings', () => {
   const onOpenPath = vi.fn();
+  localStorage.removeItem('gunmetal.extension.choices');
   render(
     <Destination
       searchLibrary={demoLocalFilter}
@@ -665,7 +666,10 @@ test('the store route shows the catalogue and opens an extension page, not setti
     'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
   );
   expect(card.textContent).toContain('On this server');
-  expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Uninstall Metadata and artwork' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'Install Lyrics lookup' })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Install Lyrics lookup' }));
+  expect(onOpenPath).not.toHaveBeenCalled();
   fireEvent.click(card);
   expect(onOpenPath).toHaveBeenCalledTimes(1);
   expect(onOpenPath).toHaveBeenCalledWith('/settings/extensions/cover-art');
