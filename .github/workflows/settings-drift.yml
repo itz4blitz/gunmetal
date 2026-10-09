@@ -31,8 +31,17 @@ jobs:
           toolchain: 1.98.1
       # An endpoint for a feature that is off answers 404 with a JSON body;
       # that body is kept, and xtask reports it as drift or unreadable.
+      - id: settings-token
+        env:
+          SETTINGS_READER_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
+        run: |
+          if [ -n "$SETTINGS_READER_TOKEN" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Fetch live settings and advisories
-        if: secrets.SETTINGS_READER_TOKEN != ''
+        if: steps.settings-token.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
         run: |
@@ -56,8 +65,8 @@ jobs:
             "repos/$GITHUB_REPOSITORY/security-advisories?per_page=100" \
             > target/advisories.json || true
       - name: Settings match the policy
-        if: secrets.SETTINGS_READER_TOKEN != ''
+        if: steps.settings-token.outputs.run == 'true'
         run: cargo run --locked --quiet -p xtask -- repo settings target/settings
       - name: Every published advisory has a regression test
-        if: secrets.SETTINGS_READER_TOKEN != ''
+        if: steps.settings-token.outputs.run == 'true'
         run: cargo run --locked --quiet -p xtask -- repo advisories target/advisories.json
