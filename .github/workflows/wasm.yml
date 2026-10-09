@@ -15,11 +15,6 @@ on:
   push:
     branches: [main, "wave-*"]
 
-# Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
-permissions: {}
-
 concurrency:
   group: wasm-${{ github.ref }}
   cancel-in-progress: true
@@ -28,8 +23,6 @@ jobs:
   build:
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
-    permissions:
-      contents: read
     # Warnings are errors in every build here, as in the gate's lint step, so
     # a warning in the wrappers, or anywhere the facade and the core compile
     # for wasm32, fails the build.

@@ -144,6 +144,7 @@ The owner directed these in conversation on 2026-10-06.
 | D-92 Runner shape | Forgejo burst copies Palam's `ph-ci` shape (Terraform, ephemeral VMs, spend fuse). No new ECS Fargate stack. Recorded as [record 19](adr/0019-copy-palam-ci-shape.md). |
 | D-93 Premier CI account | Dedicated account `premier-cicd` `109792548422` (`aws-premier-cicd@premierstudio.ai`, `us-east-2`). IaC is `PremierStudio/premier-cicd`. Recorded as [record 20](adr/0020-premier-cicd-account.md). |
 | D-94 Forgejo action references | Third-party Actions are absolute SHA-pinned GitHub URLs, because the runner resolves short names against `data.forgejo.org` and that mirror does not have them. `permissions:` stays despite Forgejo's warning. Recorded as [record 23](adr/0023-forgejo-action-references.md). |
+| D-95 No Actions permissions field | Workflows do not set `permissions:`. Forgejo ignores it and warns on every job. The zizmor canary still proves the audit. Supersedes that part of D-94. Recorded as [record 24](adr/0024-no-actions-permissions-field.md). |
 
 ## Decide first
 
@@ -2694,3 +2695,18 @@ Answered 2026-10-06: `premier-cicd` `109792548422`. See
 
 Answered 2026-10-08: that is the CI fix. See
 [record 23](adr/0023-forgejo-action-references.md).
+The `permissions:` half was superseded the same day. See
+[D-95](#d-95-no-actions-permissions-field).
+
+### D-95 No Actions permissions field
+
+- **Question.** Forgejo prints a warning on every job that a workflow
+  or job has a `permissions` field, and ignores the field. Keep it for
+  zizmor, or remove it?
+- **Recommendation.** Remove it. The warning is what people see on every
+  run, and the field does not grant or deny anything on this forge.
+  Keep the scratch canary that proves zizmor still fails default
+  permissions.
+
+Answered 2026-10-08: remove the field. See
+[record 24](adr/0024-no-actions-permissions-field.md).
