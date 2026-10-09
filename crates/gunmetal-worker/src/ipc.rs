@@ -68,6 +68,8 @@ use gunmetal_core::parse::{Budget, Limits};
 use gunmetal_core::wire::{self, Frame, FrameKind, MAX_FRAME, ProtocolVersion, WireError};
 use rustix::fs::{OFlags, fcntl_getfl};
 use rustix::io::retry_on_intr;
+#[cfg(not(target_os = "linux"))]
+use rustix::io::{FdFlags, fcntl_setfd};
 use rustix::net::{
     RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags, recvmsg, sendmsg,
@@ -280,6 +282,25 @@ fn request_frame(request: &Request) -> Result<Vec<u8>, SendError> {
         .map_err(SendError::Wire)
 }
 
+/// The send flags for a job or an answer: `MSG_NOSIGNAL`, so a peer that
+/// went away ends the send with an error instead of a signal. macOS has
+/// no `MSG_NOSIGNAL`; there the flags are empty, and a Rust process has
+/// SIGPIPE ignored from start-up, so the send ends with `EPIPE` all the
+/// same.
+#[cfg(target_os = "linux")]
+const SEND: SendFlags = SendFlags::NOSIGNAL;
+#[cfg(not(target_os = "linux"))]
+const SEND: SendFlags = SendFlags::empty();
+
+/// The receive flags for a job: `MSG_CMSG_CLOEXEC`, so a descriptor the
+/// peer passed cannot leak to a process the worker starts later. macOS
+/// has no `MSG_CMSG_CLOEXEC`; there each descriptor is marked the same
+/// way right after the receive.
+#[cfg(target_os = "linux")]
+const RECV: RecvFlags = RecvFlags::CMSG_CLOEXEC;
+#[cfg(not(target_os = "linux"))]
+const RECV: RecvFlags = RecvFlags::empty();
+
 /// Sends `job` to the worker at the other end of `socket`, with `files` as
 /// the descriptors it works on: the media file first, then its sidecars.
 ///
@@ -330,14 +351,7 @@ pub fn send(socket: &UnixStream, job: Job, files: &[BorrowedFd<'_>]) -> Result<(
     let mut rest = socket;
     transmit(
         &frame,
-        || {
-            sendmsg(
-                socket,
-                &[IoSlice::new(&frame)],
-                &mut control,
-                SendFlags::NOSIGNAL,
-            )
-        },
+        || sendmsg(socket, &[IoSlice::new(&frame)], &mut control, SEND),
         &mut rest,
     )
     .map_err(|error| SendError::Io(error.kind()))
@@ -400,11 +414,17 @@ impl Read for Receiving<'_> {
             self.socket,
             &mut [IoSliceMut::new(octets)],
             &mut control,
-            RecvFlags::CMSG_CLOEXEC,
+            RECV,
         )?;
         for message in control.drain() {
             if let RecvAncillaryMessage::ScmRights(files) = message {
+                #[cfg(target_os = "linux")]
                 self.files.extend(files);
+                #[cfg(not(target_os = "linux"))]
+                for file in files {
+                    let _ = fcntl_setfd(&file, FdFlags::CLOEXEC);
+                    self.files.push(file);
+                }
             }
         }
         // Either refusal ends the read here, so nothing more is read and
@@ -608,40 +628,105 @@ pub fn read_answer<A: Revalidate>(
 /// Files and sockets for this crate's unit tests.
 #[cfg(test)]
 pub(crate) mod testing {
-    use rustix::fs::{CWD, MemfdFlags, Mode, OFlags, memfd_create, openat};
+    use rustix::fs::{CWD, Mode, OFlags, openat};
+    #[cfg(target_os = "linux")]
+    use rustix::fs::{MemfdFlags, memfd_create};
     use std::fs::File;
     use std::io::Write;
-    use std::os::fd::{AsRawFd, OwnedFd};
+    #[cfg(target_os = "linux")]
+    use std::os::fd::AsRawFd;
+    use std::os::fd::OwnedFd;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
     /// A new file in memory that holds `octets`, open for reading and
-    /// writing.
+    /// writing. Where the platform has no memfd helper in rustix, a
+    /// temporary stands in: created under a name only this test knows and
+    /// unlinked at once, so nothing readable by name survives it.
     pub(crate) fn memory_file(octets: &[u8]) -> OwnedFd {
+        #[cfg(target_os = "linux")]
         let file = memfd_create("gunmetal-worker-test", MemfdFlags::CLOEXEC).unwrap();
+        #[cfg(not(target_os = "linux"))]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test makes its own temporary under the platform's temporary directory, a fixed name it unlinks at once (SEC-MED-020)"
+        )]
+        let file = {
+            use std::fs::OpenOptions;
+            use std::os::unix::fs::OpenOptionsExt;
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SEEN: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "gunmetal-worker-test-{}-{}",
+                std::process::id(),
+                SEEN.fetch_add(1, Ordering::Relaxed)
+            ));
+            let descriptor: OwnedFd = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .unwrap()
+                .into();
+            std::fs::remove_file(&path).unwrap();
+            descriptor
+        };
         let mut writer = File::from(file);
         writer.write_all(octets).unwrap();
         OwnedFd::from(writer)
     }
 
-    /// A new file in memory that holds `octets`, opened again with `flags`
-    /// through this process's own descriptor table: read-only, as the
-    /// server's path rules open a library file; write-only; or `O_PATH`,
+    /// A new file that holds `octets`, opened again with `flags` through
+    /// this process's own descriptor table: read-only, as the server's
+    /// path rules open a library file; write-only; or, on Linux, `O_PATH`,
     /// which names the file and cannot read it, so that a read fails with
-    /// `EBADF` as it does on a closed descriptor.
+    /// `EBADF` as it does on a closed descriptor. On Linux the table is
+    /// read through `/proc/self/fd`. Off Linux, `/dev/fd` names a
+    /// duplicate with the rights the descriptor already has, so the file
+    /// is made under a name instead, opened again with the rights
+    /// wanted, and unlinked at once.
     pub(crate) fn reopened(octets: &[u8], flags: OFlags) -> OwnedFd {
+        #[cfg(target_os = "linux")]
         let file = memory_file(octets);
+        #[cfg(target_os = "linux")]
+        let named = format!("/proc/self/fd/{}", file.as_raw_fd());
+        #[cfg(not(target_os = "linux"))]
         #[expect(
             clippy::disallowed_methods,
-            reason = "the test opens its own in-memory file again through /proc/self/fd, a fixed path, to hold it with other access rights (SEC-MED-020)"
+            reason = "the test makes its own temporary under the platform's temporary directory, a fixed name it unlinks at once (SEC-MED-020)"
+        )]
+        let named = {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SEEN: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "gunmetal-worker-reopen-{}-{}",
+                std::process::id(),
+                SEEN.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::write(&path, octets).unwrap();
+            path
+        };
+        #[cfg(not(target_os = "linux"))]
+        let written = named.clone();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test opens its own file again through its descriptor's fixed name, to hold it with other access rights (SEC-MED-020)"
         )]
         let again = openat(
             CWD,
-            format!("/proc/self/fd/{}", file.as_raw_fd()),
+            named,
             flags | OFlags::CLOEXEC,
-            Mode::empty(),
+            Mode::from_raw_mode(0o600),
         );
-        again.unwrap()
+        let again = again.unwrap();
+        #[cfg(not(target_os = "linux"))]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test unlinks its own temporary, the fixed name it made (SEC-MED-020)"
+        )]
+        std::fs::remove_file(written).unwrap();
+        again
     }
 
     /// A read-only descriptor of a new file that holds `octets`.
@@ -673,6 +758,7 @@ mod tests {
     use gunmetal_core::wire::{FrameKind, PostcardError, ProtocolVersion, WireError};
     use rustix::fs::OFlags;
     use rustix::io::{Errno, FdFlags, fcntl_getfd, pread};
+    #[cfg(target_os = "linux")]
     use rustix::net::sockopt::set_socket_passcred;
     use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg};
     use serde::{Deserialize, Serialize};
@@ -708,7 +794,11 @@ mod tests {
     /// Writes `octets` to `socket` as one message, with `files` beside
     /// them: nine at most, one more than a worker makes room for.
     fn write_with(socket: &UnixStream, octets: &[u8], files: &[BorrowedFd<'_>]) {
-        let mut space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(9))];
+        // The room for one message of nine, with one more beside it: the
+        // alignment a control message needs differs by platform, and a
+        // full ninth message fits only with the slack.
+        let mut space =
+            [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(9), ScmRights(1))];
         let mut control = SendAncillaryBuffer::new(&mut space);
         assert!(control.push(SendAncillaryMessage::ScmRights(files)));
         let sent = sendmsg(
@@ -752,7 +842,16 @@ mod tests {
         arrived(&receive(worker.as_fd(), &Limits::DEFAULT))
     }
 
-    /// How long `within` waits to show that a copy is still open.
+    /// How long `within` waits to show that a copy is still open. Its
+    /// readers are the passed-descriptor tests, which run on Linux, where
+    /// the kernel's rights accounting is the channel's.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            dead_code,
+            reason = "the tests that watch a copy for this long run on Linux"
+        )
+    )]
     const BRIEFLY: Duration = Duration::from_millis(20);
 
     /// How long `within` may wait to show that none is. The end of the
@@ -773,9 +872,25 @@ mod tests {
     /// and while one is it reads nothing and gives up after `wait` with
     /// `WouldBlock`.
     fn within(kept: &UnixStream, wait: Duration) -> Result<usize, io::ErrorKind> {
-        kept.set_read_timeout(Some(wait)).unwrap();
+        // The wait was a socket read timeout once, but macOS refuses to
+        // set one on a socket whose pair has carried a passed descriptor,
+        // so the same deadline is kept by polling a non-blocking read,
+        // which behaves the same on every platform.
+        kept.set_nonblocking(true).unwrap();
+        let started = std::time::Instant::now();
         let mut reader = kept;
-        reader.read(&mut [0_u8; 1]).map_err(|error| error.kind())
+        loop {
+            match reader.read(&mut [0_u8; 1]) {
+                Ok(count) => return Ok(count),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if started.elapsed() >= wait {
+                        return Err(io::ErrorKind::WouldBlock);
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => return Err(error.kind()),
+            }
+        }
     }
 
     /// Runs `transmit` over `whole` with a first call that answers with
@@ -1192,6 +1307,12 @@ mod tests {
     /// it drops them, the other end reads the end of the stream. After a
     /// refusal it reads the end at once: the worker closed the eight it
     /// had received, and the system the ninth.
+    /// A ninth file beside one message is refused as a control message
+    /// cut short. The refusal reads the kernel's own clamping of control
+    /// data to the room the reader gave it; macOS reports an unclamped
+    /// length for a cut-short message instead, so the test runs on Linux,
+    /// where the contract is the kernel's.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_ninth_file_beside_one_message_is_refused_as_a_control_message_cut_short() {
         let (server, worker) = pair();
@@ -1280,7 +1401,12 @@ mod tests {
     /// the descriptors of two messages, and the third is left in the
     /// socket: its octets are read afterwards, by a plain read that takes
     /// no descriptor, and the system closes the one beside them. Then no
-    /// copy is open (`within`).
+    /// copy is open (`within`). Linux reclaims a descriptor as soon as the
+    /// read that discards it, or the close of the socket that held it,
+    /// happens; macOS reclaims through its socket garbage collection
+    /// lazily, and the end of the stream is not observed here in its
+    /// window, so the test runs on Linux.
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_worker_stops_reading_at_the_message_that_brings_a_file_too_many() {
         let whole = frame(REQUEST, &[0, 0, 10]);
@@ -1379,7 +1505,9 @@ mod tests {
 
     /// A socket that asks for its peer's credentials gets them beside
     /// every message it reads, in a control message of their own. They are
-    /// not descriptors, and the worker takes none of them for a file.
+    /// not descriptors, and the worker takes none of them for a file. The
+    /// socket option is Linux's, so the test runs there.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_control_message_that_is_not_descriptors_is_passed_over() {
         let (server, worker) = pair();
@@ -1487,7 +1615,10 @@ mod tests {
     /// (`within`). While the answer waits unread, the copy beside it keeps
     /// the socket open and the other end reads nothing. Once the server has
     /// read the answer, the other end reads the end of the stream: no copy
-    /// is open in this process or on its way to it.
+    /// is open in this process or on its way to it. Linux reclaims the
+    /// discarded descriptor at the read; macOS reclaims lazily, so the
+    /// test runs on Linux.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_descriptor_passed_beside_an_answer_never_reaches_the_server() {
         let (server, worker) = pair();
