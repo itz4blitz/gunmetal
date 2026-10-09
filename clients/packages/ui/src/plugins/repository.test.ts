@@ -6,12 +6,12 @@ import {
   EXTENSION_REPOSITORY_ID,
   EXTENSION_REPOSITORY_VERSION,
   extensionById,
-  extensionIdFromPath,
-  extensionPath,
   extensionTitle,
   addressStyle,
   extensionRepository,
   officialExtensionsRepository,
+  storeDetailPath,
+  storeIdFromPath,
 } from './repository.ts';
 
 test('the repository is the closed list extensions target', () => {
@@ -137,14 +137,14 @@ test('the catalogue points at the official extensions repository and does not fe
   expect(source.includes('import(')).toStrictEqual(false);
 });
 
-test('an extension id is a page on this host and an unknown id is not', () => {
-  expect(extensionPath('url-style')).toStrictEqual('/settings/extensions/url-style');
-  expect(extensionPath('cover-art')).toStrictEqual('/settings/extensions/cover-art');
+test('an extension id is a store page and an unknown id is not', () => {
+  expect(storeDetailPath('url-style')).toStrictEqual('/store/url-style');
+  expect(storeDetailPath('cover-art')).toStrictEqual('/store/cover-art');
   expect(extensionById('lyrics')?.title).toStrictEqual('Lyrics lookup');
   expect(extensionById('nope')).toStrictEqual(undefined);
   expect(extensionTitle('url-style')).toStrictEqual('Address style');
   expect(extensionTitle('nope')).toStrictEqual('nope');
-  expect(extensionIdFromPath('/settings/extensions/scrobble')).toStrictEqual('scrobble');
-  expect(extensionIdFromPath('/settings/extensions')).toStrictEqual(undefined);
-  expect(extensionIdFromPath('/settings/extensions/nope')).toStrictEqual(undefined);
+  expect(storeIdFromPath('/store/scrobble')).toStrictEqual('scrobble');
+  expect(storeIdFromPath('/store')).toStrictEqual(undefined);
+  expect(storeIdFromPath('/store/nope')).toStrictEqual(undefined);
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue, type MessageCatalogue } from '../messages/catalogue.ts';
-import { extensionIdFromPath, extensionTitle, storeIdFromPath } from '../plugins/repository.ts';
+import { extensionTitle, storeIdFromPath } from '../plugins/repository.ts';
 import { BrandMark } from './brand-mark.tsx';
 import { itemAddress, resolveMedia } from '../router/catalogue-address.ts';
 import { labelFromKey, parseMediaPath } from '../router/media-path.ts';
@@ -205,13 +205,6 @@ function pinForRoute(path: string, messages: MessageCatalogue): Pin | undefined 
   }
   if (path === '/settings/connected') {
     return { path, label: messages.destinations.settingsConnected };
-  }
-  if (path === '/settings/extensions') {
-    return { path, label: messages.destinations.settingsExtensions };
-  }
-  const extensionId = extensionIdFromPath(path);
-  if (extensionId !== undefined) {
-    return { path, label: extensionTitle(extensionId) };
   }
   if (path === '/settings/about') {
     return { path, label: messages.destinations.settingsAbout };

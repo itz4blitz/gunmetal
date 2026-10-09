@@ -72,7 +72,7 @@ test('every allowed path is kept in the order it was stored', () => {
   const stored: readonly Pin[] = [
     { path: '/settings/privacy', label: 'Privacy' },
     { path: '/settings/about', label: 'About' },
-    { path: '/settings/extensions', label: 'Extensions' },
+    { path: '/store/cover-art', label: 'Metadata and artwork' },
     { path: '/settings/playback', label: 'Playback' },
     { path: '/settings/appearance', label: 'Appearance' },
     { path: '/settings', label: 'Settings' },
@@ -83,7 +83,7 @@ test('every allowed path is kept in the order it was stored', () => {
   expect(readPins(JSON.stringify(stored))).toStrictEqual([
     { path: '/settings/privacy', label: 'Privacy' },
     { path: '/settings/about', label: 'About' },
-    { path: '/settings/extensions', label: 'Extensions' },
+    { path: '/store/cover-art', label: 'Metadata and artwork' },
     { path: '/settings/playback', label: 'Playback' },
     { path: '/settings/appearance', label: 'Appearance' },
     { path: '/settings', label: 'Settings' },
@@ -272,9 +272,9 @@ test('an album pin is kept beside the library page, and a bad item id is dropped
     { path: '/settings/connected', label: 'Connected services' },
   ]);
   expect(
-    readPins(JSON.stringify([{ path: '/settings/extensions/cover-art', label: 'Metadata and artwork' }])),
-  ).toStrictEqual([{ path: '/settings/extensions/cover-art', label: 'Metadata and artwork' }]);
-  expect(readPins(JSON.stringify([{ path: '/settings/extensions/nope', label: 'Nope' }]))).toStrictEqual([]);
+    readPins(JSON.stringify([{ path: '/store/cover-art', label: 'Metadata and artwork' }])),
+  ).toStrictEqual([{ path: '/store/cover-art', label: 'Metadata and artwork' }]);
+  expect(readPins(JSON.stringify([{ path: '/store/nope', label: 'Nope' }]))).toStrictEqual([]);
 });
 
 test('togglePin adds and removes an album without touching another album or the library page', () => {

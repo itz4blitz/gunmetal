@@ -7,7 +7,7 @@
  * matched exactly, so a pin cannot name an address outside the shell.
  */
 
-import { extensionPath, extensionRepository } from '../plugins/repository.ts';
+import { extensionRepository, storeDetailPath } from '../plugins/repository.ts';
 import { parseMediaPath } from '../router/media-path.ts';
 
 export type Pin = {
@@ -24,12 +24,11 @@ function pinPaths(): readonly string[] {
     '/search',
     '/library',
     '/store',
+    ...extensionRepository().extensions.map((entry) => storeDetailPath(entry.id)),
     '/settings',
     '/settings/appearance',
     '/settings/playback',
     '/settings/connected',
-    '/settings/extensions',
-    ...extensionRepository().extensions.map((entry) => extensionPath(entry.id)),
     '/settings/about',
     '/settings/privacy',
   ];

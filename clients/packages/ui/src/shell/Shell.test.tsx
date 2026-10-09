@@ -896,15 +896,13 @@ test('the store door opens the catalogue and a pin of it is labeled Store', () =
   pinned.unmount();
 });
 
-test('pinning extensions stores that section under its catalogue label', () => {
+test('pinning a store record stores it under its catalogue label', () => {
   window.history.pushState(null, '', '/');
-  render(
-    <Shell playback={stubPlayback().controller} path="/settings/extensions" widthPx={1600} library={demoLibrary()} />,
-  );
+  render(<Shell playback={stubPlayback().controller} path="/store/cover-art" widthPx={1600} library={demoLibrary()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
-  expect(screen.getByRole('link', { name: 'Extensions / Plugins' })).not.toBeNull();
+  expect(screen.getByRole('link', { name: 'Metadata and artwork' })).not.toBeNull();
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
-    '[{"path":"/settings/extensions","label":"Extensions / Plugins"}]',
+    '[{"path":"/store/cover-art","label":"Metadata and artwork"}]',
   );
 });
 
@@ -1094,12 +1092,12 @@ test('connected services and an extension page pin to the sidebar under their ow
   connected.unmount();
   window.localStorage.removeItem('gunmetal.pins');
 
-  window.history.pushState(null, '', '/settings/extensions/cover-art');
+  window.history.pushState(null, '', '/store/url-style');
   const extension = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
-  expect(screen.getByRole('link', { name: 'Metadata and artwork' })).not.toBeNull();
+  expect(screen.getByRole('link', { name: 'Address style' })).not.toBeNull();
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
-    '[{"path":"/settings/extensions/cover-art","label":"Metadata and artwork"}]',
+    '[{"path":"/store/url-style","label":"Address style"}]',
   );
   extension.unmount();
 });

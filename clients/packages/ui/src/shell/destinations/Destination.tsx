@@ -14,7 +14,7 @@ import {
 } from './settings.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import { extensionIdFromPath, storeIdFromPath } from '../../plugins/repository.ts';
+import { storeIdFromPath } from '../../plugins/repository.ts';
 import { labelFromKey } from '../../router/media-path.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
 import { ArtistDetail } from './ArtistDetail.tsx';
@@ -277,7 +277,6 @@ export function Destination({
     <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
       <Settings
         section={section ?? settingsSectionFromPath(match.route.path)}
-        extensionId={extensionIdFromPath(match.route.path)}
         onOpenPath={onOpenPath}
         pluginSlots={pluginSlots}
         libraryFact={libraryFact}
