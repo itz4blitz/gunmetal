@@ -8249,6 +8249,10 @@ Vision, lossless audio and image-based subtitles. Jellyfin and Plex already
 transcode and remux reliably with FFmpeg, so Gunmetal is behind them until
 WP-201 to WP-204 and WP-213 are done.
 
+The order of delivery across these packages, the client's video packages,
+and the live-TV packages that follow them, is proposed in
+[video-implementation.md](video-implementation.md), for the owner's review.
+
 The **Security** column gives each outline package's trust boundaries,
 threats and the requirement IDs its tests must verify. Each package gets
 a full Security field, in the R1 form, before its wave starts. Some R2
