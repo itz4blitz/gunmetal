@@ -44,14 +44,11 @@
 }
 
 #token-shell #destination-settings[data-settings-layout='side'] {
-  display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  grid-template-areas:
-    'head head'
-    'nav panes';
-  column-gap: var(--gm-space-9);
-  row-gap: var(--gm-space-6);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  max-width: 880px;
+  gap: var(--gm-space-6);
+  align-items: stretch;
 }
 
 #token-shell #destination-settings[data-settings-layout='side'] #destination-headline {
@@ -146,13 +143,17 @@
 /* —— Section list: flat, left-aligned, brass bar on the selected row —— */
 
 #token-shell #destination-settings #settings-nav {
-  position: sticky;
-  top: 0;
+  position: static;
   display: flex;
-  flex-direction: column;
-  gap: var(--gm-space-1);
+  flex-direction: row;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
+  border-bottom: 1px solid var(--gm-line-subtle);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -160,15 +161,17 @@
 
 #token-shell #destination-settings #settings-nav [role='tab'] {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
-  min-height: 40px;
-  padding: var(--gm-space-3) var(--gm-space-4) var(--gm-space-3) var(--gm-space-5);
-  border-radius: var(--gm-radius-m);
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
   cursor: pointer;
+  white-space: nowrap;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
   transition:
@@ -185,8 +188,8 @@
 
 /* Selected (design-language §4): 14% brass wash and a 3px leading bar. */
 #token-shell #destination-settings #settings-nav [data-selected='1'] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
-  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--gm-accent-indicator);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
@@ -1198,6 +1201,15 @@
   min-width: 0;
 }
 
+#token-shell [data-store-lede],
+#token-shell [data-store-home],
+#token-shell [data-extension-record],
+#token-shell [data-extension-ships],
+#token-shell [data-extension-choice],
+#token-shell [data-extension-section='does'] {
+  display: none;
+}
+
 #token-shell [data-store-lede] {
   max-width: 62ch;
   margin: 0;
@@ -1219,9 +1231,10 @@
 
 #token-shell [data-store-grid] {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--gm-space-4);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
   width: 100%;
+  max-width: 1080px;
   min-width: 0;
 }
 
@@ -1350,6 +1363,38 @@
 #token-shell [data-store-action]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
+}
+
+#token-shell [data-store-item] {
+  min-height: 220px;
+  justify-content: space-between;
+}
+
+#token-shell [data-store-status] {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+#token-shell [data-store-action] {
+  align-self: stretch;
+  width: 100%;
+}
+
+#token-shell #extension-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  max-width: 640px;
+}
+
+#token-shell #extension-back {
+  width: fit-content;
+  align-self: flex-start;
 }
 
 #token-shell #extension-detail [data-extension-choice] {
