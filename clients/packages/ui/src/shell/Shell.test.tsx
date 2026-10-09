@@ -874,10 +874,11 @@ test('the store door opens the catalogue and a pin of it is labeled Store', () =
   expect(home.container.querySelector('#destination-store')).not.toBeNull();
   expect(home.container.querySelector('#destination-settings')).toBeNull();
   expect(home.container.querySelector('[data-store-card="cover-art"]')?.textContent).toContain('On this server');
-  expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Metadata and artwork' }));
-  expect(window.location.pathname).toStrictEqual('/settings/extensions/cover-art');
-  expect(home.container.querySelector('#extension-detail')).not.toBeNull();
+  expect(window.location.pathname).toStrictEqual('/store/cover-art');
+  expect(home.container.querySelector('#destination-store')).not.toBeNull();
+  expect(home.container.querySelector('#destination-settings')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Back to store' })).not.toBeNull();
   home.unmount();
 
   window.history.pushState(null, '', '/store');

@@ -1,4 +1,4 @@
-import { extensionPath, extensionRepository } from './plugins/repository.ts';
+import { extensionPath, extensionRepository, storeDetailPath } from './plugins/repository.ts';
 
 export type Route = {
   path: string;
@@ -15,6 +15,12 @@ export function routes(): readonly Route[] {
     { path: '/search', surface: 'SUR-032', needsSession: true, needsAdminSession: false },
     { path: '/library', surface: 'SUR-022', needsSession: true, needsAdminSession: false },
     { path: '/store', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
+    ...extensionRepository().extensions.map((entry) => ({
+      path: storeDetailPath(entry.id),
+      surface: 'SUR-073',
+      needsSession: true,
+      needsAdminSession: false,
+    })),
     { path: '/settings', surface: 'SUR-076', needsSession: true, needsAdminSession: false },
     { path: '/settings/appearance', surface: 'SUR-076', needsSession: true, needsAdminSession: false },
     { path: '/settings/playback', surface: 'SUR-074', needsSession: true, needsAdminSession: false },

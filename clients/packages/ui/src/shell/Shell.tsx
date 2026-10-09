@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue, type MessageCatalogue } from '../messages/catalogue.ts';
-import { extensionIdFromPath, extensionTitle } from '../plugins/repository.ts';
+import { extensionIdFromPath, extensionTitle, storeIdFromPath } from '../plugins/repository.ts';
 import { BrandMark } from './brand-mark.tsx';
 import { itemAddress, resolveMedia } from '../router/catalogue-address.ts';
 import { labelFromKey, parseMediaPath } from '../router/media-path.ts';
@@ -193,6 +193,10 @@ function pinForRoute(path: string, messages: MessageCatalogue): Pin | undefined 
   if (path === '/store') {
     return { path, label: messages.shell.navStore };
   }
+  const storeId = storeIdFromPath(path);
+  if (storeId !== undefined) {
+    return { path, label: extensionTitle(storeId) };
+  }
   if (path === '/settings/appearance') {
     return { path, label: messages.destinations.settingsAppearance };
   }
@@ -259,6 +263,9 @@ function samePinnedPage(left: Pin, right: Pin, library: ShellLibrary | undefined
 function navActivePath(activePath: string, items: readonly { path: string }[]): string {
   if (items.some((item) => item.path === activePath)) {
     return activePath;
+  }
+  if (activePath.startsWith('/store')) {
+    return '/store';
   }
   if (activePath.startsWith('/settings')) {
     return '/settings';

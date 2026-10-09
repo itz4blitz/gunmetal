@@ -14,12 +14,14 @@ import {
   uninstallChoice,
   type ExtensionChoices,
 } from '../../plugins/extension-choices.ts';
-import { extensionById, extensionPath, extensionRepository, officialExtensionsRepository } from '../../plugins/repository.ts';
+import { extensionById, extensionRepository, officialExtensionsRepository, storeDetailPath } from '../../plugins/repository.ts';
 import { loadPublishedStore, type StoreListing } from '../../plugins/store-catalog.ts';
 
 export type StoreProps = {
   messages: DestinationMessages;
   onOpenPath?: ((path: string) => void) | undefined;
+  /** A record open inside the store. Absent means the catalogue. */
+  selectedId?: string | undefined;
   /** A test or a caller can pass the published list. Absent means load it. */
   listings?: readonly StoreListing[] | undefined;
 };
@@ -31,7 +33,7 @@ function activateKey(event: { key: string; preventDefault: () => void }, action:
   }
 }
 
-export function Store({ messages, onOpenPath, listings }: StoreProps) {
+export function Store({ messages, onOpenPath, selectedId, listings }: StoreProps) {
   const home = officialExtensionsRepository();
   const builtIn = extensionRepository().extensions;
   const [published, setPublished] = useState<readonly StoreListing[] | undefined>(listings);
@@ -69,6 +71,53 @@ export function Store({ messages, onOpenPath, listings }: StoreProps) {
       // The choice still shows when the browser cannot store it.
     }
   };
+  const selected = selectedId === undefined ? undefined : shown.find((entry) => entry.id === selectedId);
+  if (selected !== undefined) {
+    const installed = choices[selected.id]?.installed === true;
+    const on = selected.status === 'on';
+    const toggle = () => {
+      const status = on ? 'on' : 'not-in-build';
+      remember(installed ? uninstallChoice(choices, selected.id, status) : installChoice(choices, selected.id, status));
+    };
+    const back = () => {
+      onOpenPath?.('/store');
+    };
+    return (
+      <View id="destination-store" dataSet={{ storeDetail: selected.id }}>
+        <View
+          dataSet={{ storeBack: '1' }}
+          accessibilityRole="button"
+          accessibilityLabel="Back to store"
+          tabIndex={0}
+          onClick={back}
+          onKeyDown={(event) => {
+            activateKey(event, back);
+          }}
+        >
+          <Text>Back to store</Text>
+        </View>
+        <Text id="destination-headline" accessibilityRole="header">
+          {selected.title}
+        </Text>
+        <Text dataSet={{ storeSummary: '1' }}>{selected.summary}</Text>
+        <Text dataSet={{ storeStatus: installed && on ? 'on' : 'catalogue' }}>
+          {installed && on ? messages.storeOn : on ? 'Off' : messages.storeCatalogue}
+        </Text>
+        <View
+          dataSet={{ storeAction: installed ? 'uninstall' : 'install' }}
+          accessibilityRole="button"
+          accessibilityLabel={`${installed ? messages.storeUninstall : messages.storeInstall} ${selected.title}`}
+          tabIndex={0}
+          onClick={toggle}
+          onKeyDown={(event) => {
+            activateKey(event, toggle);
+          }}
+        >
+          <Text>{installed ? messages.storeUninstall : messages.storeInstall}</Text>
+        </View>
+      </View>
+    );
+  }
   return (
     <View id="destination-store">
       <Text id="destination-headline" accessibilityRole="header">
@@ -85,7 +134,7 @@ export function Store({ messages, onOpenPath, listings }: StoreProps) {
             if (known === undefined) {
               return;
             }
-            onOpenPath?.(extensionPath(known.id));
+            onOpenPath?.(storeDetailPath(known.id));
           };
           const toggle = () => {
             const status = on ? 'on' : 'not-in-build';

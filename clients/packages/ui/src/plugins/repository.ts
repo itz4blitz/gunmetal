@@ -194,6 +194,20 @@ export function extensionPath(id: ExtensionId): `/settings/extensions/${Extensio
   return `/settings/extensions/${id}`;
 }
 
+/** A store record stays in the store. Settings is a different door. */
+export function storeDetailPath(id: ExtensionId): `/store/${ExtensionId}` {
+  return `/store/${id}`;
+}
+
+export function storeIdFromPath(path: string): ExtensionId | undefined {
+  const prefix = '/store/';
+  if (!path.startsWith(prefix)) {
+    return undefined;
+  }
+  const id = path.slice(prefix.length);
+  return extensionById(id)?.id;
+}
+
 export function extensionIdFromPath(path: string): ExtensionId | undefined {
   const prefix = '/settings/extensions/';
   if (!path.startsWith(prefix)) {

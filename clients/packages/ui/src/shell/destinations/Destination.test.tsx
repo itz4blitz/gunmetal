@@ -672,7 +672,7 @@ test('the store route shows the catalogue and opens an extension page, not setti
   expect(onOpenPath).not.toHaveBeenCalled();
   fireEvent.click(card);
   expect(onOpenPath).toHaveBeenCalledTimes(1);
-  expect(onOpenPath).toHaveBeenCalledWith('/settings/extensions/cover-art');
+  expect(onOpenPath).toHaveBeenCalledWith('/store/cover-art');
   fireEvent.keyDown(card, { key: 'Enter' });
   expect(onOpenPath).toHaveBeenCalledTimes(2);
   fireEvent.keyDown(card, { key: ' ' });
