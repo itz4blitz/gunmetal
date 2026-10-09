@@ -62,6 +62,7 @@ Cargo.lock @itz4blitz
 # Policy, credentials, cryptography, sandbox, egress, audit and names.
 /crates/gunmetal-secrets/ @itz4blitz
 /crates/gunmetal-egress/ @itz4blitz
+/crates/gunmetal-plugins/ @itz4blitz
 /crates/gunmetal-durable/src/audit/ @itz4blitz
 /crates/gunmetal-durable/src/identity/permitted.rs @itz4blitz
 /crates/gunmetal-fs/src/sqlite.rs @itz4blitz

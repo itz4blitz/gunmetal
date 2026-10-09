@@ -10,7 +10,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/PremierStudio/gunmetal"
+repository = "https://github.com/itz4blitz/gunmetal"
 homepage = "https://gunmetal.tv"
 
 # The external crates the owner accepted on 2026-10-02 (decisions D-02 and

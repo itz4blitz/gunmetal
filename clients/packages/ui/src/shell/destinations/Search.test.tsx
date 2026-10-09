@@ -72,7 +72,7 @@ test('local lookup finds Cylinders by artist, SPDX, attribution, source and trac
   expect(document.querySelector('#album-tile-demo-album-09')).not.toBeNull();
   expect(screen.getByRole('button', { name: 'Cylinders' })).not.toBeNull();
   expect(document.querySelector('#search-plugin-notice')?.textContent).toStrictEqual(
-    'A signed catalogue plugin can find releases outside this library. None is loaded.',
+    'A signed catalog extension can find releases outside this library. None is loaded.',
   );
 
   typeQuery('cc-by-4.0');
@@ -103,11 +103,9 @@ test('local lookup finds Cylinders by artist, SPDX, attribution, source and trac
 test('search lookup stays on the local fixture set and does not fetch a third party', async () => {
   renderSearch();
   typeQuery('Cylinders');
-  expect(document.querySelector('#search-demo-notice')?.textContent).toStrictEqual(
-    'Demo-local filter — not CorePort search',
-  );
+  expect(document.querySelector('#search-demo-notice')?.textContent).toStrictEqual('Search this library');
   expect(document.querySelector('#search-plugin-notice')?.textContent).toStrictEqual(
-    'A signed catalogue plugin can find releases outside this library. None is loaded.',
+    'A signed catalog extension can find releases outside this library. None is loaded.',
   );
   const source = await readFile(join(here, 'Search.tsx'), 'utf8');
   expect(source.includes('fetch(')).toStrictEqual(false);
@@ -115,6 +113,31 @@ test('search lookup stays on the local fixture set and does not fetch a third pa
   expect(source.includes('jamendo')).toStrictEqual(false);
   expect(source.includes('archive.org')).toStrictEqual(false);
   expect(source.includes('WebAssembly')).toStrictEqual(false);
+});
+
+test('a served search does not contain the demo-local claim', () => {
+  render(
+    <Search
+      served={true}
+      searchLibrary={demoLocalFilter}
+      messages={{
+        ...destinationMessages(),
+        searchDemoLocalNotice: 'Demo-local filter — not CorePort search',
+      }}
+      library={demoLibrary()}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+    />,
+  );
+  typeQuery('Cylinders');
+  expect(document.querySelector('#search-demo-notice')).toBeNull();
+  expect(document.body.textContent).not.toContain('Demo-local');
+  expect(document.body.textContent).not.toContain('not CorePort');
+  // Served drops only the demo-local claim; the plugin line stays.
+  expect(document.querySelector('#search-plugin-notice')?.textContent).toStrictEqual(
+    'A signed catalog extension can find releases outside this library. None is loaded.',
+  );
 });
 
 test('an empty query is a calm hint: no results chrome, no filters, no always-empty recents card', () => {

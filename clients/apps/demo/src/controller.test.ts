@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import { demoLibrary } from '../../../packages/fake-server/src/catalogue.ts';
 import type { MediaSessionAction, MediaSessionBridge } from '../../../packages/ui/src/shell/media-session.ts';
 import { findAlbum } from './playback.ts';
+import { serializeSessionPlayback } from './session-playback.ts';
 import { useDemoPlayback } from './controller.ts';
 import type { DemoAudioElement } from './demo-audio.ts';
 
@@ -542,4 +543,122 @@ test('every remaining verb routes through the queue rules and the view state', (
   expect(result.current.state.queueOpen).toStrictEqual(false);
   // Unmounting the hook detaches the engine and the clock without a fuss.
   unmount();
+});
+
+test('a refresh restores the queue and the place in the song, then keeps the new place', () => {
+  const stored = serializeSessionPlayback({
+    trackId: 'demo-track-01-01',
+    albumId: 'demo-album-01',
+    title: 'Pier at Dusk',
+    artistName: 'Mira Sol',
+    coverTone: '01',
+    coverUrl: '/media/covers/demo-album-01.svg',
+    mediaUrl: '/media/audio/demo-album-01.wav',
+    playing: true,
+    positionMs: 42_000,
+    durationMs: 214_000,
+    lyricsKind: 'none',
+    queue: [
+      {
+        trackId: 'demo-track-01-01',
+        albumId: 'demo-album-01',
+        title: 'Pier at Dusk',
+        artistName: 'Mira Sol',
+        coverTone: '01',
+        coverUrl: '/media/covers/demo-album-01.svg',
+        mediaUrl: '/media/audio/demo-album-01.wav',
+        durationMs: 214_000,
+        lyricsKind: 'none',
+      },
+      {
+        trackId: 'demo-track-01-02',
+        albumId: 'demo-album-01',
+        title: 'Harbour Glass',
+        artistName: 'Mira Sol',
+        coverTone: '01',
+        coverUrl: '/media/covers/demo-album-01.svg',
+        mediaUrl: '/media/audio/demo-album-01.wav',
+        durationMs: 198_000,
+        lyricsKind: 'none',
+      },
+    ],
+    queueOpen: false,
+    shuffleOn: false,
+    shuffleSeed: 0,
+    repeatMode: 'off',
+  });
+  const written: string[] = [];
+  const element = new FakeAudio();
+  const hook = renderHook(() =>
+    useDemoPlayback(demoLibrary(), {
+      createElement: () => element,
+      sessionStore: {
+        read: () => stored,
+        write: (value) => {
+          written.push(value);
+        },
+      },
+    }),
+  );
+  expect(hook.result.current.state.trackId).toStrictEqual('demo-track-01-01');
+  expect(hook.result.current.state.queue.map((entry) => entry.trackId)).toStrictEqual([
+    'demo-track-01-01',
+    'demo-track-01-02',
+  ]);
+  expect(hook.result.current.state.positionMs).toStrictEqual(42_000);
+  expect(hook.result.current.state.playing).toStrictEqual(false);
+  expect(element.src).toStrictEqual('/media/audio/demo-album-01.wav');
+  expect(element.playCalls).toStrictEqual(0);
+  element.duration = 214;
+  act(() => {
+    element.fire('loadedmetadata');
+  });
+  expect(element.currentTime).toBeCloseTo(42, 5);
+  // A reload resets the element to 0. That report must not move the saved place.
+  element.currentTime = 0;
+  act(() => {
+    element.fire('timeupdate');
+  });
+  expect(hook.result.current.state.positionMs).toStrictEqual(42_000);
+  expect(hook.result.current.state.playing).toStrictEqual(false);
+  act(() => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  const saved = written.at(-1) ?? '';
+  expect(saved).toContain('"positionMs":42000');
+  expect(saved).toContain('"playing":false');
+  const again = renderHook(() =>
+    useDemoPlayback(demoLibrary(), {
+      createElement: () => new FakeAudio(),
+      sessionStore: {
+        read: () => saved,
+        write: () => undefined,
+      },
+    }),
+  );
+  expect(again.result.current.state.positionMs).toStrictEqual(42_000);
+  expect(again.result.current.state.playing).toStrictEqual(false);
+  expect(again.result.current.state.trackId).toStrictEqual('demo-track-01-01');
+  hook.unmount();
+  again.unmount();
+});
+
+test('hiding a fresh visit writes the clock and removes the listeners', () => {
+  const written: string[] = [];
+  const hook = renderHook(() =>
+    useDemoPlayback(demoLibrary(), {
+      createElement: () => new FakeAudio(),
+      sessionStore: {
+        read: () => null,
+        write: (value) => {
+          written.push(value);
+        },
+      },
+    }),
+  );
+  act(() => {
+    window.dispatchEvent(new Event('beforeunload'));
+  });
+  expect(written.at(-1)).toStrictEqual('{"queue":[]}');
+  hook.unmount();
 });

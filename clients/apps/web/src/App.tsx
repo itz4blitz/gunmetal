@@ -1,18 +1,7 @@
-import { useEffect, useState } from 'react';
-import { nextCount, shellProps } from './compose.ts';
-import { Shell } from './Shell.tsx';
+import { App as Player } from '../../demo/src/App.tsx';
+import type { DemoLibrary } from '../../../packages/fake-server/src/types.ts';
 
-const tickMs = 1000;
-
-export function App({ start = 0 }: { start?: number }) {
-  const [count, setCount] = useState(start);
-  useEffect(() => {
-    const id = globalThis.setInterval(() => {
-      setCount(nextCount);
-    }, tickMs);
-    return () => {
-      globalThis.clearInterval(id);
-    };
-  }, []);
-  return <Shell {...shellProps(count)} />;
+/** The product composition root: the player the demo proved, on this origin. */
+export function App({ library }: { library?: DemoLibrary | undefined }) {
+  return <Player library={library} />;
 }

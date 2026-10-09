@@ -82,14 +82,10 @@ proptest! {
 
 ## Source of truth
 
-The canonical repository is the Premier Studio Forgejo on the tailnet
-(`https://git.taild1bbf.ts.net/PremierStudio/gunmetal`). GitHub is not
-the working forge
-([decision D-89](docs/decisions.md#d-89-source-of-truth-forge)). Open
-pull requests on Forgejo. CI runs on the project's own runners
-([decision D-90](docs/decisions.md#d-90-actions-runners)). Vulnerability
-reports still go through a public GitHub advisory URL, as
-[SECURITY.md](SECURITY.md) says.
+The public repository is
+[itz4blitz/gunmetal](https://github.com/itz4blitz/gunmetal). Open pull
+requests there. Vulnerability reports go through that repository's
+security advisories, as [SECURITY.md](SECURITY.md) says.
 
 ## Working in parallel
 

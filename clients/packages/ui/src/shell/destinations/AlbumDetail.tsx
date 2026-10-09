@@ -288,10 +288,16 @@ export function AlbumDetail({
             <Text>{artist}</Text>
           </View>
           <View dataSet={{ albumMeta: '1' }}>
-            <Text id="album-year" dataSet={{ albumYear: '1' }}>
-              {`${album.year}`}
-            </Text>
-            <Text dataSet={{ metaSeparator: '1' }}>·</Text>
+            {/* Year 0 means the document has no year. A printed 0 would be a lie,
+                as would a play count the folder document does not carry. */}
+            {album.year > 0 ? (
+              <>
+                <Text id="album-year" dataSet={{ albumYear: '1' }}>
+                  {`${album.year}`}
+                </Text>
+                <Text dataSet={{ metaSeparator: '1' }}>·</Text>
+              </>
+            ) : null}
             <Text id="album-track-count" dataSet={{ albumTrackCount: '1' }}>
               {`${album.tracks.length} ${messages.trackCountLabel}`}
             </Text>

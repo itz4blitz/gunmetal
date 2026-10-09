@@ -6,6 +6,8 @@ const MAX_TEXT = 200;
 const MAX_ALBUMS = 2_000;
 const MAX_TRACKS = 500;
 const MAX_DURATION_MS = 86_400_000;
+const GAIN_MIN_DB = -15;
+const GAIN_MAX_DB = 15;
 
 /**
  * A folder library served beside this app. The document is data from
@@ -177,6 +179,8 @@ function readTrack(
   const flag = readFlag(value.flag);
   const lyricsKind = readLyricsKind(value.lyricsKind);
   const mediaUrl = text(value.mediaUrl, 40);
+  const trackGainDb = readGainDb(value, 'trackGainDb');
+  const albumGainDb = readGainDb(value, 'albumGainDb');
   if (
     id === undefined ||
     !HEX_ID.test(id) ||
@@ -190,12 +194,33 @@ function readTrack(
     durationMs === undefined ||
     flag === undefined ||
     lyricsKind === undefined ||
-    mediaUrl !== `/media/library/${id}`
+    mediaUrl !== `/media/library/${id}` ||
+    trackGainDb === null ||
+    albumGainDb === null
   ) {
     return undefined;
   }
   trackIds.add(id);
-  return { id, albumId, discIndex, number, title, artistName, durationMs, flag, lyricsKind, mediaUrl };
+  const track: DemoTrack = { id, albumId, discIndex, number, title, artistName, durationMs, flag, lyricsKind, mediaUrl };
+  if (trackGainDb !== undefined) {
+    track.trackGainDb = trackGainDb;
+  }
+  if (albumGainDb !== undefined) {
+    track.albumGainDb = albumGainDb;
+  }
+  return track;
+}
+
+/** Absent is no tag. `null` is a value this document must not carry. */
+function readGainDb(source: Record<string, unknown>, key: 'trackGainDb' | 'albumGainDb'): number | null | undefined {
+  if (!(key in source)) {
+    return undefined;
+  }
+  const value = source[key];
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < GAIN_MIN_DB || value > GAIN_MAX_DB) {
+    return null;
+  }
+  return value;
 }
 
 function readFlag(value: unknown): DemoTrack['flag'] | undefined {
@@ -212,13 +237,27 @@ function readLyricsKind(value: unknown): DemoTrack['lyricsKind'] | undefined {
   return undefined;
 }
 
+function artistImageUrl(value: unknown, key: string): string | undefined {
+  if (value === undefined || value === '') {
+    return '';
+  }
+  if (value === `/media/library/artists/${key}.jpg` || value === `/media/library/artists/${key}.png`) {
+    return value;
+  }
+  return undefined;
+}
+
 function readArtist(value: unknown, albums: readonly DemoAlbum[]): DemoArtist | undefined {
-  if (!isRecord(value) || 'imageUrl' in value) {
+  if (!isRecord(value)) {
     return undefined;
   }
   const key = text(value.key, 16);
   const name = text(value.name, MAX_TEXT);
   if (key === undefined || !HEX_ID.test(key) || name === undefined || !Array.isArray(value.albumIds)) {
+    return undefined;
+  }
+  const imageUrl = artistImageUrl(value.imageUrl, key);
+  if (imageUrl === undefined) {
     return undefined;
   }
   const owned = albums.filter((album) => album.artistKey === key);
@@ -235,5 +274,5 @@ function readArtist(value: unknown, albums: readonly DemoAlbum[]): DemoArtist | 
       return undefined;
     }
   }
-  return { key, name, albumIds: expected };
+  return imageUrl === '' ? { key, name, albumIds: expected } : { key, name, albumIds: expected, imageUrl };
 }

@@ -452,7 +452,8 @@ test('home medium stack, track rows, search chips and album chrome keep their si
   expect(css.includes("#token-shell[data-width='compact'] [data-track-row]")).toStrictEqual(true);
   expect(css.includes('#album-lyrics-toggle')).toStrictEqual(true);
   expect(css.includes('overflow-wrap: anywhere') || css.includes('overflow-wrap:anywhere')).toStrictEqual(true);
-  const chip = css.slice(css.indexOf('[data-search-chip][data-pressed'));
+  const chipStart = css.indexOf("[data-search-chip][data-pressed='1'] {");
+  const chip = css.slice(chipStart, css.indexOf('}', chipStart));
   expect(chip.includes('background: transparent')).toStrictEqual(true);
   expect(chip.includes('border-radius: 999px') || chip.includes('pill')).toStrictEqual(false);
   expect(css.includes('#library-tabs')).toStrictEqual(true);

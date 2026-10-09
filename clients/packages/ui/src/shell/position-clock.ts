@@ -131,3 +131,14 @@ const noClockSubscribe = () => () => undefined;
 export function usePositionMs(clock: PositionClock | undefined, fallbackMs: number): number {
   return useSyncExternalStore(clock?.subscribe ?? noClockSubscribe, clock?.positionMs ?? (() => fallbackMs));
 }
+
+/**
+ * The scrubber's painted width. A whole percent of a long track is several
+ * seconds, so the fill is not rounded: it grows with the clock.
+ */
+export function progressFillWidth(positionMs: number, durationMs: number): string {
+  if (!(durationMs > 0) || !(positionMs > 0)) {
+    return '0%';
+  }
+  return `${Math.min(100, (positionMs / durationMs) * 100)}%`;
+}

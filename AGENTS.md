@@ -18,30 +18,8 @@
 - `gunmetal-core` is pure logic: no I/O, no `unsafe`, no panics on any input.
   Malformed media must come back as a typed error.
 - Do not add a code directory, crate or dependency until a test needs it.
-- The source of truth is Forgejo on the Premier tailnet:
-  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`
-  ([D-89](docs/decisions.md#d-89-source-of-truth-forge),
-  [record 16](docs/adr/0016-forgejo-source-of-truth.md)). Clone, push and
-  open pull requests there. GitHub is not the working forge. Actions run
-  only on the project's self-hosted runners
-  ([D-90](docs/decisions.md#d-90-actions-runners),
-  [record 17](docs/adr/0017-all-actions-on-own-runners.md)). Palam,
-  Premier Studio, and personal repos (`itz4blitz`, `kbdevopz`) are
-  separate tenants; Premier burst does not live in `palam-cicd`
-  ([D-91](docs/decisions.md#d-91-forgejo-tenants),
-  [record 18](docs/adr/0018-forgejo-tenants-and-ecs.md)).
-  Burst runners copy Palam's `ph-ci` shape, not a new ECS stack
-  ([D-92](docs/decisions.md#d-92-runner-shape),
-  [record 19](docs/adr/0019-copy-palam-ci-shape.md)). Premier burst
-  lives in AWS account `premier-cicd` `109792548422`, IaC
-  `PremierStudio/premier-cicd`
-  ([D-93](docs/decisions.md#d-93-premier-ci-account),
-  [record 20](docs/adr/0020-premier-cicd-account.md)).
-  Third-party Actions `uses:` lines are absolute SHA-pinned GitHub URLs.
-  Short `owner/repo@sha` names resolve against `data.forgejo.org`, which
-  does not have them. `permissions:` stays; Forgejo warns and ignores it
-  ([D-94](docs/decisions.md#d-94-forgejo-action-references),
-  [record 23](docs/adr/0023-forgejo-action-references.md)).
+- The public repository is `https://github.com/itz4blitz/gunmetal`.
+  Clone, push and open pull requests there.
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is

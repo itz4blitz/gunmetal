@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://git.taild1bbf.ts.net/PremierStudio/gunmetal/actions"><img src="https://img.shields.io/badge/CI-Forgejo%20self--hosted-3fb950" alt="CI: Forgejo self-hosted"></a>
+  <a href="https://github.com/itz4blitz/gunmetal"><img src="https://img.shields.io/badge/source-itz4blitz%2Fgunmetal-3fb950" alt="Source: itz4blitz/gunmetal"></a>
   <img src="https://img.shields.io/badge/status-pre--alpha-d98f2b" alt="Status: pre-alpha">
   <img src="https://img.shields.io/badge/coverage-100%25-3fb950" alt="Coverage: 100%">
   <img src="https://img.shields.io/badge/surviving%20mutants-0-3fb950" alt="Surviving mutants: 0">
@@ -21,8 +21,9 @@ way.
 > Ogg/Opus/Vorbis, AIFF, APE), the security foundations are built (signed
 > stream tokens, WebAuthn, pairing codes, the egress gate, the jailed worker
 > sandbox, secrets storage), the server's session, verifier and access-policy
-> layers exist, and a demo client with a working audio transport runs against
-> a fake server. This README describes where the project is going; the
+> layers exist, and the web client plays a library from the same origin,
+> falling back to fixture audio when that library is not there. The old demo
+> app is deprecated. This README describes where the project is going; the
 > [roadmap](#roadmap) shows exactly how far it has got.
 
 ## Why another media server
@@ -83,7 +84,7 @@ flowchart LR
 |---|---|---|
 | **Core** | Rust crate | Container parsers, remuxer, playback decisions, protocol types. Compiled into everything below. |
 | **Server** | Rust, single binary, SQLite | Indexes the library, serves bytes, remuxes in a jailed worker, supervises the transcode sandbox. |
-| **Client** | React 19, TypeScript, Vite | The web app and the demo, built around a persistent player; react-native-web keeps one interface that can carry to phones and TVs. |
+| **Client** | React 19, TypeScript, Vite | The web client you open, on a desktop or a phone. No native shell. react-native-web keeps one interface that can carry to phones and TVs. |
 | **Mobile app** | React Native, TypeScript | Phones and tablets, with offline downloads and background playback. |
 | **Site** | Cloudflare | Docs and landing page at [gunmetal.tv](https://gunmetal.tv). |
 
@@ -140,11 +141,8 @@ You need Rust 1.85 or newer, plus
 [cargo-mutants](https://mutants.rs).
 
 ```bash
-git clone https://git.taild1bbf.ts.net/PremierStudio/gunmetal.git
+git clone https://github.com/itz4blitz/gunmetal.git
 ```
-
-That host is on the Premier tailnet. The source of truth is Forgejo, not
-GitHub, and CI runs on the project's own runners.
 
 ```bash
 scripts/gate.sh
@@ -160,9 +158,18 @@ The clients need Node 24 and pnpm 12:
 ```bash
 cd clients
 pnpm install
-pnpm demo      # the demo client, against its fake server
+pnpm dev       # the web client, at http://127.0.0.1:5173
 pnpm test      # vitest; playwright drives the e2e suite
 ```
+
+`pnpm dev` is the client. It loads `/library.json` and `/media/library/{id}`
+from the same origin. In development those two paths are proxied to
+`http://127.0.0.1:4875`, where `gunmetal serve` listens. A missing library
+falls back to the fixture catalogue. The built client uses the relative
+paths only. There is no Electron or Tauri shell: desktops use this page
+([record 23](docs/adr/0023-web-client-is-the-player.md)).
+
+`pnpm demo` still starts the old app. It is deprecated. Open `clients/apps/web`.
 
 ## Repository layout
 
@@ -171,6 +178,7 @@ crates/                  the Rust workspace
   gunmetal-core          parsers, protocol types, domain logic (pure, no I/O)
   gunmetal-server        sessions, the sign-in verifier, access policy, routes
   gunmetal-egress        the outbound gate: address classes, grants, limits
+  gunmetal-plugins       plugin host decisions; no runtime is linked
   gunmetal-worker        the jailed worker: sandbox profile, IPC, limits
   gunmetal-secrets       AEAD, key derivation, nonces
   gunmetal-store         the SQLite catalog
@@ -181,8 +189,9 @@ crates/                  the Rust workspace
   gunmetal-testkit       shared test helpers
   gunmetal-fuzz          fuzz targets
   xtask                  the supply-chain checks the gate runs
-clients/                 the React workspace: web app, demo client, the fake
-                         server it runs against, shared UI and port packages
+clients/                 the React workspace: the web client you open, a deprecated
+                         demo whose tests still prove the player, the fake
+                         server, shared UI and port packages
 docs/                    research, feature maps, plans, ADRs, security baseline
 site/                    the gunmetal.tv pages
 scripts/gate.sh          every quality gate, in one script
