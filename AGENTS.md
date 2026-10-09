@@ -18,12 +18,11 @@
 - `gunmetal-core` is pure logic: no I/O, no `unsafe`, no panics on any input.
   Malformed media must come back as a typed error.
 - Do not add a code directory, crate or dependency until a test needs it.
-- The source of truth is Forgejo on the Premier tailnet:
-  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`
-  ([D-89](docs/decisions.md#d-89-source-of-truth-forge),
-  [record 16](docs/adr/0016-forgejo-source-of-truth.md)). Clone, push and
-  open pull requests there. GitHub is not the working forge. Actions run
-  only on the project's self-hosted runners
+- The public repository is GitHub:
+  `https://github.com/itz4blitz/gunmetal`
+  ([record 29](docs/adr/0029-public-repository-on-github.md)). Clone, push
+  and open pull requests there. The tailnet Forgejo is not a public clone
+  URL. Private CI still runs on the project's self-hosted runners
   ([D-90](docs/decisions.md#d-90-actions-runners),
   [record 17](docs/adr/0017-all-actions-on-own-runners.md)). Palam,
   Premier Studio, and personal repos (`itz4blitz`, `kbdevopz`) are

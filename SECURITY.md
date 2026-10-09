@@ -1,6 +1,6 @@
 # Security policy
 
-Last reviewed: 2026-10-06. This policy is reviewed at least once a year and
+Last reviewed: 2026-10-09. This policy is reviewed at least once a year and
 before each release.
 
 ## Reporting a vulnerability
@@ -8,13 +8,8 @@ before each release.
 Report vulnerabilities privately through GitHub's private vulnerability
 reporting: on this repository's **Security** tab, choose **Report a
 vulnerability**, or go straight to
-<https://github.com/PremierStudio/gunmetal/security/advisories/new>. Do not
+<https://github.com/itz4blitz/gunmetal/security/advisories/new>. Do not
 open a public issue, discussion or pull request for a security problem.
-
-GitHub offers private vulnerability reporting only on public repositories,
-and this repository is still private. Until it is public, people who can
-read it report to the maintainer, @itz4blitz, privately rather than in an
-issue.
 
 For now, reports go through GitHub only: on 2026-10-02 the owner decided
 not to run a separate email alias or security@ mailbox yet
