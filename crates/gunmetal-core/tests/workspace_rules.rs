@@ -35,7 +35,7 @@ const SETTINGS_DRIFT: &str = include_str!("../../../.github/workflows/settings-d
 const STANDARDS_WATCH: &str = include_str!("../../../.github/workflows/standards-watch.yml");
 const WASM: &str = include_str!("../../../.github/workflows/wasm.yml");
 const WORKFLOW_LINT: &str = include_str!("../../../.github/workflows/workflow-lint.yml");
-const OWN_RUNNER: &str = "runs-on: [self-hosted, gunmetal-mutants]";
+const OWN_RUNNER: &str = "runs-on: ubuntu-latest";
 const VET_CONFIG: &str = include_str!("../../../supply-chain/config.toml");
 const EXCEPTIONS: &str = include_str!("../../../supply-chain/exceptions.toml");
 const CORE_ALLOWLIST: &str = include_str!("../../../supply-chain/core-allowlist.toml");
@@ -2057,7 +2057,7 @@ fi
     let mutants = workflow_job(CI, "mutants");
     for line in [
         OWN_RUNNER,
-        "timeout-minutes: 900",
+        "timeout-minutes: 360",
         "fail-fast: false",
         "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
         "fetch-depth: 0",
@@ -2127,7 +2127,7 @@ fn every_actions_job_runs_on_the_project_runners() {
             assert_eq!(
                 runners,
                 [OWN_RUNNER],
-                "{path} job {job} must run only on [self-hosted, gunmetal-mutants]"
+                "{path} job {job} must run only on ubuntu-latest"
             );
         }
     }

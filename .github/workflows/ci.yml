@@ -58,9 +58,8 @@ jobs:
       # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39. The
       # runner image is Debian bookworm (glibc 2.36), so build that pin
       # the same way (record 23).
-      - run: |
-          cargo install cargo-vet --version 0.10.2 --locked
-          cargo install cargo-mutants --version 27.1.0 --locked
+      - run: cargo install cargo-vet --version 0.10.2 --locked
+      - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
@@ -211,17 +210,9 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          # The runner image is node:22-bookworm, which has node and not jq.
-          node <<'NODE'
-          const needs = JSON.parse(process.env.NEEDS);
-          const wrong = [];
-          for (const [key, value] of Object.entries(needs)) {
-            const result = value && Object.hasOwn(value, "result") ? value.result : null;
-            console.log(`${key}: ${result}`);
-            if (result !== "success") wrong.push(`${key} ended as ${result}`);
-          }
-          if (wrong.length > 0) {
-            console.log(`::error::the gate fails: ${wrong.join(", ")}`);
-            process.exit(1);
-          }
-          NODE
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          wrong=$(jq -r '[to_entries[] | select(.value.result != "success") | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")
+          if [[ -n "$wrong" ]]; then
+            echo "::error::the gate fails: $wrong"
+            exit 1
+          fi
