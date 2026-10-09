@@ -166,6 +166,7 @@ if grep -E -q '^[1-9][0-9]* suspicious problems|[^0-9][1-9][0-9]* suspicious pro
   # fails the run.
   bad="$(awk '
     /Qodana - Sanity summary/ { seen = 1; next }
+    seen && /^Analysis results:/ { exit }
     seen && /^-+/ { next }
     seen && /^File / { next }
     seen && NF >= 4 && $2 != "Unresolved" { print; exit }
