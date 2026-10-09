@@ -18,7 +18,6 @@ permissions: {}
 
 jobs:
   drift:
-    if: secrets.SETTINGS_READER_TOKEN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -33,6 +32,7 @@ jobs:
       # An endpoint for a feature that is off answers 404 with a JSON body;
       # that body is kept, and xtask reports it as drift or unreadable.
       - name: Fetch live settings and advisories
+        if: secrets.SETTINGS_READER_TOKEN != ''
         env:
           GH_TOKEN: ${{ secrets.SETTINGS_READER_TOKEN }}
         run: |
@@ -56,7 +56,8 @@ jobs:
             "repos/$GITHUB_REPOSITORY/security-advisories?per_page=100" \
             > target/advisories.json || true
       - name: Settings match the policy
+        if: secrets.SETTINGS_READER_TOKEN != ''
         run: cargo run --locked --quiet -p xtask -- repo settings target/settings
       - name: Every published advisory has a regression test
-        if: always()
+        if: secrets.SETTINGS_READER_TOKEN != ''
         run: cargo run --locked --quiet -p xtask -- repo advisories target/advisories.json

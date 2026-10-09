@@ -58,9 +58,8 @@ jobs:
       # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39. The
       # runner image is Debian bookworm (glibc 2.36), so build that pin
       # the same way (record 23).
-      - run: |
-          cargo install cargo-vet --version 0.10.2 --locked
-          cargo install cargo-mutants --version 27.1.0 --locked
+      - run: cargo install cargo-vet --version 0.10.2 --locked
+      - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
