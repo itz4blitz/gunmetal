@@ -450,6 +450,7 @@ function ExtensionPage({
         {settings.map((setting) => (
           <View key={setting.id} dataSet={{ extensionSetting: setting.id }}>
             <Text dataSet={{ extensionSettingLabel: '1' }}>{setting.label}</Text>
+            <View dataSet={{ extensionOptions: setting.id }}>
             {setting.options.map((option) => {
               const selected = (values[setting.id] ?? setting.defaultValue) === option.id;
               return (
@@ -472,6 +473,7 @@ function ExtensionPage({
                 </View>
               );
             })}
+            </View>
           </View>
         ))}
       </View>

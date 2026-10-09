@@ -92,7 +92,7 @@ export function Store({ messages, onOpenPath, listings }: StoreProps) {
             remember(installed ? uninstallChoice(choices, entry.id, status) : installChoice(choices, entry.id, status));
           };
           return (
-            <View key={entry.id}>
+            <View key={entry.id} dataSet={{ storeItem: entry.id }}>
               <View
                 dataSet={{ storeCard: entry.id }}
                 accessibilityRole="button"

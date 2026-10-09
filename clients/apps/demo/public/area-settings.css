@@ -1290,6 +1290,170 @@
   border-color: var(--gm-accent-indicator);
 }
 
+/* A store record is a card with a real action, not a line of text. */
+#token-shell [data-store-item] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--gm-space-4);
+  min-width: 0;
+  padding: var(--gm-space-5);
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-l);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-elev-raised);
+}
+
+#token-shell [data-store-item] [data-store-card] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#token-shell [data-store-item] [data-store-card]:hover {
+  transform: none;
+}
+
+#token-shell [data-store-action] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-accent-fill);
+  box-shadow: var(--gm-raised-edge);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 18px;
+  color: #1a140c;
+  cursor: pointer;
+}
+
+#token-shell [data-store-action='uninstall'] {
+  border-color: var(--gm-line-subtle);
+  background: var(--gm-bg-inset);
+  box-shadow: none;
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-action]:focus {
+  outline: none;
+}
+
+#token-shell [data-store-action]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell #extension-detail [data-extension-choice] {
+  max-width: 62ch;
+  margin: 0;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell #extension-detail [data-extension-install] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 4px 0 0;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-accent-fill);
+  box-shadow: var(--gm-raised-edge);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  color: #1a140c;
+  cursor: pointer;
+}
+
+#token-shell #extension-detail [data-extension-install='uninstall'] {
+  border-color: var(--gm-line-subtle);
+  background: var(--gm-bg-inset);
+  box-shadow: none;
+  color: var(--gm-text-primary);
+}
+
+#token-shell #extension-detail [data-extension-install]:focus {
+  outline: none;
+}
+
+#token-shell #extension-detail [data-extension-install]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell #extension-detail [data-extension-setting] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+#token-shell #extension-detail [data-extension-setting-label] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gm-text-muted);
+}
+
+#token-shell #extension-detail [data-extension-options] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+}
+
+#token-shell #extension-detail [data-extension-option] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--gm-radius-s);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+}
+
+#token-shell #extension-detail [data-extension-option-selected='1'] {
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-raised-edge), inset 0 -2px 0 var(--gm-accent-indicator);
+  color: var(--gm-text-primary);
+}
+
+#token-shell #extension-detail [data-extension-option]:focus {
+  outline: none;
+}
+
+#token-shell #extension-detail [data-extension-option]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
 /* —— Reduced motion (CLI-140): every transition and the pane entrance
       resolve to instant; the hover lift stops moving. —— */
 
