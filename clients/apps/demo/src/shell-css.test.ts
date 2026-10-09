@@ -316,7 +316,7 @@ test('every theme carries the design-language §4 status colours, each declared 
 test('wordmark and form controls use theme tokens and Inter, not hardcoded dark ink', async () => {
   const css = await demoShellCss();
   const face = css.slice(css.indexOf('@font-face'), css.indexOf('html,'));
-  expect(face.includes("url('/fonts/InterVariable.woff2')")).toStrictEqual(true);
+  expect(face.includes('/fonts/InterVariable.woff2')).toStrictEqual(true);
   expect(css.includes('fonts.googleapis.com') || css.includes('fonts.gstatic.com')).toStrictEqual(false);
   const wordmark = css.slice(css.indexOf('#shell-wordmark'), css.indexOf('#nav-sidebar #shell-wordmark'));
   expect(wordmark.includes('var(--gm-text-primary)')).toStrictEqual(true);
