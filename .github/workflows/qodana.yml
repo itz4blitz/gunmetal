@@ -15,8 +15,6 @@ on:
   pull_request:
 
 # Nothing by default; the job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
 permissions: {}
 
 concurrency:
@@ -25,8 +23,8 @@ concurrency:
 
 jobs:
   scan:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, gunmetal-mutants]
+    if: secrets.QODANA_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read

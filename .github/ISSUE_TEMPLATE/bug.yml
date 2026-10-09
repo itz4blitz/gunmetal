@@ -1,0 +1,27 @@
+name: Bug
+description: Something in Gunmetal does the wrong thing.
+title: ""
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit, tag, or release.
+      placeholder: main
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps, or a small file. Do not paste secrets, tokens, or library paths you do not want public.
+    validations:
+      required: true

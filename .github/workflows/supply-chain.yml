@@ -11,13 +11,11 @@ on:
   workflow_dispatch:
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
 permissions: {}
 
 jobs:
   deny:
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -40,7 +38,7 @@ jobs:
   report:
     needs: deny
     if: failure()
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write

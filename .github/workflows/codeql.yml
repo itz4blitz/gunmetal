@@ -16,8 +16,6 @@ on:
     - cron: "17 5 * * 1"
 
 # Nothing by default; each job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
 permissions: {}
 
 concurrency:
@@ -27,7 +25,7 @@ concurrency:
 jobs:
   languages:
     name: languages
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
@@ -54,7 +52,7 @@ jobs:
   analyze:
     name: analyze (${{ matrix.language }})
     needs: languages
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     # Read-only scopes; nothing is uploaded (upload: never), so the job
     # never writes (SEC-SUP-012).
@@ -110,7 +108,7 @@ jobs:
     name: codeql
     needs: analyze
     if: always()
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
     steps:

@@ -10,13 +10,11 @@ on:
     - cron: "41 4 * * 1"
 
 # Nothing by default; the job asks for what it needs (SEC-SUP-012).
-# Forgejo ignores this field and warns. It stays: zizmor requires it
-# (record 23).
 permissions: {}
 
 jobs:
   analysis:
-    runs-on: [self-hosted, gunmetal-mutants]
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     # Read access Scorecard needs on a private repository. Publishing would
     # also need id-token: write, and code scanning upload security-events:

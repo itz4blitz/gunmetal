@@ -1,0 +1,18 @@
+name: Feature
+description: A change you want in Gunmetal.
+title: ""
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What you want
+      description: The job, from the person's point of view. Not an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+    validations:
+      required: false
