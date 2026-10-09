@@ -285,10 +285,73 @@ test('a track field outside the row is refused', () => {
   mutateTrack({ mediaUrl: `/media/library/${'d'.repeat(16)}` });
 });
 
-test('artists that do not name this catalogue are refused', () => {
+test('tag gain is kept when it is a finite number from -15 to 15 and refused otherwise', () => {
+  const both = folder();
+  const bothTrack = at(at(both.albums, 0).tracks as Array<Record<string, unknown>>, 0);
+  bothTrack.trackGainDb = -6.54;
+  bothTrack.albumGainDb = 1.2;
+  expect(libraryFromDocument(both)).toStrictEqual(both);
+
+  const edges = folder();
+  const edgeTrack = at(at(edges.albums, 0).tracks as Array<Record<string, unknown>>, 0);
+  edgeTrack.trackGainDb = -15;
+  edgeTrack.albumGainDb = 15;
+  expect(libraryFromDocument(edges)).toStrictEqual(edges);
+
+  const zeros = folder();
+  const zeroTrack = at(at(zeros.albums, 0).tracks as Array<Record<string, unknown>>, 0);
+  zeroTrack.trackGainDb = 0;
+  zeroTrack.albumGainDb = 0;
+  expect(libraryFromDocument(zeros)).toStrictEqual(zeros);
+
+  const precise = folder();
+  const preciseTrack = at(at(precise.albums, 0).tracks as Array<Record<string, unknown>>, 0);
+  preciseTrack.trackGainDb = 1.234;
+  preciseTrack.albumGainDb = -0.001;
+  expect(libraryFromDocument(precise)).toStrictEqual(precise);
+
+  const trackOnly = folder();
+  at(at(trackOnly.albums, 0).tracks as Array<Record<string, unknown>>, 0).trackGainDb = -6.54;
+  expect(libraryFromDocument(trackOnly)).toStrictEqual(trackOnly);
+
+  const albumOnly = folder();
+  at(at(albumOnly.albums, 0).tracks as Array<Record<string, unknown>>, 0).albumGainDb = 1.2;
+  expect(libraryFromDocument(albumOnly)).toStrictEqual(albumOnly);
+
+  const refuse = (patch: Record<string, unknown>) => {
+    const doc = folder();
+    Object.assign(at(at(doc.albums, 0).tracks as Array<Record<string, unknown>>, 0), patch);
+    expect(libraryFromDocument(doc)).toStrictEqual(undefined);
+  };
+  refuse({ trackGainDb: '-6.54' });
+  refuse({ albumGainDb: '1.2' });
+  refuse({ trackGainDb: Number.NaN, albumGainDb: 1.2 });
+  refuse({ trackGainDb: -6.54, albumGainDb: Number.NaN });
+  refuse({ trackGainDb: 15.1 });
+  refuse({ albumGainDb: 15.1 });
+  refuse({ trackGainDb: -15.1 });
+  refuse({ albumGainDb: -15.1 });
+  refuse({ trackGainDb: Number.POSITIVE_INFINITY });
+  refuse({ albumGainDb: Number.NEGATIVE_INFINITY });
+  refuse({ trackGainDb: null });
+  refuse({ albumGainDb: true });
+});
+
+test('an artist photo is kept only when it is that artist on this host', () => {
   const image = folder();
-  at(image.artists, 0).imageUrl = `/media/library/artists/${ARTIST}.jpg`;
-  expect(libraryFromDocument(image)).toStrictEqual(undefined);
+  const photo = `/media/library/artists/${ARTIST}.jpg`;
+  at(image.artists, 0).imageUrl = photo;
+  const kept = libraryFromDocument(image);
+  expect(kept?.artists[0]?.imageUrl).toStrictEqual(photo);
+  const foreign = folder();
+  at(foreign.artists, 0).imageUrl = 'https://evil.example/face.jpg';
+  expect(libraryFromDocument(foreign)).toStrictEqual(undefined);
+  const other = folder();
+  at(other.artists, 0).imageUrl = `/media/library/artists/${'d'.repeat(16)}.jpg`;
+  expect(libraryFromDocument(other)).toStrictEqual(undefined);
+});
+
+test('artists that do not name this catalogue are refused', () => {
   const notObject = folder();
   notObject.artists.splice(0, 1, null as unknown as Record<string, unknown>);
   expect(libraryFromDocument(notObject)).toStrictEqual(undefined);

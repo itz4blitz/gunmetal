@@ -16,12 +16,14 @@ import {
 } from '../../../packages/ui/src/shell/volume-store.ts';
 import { createDemoAudio, type DemoAudio, type DemoAudioElement } from './demo-audio.ts';
 import { applyAlbumQueue, applyPlayback, applyTrackQueue } from './demo-play.ts';
+import type { PlaybackPrefs } from './playback-prefs.ts';
 import {
   advanceQueue,
   adoptDuration,
   carryQueueOpen,
   cycleRepeatMode,
   emptyPlayback,
+  findTrack,
   removeLine,
   seekTo,
   setQueueOpen,
@@ -31,6 +33,7 @@ import {
   type PlaybackSnapshot,
 } from './playback.ts';
 import { createAudioElement } from './browser/audio-element.ts';
+import { parseSessionPlayback, serializeSessionPlayback, type SessionPlaybackStore } from './session-playback.ts';
 
 /**
  * What the composition root can wire for tests and embeds: the element
@@ -40,8 +43,15 @@ import { createAudioElement } from './browser/audio-element.ts';
 export type DemoPlaybackWiring = {
   createElement?: () => DemoAudioElement;
   volumeStore?: VolumeStore | undefined;
+  /**
+   * This tab's queue and place in the song. Session storage only: the queue
+   * is Activity and must not go in localStorage (SEC-PRV-019).
+   */
+  sessionStore?: SessionPlaybackStore | undefined;
   scheduler?: Parameters<typeof createPositionClock>[0];
   mediaSession?: MediaSessionBridge | undefined;
+  /** Levelling, crossfade and output. Absent leaves the engine's gain and sink alone. */
+  prefs?: PlaybackPrefs | undefined;
 };
 
 /**
@@ -51,7 +61,14 @@ export type DemoPlaybackWiring = {
  * tell the difference.
  */
 export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: DemoPlaybackWiring): PlaybackController {
-  const [state, setState] = useState<PlaybackSnapshot>(() => emptyPlayback());
+  const [state, setState] = useState<PlaybackSnapshot>(() =>
+    parseSessionPlayback(wiring?.sessionStore?.read() ?? null),
+  );
+  const resumeMsRef = useRef(state.positionMs);
+  /* A reload reports time 0 before the saved seek lands. Hold that report
+     until the listener plays, seeks, or changes track. */
+  const holdReports = useRef(state.positionMs > 0);
+  const heldTrackId = useRef(state.trackId);
   const [fullOpen, setFullOpen] = useState(false);
   const [memory, setMemory] = useState<VolumeMemory>(() =>
     wiring?.volumeStore === undefined ? defaultVolumeMemory : parseVolume(wiring.volumeStore.read()),
@@ -75,6 +92,9 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
   useEffect(() => {
     const audio = createDemoAudio(wiring?.createElement?.() ?? createAudioElement(), {
       onTime: (positionMs) => {
+        if (holdReports.current) {
+          return;
+        }
         setState((current) => (current.trackId === undefined ? current : { ...current, positionMs }));
       },
       onEnded: () => {
@@ -109,18 +129,91 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
       return;
     }
     audio.load(track.mediaUrl, track.durationMs);
+    const resumeMs = resumeMsRef.current;
+    if (resumeMs > 0) {
+      audio.seek(resumeMs);
+    }
+    resumeMsRef.current = 0;
     if (track.playing) {
       audio.setPlaying(true);
     }
   }, [state.trackId, state.mediaUrl]);
 
   useEffect(() => {
+    if (state.playing) {
+      holdReports.current = false;
+    }
     audioRef.current?.setPlaying(state.playing);
   }, [state.playing]);
 
   useEffect(() => {
+    if (state.trackId === heldTrackId.current) {
+      return;
+    }
+    heldTrackId.current = state.trackId;
+    holdReports.current = false;
+  }, [state.trackId]);
+
+  const sessionStore = wiring?.sessionStore;
+  const sessionStateRef = useRef(state);
+  sessionStateRef.current = state;
+  useEffect(() => {
+    if (sessionStore === undefined) {
+      return;
+    }
+    const write = () => {
+      const current = sessionStateRef.current;
+      const positionMs = holdReports.current ? current.positionMs : Math.round(clock.positionMs());
+      sessionStore.write(serializeSessionPlayback({ ...current, positionMs }));
+    };
+    write();
+    const onHide = () => {
+      write();
+    };
+    globalThis.addEventListener('pagehide', onHide);
+    globalThis.addEventListener('beforeunload', onHide);
+    return () => {
+      globalThis.removeEventListener('pagehide', onHide);
+      globalThis.removeEventListener('beforeunload', onHide);
+    };
+  }, [
+    sessionStore,
+    state.trackId,
+    state.albumId,
+    state.playing,
+    state.queue,
+    state.shuffleOn,
+    state.shuffleSeed,
+    state.repeatMode,
+    state.mediaUrl,
+  ]);
+
+  useEffect(() => {
     audioRef.current?.setVolume(memory.muted ? 0 : memory.volume);
   }, [memory]);
+
+  /* Gain follows the playing track's tags; crossfade and sink follow the
+     preference. The creation effect above has already stored the engine. */
+  const prefs = wiring?.prefs;
+  useEffect(() => {
+    if (prefs === undefined) {
+      return;
+    }
+    const audio = audioRef.current as DemoAudio;
+    applyPlaybackPrefs(audio, prefs, library, state);
+  }, [
+    prefs?.levelling,
+    prefs?.crossfadeSeconds,
+    prefs?.sinkId,
+    library,
+    state.trackId,
+    state.queue,
+    state.repeatMode,
+    state.shuffleOn,
+    state.shuffleSeed,
+    state.mediaUrl,
+    state.durationMs,
+  ]);
 
   /* The clock interpolates between the engine's reports so scrubbers, times
      and lyric lines can move smoothly without re-rendering the shell. */
@@ -241,6 +334,7 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
       setState((current) => stepQueue(current, 1));
     },
     seek: (positionMs) => {
+      holdReports.current = false;
       audioRef.current?.seek(positionMs);
       setState((current) => seekTo(current, positionMs));
     },
@@ -261,4 +355,56 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
 
 function albumTitleOf(library: ShellLibrary | undefined, albumId: string): string | undefined {
   return library?.albums.find((album) => album.id === albumId)?.title;
+}
+
+/**
+ * The decibels `setGainDb` should apply. Off clears the gain. Track and
+ * album pass that tag, including when the file has none.
+ */
+function appliedGain(
+  levelling: PlaybackPrefs['levelling'],
+  library: ShellLibrary | undefined,
+  trackId: string | undefined,
+): number | undefined {
+  if (levelling === 'off' || library === undefined || trackId === undefined) {
+    return undefined;
+  }
+  const found = findTrack(library, trackId);
+  if (found === undefined) {
+    return undefined;
+  }
+  if (levelling === 'track') {
+    return found.track.trackGainDb;
+  }
+  return found.track.albumGainDb;
+}
+
+/** The line that will play next, or nothing when the queue ends. */
+function successor(snapshot: PlaybackSnapshot): { mediaUrl: string; durationMs: number } | undefined {
+  if (snapshot.trackId === undefined) {
+    return undefined;
+  }
+  if (snapshot.repeatMode === 'one') {
+    return { mediaUrl: snapshot.mediaUrl, durationMs: snapshot.durationMs };
+  }
+  const stepped = stepQueue(snapshot, 1);
+  if (stepped.playing === false) {
+    return undefined;
+  }
+  return { mediaUrl: stepped.mediaUrl, durationMs: stepped.durationMs };
+}
+
+function applyPlaybackPrefs(
+  audio: DemoAudio,
+  prefs: PlaybackPrefs,
+  library: ShellLibrary | undefined,
+  snapshot: PlaybackSnapshot,
+): void {
+  audio.setGainDb(appliedGain(prefs.levelling, library, snapshot.trackId));
+  audio.setCrossfadeMs(prefs.crossfadeSeconds * 1000);
+  audio.setSinkId(prefs.sinkId);
+  const next = successor(snapshot);
+  if (next !== undefined) {
+    audio.armNext(next.mediaUrl, next.durationMs);
+  }
 }

@@ -313,6 +313,19 @@
   color: var(--gm-text-muted);
 }
 
+/* Year · tracks · total time. Unknown year is absent, never a printed 0. */
+#token-shell #library-album-grid [data-album-facts],
+#token-shell #destination-search [data-search-album-grid] [data-album-facts] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
 /* —— People are nuts: the artist avatar, here and in Search —— */
 
 #token-shell :is(#destination-library, #destination-search) [data-artist-avatar] {
@@ -667,6 +680,9 @@
 }
 
 #token-shell :is(#library-track-list, #search-track-list) [data-track-duration] {
+  min-width: var(--track-col-time);
+  overflow: visible;
+  white-space: nowrap;
   font-size: var(--gm-type-small-size);
   line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;

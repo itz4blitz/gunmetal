@@ -3,6 +3,7 @@ import {
   demoLyricsLines,
   demoLyricsVerse,
   demoLocalFilter,
+  hostServesCovers,
   noLyricsLine,
   pluginSlots,
   trackById,
@@ -47,6 +48,6 @@ export function composeDemo(library: DemoLibrary = demoLibrary()): DemoCompose {
       const durationMs = trackById(library, trackId)?.durationMs ?? 0;
       return timedVerse(demoLyricsLines(demoLyricsVerse(trackId, kind)), durationMs);
     },
-    pluginSlots: pluginSlots(),
+    pluginSlots: pluginSlots(hostServesCovers(library.albums)),
   };
 }

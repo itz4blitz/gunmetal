@@ -808,6 +808,72 @@ test('the album kebab is wired to its menu, toggles it, and a press elsewhere cl
   expect(screen.queryByRole('menu')).toStrictEqual(null);
 });
 
+test('a 2014 album with two tracks and a cover states the header facts and paints the cover, not a plate or a play count', () => {
+  const covered: ShellAlbum = {
+    ...album,
+    year: 2014,
+    coverUrl: '/media/library/covers/aaaaaaaaaaaaaaaa.jpg',
+    tracks: [
+      { ...fixtureTrackA, durationMs: 176_000 },
+      { ...fixtureTrackB, durationMs: 228_000 },
+    ],
+  };
+  const { container } = renderAlbum({ album: covered });
+  const header = required(container.querySelector('[data-album-header-text="1"]'), 'album header');
+  // Year, count and total time are text in the header — 176s + 228s = 6:44.
+  expect(header.textContent).toStrictEqual('AlbumHarbour LightsMira Sol2014·2 tracks·6:44');
+  expect(
+    [...required(header.querySelector('[data-album-meta="1"]'), 'album meta').children].map((node) => node.textContent),
+  ).toStrictEqual(['2014', '·', '2 tracks', '·', '6:44']);
+  expect(screen.getByText('2014').id).toStrictEqual('album-year');
+  expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
+  expect(screen.getByText('6:44').id).toStrictEqual('album-duration-total');
+  const cover = required(container.querySelector('#cover-detail-demo-album-01'), 'detail cover') as HTMLElement;
+  expect(cover.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect(cover.getAttribute('data-size')).toStrictEqual('detail');
+  expect(cover.style.backgroundImage).toContain('/media/library/covers/aaaaaaaaaaaaaaaa.jpg');
+  expect(cover.querySelector('[data-cover-label]')).toBeNull();
+  expect([...container.querySelectorAll('[data-track-duration="1"]')].map((node) => node.textContent)).toStrictEqual([
+    '2:56',
+    '3:48',
+  ]);
+  // The folder document has no play counts. A zero here would be invented.
+  expect(header.textContent).not.toMatch(/play/i);
+  expect(container.textContent ?? '').not.toMatch(/\d+ plays/);
+});
+
+test('an album with year 0 and an empty cover omits both and still states count and duration', () => {
+  const bare: ShellAlbum = {
+    ...album,
+    year: 0,
+    coverUrl: '',
+    tracks: [
+      { ...fixtureTrackA, durationMs: 176_000 },
+      { ...fixtureTrackB, durationMs: 228_000 },
+    ],
+  };
+  const { container } = renderAlbum({ album: bare });
+  const header = required(container.querySelector('[data-album-header-text="1"]'), 'album header');
+  expect(header.textContent).toStrictEqual('AlbumHarbour LightsMira Sol2 tracks·6:44');
+  expect(
+    [...required(header.querySelector('[data-album-meta="1"]'), 'album meta').children].map((node) => node.textContent),
+  ).toStrictEqual(['2 tracks', '·', '6:44']);
+  expect(container.querySelector('#album-year')).toBeNull();
+  expect(screen.queryByText('0')).toBeNull();
+  expect(screen.getByText('2 tracks').id).toStrictEqual('album-track-count');
+  expect(screen.getByText('6:44').id).toStrictEqual('album-duration-total');
+  const cover = required(container.querySelector('#cover-detail-demo-album-01'), 'detail cover') as HTMLElement;
+  expect(cover.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(cover.style.backgroundImage).toStrictEqual('');
+  expect(cover.querySelector('[data-cover-plate="1"]')).not.toBeNull();
+  expect([...container.querySelectorAll('[data-track-duration="1"]')].map((node) => node.textContent)).toStrictEqual([
+    '2:56',
+    '3:48',
+  ]);
+  expect(header.textContent).not.toMatch(/play/i);
+  expect(container.textContent ?? '').not.toMatch(/\d+ plays/);
+});
+
 test('area-album.css keeps the album and artist tables on the render discipline', async () => {
   const { readFile } = await import('node:fs/promises');
   const { dirname, join } = await import('node:path');
@@ -819,4 +885,25 @@ test('area-album.css keeps the album and artist tables on the render discipline'
   expect(css.includes('contain-intrinsic-size: auto 52px;')).toStrictEqual(true);
   expect(css.includes('#destination-artist #artist-album-grid [data-album-tile]')).toStrictEqual(true);
   expect(css.includes('contain-intrinsic-size: auto 240px;')).toStrictEqual(true);
+  // The album hero cover is a large square. A real file stands in front of
+  // the tone plate; the plate is the empty-art stand-in only.
+  expect(css.includes('grid-template-columns: clamp(240px, 32%, 320px) minmax(0, 1fr);')).toStrictEqual(true);
+  expect(css.includes('min-width: 240px;')).toStrictEqual(true);
+  expect(css.includes('min-height: 240px;')).toStrictEqual(true);
+  expect(css.includes('background-blend-mode: normal;')).toStrictEqual(true);
+  expect(
+    css.includes(`#token-shell #destination-album [data-cover-art='1'] [data-cover-plate],
+#token-shell #destination-album [data-cover-art='1'] [data-cover-wash] {
+  display: none;
+}`),
+  ).toStrictEqual(true);
+  // Header facts stay text: the meta line is not the visually-hidden clip.
+  expect(css.includes(`[data-album-meta='1']`)).toStrictEqual(true);
+  expect(
+    css.includes(`#token-shell #destination-album [data-album-meta='1'] {
+  position: static;
+  overflow: visible;
+  clip: auto;
+}`),
+  ).toStrictEqual(true);
 });

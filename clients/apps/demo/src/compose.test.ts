@@ -77,6 +77,14 @@ test('a folder library hides the demo label and does not invent fixture verses',
     albums: [],
     tracks: [trackRow],
   });
+  expect(demo.pluginSlots).toStrictEqual([
+    { id: 'metadata-provider', status: 'on' },
+    { id: 'lyrics-provider', status: 'not-in-build' },
+    { id: 'search-provider', status: 'not-in-build' },
+    { id: 'scrobbler', status: 'not-in-build' },
+    { id: 'theme-pack', status: 'not-a-plugin' },
+    { id: 'home-row', status: 'not-a-plugin' },
+  ]);
 });
 
 test('the lyrics resolver returns the fixture lines, the fallback verse, or the no-lyrics line', () => {
@@ -97,17 +105,16 @@ test('the lyrics resolver returns the fixture lines, the fallback verse, or the 
   expect(demo.lyricsFor('demo-track-01-01', 'none')).toStrictEqual(['This file has no lyrics.']);
 });
 
-test('the plugin-slot list is the fixture table of six unloaded slots', () => {
+test('fixture extensions jobs are first-party facts, and Cover Art Archive is not on', () => {
   const demo = composeDemo();
-  expect(demo.pluginSlots.map((slot) => slot.id)).toStrictEqual([
-    'metadata-provider',
-    'lyrics-provider',
-    'search-provider',
-    'scrobbler',
-    'theme-pack',
-    'home-row',
+  expect(demo.pluginSlots).toStrictEqual([
+    { id: 'metadata-provider', status: 'not-serving' },
+    { id: 'lyrics-provider', status: 'not-in-build' },
+    { id: 'search-provider', status: 'not-in-build' },
+    { id: 'scrobbler', status: 'not-in-build' },
+    { id: 'theme-pack', status: 'not-a-plugin' },
+    { id: 'home-row', status: 'not-a-plugin' },
   ]);
-  expect(demo.pluginSlots.every((slot) => !slot.loaded)).toStrictEqual(true);
 });
 
 test('timedVerse spreads the lines evenly across the duration, first line off zero', () => {

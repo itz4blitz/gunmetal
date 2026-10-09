@@ -6,7 +6,7 @@ import { CoverTile } from './destinations/CoverTile.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 import { RepeatGlyph } from './player-glyphs.tsx';
 import { formatDuration } from './format.ts';
-import { usePositionMs, type PositionClock } from './position-clock.ts';
+import { progressFillWidth, usePositionMs, type PositionClock } from './position-clock.ts';
 
 export type PlayerBarProps = {
   messages: ShellMessages;
@@ -50,6 +50,10 @@ export function PlayerBar({
   clock,
 }: PlayerBarProps) {
   const empty = playback.trackId === undefined;
+  /* An empty album title is not a credit. The name stays on its own element
+     so the opener's label cannot swallow it, while the credit line's text
+     stays "artist · album". */
+  const shownAlbum = albumTitle !== undefined && albumTitle !== '' ? albumTitle : undefined;
 
   /* The marquee engages only on a measured overflow. The visible width comes
      from the meta block's content box (the clipping parent), so re-measuring
@@ -158,11 +162,27 @@ export function PlayerBar({
                 }
               }}
             >
-              <Text id="player-title">{playback.title}</Text>
-              <Text id="player-artist">
-                {albumTitle !== undefined && albumTitle !== ''
-                  ? `${playback.artistName} · ${albumTitle}`
-                  : playback.artistName}
+              <Text id="player-title" accessibilityRole="header">
+                {playback.title}
+              </Text>
+              <Text
+                id="player-artist"
+                accessibilityRole={shownAlbum === undefined ? 'group' : undefined}
+                accessibilityLabel={shownAlbum === undefined ? playback.artistName : undefined}
+              >
+                {shownAlbum === undefined ? (
+                  playback.artistName
+                ) : (
+                  <>
+                    <Text accessibilityRole="group" accessibilityLabel={playback.artistName}>
+                      {playback.artistName}
+                    </Text>
+                    {' · '}
+                    <Text accessibilityRole="group" accessibilityLabel={shownAlbum}>
+                      {shownAlbum}
+                    </Text>
+                  </>
+                )}
               </Text>
               {stateLine === null ? null : (
                 <Text id="player-state" accessibilityRole="status" dataSet={{ playerState: stateLine.kind }}>
@@ -337,7 +357,7 @@ function ProgressZone({ messages, playback, empty, onSeek, clock }: ProgressZone
           <View
             id="player-progress-fill"
             dataSet={{ fill: `${Math.round(progress * 100)}` }}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: progressFillWidth(positionMs, durationMs) }}
           />
         </View>
       </View>

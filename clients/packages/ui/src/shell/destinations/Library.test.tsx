@@ -737,6 +737,89 @@ test('without an observer the grid paints every cover immediately (jsdom path)',
   expect(painted.length).toStrictEqual(library.albums.length);
 });
 
+test('a fixture album tile shows its year, track count and total duration', () => {
+  renderLibrary();
+  // Harbour Lights: 2021, four tracks, 214s + 198s + 241s + 187s = 14:00.
+  const tile = document.querySelector('#album-tile-demo-album-01');
+  expect(tile?.querySelector('[data-album-title="1"]')?.textContent).toStrictEqual('Harbour Lights');
+  expect(tile?.querySelector('[data-album-artist="1"]')?.textContent).toStrictEqual('Mira Sol');
+  expect(tile?.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('2021 · 4 tracks · 14:00');
+  const cover = tile?.querySelector('#cover-grid-demo-album-01') as HTMLElement | null;
+  expect(cover?.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect(cover?.style.backgroundImage).toContain('/media/covers/demo-album-01.svg');
+});
+
+test('a folder library cover is painted, and a year of 0 is not printed as 0', () => {
+  const covered = '/media/library/covers/aaaaaaaaaaaaaaaa.jpg';
+  const track = {
+    id: 'bbbbbbbbbbbbbbbb',
+    albumId: 'aaaaaaaaaaaaaaaa',
+    discIndex: 1,
+    number: 1,
+    title: 'Behold The Crown',
+    artistName: 'After The Burial',
+    durationMs: 274_307,
+    flag: 'ok' as const,
+    lyricsKind: 'none' as const,
+    mediaUrl: '/media/library/bbbbbbbbbbbbbbbb',
+  };
+  renderLibrary({
+    albums: [
+      {
+        id: 'aaaaaaaaaaaaaaaa',
+        title: 'Evergreen',
+        artistName: 'After The Burial',
+        artistKey: 'cccccccccccccccc',
+        year: 2019,
+        coverTone: '01',
+        coverUrl: covered,
+        hostile: false,
+        discs: [{ index: 1, title: '' }],
+        tracks: [track, { ...track, id: 'dddddddddddddddd', number: 2, title: 'Exit, Exist', durationMs: 1_000 }],
+      },
+      {
+        id: 'eeeeeeeeeeeeeeee',
+        title: 'Undated',
+        artistName: 'After The Burial',
+        artistKey: 'cccccccccccccccc',
+        year: 0,
+        coverTone: '02',
+        coverUrl: '',
+        hostile: false,
+        discs: [{ index: 1, title: '' }],
+        tracks: [{ ...track, id: 'ffffffffffffffff', albumId: 'eeeeeeeeeeeeeeee', durationMs: 61_000 }],
+      },
+    ],
+    artists: [],
+  });
+  const evergreen = document.querySelector('#album-tile-aaaaaaaaaaaaaaaa');
+  const cover = evergreen?.querySelector('#cover-grid-aaaaaaaaaaaaaaaa') as HTMLElement | null;
+  expect(cover?.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect(cover?.style.backgroundImage).toContain(covered);
+  // 274_307 + 1_000 = 275_307 ms = 4:35.
+  expect(evergreen?.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('2019 · 2 tracks · 4:35');
+  const undated = document.querySelector('#album-tile-eeeeeeeeeeeeeeee');
+  const plate = undated?.querySelector('#cover-grid-eeeeeeeeeeeeeeee') as HTMLElement | null;
+  expect(plate?.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(plate?.style.backgroundImage).toStrictEqual('');
+  expect(undated?.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('1 track · 1:01');
+  expect(undated?.textContent).not.toContain('0 ·');
+  expect(undated?.textContent).not.toMatch(/(^|[^0-9])0([^0-9]|$)/);
+
+  selectTab('Tracks');
+  expect(document.querySelector('#track-row-bbbbbbbbbbbbbbbb [data-track-duration="1"]')?.textContent).toStrictEqual(
+    '4:34',
+  );
+  expect(document.querySelector('#track-row-dddddddddddddddd [data-track-duration="1"]')?.textContent).toStrictEqual(
+    '0:01',
+  );
+  expect(document.querySelector('#track-row-ffffffffffffffff [data-track-duration="1"]')?.textContent).toStrictEqual(
+    '1:01',
+  );
+  const durations = [...document.querySelectorAll('[data-track-duration="1"]')].map((node) => node.textContent);
+  expect(durations.every((text) => text !== null && text !== '')).toStrictEqual(true);
+});
+
 test('area-library.css stays on tokens: no raw colours, no pills, no translucency tricks', async () => {
   const css = await readFile(join(here, '../../../../../apps/demo/public/area-library.css'), 'utf8');
   // Every colour is a --gm token (possibly inside a color-mix).
@@ -800,6 +883,7 @@ test('area-library.css stays on tokens: no raw colours, no pills, no translucenc
   expect(css.includes('#library-sort')).toStrictEqual(true);
   expect(css.includes('[data-artist-play]')).toStrictEqual(true);
   expect(css.includes('[data-album-tile]:hover [data-art-scrim]')).toStrictEqual(true);
+  expect(css.includes('[data-album-facts]')).toStrictEqual(true);
   expect(css.includes('gm-row-enter')).toStrictEqual(true);
   expect(css.includes('[data-search-clear]')).toStrictEqual(true);
   // Render discipline (2026-10-07): off-screen tiles and rows skip layout

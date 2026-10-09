@@ -1,7 +1,7 @@
 export { cylindersAlbum } from './commons.ts';
 export { albumById, allTracks, demoLibrary, trackById } from './catalogue.ts';
-export { demoPluginConsents, demoPluginManifests, loadedPluginSlots, pluginSlots } from './plugin-slots.ts';
-export type { PluginPlane, PluginSlot, PluginSlotId } from './plugin-slots.ts';
+export { hostServesCovers, pluginSlots } from './plugin-slots.ts';
+export type { FirstPartyJobStatus, PluginSlot, PluginSlotId } from './plugin-slots.ts';
 export { coverDataUri } from './cover.ts';
 export { demoLocalFilter, type DemoLocalFilterHit } from './filter.ts';
 export { hostileCorpus } from './hostile.ts';

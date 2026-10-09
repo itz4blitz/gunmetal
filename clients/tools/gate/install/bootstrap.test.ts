@@ -35,7 +35,7 @@ for (const unsafe of [false, true]) {
         status: 1, signal: null, stderr: '', result: [{ rule: 'SEC-SUP-033', path: 'workspace.ignoreScripts', message: 'must be true' }],
       } : {
         status: 0, signal: null, stderr: '', result: { runtime: { node: '24.20.0', pnpm: '12.7.0' },
-          pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['package.json'], findings: [] },
+          pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['apps/demo/package.json', 'package.json'], findings: [] },
       });
       await assert.rejects(stat(join(directory, 'node_modules')), { code: 'ENOENT' });
     } finally { await rm(root, { recursive: true, force: true }); }
@@ -66,7 +66,7 @@ test('a decoy tar first on PATH is never executed by the parser bootstrap', asyn
     assert.deepEqual({ status: result.status, signal: result.signal, stderr: result.stderr,
       result: result.stdout.trim() === '' ? null : JSON.parse(result.stdout) }, {
       status: 0, signal: null, stderr: '', result: { runtime: { node: '24.20.0', pnpm: '12.7.0' },
-        pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['package.json'], findings: [] },
+        pnpmPublication: '2026-09-25T10:38:41.952Z', manifests: ['apps/demo/package.json', 'package.json'], findings: [] },
     });
     await assert.rejects(stat(marker), { code: 'ENOENT' });
     // Positive control: the decoy does leave its marker once something executes it.

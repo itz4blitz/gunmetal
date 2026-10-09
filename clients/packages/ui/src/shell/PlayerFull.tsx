@@ -7,7 +7,7 @@ import { noLyrics, type LyricsResolver } from './content.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { RepeatGlyph } from './player-glyphs.tsx';
 import { LyricsPane } from './LyricsPane.tsx';
-import { usePositionMs, type PositionClock } from './position-clock.ts';
+import { progressFillWidth, usePositionMs, type PositionClock } from './position-clock.ts';
 import type { SyncedLine, TimedLyricsResolver } from './synced-lyrics.ts';
 import type { PlayerQueueLine, PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
@@ -536,7 +536,7 @@ function LiveProgress({
           <View
             id="player-full-progress-fill"
             dataSet={{ fill: `${Math.round(progress * 100)}` }}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: progressFillWidth(at, durationMs) }}
           />
         </View>
       </View>

@@ -21,8 +21,9 @@ way.
 > Ogg/Opus/Vorbis, AIFF, APE), the security foundations are built (signed
 > stream tokens, WebAuthn, pairing codes, the egress gate, the jailed worker
 > sandbox, secrets storage), the server's session, verifier and access-policy
-> layers exist, and a demo client with a working audio transport runs against
-> a fake server. This README describes where the project is going; the
+> layers exist, and the web client plays a library from the same origin,
+> falling back to fixture audio when that library is not there. The old demo
+> app is deprecated. This README describes where the project is going; the
 > [roadmap](#roadmap) shows exactly how far it has got.
 
 ## Why another media server
@@ -83,7 +84,7 @@ flowchart LR
 |---|---|---|
 | **Core** | Rust crate | Container parsers, remuxer, playback decisions, protocol types. Compiled into everything below. |
 | **Server** | Rust, single binary, SQLite | Indexes the library, serves bytes, remuxes in a jailed worker, supervises the transcode sandbox. |
-| **Client** | React 19, TypeScript, Vite | The web app and the demo, built around a persistent player; react-native-web keeps one interface that can carry to phones and TVs. |
+| **Client** | React 19, TypeScript, Vite | The web client you open, on a desktop or a phone. No native shell. react-native-web keeps one interface that can carry to phones and TVs. |
 | **Mobile app** | React Native, TypeScript | Phones and tablets, with offline downloads and background playback. |
 | **Site** | Cloudflare | Docs and landing page at [gunmetal.tv](https://gunmetal.tv). |
 
@@ -160,9 +161,18 @@ The clients need Node 24 and pnpm 12:
 ```bash
 cd clients
 pnpm install
-pnpm demo      # the demo client, against its fake server
+pnpm dev       # the web client, at http://127.0.0.1:5173
 pnpm test      # vitest; playwright drives the e2e suite
 ```
+
+`pnpm dev` is the client. It loads `/library.json` and `/media/library/{id}`
+from the same origin. In development those two paths are proxied to
+`http://127.0.0.1:4875`, where `gunmetal serve` listens. A missing library
+falls back to the fixture catalogue. The built client uses the relative
+paths only. There is no Electron or Tauri shell: desktops use this page
+([record 23](docs/adr/0023-web-client-is-the-player.md)).
+
+`pnpm demo` still starts the old app. It is deprecated. Open `clients/apps/web`.
 
 ## Repository layout
 
@@ -182,8 +192,9 @@ crates/                  the Rust workspace
   gunmetal-testkit       shared test helpers
   gunmetal-fuzz          fuzz targets
   xtask                  the supply-chain checks the gate runs
-clients/                 the React workspace: web app, demo client, the fake
-                         server it runs against, shared UI and port packages
+clients/                 the React workspace: the web client you open, a deprecated
+                         demo whose tests still prove the player, the fake
+                         server, shared UI and port packages
 docs/                    research, feature maps, plans, ADRs, security baseline
 site/                    the gunmetal.tv pages
 scripts/gate.sh          every quality gate, in one script

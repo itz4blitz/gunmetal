@@ -46,6 +46,8 @@ export type ShellMessages = {
   playerBuffering: string;
   playerPlaybackFailed: string;
   playerRemove: string;
+  /* The Store door. An extension is a record, not a download. */
+  navStore: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -64,7 +66,7 @@ export function shellMessages(): ShellMessages {
     themeOled: 'OLED',
     themeHighContrast: 'High contrast',
     shellThemeSystem: 'System',
-    demoData: 'Demo data',
+    demoData: 'Fixture library',
     primaryNav: 'Primary',
     playerRegion: 'Now playing',
     rightPane: 'Queue',
@@ -97,5 +99,7 @@ export function shellMessages(): ShellMessages {
     playerBuffering: 'Buffering…',
     playerPlaybackFailed: 'This track could not be played.',
     playerRemove: 'Remove from queue',
+    /* The Store door. An extension is a record, not a download. */
+    navStore: 'Store',
   };
 }

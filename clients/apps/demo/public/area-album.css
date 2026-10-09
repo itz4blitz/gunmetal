@@ -216,7 +216,13 @@
   align-items: center;
 }
 
-/* The record: a square that fills its column. */
+/* Album art is the large square beside the title, not a tile-sized plate. */
+#token-shell #destination-album [data-album-header='1'] {
+  grid-template-columns: clamp(240px, 32%, 320px) minmax(0, 1fr);
+}
+
+/* The record: a square that fills its column. A file cover is the photo
+   itself — blend mode and padding from the tone plate must not wash it. */
 #token-shell #destination-album [data-album-header='1'] [data-size='detail'] {
   width: 100%;
   height: auto;
@@ -227,6 +233,21 @@
     var(--gm-stroke-edge),
     0 28px 56px -28px color-mix(in srgb, black 80%, transparent);
   transform: none;
+}
+
+#token-shell #destination-album [data-album-header='1'] [data-cover-art='1'] {
+  padding: 0;
+  min-width: 240px;
+  min-height: 240px;
+  background-color: transparent;
+  background-blend-mode: normal;
+  background-size: cover;
+  background-position: center;
+}
+
+#token-shell #destination-album [data-cover-art='1'] [data-cover-plate],
+#token-shell #destination-album [data-cover-art='1'] [data-cover-wash] {
+  display: none;
 }
 
 /* The person: a nut. */
@@ -325,6 +346,13 @@
 #token-shell [data-album-header-text='1'] [data-album-artist][role='button']:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 3px;
+}
+
+/* Year · tracks · total time stay readable text, never the clipped label pattern. */
+#token-shell #destination-album [data-album-meta='1'] {
+  position: static;
+  overflow: visible;
+  clip: auto;
 }
 
 /* Year · tracks · total time (album) and albums · songs (artist). */
@@ -1225,7 +1253,9 @@
 }
 
 #token-shell[data-width='compact'] #destination-album [data-album-header='1'] [data-size='detail'] {
-  width: min(64vw, 260px);
+  width: min(78vw, 320px);
+  min-width: 0;
+  min-height: 0;
   justify-self: center;
 }
 

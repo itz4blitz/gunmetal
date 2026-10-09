@@ -259,10 +259,10 @@ test('spotlight carries the ambient bloom, meta line and a quiet album menu', ()
   expect(bloom?.getAttribute('role')).toStrictEqual(null);
   expect(bloom?.getAttribute('style')).toContain('url("/media/covers/demo-album-01.svg")');
 
-  // Meta line under the artist: year and track count from the catalogue,
+  // Meta line under the artist: artist, year and track count from the catalogue,
   // drawn as a real text node (untrusted-text rule, design-language §6).
   expect(document.querySelector('#home-spotlight [data-spotlight-meta="1"]')?.textContent).toStrictEqual(
-    '2021 · 4 tracks',
+    'Mira Sol · 2021 · 4 tracks',
   );
 
   // The quiet kebab opens the same catalogue menu the tiles use. Shelf tiles
@@ -422,6 +422,74 @@ test('artistTileData claims exactly the tone the catalogue resolved', () => {
   expect(artistTileData(undefined)).toStrictEqual({ artistAvatar: '1' });
 });
 
+test('a folder library spotlights the first covered album and shelves each cover', () => {
+  const base = demoLibrary();
+  const first = base.albums[0];
+  const second = base.albums[1];
+  if (first === undefined || second === undefined) {
+    throw new Error('fixture albums missing');
+  }
+  const library: ShellLibrary = {
+    albums: [
+      {
+        ...first,
+        id: 'bare-album',
+        title: 'Untitled Folder',
+        artistName: 'No Cover',
+        artistKey: 'no-cover',
+        year: 0,
+        coverUrl: '',
+        tracks: first.tracks.slice(0, 1),
+      },
+      {
+        ...second,
+        id: 'covered-album',
+        title: 'St. Elsewhere',
+        artistName: 'Gnarls Barkley',
+        artistKey: 'gnarls',
+        year: 2006,
+        coverUrl: '/media/library/covers/covered.jpg',
+        tracks: second.tracks.slice(0, 2),
+      },
+    ],
+    artists: [],
+  };
+  const onPlayAlbum = vi.fn();
+  render(
+    <Home
+      messages={destinationMessages()}
+      library={library}
+      onOpenAlbum={vi.fn()}
+      onPlayAlbum={onPlayAlbum}
+      onSeeAll={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole('heading', { name: 'St. Elsewhere' })).not.toBeNull();
+  expect(screen.queryByRole('heading', { name: 'Untitled Folder' })).toBeNull();
+  expect(document.querySelector('#destination-home')?.getAttribute('data-art-tone')).toStrictEqual('02');
+  expect(document.querySelector('#home-spotlight [data-spotlight-meta="1"]')?.textContent).toStrictEqual(
+    'Gnarls Barkley · 2006 · 2 tracks',
+  );
+  expect(document.querySelector('#home-spotlight [data-hero-bloom="1"]')?.getAttribute('style')).toContain(
+    'url("/media/library/covers/covered.jpg")',
+  );
+  expect(document.querySelector('[data-empty-row="1"]')).toBeNull();
+  expect(screen.queryByText('No albums added yet')).toBeNull();
+  expect(document.querySelector('#album-tile-bare-album')).not.toBeNull();
+  expect(document.querySelector('#album-tile-covered-album')).not.toBeNull();
+  expect(document.querySelector('#cover-grid-bare-album')?.getAttribute('data-cover-art')).toStrictEqual('0');
+  expect(document.querySelector('#cover-grid-covered-album')?.getAttribute('data-cover-art')).toStrictEqual('1');
+  expect(document.querySelector('#cover-grid-covered-album')?.getAttribute('style')).toContain(
+    'url("/media/library/covers/covered.jpg")',
+  );
+  expect(document.querySelector('#cover-spotlight-covered-album')?.getAttribute('style')).toContain(
+    'url("/media/library/covers/covered.jpg")',
+  );
+  fireEvent.click(required(document.querySelector('#home-spotlight-play'), '#home-spotlight-play'));
+  expect(onPlayAlbum).toHaveBeenCalledWith('covered-album');
+});
+
 test('a spotlight without a year or artwork claims neither', () => {
   const base = demoLibrary();
   const first = base.albums[0];
@@ -429,7 +497,10 @@ test('a spotlight without a year or artwork claims neither', () => {
     throw new Error('fixture album missing');
   }
   const quiet: ShellLibrary = {
-    albums: [{ ...first, year: 0, coverUrl: '' }, ...base.albums.slice(1, 3)],
+    albums: [
+      { ...first, year: 0, coverUrl: '' },
+      ...base.albums.slice(1, 3).map((album) => ({ ...album, coverUrl: '' })),
+    ],
     artists: base.artists,
   };
   render(
@@ -441,8 +512,9 @@ test('a spotlight without a year or artwork claims neither', () => {
       onSeeAll={vi.fn()}
     />,
   );
-  // No year: the meta line is the track count alone.
-  expect(document.querySelector('[data-spotlight-meta="1"]')?.textContent).toStrictEqual('4 tracks');
+  // No covered release: the first album is the spotlight, and a missing year is omitted.
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).not.toBeNull();
+  expect(document.querySelector('[data-spotlight-meta="1"]')?.textContent).toStrictEqual('Mira Sol · 4 tracks');
   // No artwork URL: the hero renders without its ambient bloom.
   expect(document.querySelector('[data-hero-bloom="1"]')).toBeNull();
   // And without art the spotlight carries no art-tone wash either.

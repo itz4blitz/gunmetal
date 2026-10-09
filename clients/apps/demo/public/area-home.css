@@ -191,7 +191,7 @@
   letter-spacing: 0.14em;
 }
 
-/* Meta line: year · track count — true metadata, muted, tabular. */
+/* Meta line: artist · year · track count — true metadata, muted, tabular. */
 [data-spotlight-meta] {
   font-size: var(--gm-type-small-size);
   line-height: var(--gm-type-small-line);
@@ -221,10 +221,10 @@
   color: var(--gm-text-primary);
 }
 
-/* The hero kebab: same catalogue menu as the tiles, at whisper volume —
-   borderless at rest, a hairline plate on hover. */
+/* The hero kebab: the shared "more" icon at whisper volume — borderless at
+   rest, a hairline plate on hover. It toggles the portalled catalogue menu;
+   menu-anchor places that menu, nothing here anchors it. */
 [data-spotlight-more] {
-  position: relative;
   width: 40px;
   height: 40px;
   display: flex;
@@ -236,22 +236,10 @@
   background: transparent;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
-  font-size: 0;
   cursor: pointer;
   transition:
     background-color var(--gm-motion),
     border-color var(--gm-motion);
-}
-
-[data-spotlight-more]::before {
-  content: '⋮';
-  font-size: 18px;
-  line-height: 1;
-}
-
-/* RN-web Text pins 14px — hide the visible label; the name is the aria-label. */
-[data-spotlight-more] > * {
-  display: none;
 }
 
 [data-spotlight-more]:hover {
@@ -268,14 +256,6 @@
 [data-spotlight-more]:focus-visible {
   outline: 2px solid var(--gm-focus-ring);
   outline-offset: 2px;
-}
-
-/* The hero menu drops from the actions row, right-aligned to the kebab.
-   The row must hug its content (a stretched flex item would push the
-   anchored menu to the far edge of the hero). */
-[data-spotlight-actions] {
-  position: relative;
-  align-self: flex-start;
 }
 
 /* —— Shelf headers: title · count · hairline see-all (2026) —— */
@@ -444,6 +424,8 @@
 [data-artist-shelf] {
   display: flex;
   flex-direction: row;
+  /* Same hug as the album shelf: a short name must not inherit the row height. */
+  align-items: flex-start;
   gap: 16px;
   overflow-x: auto;
   scrollbar-width: none;
