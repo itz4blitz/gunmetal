@@ -535,7 +535,10 @@ export function archiveImageUrl(value) {
     return false;
   }
   const host = parsed.hostname;
-  const archive = host === 'archive.org' || host.endsWith('.archive.org');
+  // The suffix is compared label by label, so a host like
+  // not-archive.org cannot ride the archive's suffix.
+  const archive =
+    host === 'archive.org' || host.split('.').slice(-2).join('.') === 'archive.org';
   if (!archive) {
     return false;
   }
