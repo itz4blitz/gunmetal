@@ -37,7 +37,7 @@ not download it.
 4. **Movies and shows have addresses before they have a library.** The page
    says they are not connected yet. It does not pretend to play them.
 5. **This does not run plugin code.** The player ships the reviewed records.
-   The Forgejo repository is where a change is reviewed. A merge there does
+   The GitHub repository is where a change is reviewed. A merge there does
    not install itself (record 24).
 
 ## Consequences

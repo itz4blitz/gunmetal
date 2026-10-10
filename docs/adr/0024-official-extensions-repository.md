@@ -1,4 +1,4 @@
-# 24. Extension records are reviewed in PremierStudio/gunmetal-extensions
+# 24. Extension records are reviewed in itz4blitz/gunmetal-extensions
 
 Date: 2026-10-08
 Status: accepted, through the owner's request on 2026-10-08 that Gunmetal
@@ -22,17 +22,16 @@ downloader.
 ## Decisions
 
 1. **The catalogue source is**
-   `https://git.taild1bbf.ts.net/PremierStudio/gunmetal-extensions`
-   on the Premier Forgejo ([record 16](0016-forgejo-source-of-truth.md)).
+   `https://github.com/itz4blitz/gunmetal-extensions` on GitHub.
    `officialExtensionsRepository()` is that closed identity. This build does
    not clone it, fetch it, or run it.
 2. **Write access is that repository's membership**, not a setting in the
-   player. Adding or removing a reviewer is a Forgejo access change.
+   player. Adding or removing a reviewer is a GitHub access change.
 3. **A merged change there is a reviewed record. It does not install itself
    on a server.** Gunmetal names the repository. It does not treat an open
    pull request as something to run.
 4. **The interface id stays `gunmetal.extensions/1`.** A package targets an
-   id in that interface. The Forgejo repository is where the record is
+   id in that interface. The GitHub repository is where the record is
    reviewed. They are not the same string.
 5. **This does not add a third-party index.** INT-067 remains a later owner
    action: a signed index the owner adds after checking its key. This record
@@ -40,9 +39,9 @@ downloader.
 
 ## Consequences
 
-The Extensions page shows `PremierStudio/gunmetal-extensions` as where a
+The Extensions page shows `itz4blitz/gunmetal-extensions` as where a
 record is maintained, and says a pull request there does not install it.
 INT-066's "main repository" is narrowed for extension records only; the
 plugin host is still R2, and record 22 still forbids the client from
-fetching a contribution. Creating the Forgejo repository and its team is
-forge administration, not a player feature.
+fetching a contribution. Creating the GitHub repository and its team is
+repository administration, not a player feature.

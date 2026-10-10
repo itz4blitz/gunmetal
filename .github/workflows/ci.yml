@@ -55,9 +55,8 @@ jobs:
       # cargo-vet publishes no prebuilt binaries after 0.10.0, so build the
       # exact version from crates.io; cargo checks each crate's checksum
       # against the index, and --locked uses cargo-vet's own lockfile.
-      # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39. The
-      # runner image is Debian bookworm (glibc 2.36), so build that pin
-      # the same way (record 23).
+      # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39, newer
+      # than the runner image, so build that pin the same way.
       - run: cargo install cargo-vet --version 0.10.2 --locked
       - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
@@ -66,16 +65,13 @@ jobs:
 
   # The mutation run, one shard per job, for every event.
   mutants:
-    # Where the shards run (record 17). Every job, this one included, runs
-    # on the project's own runners, labelled gunmetal-mutants. Record 15
-    # sent bots, forks and wave-branch diffs to GitHub-hosted runners;
-    # that split is gone. The controls that keep outsiders off the build
-    # host are still the repository settings record 15 lists, not this
-    # line: a pull request can rewrite it.
+    # The ten shards run on GitHub-hosted runners; a pull request can
+    # rewrite this line, so the required `gate` check below is what keeps
+    # the result honest.
     runs-on: ubuntu-latest
-    # 15 hours: about 800 mutants at 20 to 35 seconds each is 4.5 to 8
-    # hours, and the limit leaves room for the workspace to double. A
-    # timed-out shard fails `gate`.
+    # 6 hours, the longest a GitHub-hosted job may run; about 800 mutants at
+    # 20 to 35 seconds each is 4.5 to 8 hours split across the ten shards.
+    # A timed-out shard fails `gate`.
     timeout-minutes: 360
     permissions:
       contents: read
@@ -97,7 +93,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ matrix.shard == 0 }}
-      # No musl build, and the gnu build needs glibc 2.39 (record 23).
+      # No musl build, and the gnu build needs glibc 2.39.
       - run: cargo install cargo-mutants --version 27.1.0 --locked
       - run: scripts/gate.sh
         env:

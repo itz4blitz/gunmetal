@@ -9,11 +9,11 @@ tracked there.
 
 ## Context
 
-[Record 24](0024-official-extensions-repository.md) named a Forgejo repository
-as the review home for extension records. The owner, on 2026-10-08, moved
-that home to the public GitHub repository
-`https://github.com/PremierStudio/gunmetal-extensions`. Record 22 still
-forbids the client from fetching or running a plugin. SEC-EXT-018 still
+[Record 24](0024-official-extensions-repository.md) named a review home for
+extension records. The owner, on 2026-10-08, moved that home to the public
+GitHub repository `https://github.com/itz4blitz/gunmetal-extensions`.
+Record 22 still forbids the client from fetching or running a plugin.
+SEC-EXT-018 still
 forbids loading or executing plugin code. A pointer is not a downloader.
 
 The product word is Extension. The door in the sidebar is Store. A plugin
@@ -37,8 +37,6 @@ would be code. An app would be a separate program. This is neither.
 ## Consequences
 
 The sidebar door is Store. The page says which records this server already
-runs, and that a pull request does not install one. The Forgejo source of
-truth for the player ([record 16](0016-forgejo-source-of-truth.md)) is
-unchanged. Only the extensions review home moved. Creating that GitHub
-repository and its access list is forge administration, not a player
-feature.
+runs, and that a pull request does not install one. Only the extensions
+review home moved. Creating that GitHub repository and its access list is
+repository administration, not a player feature.
