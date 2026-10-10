@@ -1,23 +1,28 @@
 //! Walking a root: every directory once, in name order, by the bytes of
 //! its names, with what is skipped listed beside what is found.
 
+#[cfg(target_os = "linux")]
 use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
 use gunmetal_core::parse::{LimitError, LimitKind};
 use gunmetal_core::path::RelPath;
 use gunmetal_fs::fingerprint::Mark;
+#[cfg(target_os = "linux")]
 use gunmetal_fs::open::FileKind;
+#[cfg(target_os = "linux")]
 use gunmetal_fs::pool::Pool;
 use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, Op};
 use gunmetal_fs::walk::{Visit, WalkLimits};
 
+#[cfg(target_os = "linux")]
+use crate::support::{LONG, fifo, socket};
 use crate::support::{
-    LONG, Scratch, assert_not_root, at, collect, fifo, hex, identity, io, outside, raw, rel,
-    set_mode, socket, summary,
+    Scratch, assert_not_root, at, collect, hex, identity, io, outside, raw, rel, set_mode, summary,
 };
 
 /// The visit of the regular file at `path`, which has one name and is
@@ -139,9 +144,12 @@ fn an_empty_root_is_one_empty_directory() {
 
 /// The walk runs on a pool so that a door that opened the FIFO, and waited
 /// for a writer that never comes, would fail this test instead of hanging
-/// it.
+/// it. The FIFO helper is Linux's, so the test runs there; elsewhere the
+/// refusals are proven by the socket and directory cases in opening.rs,
+/// whose opens cannot wait.
 ///
 /// Verifies: SEC-MED-035
+#[cfg(target_os = "linux")]
 #[test]
 fn skips_a_fifo_and_a_socket_whatever_they_are_called_and_finishes() {
     let scratch = Scratch::new("fs-walk-special");
@@ -222,6 +230,11 @@ fn follows_a_link_that_stays_inside_and_lists_the_ones_it_refuses() {
 }
 
 /// Verifies: SEC-MED-040
+///
+/// The names need a byte-transparent filesystem, which the macOS ones
+/// are not: those refuse to create such a name at all (`EILSEQ`), so the
+/// test runs on Linux, where the hostile input can exist.
+#[cfg(target_os = "linux")]
 #[test]
 fn walks_names_that_are_not_utf8_or_hold_controls_by_their_bytes() {
     let scratch = Scratch::new("fs-walk-bytes");

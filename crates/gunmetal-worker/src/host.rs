@@ -223,12 +223,15 @@ pub fn serve<A: Serialize>(
 #[cfg(test)]
 mod tests {
     use super::{HostError, Source, drive, serve, serve_one};
-    use crate::ipc::testing::{memory_file, pair, read_only_file, reopened};
+    #[cfg(target_os = "linux")]
+    use crate::ipc::testing::reopened;
+    use crate::ipc::testing::{memory_file, pair, read_only_file};
     use crate::ipc::{
         AnswerError, ChannelError, Job, Received, Refusal, Revalidate, read_answer, send,
     };
     use gunmetal_core::parse::{DriveError, LimitKind, Limits, ReadRequest, SansIo, Step, Window};
     use gunmetal_core::wire::WireError;
+    #[cfg(target_os = "linux")]
     use rustix::fs::OFlags;
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
@@ -605,7 +608,9 @@ mod tests {
 
     /// A descriptor opened with `O_PATH` names a file and cannot read it:
     /// its length can be read, and a read of it fails with `EBADF`, error
-    /// number 9, as a read of a closed descriptor does.
+    /// number 9, as a read of a closed descriptor does. `O_PATH` is
+    /// Linux's, so the test runs there.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_descriptor_that_cannot_be_read_is_reported() {
         let file = reopened(&[1, 2, 3, 4], OFlags::PATH);

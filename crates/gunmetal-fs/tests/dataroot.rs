@@ -11,6 +11,7 @@ mod support;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::symlink;
 use std::os::unix::net::UnixListener;
@@ -399,6 +400,11 @@ fn refuses_secrets_nested_deeper_than_a_data_path_reaches() {
     );
 }
 
+/// A name that is not text can exist on Linux's byte-transparent
+/// filesystems, and the door refuses it. ThemacOS filesystems refuse to
+/// create such a name at all (`EILSEQ`), so the test runs where the
+/// hostile input can exist.
+#[cfg(target_os = "linux")]
 #[test]
 fn refuses_a_secret_whose_name_is_not_text() {
     assert_not_root();

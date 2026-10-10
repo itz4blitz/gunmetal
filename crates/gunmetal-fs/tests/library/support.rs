@@ -17,6 +17,7 @@ use gunmetal_fs::open::{Identity, MediaFile, Modified};
 use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, Op, Root};
 use gunmetal_fs::walk::{Visit, Walk};
 use gunmetal_testkit::tempdir::TempDir;
+#[cfg(target_os = "linux")]
 use rustix::fs::{CWD, Mode};
 
 /// Long enough for anything that works; a test that waits this long has
@@ -194,7 +195,10 @@ pub fn set_mode(path: &Path, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set the mode");
 }
 
-/// Makes a FIFO at `path`.
+/// Makes a FIFO at `path`. rustix has no mkfifo helper off Linux, so the
+/// tests that need a FIFO run there; elsewhere the socket and directory
+/// entries stand in for a non-regular file.
+#[cfg(target_os = "linux")]
 pub fn fifo(path: &Path) {
     rustix::fs::mkfifoat(CWD, path, Mode::from_raw_mode(0o644)).expect("make a FIFO");
 }

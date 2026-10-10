@@ -52,7 +52,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions, OpenOptionsExt};
-use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawMode, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
 use crate::path::{self, DataDir, DataPath, LogMonth, LogStream, USER_LOG};
@@ -375,8 +375,30 @@ impl Facts {
         Self {
             kind,
             owner: stat.st_uid,
+            // `mode_t` is `u32` on Linux and narrower elsewhere; the field
+            // is the wider one on every platform.
+            #[cfg(target_os = "linux")]
             mode: stat.st_mode & 0o7777,
+            #[cfg(not(target_os = "linux"))]
+            mode: u32::from(stat.st_mode & 0o7777),
         }
+    }
+}
+
+/// The `Mode` for stored permission bits. The stored bits are wider than
+/// `mode_t` is on some platforms, and a value that does not fit is
+/// refused, so one can never be written truncated.
+fn mode_for(bits: u32) -> io::Result<Mode> {
+    #[cfg(target_os = "linux")]
+    {
+        // `mode_t` is `u32` here: the bits are it already.
+        Ok(Mode::from_raw_mode(bits))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        RawMode::try_from(bits)
+            .map(Mode::from_raw_mode)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "mode does not fit mode_t"))
     }
 }
 
@@ -491,8 +513,8 @@ impl Settler {
             })
             .and_then(|(facts, change)| match change {
                 None => Ok(facts.kind),
-                Some(required) => repair(Mode::from_raw_mode(required))
-                    .map_err(io::Error::from)
+                Some(required) => mode_for(required)
+                    .and_then(|mode| repair(mode).map_err(io::Error::from))
                     .map_err(io_error(item.clone(), Op::Repair))
                     .and_then(|()| look())
                     .and_then(|after| confirm(item, after, required))
@@ -543,7 +565,7 @@ impl Settler {
                 // reason the create fails shows up there as well, as the
                 // error the inspection reports, so its result needs no
                 // handling here.
-                let _ = rustix::fs::mkdirat(root, dir.name(), Mode::from_raw_mode(DIR_MODE));
+                let _ = mode_for(DIR_MODE).map(|mode| rustix::fs::mkdirat(root, dir.name(), mode));
                 self.settle(
                     || rustix::fs::statat(root, dir.name(), AtFlags::SYMLINK_NOFOLLOW),
                     |mode| rustix::fs::chmodat(root, dir.name(), mode, AtFlags::empty()),

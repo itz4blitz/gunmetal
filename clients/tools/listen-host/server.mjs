@@ -535,11 +535,15 @@ export function archiveImageUrl(value) {
     return false;
   }
   const host = parsed.hostname;
-  const archive = host === 'archive.org' || host.endsWith('.archive.org');
+  // The suffix is compared label by label, so a host like
+  // not-archive.org cannot ride the archive's suffix.
+  const archive =
+    host === 'archive.org' || host.split('.').slice(-2).join('.') === 'archive.org';
   if (!archive) {
     return false;
   }
-  return parsed.pathname.startsWith('/download/') || parsed.pathname.startsWith('/0/items/');
+  const segments = parsed.pathname.split('/');
+  return segments[1] === 'download' || (segments[1] === '0' && segments[2] === 'items');
 }
 
 export function publicCoverUrl(albumId, ext) {
