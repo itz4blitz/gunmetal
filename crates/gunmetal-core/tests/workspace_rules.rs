@@ -2079,11 +2079,15 @@ fi
         .collect();
     assert!(gate.contains(&"if: ${{ always() }}"));
     assert!(gate.contains(&format!("needs: [{}]", others.join(", ")).as_str()));
+    // The runner image has node, not jq, so the gate job reads NEEDS with
+    // a node heredoc.
     for line in [
         "NEEDS: ${{ toJSON(needs) }}",
-        r#"wrong=$(jq -r '[to_entries[] | select(.value.result != "success") | "\(.key) ended as \(.value.result)"] | join(", ")' <<<"$NEEDS")"#,
-        "if [[ -n \"$wrong\" ]]; then",
-        "exit 1",
+        "node <<'NODE'",
+        "const needs = JSON.parse(process.env.NEEDS);",
+        r#"if (result !== "success") wrong.push(`${key} ended as ${result}`);"#,
+        "if (wrong.length > 0) {",
+        "process.exit(1);",
     ] {
         assert!(gate.contains(&line), "{line}");
     }
