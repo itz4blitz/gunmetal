@@ -915,6 +915,46 @@ mod tests {
         );
     }
 
+    /// Verifies the wait a loaded runner can skip: nothing ready is tried
+    /// again until it is. A socket's first read can take longer than
+    /// [`BRIEFLY`], so this reader is the one that walks the retry.
+    #[test]
+    fn a_read_that_is_not_ready_is_tried_until_it_is() {
+        struct Later {
+            left: u8,
+        }
+        impl Read for Later {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.left > 0 {
+                    self.left -= 1;
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "later"));
+                }
+                buf[0] = 0;
+                Ok(1)
+            }
+        }
+        assert_eq!(
+            poll_read(&mut Later { left: 2 }, Duration::from_secs(30)),
+            Ok(1)
+        );
+    }
+
+    /// Verifies the other arm of that wait: once it has ended, a read that
+    /// is still not ready is `WouldBlock` and is not tried again.
+    #[test]
+    fn a_read_that_stays_unready_ends_when_the_wait_does() {
+        struct Never;
+        impl Read for Never {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::WouldBlock, "never"))
+            }
+        }
+        assert_eq!(
+            poll_read(&mut Never, Duration::ZERO),
+            Err(io::ErrorKind::WouldBlock)
+        );
+    }
+
     /// Runs `transmit` over `whole` with a first call that answers with
     /// `answers` in turn, and returns what it returned, with an error as
     /// its kind, how many times the call was made, and what was written
