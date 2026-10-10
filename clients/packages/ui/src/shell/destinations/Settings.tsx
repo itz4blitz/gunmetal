@@ -40,6 +40,8 @@ export type SettingsProps = {
   pluginSlots?: readonly PluginSlot[] | undefined;
   /** Real library size. When set, this is the About library fact, and the playback placeholder is hidden. */
   libraryFact?: string | undefined;
+  /** Libraries content. Absent, the Libraries section stays hidden. */
+  libraries?: ReactNode | undefined;
   messages: DestinationMessages;
   shellMessages: ShellMessages;
   theme: ThemeId;
@@ -426,6 +428,7 @@ function ExtensionPage({
 export function Settings({
   section: routedSection,
   libraryFact,
+  libraries,
   messages,
   shellMessages,
   theme,
@@ -452,7 +455,8 @@ export function Settings({
     section = routedSection ?? defaultSettingsSection();
     setPicked({ route: routedSection, section });
   }
-  const visible = layout === 'stack' ? settingsSections() : [section];
+  const withLibraries = libraries !== undefined;
+  const visible = layout === 'stack' ? settingsSections(withLibraries) : [section];
   const choose = (next: SettingsSection) => {
     if (onOpenPath !== undefined) {
       onOpenPath(settingsSectionPath(next));
@@ -471,7 +475,7 @@ export function Settings({
       </Text>
       {layout === 'side' ? (
         <View id="settings-nav" accessibilityRole="tablist" accessibilityLabel={messages.settingsNav}>
-          {settingsNavItems(messages).map((item) => (
+          {settingsNavItems(messages, withLibraries).map((item) => (
             <View
               key={item.id}
               id={`settings-nav-${item.id}`}
@@ -564,6 +568,11 @@ export function Settings({
                 {messages.settingsPlaybackPlaceholder}
               </Text>
             ) : null}
+          </SettingsPane>
+        ) : null}
+        {visible.includes('libraries') && libraries !== undefined ? (
+          <SettingsPane id="settings-libraries" section="libraries" messages={messages}>
+            {libraries}
           </SettingsPane>
         ) : null}
         {visible.includes('connected') ? (

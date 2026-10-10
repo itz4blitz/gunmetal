@@ -27,6 +27,33 @@ function renderSettings(width: WidthClass, onThemeChange: (theme: ThemeId) => vo
   );
 }
 
+test('libraries content adds the Libraries pane between playback and connected', () => {
+  render(
+    <Settings
+      pluginSlots={pluginSlots(true)}
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="compact"
+      libraries={<div id="libraries-stub">the sources</div>}
+    />,
+  );
+  expect(screen.getAllByRole('heading').map((heading) => heading.textContent)).toStrictEqual([
+    'Settings',
+    'Appearance',
+    'Playback',
+    'Libraries',
+    'Connected services',
+    'Extensions / Plugins',
+    'About this connection',
+    'Privacy',
+  ]);
+  const pane = document.querySelector('#settings-libraries');
+  expect(pane?.getAttribute('data-settings-section')).toStrictEqual('libraries');
+  expect(pane?.querySelector('#libraries-stub')?.textContent).toStrictEqual('the sources');
+});
+
 test('compact settings stacks every pane and hides the section list', () => {
   renderSettings('compact');
   expect(document.querySelector('#destination-settings')?.getAttribute('data-settings-layout')).toStrictEqual('stack');

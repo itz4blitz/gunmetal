@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue, type MessageCatalogue } from '../messages/catalogue.ts';
 import { extensionIdFromPath, extensionTitle } from '../plugins/repository.ts';
@@ -89,6 +90,8 @@ export type ShellProps = {
   /** The chosen output. Empty is the browser default. */
   sinkId?: string | undefined;
   onOutput?: ((id: string) => void) | undefined;
+  /** Libraries content for the settings page. Absent, the section stays hidden. */
+  settingsLibraries?: ReactNode | undefined;
 };
 
 function readWindowWidth(): number {
@@ -307,6 +310,7 @@ export function Shell({
   outputs,
   sinkId,
   onOutput,
+  settingsLibraries,
 }: ShellProps) {
   const messages = catalogue();
   const [store] = useState<LayoutStore>(() => layoutStore ?? noLayoutStore());
@@ -732,6 +736,7 @@ export function Shell({
             playingAlbumId={state.albumId}
             served={library?.kind === 'folder'}
             libraryFact={libraryFact}
+            libraries={settingsLibraries}
             width={width}
           />
         </View>

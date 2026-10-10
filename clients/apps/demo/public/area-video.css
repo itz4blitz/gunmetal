@@ -43,21 +43,12 @@
   color: var(--gm-text-muted, #8a97a8);
 }
 
-#watch-sources {
+#sources-pane {
   display: grid;
   gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--gm-hairline, #232a33);
-  border-radius: 12px;
 }
 
-#watch-sources h2 {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--gm-text-secondary, #b0bbc5);
-}
-
-#watch-source-list {
+#source-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -65,42 +56,42 @@
   gap: 8px;
 }
 
-#watch-source-list li {
+#source-list li {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.watch-source-name {
+.source-name {
   color: var(--gm-text, #e8edf3);
   font-weight: 600;
 }
 
-.watch-source-path {
+.source-path {
   color: var(--gm-text-muted, #8a97a8);
 }
 
-.watch-source-count {
+.source-count {
   color: var(--gm-text-muted, #8a97a8);
   margin-right: auto;
 }
 
-#watch-add-source {
+#source-add {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
   align-items: end;
 }
 
-#watch-add-source label {
+#source-add label {
   display: grid;
   gap: 4px;
   font-size: 0.85rem;
   color: var(--gm-text-muted, #8a97a8);
 }
 
-#watch-add-source input {
+#source-add input {
   border: 1px solid var(--gm-hairline, #232a33);
   border-radius: 8px;
   background: var(--gm-field, #10141b);
@@ -110,8 +101,8 @@
   min-width: 220px;
 }
 
-#watch-add-source button,
-#watch-source-list button {
+#source-add button,
+#source-list button {
   border: 1px solid var(--gm-hairline, #232a33);
   border-radius: 8px;
   background: transparent;
@@ -121,15 +112,20 @@
   cursor: pointer;
 }
 
-#watch-add-source button:disabled,
-#watch-source-list button:disabled {
+#source-add button:disabled,
+#source-list button:disabled {
   opacity: 0.5;
   cursor: wait;
 }
 
-#watch-notice {
+#source-notice,
+#sources-empty {
   margin: 0;
   color: var(--gm-warning, #e0b070);
+}
+
+#sources-empty {
+  color: var(--gm-text-muted, #8a97a8);
 }
 
 #watch-grid {
@@ -176,8 +172,7 @@
   color: var(--gm-text-muted, #8a97a8);
 }
 
-#watch-grid-empty,
-#watch-sources-empty {
+#watch-grid-empty {
   color: var(--gm-text-muted, #8a97a8);
   margin: 0;
 }

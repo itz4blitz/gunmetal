@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Shell } from '../../../packages/ui/src/shell/Shell.tsx';
 import type { DemoLibrary } from '../../../packages/fake-server/src/types.ts';
 import { ActivityBar } from './ActivityBar.tsx';
+import { SourcesPane } from './SourcesPane.tsx';
 import { WatchArea } from './WatchArea.tsx';
 import { listOutputDevices, type OutputDevice } from './browser/audio-element.ts';
 import { createLayoutStore } from './browser/layout-store.ts';
@@ -129,6 +130,7 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
         timedLyricsFor={demo.timedLyricsFor}
         pluginSlots={demo.pluginSlots}
         settingsStore={createSettingsStore(globalThis.localStorage)}
+        settingsLibraries={<SourcesPane />}
         playback={playback}
         layoutStore={createLayoutStore(globalThis.localStorage)}
         levelling={prefs.levelling}

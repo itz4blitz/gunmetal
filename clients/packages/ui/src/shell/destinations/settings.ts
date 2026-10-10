@@ -17,12 +17,18 @@ import type { ShellMessages } from '../../messages/en/shell.ts';
 import { themes, type ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
 
-export type SettingsSection = 'appearance' | 'playback' | 'connected' | 'extensions' | 'about' | 'privacy';
+export type SettingsSection = 'appearance' | 'playback' | 'libraries' | 'connected' | 'extensions' | 'about' | 'privacy';
 
 export type SettingsLayout = 'stack' | 'side';
 
-export function settingsSections(): readonly SettingsSection[] {
-  return ['appearance', 'playback', 'connected', 'extensions', 'about', 'privacy'];
+/**
+ * The settings sections in order. Libraries is shown only where the host
+ * passed libraries content: the walking skeleton's sources, not a promise
+ * the R1 music app would be making.
+ */
+export function settingsSections(withLibraries = false): readonly SettingsSection[] {
+  const tail: readonly SettingsSection[] = ['connected', 'extensions', 'about', 'privacy'];
+  return withLibraries ? ['appearance', 'playback', 'libraries', ...tail] : ['appearance', 'playback', ...tail];
 }
 
 export function defaultSettingsSection(): SettingsSection {
@@ -39,6 +45,9 @@ export function settingsSectionFromPath(path: string): SettingsSection | undefin
   }
   if (path === '/settings/playback') {
     return 'playback';
+  }
+  if (path === '/settings/libraries') {
+    return 'libraries';
   }
   if (path === '/settings/connected') {
     return 'connected';
@@ -73,6 +82,9 @@ export function settingsRelease(section: SettingsSection): 'R1' | 'R2' | undefin
   if (section === 'connected') {
     return 'R2';
   }
+  if (section === 'libraries') {
+    return 'R2';
+  }
   return 'R1';
 }
 
@@ -82,6 +94,9 @@ export function settingsSectionTitle(section: SettingsSection, messages: Destina
   }
   if (section === 'playback') {
     return messages.settingsPlayback;
+  }
+  if (section === 'libraries') {
+    return messages.settingsLibraries;
   }
   if (section === 'connected') {
     return messages.settingsConnected;
@@ -102,6 +117,9 @@ export function settingsSectionPath(section: SettingsSection): string {
   if (section === 'playback') {
     return '/settings/playback';
   }
+  if (section === 'libraries') {
+    return '/settings/libraries';
+  }
   if (section === 'connected') {
     return '/settings/connected';
   }
@@ -114,8 +132,11 @@ export function settingsSectionPath(section: SettingsSection): string {
   return '/settings/privacy';
 }
 
-export function settingsNavItems(messages: DestinationMessages): readonly { id: SettingsSection; label: string }[] {
-  return settingsSections().map((id) => ({
+export function settingsNavItems(
+  messages: DestinationMessages,
+  withLibraries = false,
+): readonly { id: SettingsSection; label: string }[] {
+  return settingsSections(withLibraries).map((id) => ({
     id,
     label: settingsSectionTitle(id, messages),
   }));
