@@ -14,7 +14,7 @@ permissions: {}
 
 jobs:
   analysis:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
     # Read access Scorecard needs on a private repository. Publishing would
     # also need id-token: write, and code scanning upload security-events:

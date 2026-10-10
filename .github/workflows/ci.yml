@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     # The full mutation run over wave 0 (1,084 mutants) took 15 minutes on
     # a 24-core workstation; hosted runners are slower. Shard it with
     # cargo-mutants --shard before this limit is reached again.
@@ -66,7 +66,7 @@ jobs:
   # SEC-MED-004: the core's tests, property tests included, on a target where
   # usize is 32 bits wide, so a length that only fits in 64 bits is caught.
   core-32-bit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -86,7 +86,7 @@ jobs:
   # SEC-SUP-020: proves the gate refuses a manifest that Cargo.lock does not
   # match, by adding a crate without updating the lock file.
   locked-self-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
     permissions:
       contents: read
