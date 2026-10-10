@@ -331,13 +331,17 @@ test('a folder cover URL is painted on the tile, and an empty cover is not', () 
 
 test('the tile states year, track count and total duration as text', () => {
   // 180_000 + 65_000 = 245_000 ms = 4:05. The year is a catalogue fact, not a label.
+  const first = album.tracks[0];
+  if (first === undefined) {
+    throw new Error('fixture track missing');
+  }
   const two = {
     ...album,
     year: 2024,
     tracks: [
-      album.tracks[0],
+      first,
       {
-        ...album.tracks[0],
+        ...first,
         id: 't2',
         number: 2,
         title: 'Second',
@@ -345,9 +349,6 @@ test('the tile states year, track count and total duration as text', () => {
       },
     ],
   };
-  if (two.tracks[0] === undefined) {
-    throw new Error('fixture track missing');
-  }
   const view = render(<AlbumTile album={two} messages={messages} onOpen={vi.fn()} />);
   expect(view.container.querySelector('[data-album-facts="1"]')?.textContent).toStrictEqual('2024 · 2 tracks · 4:05');
   view.unmount();

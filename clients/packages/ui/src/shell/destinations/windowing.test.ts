@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { cleanup } from '@testing-library/react';
-import { readContentViewport, useContentViewport, visibleRange } from './windowing.ts';
+import { readContentViewport, spacerHeights, useContentViewport, visibleRange } from './windowing.ts';
 
 describe('visibleRange', () => {
   test('no rows window nothing', () => {
@@ -49,6 +49,23 @@ describe('visibleRange', () => {
 
   test('overscan defaults to none', () => {
     expect(visibleRange(500, 200, 50, 1000)).toStrictEqual({ start: 10, end: 14 });
+  });
+});
+
+describe('spacerHeights', () => {
+  test('the spacers are the rows above and below the window, in pixels', () => {
+    expect(spacerHeights({ start: 10, end: 14 }, 100, 50)).toStrictEqual({ top: 500, bottom: 4300 });
+  });
+
+  test('a whole-list window needs no spacer, and a hostile window cannot go negative', () => {
+    expect(spacerHeights({ start: 0, end: 30 }, 30, 50)).toStrictEqual({ top: 0, bottom: 0 });
+    expect(spacerHeights({ start: -5, end: 999 }, 10, 50)).toStrictEqual({ top: 0, bottom: 0 });
+    // A window past the count, an empty list, a row height with no layout.
+    expect(spacerHeights({ start: 12, end: 20 }, 10, 50)).toStrictEqual({ top: 500, bottom: 0 });
+    expect(spacerHeights({ start: 0, end: 0 }, 0, 50)).toStrictEqual({ top: 0, bottom: 0 });
+    expect(spacerHeights({ start: 1, end: 2 }, 4, 0)).toStrictEqual({ top: 0, bottom: 0 });
+    // A negative count is no rows at all.
+    expect(spacerHeights({ start: 1, end: 2 }, -3, 50)).toStrictEqual({ top: 0, bottom: 0 });
   });
 });
 

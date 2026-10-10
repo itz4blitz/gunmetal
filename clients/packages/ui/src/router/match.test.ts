@@ -33,9 +33,9 @@ test('an exact closed path matches its route and empty history', () => {
     route: { path: '/settings/playback', surface: 'SUR-074', needsSession: true, needsAdminSession: false },
     history: { scrollY: 0, itemId: undefined },
   });
-  expect(matchAddress({ pathname: '/settings/extensions', search: '', hash: '', state: null })).toStrictEqual({
+  expect(matchAddress({ pathname: '/store/cover-art', search: '', hash: '', state: null })).toStrictEqual({
     kind: 'ok',
-    route: { path: '/settings/extensions', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
+    route: { path: '/store/cover-art', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
     history: { scrollY: 0, itemId: undefined },
   });
   expect(matchAddress({ pathname: '/settings/about', search: '', hash: '', state: null })).toStrictEqual({

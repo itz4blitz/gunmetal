@@ -97,7 +97,7 @@ export function Nav({ id, label, items, activePath, activeItemId, onNavigate, br
             dataSet={{ navGlyph: glyph, selected: selected ? '1' : '0' }}
             accessibilityRole="link"
             accessibilityLabel={item.label}
-            accessibilityState={{ selected }}
+            aria-current={selected ? 'page' : undefined}
             tabIndex={0}
             onClick={() => {
               onNavigate(item.path, item.itemId);

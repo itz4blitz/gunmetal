@@ -29,9 +29,7 @@ export function ActivityBar({ onAdvance, fetchImpl = globalThis.fetch }: Activit
           seen = done;
           onAdvance?.(done);
         }
-        if (!stop) {
-          setJobs(parsed.jobs);
-        }
+        setJobs(parsed.jobs);
       } catch {
         if (!stop) {
           setJobs([]);

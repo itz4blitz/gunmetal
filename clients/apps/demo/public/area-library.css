@@ -1424,6 +1424,8 @@
 
 /* The mark is the identity shape: a hollow steel nut around an icon. */
 #token-shell #search-no-hits [data-search-empty-mark],
+#token-shell #search-empty-library [data-search-empty-mark],
+#token-shell #search-filter-empty [data-search-empty-mark],
 #token-shell #library-empty [data-library-empty-mark] {
   position: relative;
   display: flex;
@@ -1440,6 +1442,8 @@
 }
 
 #token-shell #search-no-hits [data-search-empty-mark]::before,
+#token-shell #search-empty-library [data-search-empty-mark]::before,
+#token-shell #search-filter-empty [data-search-empty-mark]::before,
 #token-shell #library-empty [data-library-empty-mark]::before {
   content: '';
   position: absolute;
@@ -1449,6 +1453,8 @@
 }
 
 #token-shell #search-no-hits [data-search-empty-mark] svg[data-icon],
+#token-shell #search-empty-library [data-search-empty-mark] svg[data-icon],
+#token-shell #search-filter-empty [data-search-empty-mark] svg[data-icon],
 #token-shell #library-empty [data-library-empty-mark] svg[data-icon] {
   position: relative;
 }
@@ -1461,7 +1467,9 @@
   color: var(--gm-text-secondary);
 }
 
-#token-shell #search-no-hits [data-search-empty-title] {
+#token-shell #search-no-hits [data-search-empty-title],
+#token-shell #search-empty-library [data-search-empty-title],
+#token-shell #search-filter-empty [data-search-empty-title] {
   font-size: 18px;
   line-height: 24px;
   font-weight: 650;
