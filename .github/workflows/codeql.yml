@@ -25,7 +25,7 @@ concurrency:
 jobs:
   languages:
     name: languages
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -52,7 +52,7 @@ jobs:
   analyze:
     name: analyze (${{ matrix.language }})
     needs: languages
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 60
     # Read-only scopes; nothing is uploaded (upload: never), so the job
     # never writes (SEC-SUP-012).
@@ -108,7 +108,7 @@ jobs:
     name: codeql
     needs: analyze
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions: {}
     steps:
