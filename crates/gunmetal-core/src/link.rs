@@ -728,6 +728,9 @@ mod tests {
             "https://ex%ample.com",
             // Not an escape, so the % stays and is refused.
             "https://ex%6zample.com",
+            // The low digit is not hex. Reading it as 0 would accept
+            // the host `ex0ample.com`.
+            "https://ex%3Zample.com",
             "https://example%",
             "https://example.com]",
             "https://[::1",
