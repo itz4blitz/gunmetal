@@ -1333,3 +1333,79 @@ test('a stored item pin opens that album, and an unknown item falls back to the 
   fireEvent.click(screen.getByRole('link', { name: 'Night' }));
   expect(window.location.pathname).toStrictEqual('/library');
 });
+
+test('a host that passes a watch area gets Watch in the sidebar, and it opens in the content pane', () => {
+  const view = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/"
+      widthPx={1600}
+      library={demoLibrary()}
+      watch={<div id="watch-stub">films and shows</div>}
+    />,
+  );
+  expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
+    'Home',
+    'Search',
+    'Library',
+    'Watch',
+    'Store',
+    'Settings',
+  ]);
+  expect(view.container.querySelector('#watch-stub')).toBeNull();
+  fireEvent.click(screen.getByRole('link', { name: 'Watch' }));
+  expect(window.location.pathname).toStrictEqual('/watch');
+  expect(view.container.querySelector('#content #destination #watch-stub')?.textContent).toStrictEqual(
+    'films and shows',
+  );
+  expect(view.container.querySelector('#nav-item-watch')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(view.container.querySelector('#nav-item-library')?.getAttribute('data-selected')).toStrictEqual('0');
+  // The music player stays where it was: one app, not two.
+  expect(screen.getByRole('region', { name: 'Now playing' }).id).toStrictEqual('player-bar');
+  expect(screen.queryByRole('heading', { name: 'Not found' })).toBeNull();
+});
+
+test('a watch area opens with no music library at all', () => {
+  const view = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/watch"
+      widthPx={1600}
+      watch={<div id="watch-stub">films and shows</div>}
+    />,
+  );
+  expect(view.container.querySelector('#destination #watch-stub')?.textContent).toStrictEqual('films and shows');
+});
+
+test('without a watch area the sidebar has no Watch entry and the address is not found', () => {
+  const view = render(
+    <Shell playback={stubPlayback().controller} path="/watch" widthPx={1600} library={demoLibrary()} />,
+  );
+  expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
+    'Home',
+    'Search',
+    'Library',
+    'Store',
+    'Settings',
+  ]);
+  expect(screen.getByRole('heading', { name: 'Not found' }).id).toStrictEqual('destination-headline');
+});
+
+test('the Libraries tab of settings opens the pane the host passed, at its own address', () => {
+  const view = render(
+    <Shell
+      playback={stubPlayback().controller}
+      path="/settings/appearance"
+      widthPx={1600}
+      library={demoLibrary()}
+      settingsLibraries={<div id="libraries-stub">the libraries</div>}
+    />,
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Libraries' }));
+  expect(window.location.pathname).toStrictEqual('/settings/libraries');
+  expect(screen.queryByRole('heading', { name: 'Not found' })).toBeNull();
+  expect(view.container.querySelector('#settings-libraries #libraries-stub')?.textContent).toStrictEqual(
+    'the libraries',
+  );
+  expect(view.container.querySelector('#nav-item-settings')?.getAttribute('data-selected')).toStrictEqual('1');
+});

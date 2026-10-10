@@ -7,6 +7,7 @@
 import {
   sourcesFromDocument,
   videoFromDocument,
+  type LibraryKind,
   type SourcesDocument,
   type VideoDocument,
 } from './video-types.ts';
@@ -42,8 +43,11 @@ async function postJson(
   try {
     response = await fetchImpl(url, {
       method,
-      headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers:
+        body === undefined
+          ? { accept: 'application/json' }
+          : { accept: 'application/json', 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     return { ok: false, error: 'the server could not be reached' };
@@ -74,13 +78,14 @@ export async function loadSources(fetchImpl: FetchLike = globalThis.fetch): Prom
     : { ok: true, value: parsed };
 }
 
-/** Adds a source: a name, and a path this container can see. */
+/** Adds a source: a name, a kind, and a path this container can see. */
 export async function addSource(
   name: string,
   path: string,
+  kind: LibraryKind,
   fetchImpl: FetchLike = globalThis.fetch,
 ): Promise<ApiResult<true>> {
-  const read = await postJson('/api/sources', 'POST', { name, path }, fetchImpl);
+  const read = await postJson('/api/sources', 'POST', { name, path, kind }, fetchImpl);
   return read.ok ? { ok: true, value: true } : read;
 }
 

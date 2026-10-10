@@ -5,11 +5,14 @@
  * and the caller keeps its empty state.
  */
 
+export type LibraryKind = 'music' | 'movies' | 'shows';
+
 export type VideoSource = {
   id: string;
   name: string;
   path: string;
-  titles: number;
+  kind: LibraryKind;
+  items: number;
 };
 
 export type SourcesDocument = {
@@ -64,11 +67,27 @@ function sourceOf(entry: unknown): VideoSource | undefined {
   const id = textOf(entry.id, 16);
   const name = textOf(entry.name, MAX_TEXT);
   const path = textOf(entry.path, MAX_TEXT);
-  const titles = countOf(entry.titles, MAX_TITLES);
-  if (id === undefined || !HEX_ID.test(id) || name === undefined || path === undefined || !path.startsWith('/') || titles === undefined) {
+  const items = countOf(entry.items, MAX_TITLES);
+  const kind = libraryKind(entry.kind);
+  if (
+    id === undefined ||
+    !HEX_ID.test(id) ||
+    name === undefined ||
+    path === undefined ||
+    !path.startsWith('/') ||
+    kind === undefined ||
+    items === undefined
+  ) {
     return undefined;
   }
-  return { id, name, path, titles };
+  return { id, name, path, kind, items };
+}
+
+function libraryKind(value: unknown): LibraryKind | undefined {
+  if (value === 'music' || value === 'movies' || value === 'shows') {
+    return value;
+  }
+  return undefined;
 }
 
 /** Reads `/api/sources`. Anything not this shape is `undefined`. */

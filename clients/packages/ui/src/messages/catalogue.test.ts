@@ -56,6 +56,8 @@ test('the catalogue returns trusted shell and destination strings', () => {
       /* The destination pin. Its name carries the state it will move to. */
       pinToSidebar: 'Pins the page to the sidebar',
       unpinFromSidebar: 'Unpins the page from the sidebar',
+      /* The Watch door. It is listed only when the host passes a watch area. */
+      navWatch: 'Watch',
     },
     destinations: {
       homeHeadline: 'Home',

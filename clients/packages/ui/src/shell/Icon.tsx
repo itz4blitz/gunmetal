@@ -9,6 +9,7 @@ const ICON_PATHS = {
   search: 'M17.5 10.5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z M20.5 20.5l-4.6-4.6',
   library: 'M4 4v16 M8.5 4v16 M13 5.2l4.6 14.6 M20 20H4',
   store: 'M4 4.5h16v15H4z M12 4.5v15 M4 12h16',
+  watch: 'M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z M8 20.5h8 M10 8.5v5l4.5-2.5z',
   settings: 'M4 7h9 M17 7h3 M4 17h3 M11 17h9 M15 4.5v5 M9 14.5v5',
   previous: 'M19 5.5v13L9 12z M5.5 5v14',
   next: 'M5 5.5v13L15 12z M18.5 5v14',

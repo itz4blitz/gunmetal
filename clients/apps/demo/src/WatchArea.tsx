@@ -44,8 +44,8 @@ export function WatchArea() {
 
       {document.titles.length === 0 ? (
         <p id="watch-grid-empty">
-          {sources.sources.length === 0
-            ? 'No libraries yet. Add one in Settings → Libraries.'
+          {sources.sources.every((source) => source.kind === 'music')
+            ? 'No movie or TV libraries yet. Add one in Settings → Libraries.'
             : 'No video files found in the configured libraries yet.'}
         </p>
       ) : (

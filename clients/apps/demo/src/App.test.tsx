@@ -495,17 +495,98 @@ test('a device list that arrives after unmount is ignored', async () => {
   }
 });
 
-test('the area switch swaps the music shell for the Watch area and back', async () => {
+test('there is no area switch: Watch is a sidebar entry of the one shell', () => {
   window.history.pushState(null, '', '/');
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
   render(<App />);
-  expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#demo-mode-switch')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Music' })).toBeNull();
   expect(document.querySelector('#watch-area')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
-  expect(document.querySelector('#watch-area')).not.toBeNull();
-  expect(document.querySelector('#shell-wordmark')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Music' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Watch' }));
+  expect(window.location.pathname).toStrictEqual('/watch');
+  expect(document.querySelector('#content #watch-area')).not.toBeNull();
+  // The shell, its sidebar and the music player stay on screen.
   expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#nav-sidebar')).not.toBeNull();
+  expect(document.querySelector('#player-bar')).not.toBeNull();
+  fireEvent.click(screen.getByRole('link', { name: 'Home' }));
   expect(document.querySelector('#watch-area')).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' })).not.toBeNull();
+});
+
+test('a music library added in Settings is the music the player shows, without a reload', async () => {
+  const album = 'a'.repeat(16);
+  const artist = 'b'.repeat(16);
+  const track = 'c'.repeat(16);
+  const folder = {
+    kind: 'folder',
+    albums: [
+      {
+        id: album,
+        title: 'Configured Night',
+        artistName: 'Night Owner',
+        artistKey: artist,
+        year: 2026,
+        coverTone: '01',
+        coverUrl: '',
+        discs: [{ index: 1, title: '' }],
+        hostile: false,
+        tracks: [
+          {
+            id: track,
+            albumId: album,
+            discIndex: 1,
+            number: 1,
+            title: 'First Light',
+            artistName: 'Night Owner',
+            durationMs: 180_000,
+            flag: 'ok',
+            lyricsKind: 'none',
+            mediaUrl: `/media/library/${track}`,
+          },
+        ],
+      },
+    ],
+    artists: [{ key: artist, name: 'Night Owner', albumIds: [album] }],
+  };
+  const row = { id: 'd'.repeat(16), name: 'My Music', kind: 'music', path: '/mnt/music', items: 1 };
+  const posted: unknown[] = [];
+  let added = false;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (url === '/api/sources' && init?.method === 'POST') {
+        posted.push(JSON.parse(init.body ?? ''));
+        added = true;
+        return { ok: true, status: 201, json: async () => row };
+      }
+      if (url === '/api/sources') {
+        return { ok: true, status: 200, json: async () => ({ sources: added ? [row] : [] }) };
+      }
+      if (url === '/library.json') {
+        return { ok: added, status: added ? 200 : 404, json: async () => folder };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }),
+  );
+  try {
+    window.history.pushState(null, '', '/settings/libraries');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    render(<App />);
+    expect(await screen.findByText(/No libraries yet/)).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'music' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'My Music' } });
+    fireEvent.change(screen.getByLabelText('Folder on the server'), { target: { value: '/mnt/music' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add library' }));
+    expect(await screen.findByText('1 track')).not.toBeNull();
+    expect(posted).toStrictEqual([{ name: 'My Music', path: '/mnt/music', kind: 'music' }]);
+    fireEvent.click(screen.getByRole('link', { name: 'Home' }));
+    expect(await screen.findByRole('heading', { name: 'Configured Night' })).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Harbour Lights' })).toBeNull();
+    expect(document.querySelector('#demo-label')).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test('a devicechange re-lists the outputs, and unmount removes the listener', async () => {

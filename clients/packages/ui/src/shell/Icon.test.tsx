@@ -38,3 +38,11 @@ test('a labelled icon is an image with its name and takes the asked size', () =>
   expect(svg?.getAttribute('height')).toStrictEqual('24');
   expect(svg?.querySelector('path')?.getAttribute('d')).toStrictEqual('M6 6l12 12 M18 6 6 18');
 });
+
+test('the watch icon is a screen with a play mark', () => {
+  const { container } = render(<Icon name="watch" />);
+  expect(container.querySelector('svg')?.getAttribute('data-icon')).toStrictEqual('watch');
+  expect(container.querySelector('path')?.getAttribute('d')).toStrictEqual(
+    'M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z M8 20.5h8 M10 8.5v5l4.5-2.5z',
+  );
+});

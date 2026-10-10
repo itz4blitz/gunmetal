@@ -51,6 +51,8 @@ export type ShellMessages = {
   /* The destination pin. Its name carries the state it will move to. */
   pinToSidebar: string;
   unpinFromSidebar: string;
+  /* The Watch door. It is listed only when the host passes a watch area. */
+  navWatch: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -107,5 +109,7 @@ export function shellMessages(): ShellMessages {
     /* The destination pin. Its name carries the state it will move to. */
     pinToSidebar: 'Pins the page to the sidebar',
     unpinFromSidebar: 'Unpins the page from the sidebar',
+    /* The Watch door. It is listed only when the host passes a watch area. */
+    navWatch: 'Watch',
   };
 }
