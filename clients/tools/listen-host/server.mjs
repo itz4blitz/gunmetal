@@ -679,7 +679,8 @@ export function archiveImageUrl(value) {
   if (!archive) {
     return false;
   }
-  return parsed.pathname.startsWith('/download/') || parsed.pathname.startsWith('/0/items/');
+  const segments = parsed.pathname.split('/');
+  return segments[1] === 'download' || (segments[1] === '0' && segments[2] === 'items');
 }
 
 export function publicCoverUrl(albumId, ext) {
