@@ -53,6 +53,9 @@ test('the catalogue returns trusted shell and destination strings', () => {
       playerRemove: 'Remove from queue',
       /* The Store door. An extension is a record, not a download. */
       navStore: 'Store',
+      /* The destination pin. Its name carries the state it will move to. */
+      pinToSidebar: 'Pins the page to the sidebar',
+      unpinFromSidebar: 'Unpins the page from the sidebar',
     },
     destinations: {
       homeHeadline: 'Home',
@@ -234,10 +237,19 @@ test('the catalogue returns trusted shell and destination strings', () => {
       settingsExtensionShips:
         'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
       /* Store page. The catalogue this server already holds. Append-only. */
+      storeHeadline: 'Store',
       storeLede:
         'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
       storeOn: 'On this server',
       storeCatalogue: 'In the store',
+      settingsExtensionInstall: 'Install',
+      settingsExtensionUninstall: 'Uninstall',
+      settingsExtensionOff: 'Off',
+      settingsExtensionSaved: 'Saved. This server does not run it yet.',
+      settingsExtensionChoice: 'Install saves your choice on this server. It does not download or run a package.',
+      storeInstall: 'Install',
+      storeUninstall: 'Uninstall',
+      storeSaved: 'Saved',
     },
   });
 });

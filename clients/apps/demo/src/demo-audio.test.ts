@@ -668,3 +668,215 @@ test('a sink the element refuses is still requested and does not escape as a rej
   expect(element.sinks).toStrictEqual(['gone']);
   await Promise.resolve();
 });
+
+/* —— Two elements: a real overlap instead of a window-start handoff —— */
+
+test('with a spare element the crossfade overlaps both tracks and hands the clock over', () => {
+  const primary = new ScriptedElement();
+  const spare = new ScriptedElement();
+  primary.duration = 214;
+  spare.duration = 8; // a fixture tone: the new track must loop after the swap
+  const marks: string[] = [];
+  const times: Array<[number, number]> = [];
+  const audio = createDemoAudio(
+    primary,
+    {
+      onTime: (p, d) => {
+        times.push([p, d]);
+      },
+      onEnded: () => {
+        marks.push('ended');
+      },
+      onBuffering: () => {},
+      onError: () => {},
+      onDuration: () => {},
+      onCrossfade: (url) => {
+        marks.push(`fade:${url}`);
+      },
+    },
+    spare,
+  );
+  expect(audio.playingUrl()).toStrictEqual(undefined);
+  audio.load('/media/audio/one.wav', 10_000);
+  audio.setVolume(1);
+  audio.setCrossfadeMs(2_000);
+  audio.armNext('/media/audio/two.wav', 30_000);
+  primary.tick(8); // the window starts here
+  expect(marks).toStrictEqual([]);
+  expect(spare.src).toStrictEqual('/media/audio/two.wav');
+  expect(spare.loop).toStrictEqual(false);
+  expect(spare.playCalls).toStrictEqual(1);
+  expect(primary.volume).toStrictEqual(1);
+  expect(spare.volume).toStrictEqual(0);
+  // Halfway through the window: both sides of the ramp.
+  primary.tick(1);
+  spare.tick(0.5); // the browser's spare is really playing; its ticks are ignored
+  expect(primary.volume).toBeCloseTo(0.5, 5);
+  expect(spare.volume).toBeCloseTo(0.5, 5);
+  expect(marks).toStrictEqual([]);
+  // The window completes: the spare is the active element now.
+  primary.tick(1);
+  expect(marks).toStrictEqual(['fade:/media/audio/two.wav']);
+  expect(primary.pauseCalls).toStrictEqual(1);
+  expect(spare.volume).toStrictEqual(1);
+  expect(primary.volume).toStrictEqual(0);
+  expect(audio.playingUrl()).toStrictEqual('/media/audio/two.wav');
+  // The new track loops like a fixture tone under its catalogue row.
+  expect(spare.loop).toStrictEqual(true);
+  expect(times.at(-1)?.[1]).toStrictEqual(30_000);
+  expect(times.at(-1)?.[0]).toBeCloseTo(500, 5);
+  // The clock runs on the spare now; the old element's events are ignored.
+  spare.tick(1);
+  expect(times.at(-1)?.[0]).toBeCloseTo(1500, 5);
+  const before = times.length;
+  primary.tick(3);
+  expect(times.length).toStrictEqual(before);
+  expect(marks).toStrictEqual(['fade:/media/audio/two.wav']);
+  // A second fade flips back onto the first element.
+  audio.armNext('/media/audio/three.wav', 8_000);
+  spare.tick(26.5); // 28s of the 30s track: the next window opens
+  expect(primary.src).toStrictEqual('/media/audio/three.wav');
+  expect(primary.playCalls).toStrictEqual(1);
+  primary.tick(1); // the successor is really playing on the spare
+  spare.tick(2); // 30s: the overlap completes back onto the first element
+  expect(audio.playingUrl()).toStrictEqual('/media/audio/three.wav');
+  expect(spare.pauseCalls).toStrictEqual(1);
+  expect(marks).toStrictEqual(['fade:/media/audio/two.wav', 'fade:/media/audio/three.wav']);
+  expect(times.at(-1)?.[1]).toStrictEqual(8_000);
+});
+
+test('the spare element stays silent to the engine until the swap', () => {
+  const primary = new ScriptedElement();
+  const spare = new ScriptedElement();
+  const seen: string[] = [];
+  const audio = createDemoAudio(
+    primary,
+    {
+      onTime: (p) => {
+        seen.push(`time:${p}`);
+      },
+      onEnded: () => {
+        seen.push('ended');
+      },
+      onBuffering: (value) => {
+        seen.push(`buffering:${value}`);
+      },
+      onError: (message) => {
+        seen.push(`error:${message}`);
+      },
+      onDuration: (ms) => {
+        seen.push(`duration:${ms}`);
+      },
+      onCrossfade: (url) => {
+        seen.push(`fade:${url}`);
+      },
+    },
+    spare,
+  );
+  audio.load('/media/audio/one.wav', 10_000);
+  // Every spare event before the fade belongs to the next track, not this one.
+  spare.tick(5);
+  spare.fire('waiting');
+  spare.fire('stalled');
+  spare.fire('playing');
+  spare.fire('loadedmetadata');
+  spare.fire('ended');
+  spare.error = { message: 'spare down' };
+  spare.fire('error');
+  expect(seen).toStrictEqual([]);
+  expect(primary.volume).toStrictEqual(1);
+  expect(spare.volume).toStrictEqual(0);
+});
+
+test('volume, gain, transport and sinks during a fade reach both elements', () => {
+  const primary = new SinkElement();
+  const spare = new SinkElement();
+  const audio = createDemoAudio(primary, quietHooks(), spare);
+  audio.load('/media/audio/one.wav', 10_000);
+  audio.setVolume(1);
+  audio.setCrossfadeMs(2_000);
+  audio.armNext('/media/audio/two.wav', 30_000);
+  primary.tick(8);
+  primary.tick(1); // halfway: progress 0.5
+  expect(primary.volume).toBeCloseTo(0.5, 5);
+  // A volume change re-applies the ramp, not the plain level.
+  audio.setVolume(0.4);
+  expect(primary.volume).toBeCloseTo(0.2, 5);
+  expect(spare.volume).toBeCloseTo(0.2, 5);
+  audio.setGainDb(-6);
+  expect(primary.volume).toBeCloseTo(0.4 * 0.5011872336272722 * 0.5, 5);
+  audio.setSinkId('dac');
+  expect(primary.sinks).toStrictEqual(['dac']);
+  expect(spare.sinks).toStrictEqual(['dac']);
+  // Pausing mid-fade stops both sides; resuming plays the active one.
+  audio.setPlaying(false);
+  expect(primary.pauseCalls).toStrictEqual(1);
+  expect(spare.pauseCalls).toStrictEqual(1);
+  audio.setPlaying(true);
+  expect(primary.playCalls).toStrictEqual(1);
+  expect(spare.playCalls).toStrictEqual(1);
+});
+
+test('a load during a fade abandons the overlap and silences the spare', () => {
+  const primary = new ScriptedElement();
+  const spare = new ScriptedElement();
+  const audio = createDemoAudio(primary, quietHooks(), spare);
+  audio.load('/media/audio/one.wav', 10_000);
+  audio.setCrossfadeMs(2_000);
+  audio.armNext('/media/audio/two.wav', 30_000);
+  primary.tick(8);
+  primary.tick(1); // fade in progress
+  expect(spare.playCalls).toStrictEqual(1);
+  audio.load('/media/audio/three.wav', 5_000);
+  expect(primary.src).toStrictEqual('/media/audio/three.wav');
+  expect(spare.pauseCalls).toStrictEqual(1);
+  expect(spare.volume).toStrictEqual(0);
+  expect(primary.volume).toStrictEqual(1);
+  expect(audio.playingUrl()).toStrictEqual('/media/audio/three.wav');
+  // The handoff flag reset with the load: a new window can fade again.
+  audio.armNext('/media/audio/four.wav', 1_000);
+  primary.tick(4); // 5000 - 2000 window
+  expect(spare.src).toStrictEqual('/media/audio/four.wav');
+});
+
+test('detach pauses and unbinds both elements', () => {
+  const primary = new ScriptedElement();
+  const spare = new ScriptedElement();
+  const seen: number[] = [];
+  const audio = createDemoAudio(
+    primary,
+    {
+      ...quietHooks(),
+      onTime: (positionMs) => seen.push(positionMs),
+    },
+    spare,
+  );
+  audio.load('/media/audio/one.wav', 10_000);
+  audio.detach();
+  expect(primary.pauseCalls).toStrictEqual(1);
+  expect(spare.pauseCalls).toStrictEqual(1);
+  primary.tick(1);
+  expect(seen).toStrictEqual([]);
+});
+
+test('the same element handed twice is a single-element engine', () => {
+  const element = new ScriptedElement();
+  const marks: string[] = [];
+  const audio = createDemoAudio(
+    element,
+    {
+      ...quietHooks(),
+      onCrossfade: (url) => {
+        marks.push(url);
+      },
+    },
+    element,
+  );
+  audio.load('/media/audio/one.wav', 10_000);
+  audio.setCrossfadeMs(2_000);
+  audio.armNext('/media/audio/two.wav', 4_000);
+  element.tick(8);
+  // The one-element handoff fires at the window's start, as before.
+  expect(marks).toStrictEqual(['/media/audio/two.wav']);
+  expect(element.loop).toStrictEqual(false);
+});

@@ -1,7 +1,10 @@
-import { expect, test } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import { afterEach, expect, test } from 'vitest';
 import { destinationMessages } from '../messages/en/destinations.ts';
 import { shellMessages } from '../messages/en/shell.ts';
-import { navItemSelected, navItems, withPins, type NavItem } from './Nav.tsx';
+import { Nav, navItemSelected, navItems, withPins, type NavItem } from './Nav.tsx';
+
+afterEach(cleanup);
 
 test('primary nav items are Home, Search, Library, Store and Settings', () => {
   expect(navItems(shellMessages(), destinationMessages())).toStrictEqual([
@@ -77,4 +80,32 @@ test('a media address selects itself, and a section does not while an item is op
   expect(navItemSelected(library, '/library', 'demo-album-01')).toStrictEqual(false);
   expect(navItemSelected(slug, '/music/albums/harbour-lights', 'demo-album-01')).toStrictEqual(true);
   expect(navItemSelected(library, '/library', undefined)).toStrictEqual(true);
+});
+
+test('the current page is marked aria-current and no link carries aria-selected', () => {
+  const items: readonly NavItem[] = [
+    { path: '/', label: 'Home', icon: 'home' },
+    { path: '/library', label: 'Library', icon: 'library' },
+  ];
+  const seen: string[] = [];
+  const { container } = render(
+    <Nav
+      id="nav-tabs"
+      label="Primary"
+      items={items}
+      activePath="/library"
+      onNavigate={(path) => {
+        seen.push(path);
+      }}
+    />,
+  );
+  const current = container.querySelector('#nav-item-library');
+  expect(current?.getAttribute('role')).toStrictEqual('link');
+  expect(current?.getAttribute('aria-current')).toStrictEqual('page');
+  expect(current?.hasAttribute('aria-selected')).toStrictEqual(false);
+  const home = container.querySelector('#nav-item-home');
+  expect(home?.getAttribute('aria-current')).toBeNull();
+  expect(home?.hasAttribute('aria-selected')).toStrictEqual(false);
+  fireEvent.click(current as HTMLElement);
+  expect(seen).toStrictEqual(['/library']);
 });

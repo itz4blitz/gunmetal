@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import { catalogue, type MessageCatalogue } from '../messages/catalogue.ts';
-import { extensionIdFromPath, extensionTitle } from '../plugins/repository.ts';
+import { extensionTitle, storeIdFromPath } from '../plugins/repository.ts';
 import { BrandMark } from './brand-mark.tsx';
 import { itemAddress, resolveMedia } from '../router/catalogue-address.ts';
 import { labelFromKey, parseMediaPath } from '../router/media-path.ts';
@@ -193,6 +193,10 @@ function pinForRoute(path: string, messages: MessageCatalogue): Pin | undefined 
   if (path === '/store') {
     return { path, label: messages.shell.navStore };
   }
+  const storeId = storeIdFromPath(path);
+  if (storeId !== undefined) {
+    return { path, label: extensionTitle(storeId) };
+  }
   if (path === '/settings/appearance') {
     return { path, label: messages.destinations.settingsAppearance };
   }
@@ -201,13 +205,6 @@ function pinForRoute(path: string, messages: MessageCatalogue): Pin | undefined 
   }
   if (path === '/settings/connected') {
     return { path, label: messages.destinations.settingsConnected };
-  }
-  if (path === '/settings/extensions') {
-    return { path, label: messages.destinations.settingsExtensions };
-  }
-  const extensionId = extensionIdFromPath(path);
-  if (extensionId !== undefined) {
-    return { path, label: extensionTitle(extensionId) };
   }
   if (path === '/settings/about') {
     return { path, label: messages.destinations.settingsAbout };
@@ -259,6 +256,9 @@ function samePinnedPage(left: Pin, right: Pin, library: ShellLibrary | undefined
 function navActivePath(activePath: string, items: readonly { path: string }[]): string {
   if (items.some((item) => item.path === activePath)) {
     return activePath;
+  }
+  if (activePath.startsWith('/store')) {
+    return '/store';
   }
   if (activePath.startsWith('/settings')) {
     return '/settings';
@@ -468,13 +468,12 @@ export function Shell({
 
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
-  const resolvedMedia = match.kind === 'ok' && match.media !== undefined && library !== undefined ? resolveMedia(library, match.media) : undefined;
+  const resolvedMedia =
+    match.kind === 'ok' && match.media !== undefined && library !== undefined
+      ? resolveMedia(library, match.media)
+      : undefined;
   const itemId =
-    resolvedMedia !== undefined
-      ? resolvedMedia.itemId
-      : match.kind === 'ok'
-        ? match.history.itemId
-        : undefined;
+    resolvedMedia !== undefined ? resolvedMedia.itemId : match.kind === 'ok' ? match.history.itemId : undefined;
   const pageId = `${location.pathname} ${itemId ?? ''}`;
   const resolvedTheme = resolveTheme(themeChoice, systemDark);
 
@@ -486,7 +485,7 @@ export function Shell({
   const navActive = navActivePath(activePath, items);
   const pinTarget = pinForPlace(activePath, itemId, library, messages);
   const pinPressed = pinTarget !== undefined && pins.some((pin) => samePinnedPage(pin, pinTarget, library));
-  const pinName = pinPressed ? 'Unpins the page from the sidebar' : 'Pins the page to the sidebar';
+  const pinName = pinPressed ? messages.shell.unpinFromSidebar : messages.shell.pinToSidebar;
   const servedLibrary = library?.kind === 'folder';
   const libraryFact = librarySizeFact(library);
 

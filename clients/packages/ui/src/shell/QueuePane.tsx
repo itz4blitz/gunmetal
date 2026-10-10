@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect } from 'react';
 import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
@@ -25,12 +25,27 @@ export function QueuePane({
   onPlayLine,
   onRemoveLine,
 }: QueuePaneProps) {
-  const closeOnKey = (event: { key: string; preventDefault: () => void }) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onCloseSheet?.();
+  /* The open sheet owns Escape: the key closes the queue and is consumed
+     here, in the capture phase, before the full player's own Escape handler
+     further out can take the view down with it. */
+  const queueOpen = playback.queueOpen;
+  useEffect(() => {
+    if (!compactSheet || !queueOpen) {
+      return;
     }
-  };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onCloseSheet?.();
+    };
+    globalThis.addEventListener('keydown', onKey, true);
+    return () => {
+      globalThis.removeEventListener('keydown', onKey, true);
+    };
+  }, [compactSheet, queueOpen, onCloseSheet]);
   const playLine = (line: PlayerSnapshot['queue'][number]) => () => {
     onPlayLine?.(line.albumId, line.trackId);
   };
@@ -51,7 +66,6 @@ export function QueuePane({
       accessibilityLabel={messages.rightPane}
       accessibilityElementsHidden={compactSheet ? !playback.queueOpen : undefined}
       dataSet={compactSheet ? { queueOpen: playback.queueOpen ? '1' : '0' } : undefined}
-      onKeyDown={compactSheet ? closeOnKey : undefined}
     >
       <View dataSet={{ queueHeader: '1' }}>
         <Text accessibilityRole="header" dataSet={{ queueHeading: '1' }}>

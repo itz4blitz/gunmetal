@@ -76,14 +76,23 @@ test('hostile rows replace corpus text with safe catalogue labels everywhere', (
 });
 
 test('flags become text chips and mark the row; healthy rows stay unmarked', () => {
+  const onPlay = vi.fn();
   const unplayable = render(
-    <TrackRow track={{ ...track, flag: 'unplayable' }} messages={destinationMessages()} onPlay={vi.fn()} />,
+    <TrackRow track={{ ...track, flag: 'unplayable' }} messages={destinationMessages()} onPlay={onPlay} />,
   );
   expect(unplayable.container.querySelector('[data-track-row]')?.getAttribute('data-flagged')).toStrictEqual('1');
   expect(unplayable.container.querySelector('[data-track-flag]')?.textContent).toStrictEqual('Cannot play');
   expect(unplayable.container.querySelector('[data-track-flag]')?.getAttribute('data-track-flag')).toStrictEqual(
     'unplayable',
   );
+  // A flagged row is not a play button: pressing it must not silently start
+  // a different, playable track from the queue.
+  const area = unplayable.container.querySelector('[data-track-play="1"]') as HTMLElement;
+  expect(area.getAttribute('role')).toBeNull();
+  expect(area.getAttribute('aria-disabled')).toStrictEqual('true');
+  fireEvent.click(area);
+  fireEvent.keyDown(area, { key: 'Enter' });
+  expect(onPlay).not.toHaveBeenCalled();
   unplayable.unmount();
 
   const damaged = render(
@@ -193,14 +202,11 @@ test('track context menu and more control open go to artist', () => {
   fireEvent.click(kebab);
   expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toStrictEqual([
     'Play',
-    'Play next',
-    'Add to queue',
-    'Go to album',
     'Go to artist',
   ]);
   fireEvent.pointerDown(kebab);
   expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
-  fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Play next' }));
+  fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Play' }));
   expect(kebab.getAttribute('aria-expanded')).toStrictEqual('true');
   fireEvent.pointerDown(document.body);
   expect(kebab.getAttribute('aria-expanded')).toStrictEqual('false');
@@ -247,14 +253,13 @@ test('catalogue menu plays queues and opens the album from the track row', () =>
       onOpenArtist={vi.fn()}
     />,
   );
+  // Without the queue handlers the items are absent, not dead.
   fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toStrictEqual([
+    'Play',
+    'Go to artist',
+  ]);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Play' }));
-  fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }));
-  fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
-  fireEvent.click(screen.getByRole('button', { name: 'More' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
   expect(onPlay).toHaveBeenCalledTimes(2);
   expect(onPlayNext).toHaveBeenCalledTimes(1);
   expect(onAddToQueue).toHaveBeenCalledTimes(1);

@@ -44,14 +44,11 @@
 }
 
 #token-shell #destination-settings[data-settings-layout='side'] {
-  display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  grid-template-areas:
-    'head head'
-    'nav panes';
-  column-gap: var(--gm-space-9);
-  row-gap: var(--gm-space-6);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  max-width: 880px;
+  gap: var(--gm-space-6);
+  align-items: stretch;
 }
 
 #token-shell #destination-settings[data-settings-layout='side'] #destination-headline {
@@ -146,13 +143,17 @@
 /* —— Section list: flat, left-aligned, brass bar on the selected row —— */
 
 #token-shell #destination-settings #settings-nav {
-  position: sticky;
-  top: 0;
+  position: static;
   display: flex;
-  flex-direction: column;
-  gap: var(--gm-space-1);
+  flex-direction: row;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
+  border-bottom: 1px solid var(--gm-line-subtle);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -160,15 +161,17 @@
 
 #token-shell #destination-settings #settings-nav [role='tab'] {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
-  min-height: 40px;
-  padding: var(--gm-space-3) var(--gm-space-4) var(--gm-space-3) var(--gm-space-5);
-  border-radius: var(--gm-radius-m);
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
   cursor: pointer;
+  white-space: nowrap;
   --gm-text: var(--gm-text-secondary);
   color: var(--gm-text-secondary);
   transition:
@@ -185,8 +188,8 @@
 
 /* Selected (design-language §4): 14% brass wash and a 3px leading bar. */
 #token-shell #destination-settings #settings-nav [data-selected='1'] {
-  background: color-mix(in srgb, var(--gm-accent-fill) 14%, transparent);
-  box-shadow: inset 3px 0 0 var(--gm-accent-indicator);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--gm-accent-indicator);
   --gm-text: var(--gm-text-primary);
   color: var(--gm-text-primary);
 }
@@ -1198,30 +1201,36 @@
   min-width: 0;
 }
 
-#token-shell [data-store-lede] {
-  max-width: 62ch;
-  margin: 0;
-  font-size: var(--gm-type-body-size);
-  line-height: var(--gm-type-body-line);
-  --gm-text: var(--gm-text-secondary);
-  color: var(--gm-text-secondary);
+#token-shell [data-store-lede],
+#token-shell [data-store-home],
+#token-shell [data-extension-record],
+#token-shell [data-extension-ships],
+#token-shell [data-extension-choice],
+#token-shell [data-extension-section='does'] {
+  display: none;
 }
 
-#token-shell [data-store-home] {
-  margin: 0;
-  font-size: var(--gm-type-small-size);
-  line-height: var(--gm-type-small-line);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  --gm-text: var(--gm-text-muted);
-  color: var(--gm-text-muted);
+/* The detail page states what the record is with a pill beside the title. */
+#token-shell [data-store-detail] [data-store-status] {
+  padding: 4px 10px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-s);
+  background: var(--gm-bg-inset);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#token-shell [data-store-detail] [data-store-status='on'] {
+  border-color: var(--gm-accent-indicator);
+  color: var(--gm-text-primary);
 }
 
 #token-shell [data-store-grid] {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--gm-space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 16px;
   width: 100%;
+  max-width: 1080px;
   min-width: 0;
 }
 
@@ -1250,9 +1259,8 @@
   outline: none;
 }
 
-#token-shell [data-store-card]:focus-visible {
-  outline: 2px solid var(--gm-focus-ring);
-  outline-offset: 2px;
+#token-shell [data-store-item] [data-store-card]:focus-visible {
+  outline: none;
 }
 
 #token-shell [data-store-title] {
@@ -1288,6 +1296,294 @@
 
 #token-shell [data-store-status='on'] {
   border-color: var(--gm-accent-indicator);
+}
+
+/* A store record is a card with a real action, not a line of text. */
+#token-shell [data-store-item] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--gm-space-4);
+  min-width: 0;
+  padding: var(--gm-space-5);
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-l);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-elev-raised);
+  transition: border-color var(--gm-motion);
+}
+
+#token-shell [data-store-item]:hover {
+  border-color: var(--gm-line-control);
+}
+
+/* The card is the inner button; the ring goes on the box around it. */
+#token-shell [data-store-item]:has([data-store-card]:focus-visible) {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell [data-store-item] [data-store-card] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#token-shell [data-store-item] [data-store-card]:hover {
+  transform: none;
+}
+
+#token-shell [data-store-action] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-accent-fill);
+  box-shadow: var(--gm-raised-edge);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 18px;
+  color: #1a140c;
+  cursor: pointer;
+}
+
+#token-shell [data-store-action='uninstall'] {
+  border-color: var(--gm-line-subtle);
+  background: var(--gm-bg-inset);
+  box-shadow: none;
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-action]:focus {
+  outline: none;
+}
+
+#token-shell [data-store-action]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell [data-store-item] {
+  min-height: 220px;
+  justify-content: space-between;
+}
+
+#token-shell [data-store-status] {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+#token-shell [data-store-item] [data-store-action] {
+  align-self: stretch;
+  width: 100%;
+}
+
+#token-shell [data-store-detail] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gm-space-5);
+}
+
+#token-shell [data-store-back] {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: transparent;
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+}
+
+#token-shell [data-store-back]:hover {
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-back]:focus {
+  outline: none;
+}
+
+#token-shell [data-store-back]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell [data-store-detail-body] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gm-space-5);
+  width: 100%;
+  max-width: 640px;
+  min-width: 0;
+}
+
+#token-shell [data-store-title-row] {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+#token-shell [data-store-detail-body] [data-store-summary] {
+  max-width: 68ch;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  color: var(--gm-text-secondary);
+}
+
+#token-shell [data-store-does] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#token-shell [data-store-section-title] {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gm-text-muted);
+}
+
+#token-shell [data-store-detail-line] {
+  max-width: 62ch;
+  font-size: var(--gm-type-body-size);
+  line-height: var(--gm-type-body-line);
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-action-row] {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+#token-shell [data-store-action-detail] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-accent-fill);
+  box-shadow: var(--gm-raised-edge);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  color: #1a140c;
+  cursor: pointer;
+}
+
+#token-shell [data-store-action-detail='uninstall'] {
+  border-color: var(--gm-line-subtle);
+  background: var(--gm-bg-inset);
+  box-shadow: none;
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-action-detail]:focus {
+  outline: none;
+}
+
+#token-shell [data-store-action-detail]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
+}
+
+#token-shell [data-store-saved-note] {
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  color: var(--gm-text-muted);
+}
+
+#token-shell [data-store-settings] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+#token-shell [data-store-setting] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+#token-shell [data-store-setting-label] {
+  font-size: var(--gm-type-label-size);
+  line-height: var(--gm-type-label-line);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gm-text-muted);
+}
+
+#token-shell [data-store-setting-options] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-inset);
+}
+
+#token-shell [data-store-setting-option] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--gm-radius-s);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  color: var(--gm-text-secondary);
+  cursor: pointer;
+}
+
+#token-shell [data-store-setting-selected='1'] {
+  background: var(--gm-bg-overlay);
+  box-shadow: var(--gm-raised-edge), inset 0 -2px 0 var(--gm-accent-indicator);
+  color: var(--gm-text-primary);
+}
+
+#token-shell [data-store-setting-option]:focus {
+  outline: none;
+}
+
+#token-shell [data-store-setting-option]:focus-visible {
+  outline: 2px solid var(--gm-focus-ring);
+  outline-offset: 2px;
 }
 
 /* —— Reduced motion (CLI-140): every transition and the pane entrance

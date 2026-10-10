@@ -571,6 +571,19 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: var(--gm-space-2);
   padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top-width: 1px;
+  /* A pin can push the tabs past a phone's width; scrolling keeps every tab
+     reachable instead of clipping the last one. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+#nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+#nav-tabs > [id^='nav-item-'] {
+  flex: 0 0 auto;
 }
 
 #content {
@@ -686,9 +699,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 }
 
 #destination-pin[data-pressed='1'] {
-  border-color: var(--gm-brass, #c4a574);
-  --gm-text: var(--gm-brass, #c4a574);
-  color: var(--gm-brass, #c4a574);
+  border-color: var(--gm-accent-text);
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
 }
 
 #content:has(#destination-pin) #destination-headline {
@@ -3416,7 +3429,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-tabs [id^='nav-item-']:focus,
 #nav-item-settings:focus,
 [data-album-tile]:focus,
+[data-album-open]:focus,
 [data-album-play]:focus,
+#artist-play:focus,
 #library-tabs [role='tab']:focus,
 #settings-nav [role='tab']:focus,
 [data-track-row]:focus,
@@ -3455,7 +3470,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-tabs [id^='nav-item-']:focus-visible,
 #nav-item-settings:focus-visible,
 [data-album-tile]:focus-visible,
+[data-album-open]:focus-visible,
 [data-album-play]:focus-visible,
+#artist-play:focus-visible,
 #library-tabs [role='tab']:focus-visible,
 #settings-nav [role='tab']:focus-visible,
 [data-track-play]:focus-visible,

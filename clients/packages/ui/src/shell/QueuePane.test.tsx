@@ -210,11 +210,23 @@ test('the queue sheet closes from its button, its scrim and Escape, and only whi
   ]);
   fireEvent.click(document.querySelector('#queue-scrim') as HTMLElement);
   expect(onCloseSheet).toHaveBeenCalledTimes(4);
-  // Escape anywhere in the sheet closes it; other keys pass through.
-  fireEvent.keyDown(document.querySelector('#queue-sheet') as HTMLElement, { key: 'Escape' });
+  // Escape anywhere in the sheet closes it and is consumed before the full
+  // player's own Escape handler further out can see it; other keys pass on.
+  const reached = vi.fn();
+  const spy = (event: KeyboardEvent) => {
+    reached(event.key);
+  };
+  globalThis.addEventListener('keydown', spy);
+  expect(fireEvent.keyDown(document.querySelector('#queue-sheet') as HTMLElement, { key: 'Escape' })).toStrictEqual(
+    false,
+  );
   expect(onCloseSheet).toHaveBeenCalledTimes(5);
+  expect(reached).toHaveBeenCalledTimes(0);
   fireEvent.keyDown(document.querySelector('#queue-sheet') as HTMLElement, { key: 'a' });
   expect(onCloseSheet).toHaveBeenCalledTimes(5);
+  expect(reached).toHaveBeenCalledTimes(1);
+  expect(reached).toHaveBeenCalledWith('a');
+  globalThis.removeEventListener('keydown', spy);
   open.unmount();
 
   // Closed: no scrim, and the close control leaves the tab order.
@@ -233,6 +245,17 @@ test('the queue sheet closes from its button, its scrim and Escape, and only whi
   expect([...(document.querySelector('[data-queue-layer="1"]')?.children ?? [])].map((node) => node.id)).toStrictEqual([
     'queue-sheet',
   ]);
+  // A closed sheet owns nothing: Escape passes through to whoever is next.
+  const closedReached = vi.fn();
+  const closedSpy = (event: KeyboardEvent) => {
+    closedReached(event.key);
+  };
+  globalThis.addEventListener('keydown', closedSpy);
+  fireEvent.keyDown(document.querySelector('#queue-sheet') as HTMLElement, { key: 'Escape' });
+  expect(onCloseSheet).toHaveBeenCalledTimes(5);
+  expect(closedReached).toHaveBeenCalledTimes(1);
+  expect(closedReached).toHaveBeenCalledWith('Escape');
+  globalThis.removeEventListener('keydown', closedSpy);
   closed.unmount();
 
   // Unwired, every way of closing is inert rather than an error.

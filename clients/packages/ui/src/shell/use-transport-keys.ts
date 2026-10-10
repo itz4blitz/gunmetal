@@ -44,7 +44,9 @@ const OWNS_KEYS =
 export function useTransportKeys(handlers: TransportKeyHandlers): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing) {
+      if (event.isComposing || event.defaultPrevented) {
+        // A control that answered this key first keeps it. Links, menu items,
+        // separators, radios and tabs all call preventDefault themselves.
         return;
       }
       const target = event.target;

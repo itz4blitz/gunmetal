@@ -38,7 +38,6 @@ test('compact settings stacks every pane and hides the section list', () => {
     'Appearance',
     'Playback',
     'Connected services',
-    'Extensions / Plugins',
     'About this connection',
     'Privacy',
   ]);
@@ -52,11 +51,10 @@ test('compact settings stacks every pane and hides the section list', () => {
     ['settings-appearance', 'appearance', 'title2'],
     ['settings-playback', 'playback', 'title2'],
     ['settings-connected', 'connected', 'title2'],
-    ['settings-extensions', 'extensions', 'title2'],
     ['settings-about', 'about', 'title2'],
     ['settings-privacy', 'privacy', 'title2'],
   ]);
-  expect(document.querySelectorAll('[data-settings-panel="1"]').length).toStrictEqual(6);
+  expect(document.querySelectorAll('[data-settings-panel="1"]').length).toStrictEqual(5);
   // The theme is chosen in one place: the preview cards. No second control.
   expect(document.querySelector('#theme-switcher')).toBeNull();
   expect(document.querySelector('#settings-appearance #settings-theme-preview')?.getAttribute('role')).toStrictEqual(
@@ -68,7 +66,7 @@ test('medium settings stay stacked like compact', () => {
   renderSettings('medium');
   expect(document.querySelector('#destination-settings')?.getAttribute('data-settings-layout')).toStrictEqual('stack');
   expect(document.querySelector('#settings-nav')).toBeNull();
-  expect(document.querySelectorAll('[data-settings-panel="1"]').length).toStrictEqual(6);
+  expect(document.querySelectorAll('[data-settings-panel="1"]').length).toStrictEqual(5);
 });
 
 test('expanded and wide settings put a left list beside one selected pane', () => {
@@ -87,7 +85,7 @@ test('expanded and wide settings put a left list beside one selected pane', () =
   // The selected section is exposed to assistive technology, not only painted.
   expect(
     [...document.querySelectorAll('#settings-nav [role="tab"]')].map((tab) => tab.getAttribute('aria-selected')),
-  ).toStrictEqual(['true', 'false', 'false', 'false', 'false', 'false']);
+  ).toStrictEqual(['true', 'false', 'false', 'false', 'false']);
   const shown = () => [...document.querySelectorAll('[data-settings-panel="1"]')].map((pane) => pane.id);
   fireEvent.click(screen.getByRole('tab', { name: 'Privacy' }));
   expect(shown()).toStrictEqual(['settings-privacy']);
@@ -99,9 +97,6 @@ test('expanded and wide settings put a left list beside one selected pane', () =
   expect(shown()).toStrictEqual(['settings-connected']);
   fireEvent.keyDown(screen.getByRole('tab', { name: 'About this connection' }), { key: ' ' });
   expect(shown()).toStrictEqual(['settings-about']);
-  fireEvent.keyDown(screen.getByRole('tab', { name: 'Extensions / Plugins' }), { key: 'Tab' });
-  expect(shown()).toStrictEqual(['settings-about']);
-  expect(document.querySelector('#settings-extensions')).toBeNull();
 });
 
 test('each stacked pane shows the catalogue body and no release badge', () => {
@@ -115,21 +110,9 @@ test('each stacked pane shows the catalogue body and no release badge', () => {
   expect(document.querySelector('#settings-connected [data-empty-state="connected"]')?.textContent).toStrictEqual(
     messages.settingsConnectedEmpty,
   );
-  expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'The extensions this server knows. Cover art runs here. The others are records a package can target. Nothing is downloaded.',
-  );
   // The old decorative empty marks are gone: every pane is rows now.
   expect(document.querySelectorAll('#destination-settings [data-empty-mark]').length).toStrictEqual(0);
   expect(document.querySelectorAll('#destination-settings [data-empty-card]').length).toStrictEqual(0);
-  // The jobs list is rows, not a plugin table: no version column, no R2 badge, no load bit.
-  expect(document.querySelectorAll('#settings-extensions #settings-plugin-slots').length).toStrictEqual(1);
-  expect(document.querySelector('[data-slot-head]')).toBeNull();
-  expect(document.querySelector('[data-slot-version]')).toBeNull();
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('R2')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('WebAssembly')).toStrictEqual(false);
-  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
   // About is a definition list: muted label, primary value, one row per fact.
   expect(document.querySelector('#settings-about-facts')?.getAttribute('data-settings-facts')).toStrictEqual('1');
   expect(document.querySelector('[data-settings-fact="data"] [data-fact-label]')?.textContent).toStrictEqual('Library');
@@ -150,6 +133,62 @@ test('each stacked pane shows the catalogue body and no release badge', () => {
     messages.settingsAboutVersion,
   );
   expect(document.querySelector('[data-settings-privacy]')?.textContent).toStrictEqual(messages.settingsPrivacyBody);
+});
+
+test('a route change moves the open pane, and a tab click reports the path when the shell owns routing', () => {
+  const opened: string[] = [];
+  const view = render(
+    <Settings
+      section="appearance"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  // A later route names another pane: the page follows it.
+  view.rerender(
+    <Settings
+      section="privacy"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-privacy')).not.toBeNull();
+  expect(document.querySelector('#settings-appearance')).toBeNull();
+  expect(document.querySelector('#settings-nav-privacy')?.getAttribute('aria-selected')).toStrictEqual('true');
+  // With the shell owning the address, a tab click reports the section path.
+  view.rerender(
+    <Settings
+      section="privacy"
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+      onOpenPath={(path) => opened.push(path)}
+    />,
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Playback' }));
+  expect(opened).toStrictEqual(['/settings/playback']);
+  expect(document.querySelector('#settings-privacy')).not.toBeNull();
+  // A later route that names no section falls back to appearance.
+  view.rerender(
+    <Settings
+      messages={destinationMessages()}
+      shellMessages={shellMessages()}
+      theme="dark"
+      onThemeChange={() => {}}
+      width="wide"
+    />,
+  );
+  expect(document.querySelector('#settings-appearance')).not.toBeNull();
+  expect(document.querySelector('#settings-privacy')).toBeNull();
 });
 
 test('a library fact replaces the about data message and hides the playback placeholder', () => {
@@ -360,9 +399,7 @@ test('playback volume levelling, crossfade and output device are radio groups th
   ).toStrictEqual(messages.settingsPlaybackOutputHint);
   for (const id of ['levelling', 'crossfade', 'output']) {
     expect(
-      document
-        .querySelector(`#settings-playback [data-settings-row="${id}"]`)
-        ?.textContent?.includes('Not connected'),
+      document.querySelector(`#settings-playback [data-settings-row="${id}"]`)?.textContent?.includes('Not connected'),
     ).toStrictEqual(false);
     expect(
       document.querySelector(`#settings-playback [data-settings-row="${id}"] [data-settings-row-status]`),
@@ -464,260 +501,6 @@ function radioReport(group: HTMLElement): (string | null)[][] {
       radio.getAttribute('tabindex'),
     ]);
 }
-
-function extensionJobs(): (string | null)[][] {
-  return [...document.querySelectorAll('#settings-plugin-slots [data-settings-row]')].map((row) => [
-    row.getAttribute('data-settings-row'),
-    row.getAttribute('data-job-status'),
-    row.querySelector('[data-slot-title]')?.textContent ?? null,
-    row.querySelector('[data-job-detail]')?.textContent ?? null,
-    row.querySelector('[data-settings-row-status]')?.textContent ?? null,
-  ]);
-}
-
-function jobsWhileCoversAreServed(): (string | null)[][] {
-  return [
-    ['cover-art', 'On', 'Metadata and artwork', 'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.', 'On'],
-    ['lyrics', 'Not in this build', 'Lyrics lookup', 'Would fetch lyrics for tracks whose files have none.', 'Not in this build'],
-    ['catalogue-search', 'Not in this build', 'Catalog search', 'Would search a remote catalog and return matches as data.', 'Not in this build'],
-    ['scrobble', 'Not in this build', 'Scrobblers', 'Would send plays to a service the owner names.', 'Not in this build'],
-    ['themes', 'Not in this build', 'Themes', 'Would add theme packs as data on top of the built-in themes.', 'Not in this build'],
-    ['home-rows', 'Not in this build', 'Home rows', 'Would add a home row described as data.', 'Not in this build'],
-    [
-      'url-style',
-      'On',
-      'Address style',
-      'Addresses for artists, albums, tracks, movies and shows. This build uses unique name slugs.',
-      'On',
-    ],
-  ];
-}
-
-test('with no plugin slots to list, the extensions pane keeps its statement and draws no empty table', () => {
-  render(
-    <Settings
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="compact"
-    />,
-  );
-  expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')?.textContent).toStrictEqual(
-    'The extensions this server knows. Cover art runs here. The others are records a package can target. Nothing is downloaded.',
-  );
-  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
-  expect(document.querySelector('[data-slot-head]')).toBeNull();
-  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
-});
-
-test('when the host is not serving covers, metadata stays built in and does not read On or Not loaded', () => {
-  render(
-    <Settings
-      pluginSlots={pluginSlots(false)}
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="compact"
-    />,
-  );
-  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
-  cleanup();
-  const opened: string[] = [];
-  render(
-    <Settings
-      section="extensions"
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-      onOpenPath={(path) => {
-        opened.push(path);
-      }}
-    />,
-  );
-  fireEvent.click(screen.getByRole('tab', { name: 'Playback' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Metadata and artwork' }));
-  expect(opened).toStrictEqual(['/settings/playback', '/settings/extensions/cover-art']);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('Not loaded')).toStrictEqual(false);
-  expect(document.querySelector('#settings-extensions')?.textContent?.includes('1.0.0')).toStrictEqual(false);
-  expect(document.querySelector('[data-slot-version]')).toBeNull();
-  expect(document.querySelectorAll('#destination-settings [data-settings-badge]').length).toStrictEqual(0);
-});
-
-test('a route section of extensions shows that pane, and a later route section follows it', () => {
-  const view = render(
-    <Settings
-      section="extensions"
-      pluginSlots={pluginSlots(true)}
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-    />,
-  );
-  expect(document.querySelector('#settings-extensions')).not.toBeNull();
-  expect(document.querySelector('#settings-appearance')).toBeNull();
-  expect(document.querySelector('#settings-nav-extensions')?.getAttribute('aria-selected')).toStrictEqual('true');
-  expect(extensionJobs()).toStrictEqual(jobsWhileCoversAreServed());
-  fireEvent.click(screen.getByRole('tab', { name: 'Appearance' }));
-  expect(document.querySelector('#settings-appearance')).not.toBeNull();
-  expect(document.querySelector('#settings-extensions')).toBeNull();
-  view.rerender(
-    <Settings
-      section="privacy"
-      pluginSlots={pluginSlots(true)}
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-    />,
-  );
-  expect(document.querySelector('#settings-privacy')).not.toBeNull();
-  expect(document.querySelector('#settings-appearance')).toBeNull();
-  view.rerender(
-    <Settings
-      pluginSlots={pluginSlots(true)}
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-    />,
-  );
-  expect(document.querySelector('#settings-appearance')).not.toBeNull();
-  expect(document.querySelector('#settings-privacy')).toBeNull();
-});
-
-// Verifies: SEC-EXT-018, SEC-TM-065
-test('an extension page is a labeled record, not a dump of fields', () => {
-  const opened: string[] = [];
-  render(
-    <Settings
-      section="extensions"
-      extensionId="lyrics"
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-      onOpenPath={(path) => {
-        opened.push(path);
-      }}
-    />,
-  );
-  const page = document.querySelector('#extension-detail');
-  expect(page).not.toBeNull();
-  expect(page?.getAttribute('data-extension-id')).toStrictEqual('lyrics');
-  expect(page?.getAttribute('data-extension-status')).toStrictEqual('not-in-build');
-  expect(within(page as HTMLElement).getByRole('heading', { name: 'Lyrics lookup' }).id).toStrictEqual(
-    'extension-title',
-  );
-  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('Not in this build');
-  expect(page?.querySelector('[data-extension-summary]')?.textContent).toStrictEqual(
-    'Would fetch lyrics for tracks whose files have none.',
-  );
-  expect(
-    [...(page?.querySelectorAll('[data-extension-fact]') ?? [])].map((fact) => [
-      fact.querySelector('[data-fact-label]')?.textContent,
-      fact.querySelector('[data-fact-value]')?.textContent,
-    ]),
-  ).toStrictEqual([
-    ['Identifier', 'lyrics'],
-    ['Version', '1.0.0'],
-    ['Runs on', 'Server'],
-    ['Slot', 'lyrics-provider'],
-    ['Interface', 'gunmetal.extensions/1'],
-    ['Maintained in', 'itz4blitz/gunmetal-extensions'],
-  ]);
-  expect([...(page?.querySelectorAll('[data-extension-detail]') ?? [])].map((line) => line.textContent)).toStrictEqual([
-    'This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.',
-  ]);
-  expect(page?.querySelector('[data-extension-section="does"] [data-extension-section-title]')?.textContent).toStrictEqual(
-    'What it does',
-  );
-  expect([...(page?.querySelectorAll('[data-extension-grant]') ?? [])].map((grant) => grant.textContent)).toStrictEqual([
-    'lyrics:read',
-  ]);
-  expect(page?.querySelector('[data-extension-ships]')?.textContent).toStrictEqual(
-    'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
-  );
-  expect(page?.querySelector('[data-extension-title-row] [data-extension-status]')?.textContent).toStrictEqual(
-    'Not in this build',
-  );
-  expect(page?.querySelector('[data-extension-grants]')?.getAttribute('aria-label')).toStrictEqual('Grants');
-  expect(document.querySelector('#settings-extensions [data-empty-state="extensions"]')).toBeNull();
-  expect(document.querySelector('#extension-detail script')).toBeNull();
-  expect(document.querySelector('#extension-detail iframe')).toBeNull();
-  expect(screen.queryByRole('button', { name: /install|enable|load plugin/i })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Back to extensions' }));
-  expect(opened).toStrictEqual(['/settings/extensions']);
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Back to extensions' }), { key: 'Enter' });
-  expect(opened).toStrictEqual(['/settings/extensions', '/settings/extensions']);
-});
-
-test('an extension that this library already runs says On and names its grant', () => {
-  render(
-    <Settings
-      section="extensions"
-      extensionId="cover-art"
-      messages={destinationMessages()}
-      shellMessages={shellMessages()}
-      theme="dark"
-      onThemeChange={() => {}}
-      width="wide"
-    />,
-  );
-  const page = document.querySelector('#extension-detail');
-  expect(page?.getAttribute('data-extension-status')).toStrictEqual('on');
-  expect(within(page as HTMLElement).getByRole('heading', { name: 'Metadata and artwork' }).id).toStrictEqual(
-    'extension-title',
-  );
-  expect(page?.querySelector('[data-extension-status]')?.textContent).toStrictEqual('On');
-  expect(
-    [...(page?.querySelectorAll('[data-extension-fact]') ?? [])].map((fact) => [
-      fact.getAttribute('data-extension-fact'),
-      fact.querySelector('[data-fact-value]')?.textContent,
-    ]),
-  ).toStrictEqual([
-    ['identifier', 'cover-art'],
-    ['version', '1.0.0'],
-    ['plane', 'Server'],
-    ['slot', 'metadata-provider'],
-    ['interface', 'gunmetal.extensions/1'],
-    ['maintained', 'itz4blitz/gunmetal-extensions'],
-  ]);
-  expect([...(page?.querySelectorAll('[data-extension-detail]') ?? [])].map((line) => line.textContent)).toStrictEqual([
-    'Runs inside this library host. It is not a downloaded package.',
-    'Album art comes from embedded pictures first, then Cover Art Archive.',
-    'Artist photos come from the Wikidata portrait on the MusicBrainz artist.',
-  ]);
-  expect([...(page?.querySelectorAll('[data-extension-grant]') ?? [])].map((grant) => grant.textContent)).toStrictEqual([
-    'library:write-artwork',
-  ]);
-});
-
-test('the extensions pane names Wasm grants and this build loads no plugin host', async () => {
-  renderSettings('compact');
-  expect(document.querySelector('[data-plugin-host]')).toBeNull();
-  expect(document.querySelector('#settings-extensions script')).toBeNull();
-  expect(document.querySelector('#settings-extensions iframe')).toBeNull();
-  expect(document.querySelector('[data-plugin-row]')).toBeNull();
-  expect(document.querySelector('[data-plugin-grant]')).toBeNull();
-  expect(screen.queryByRole('button', { name: /install|enable|load plugin/i })).toBeNull();
-  const settingsSource = await readFile(join(here, 'Settings.tsx'), 'utf8');
-  const logicSource = await readFile(join(here, 'settings.ts'), 'utf8');
-  const combined = `${settingsSource}\n${logicSource}`;
-  expect(combined.includes('WebAssembly')).toStrictEqual(false);
-  expect(combined.includes('.wasm')).toStrictEqual(false);
-  expect(combined.includes('createElement')).toStrictEqual(false);
-  expect(combined.includes('loadPlugin')).toStrictEqual(false);
-  expect(combined.includes('pluginHost')).toStrictEqual(false);
-});
 
 test('the theme is one radio group of five preview cards, with the current theme checked', () => {
   renderSettings('compact');
