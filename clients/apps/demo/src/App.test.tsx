@@ -571,3 +571,16 @@ test('a device list that arrives after unmount is ignored', async () => {
     Reflect.deleteProperty(navigator, 'mediaDevices');
   }
 });
+
+test('the area switch swaps the music shell for the Watch area and back', async () => {
+  window.history.pushState(null, '', '/');
+  render(<App />);
+  expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#watch-area')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
+  expect(document.querySelector('#watch-area')).not.toBeNull();
+  expect(document.querySelector('#shell-wordmark')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Music' }));
+  expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#watch-area')).toBeNull();
+});

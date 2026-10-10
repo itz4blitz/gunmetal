@@ -27,6 +27,7 @@ test('the page loads the shared primitives last, after every area sheet', async 
     'area-settings.css',
     'area-lyrics.css',
     'area-player.css',
+    'area-video.css',
     'system.css',
   ]);
 });

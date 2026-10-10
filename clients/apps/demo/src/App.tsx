@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Shell } from '../../../packages/ui/src/shell/Shell.tsx';
 import type { DemoLibrary } from '../../../packages/fake-server/src/types.ts';
 import { ActivityBar } from './ActivityBar.tsx';
+import { WatchArea } from './WatchArea.tsx';
 import { listOutputDevices, type OutputDevice } from './browser/audio-element.ts';
 import { createLayoutStore } from './browser/layout-store.ts';
 import { createSettingsStore } from './browser/settings-store.ts';
@@ -46,6 +47,7 @@ function loadPlaybackPrefs(): PlaybackPrefs {
 }
 
 export function App({ library }: { library?: DemoLibrary | undefined }) {
+  const [mode, setMode] = useState<'music' | 'video'>('music');
   const [live, setLive] = useState(library);
   const refresh = useCallback((done: number) => {
     if (done < 1) {
@@ -102,7 +104,24 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
   return (
     <>
       <ActivityBar onAdvance={refresh} />
-      <Shell
+      <nav id="demo-mode-switch" aria-label="Area">
+        <button
+          type="button"
+          aria-pressed={mode === 'music'}
+          onClick={() => setMode('music')}
+        >
+          Music
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === 'video'}
+          onClick={() => setMode('video')}
+        >
+          Watch
+        </button>
+      </nav>
+      {mode === 'music' ? (
+        <Shell
         showDemoLabel={demo.showDemoLabel}
         library={demo.library}
         searchLibrary={demo.searchLibrary}
@@ -120,6 +139,9 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
         sinkId={prefs.sinkId}
         onOutput={onOutput}
       />
+      ) : (
+        <WatchArea />
+      )}
     </>
   );
 }

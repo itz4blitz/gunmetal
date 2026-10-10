@@ -1,0 +1,221 @@
+/* ==========================================================================
+   Gunmetal — Watch (the video walking skeleton) area styles.
+   Loads after shell.css. Tokens only (--gm-*); no external assets.
+   ========================================================================== */
+
+#demo-mode-switch {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+}
+
+#demo-mode-switch button {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 16px;
+  background: transparent;
+  color: var(--gm-text-secondary, #b0bbc5);
+  font: inherit;
+  cursor: pointer;
+}
+
+#demo-mode-switch button[aria-pressed='true'] {
+  background: var(--gm-brass, #b08d57);
+  color: var(--gm-ink-on-brass, #10131a);
+}
+
+#watch-area {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+#watch-area header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  color: var(--gm-text, #e8edf3);
+}
+
+#watch-area header p {
+  margin: 4px 0 0;
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+#watch-sources {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 12px;
+}
+
+#watch-sources h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--gm-text-secondary, #b0bbc5);
+}
+
+#watch-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+#watch-source-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.watch-source-name {
+  color: var(--gm-text, #e8edf3);
+  font-weight: 600;
+}
+
+.watch-source-path {
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+.watch-source-count {
+  color: var(--gm-text-muted, #8a97a8);
+  margin-right: auto;
+}
+
+#watch-add-source {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+#watch-add-source label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+#watch-add-source input {
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 8px;
+  background: var(--gm-field, #10141b);
+  color: var(--gm-text, #e8edf3);
+  padding: 8px 10px;
+  font: inherit;
+  min-width: 220px;
+}
+
+#watch-add-source button,
+#watch-source-list button {
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gm-text-secondary, #b0bbc5);
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+#watch-add-source button:disabled,
+#watch-source-list button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+#watch-notice {
+  margin: 0;
+  color: var(--gm-warning, #e0b070);
+}
+
+#watch-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.watch-title {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  text-align: left;
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 12px;
+  background: var(--gm-field, #10141b);
+  color: var(--gm-text, #e8edf3);
+  padding: 14px;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+.watch-title:hover {
+  border-color: var(--gm-brass, #b08d57);
+}
+
+.watch-badge {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+.watch-title-name {
+  font-weight: 600;
+}
+
+.watch-title-meta {
+  font-size: 0.85rem;
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+#watch-grid-empty,
+#watch-sources-empty {
+  color: var(--gm-text-muted, #8a97a8);
+  margin: 0;
+}
+
+#watch-player {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 12px;
+}
+
+#watch-player video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+#watch-player h3 {
+  margin: 0;
+}
+
+#watch-player p {
+  margin: 0;
+  color: var(--gm-text-muted, #8a97a8);
+}
+
+#watch-player-close {
+  justify-self: end;
+  border: 1px solid var(--gm-hairline, #232a33);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gm-text-secondary, #b0bbc5);
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+#watch-player-refused {
+  color: var(--gm-warning, #e0b070);
+}

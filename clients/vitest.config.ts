@@ -12,7 +12,9 @@ export default defineConfig({
       enabled: true,
       provider: 'v8',
       include: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}', 'tools/**/*.ts'],
-      exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**'],
+      // `tools/gate` is the install verifier: its tests are node:test files
+      // with their own harness, so they are neither run nor counted here.
+      exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**', 'tools/gate/**'],
       thresholds: { perFile: true, lines: 100, functions: 100, statements: 100, branches: 100 },
       reporter: ['text'],
       reportsDirectory: '../target/clients/coverage',
@@ -26,7 +28,15 @@ export default defineConfig({
           include: ['packages/*/src/**/*.test.{ts,tsx}', 'apps/*/src/**/*.test.{ts,tsx}'],
         },
       },
-      { extends: true, test: { name: 'tools', environment: 'node', include: ['tools/**/*.test.ts'] } },
+      {
+        extends: true,
+        test: {
+          name: 'tools',
+          environment: 'node',
+          include: ['tools/**/*.test.ts'],
+          exclude: ['tools/gate/**'],
+        },
+      },
     ],
   },
 });
