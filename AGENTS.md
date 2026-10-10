@@ -24,7 +24,9 @@
   [record 31](docs/adr/0031-github-is-the-source-of-truth.md)). Clone,
   push and open pull requests there, and nowhere else. The Premier
   Forgejo (`git.taild1bbf.ts.net`) is a read-only archive: never push to
-  it, never open a pull request there. Actions run on GitHub-hosted
+  it, never open a pull request there. Actions run only on the
+  project's own runners — the Unraid floor and the `premier-cicd` burst
+  fleet — registered with this repository, never on GitHub-hosted
   runners.
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:

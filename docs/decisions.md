@@ -145,7 +145,7 @@ The owner directed these in conversation on 2026-10-06.
 | D-93 Premier CI account | Dedicated account `premier-cicd` `109792548422` (`aws-premier-cicd@premierstudio.ai`, `us-east-2`). IaC is `PremierStudio/premier-cicd`. Recorded as [record 20](adr/0020-premier-cicd-account.md). |
 | D-94 Forgejo action references | Third-party Actions are absolute SHA-pinned GitHub URLs, because the runner resolves short names against `data.forgejo.org` and that mirror does not have them. `permissions:` stays despite Forgejo's warning. Recorded as [record 29](adr/0029-forgejo-action-references.md). |
 | D-95 No Actions permissions field | Workflows do not set `permissions:`. Forgejo ignores it and warns on every job. The zizmor canary still proves the audit. Supersedes that part of D-94. Recorded as [record 30](adr/0030-no-actions-permissions-field.md). |
-| D-96 Source of truth GitHub | GitHub is the source of truth: `https://github.com/itz4blitz/gunmetal`. Clone, push and open pull requests there; Actions run on GitHub-hosted runners. The Premier Forgejo is a read-only archive and nothing is pushed to it again. Supersedes D-89, D-90, D-94 and D-95. Recorded as [record 31](adr/0031-github-is-the-source-of-truth.md). |
+| D-96 Source of truth GitHub | GitHub is the source of truth: `https://github.com/itz4blitz/gunmetal`. Clone, push and open pull requests there; Actions run only on the project's own runners (the Unraid floor and the premier-cicd burst fleet) registered with the repository. The Premier Forgejo is a read-only archive and nothing is pushed to it again. Supersedes D-89, D-94 and D-95; D-90 stands. Recorded as [record 31](adr/0031-github-is-the-source-of-truth.md). |
 
 ## Decide first
 
@@ -2720,7 +2720,8 @@ Answered 2026-10-08: remove the field. See
   retire the Forgejo?
 - **Recommendation.** Yes. GitHub `itz4blitz/gunmetal` is the source of
   truth and the only place anyone clones, pushes or opens a pull
-  request. Actions run on GitHub-hosted runners. The Forgejo stays as a
+  request. Actions run only on the project's own runners, registered
+  with the repository. The Forgejo stays as a
   read-only archive, and its branches are carried over so nothing is
   lost.
 

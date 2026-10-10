@@ -23,13 +23,14 @@ full parity on GitHub, off the Forgejo, enforced everywhere.
    `https://github.com/itz4blitz/gunmetal`. Everything clones, pushes and
    opens pull requests there, and nowhere else. This supersedes
    [record 16](0016-forgejo-source-of-truth.md) (D-89).
-2. **Actions run on GitHub-hosted `ubuntu-latest` runners** under this
-   repository's workflows. This supersedes the self-hosted runner shape
-   of [record 17](0017-all-actions-on-own-runners.md) and
-   [record 29](0029-forgejo-action-references.md) and the
+2. **Actions run only on the project's own runners**, registered with
+   this repository: the Unraid floor and the `premier-cicd` burst fleet
+   (D-90, D-92 and D-93 stand). No job runs on a GitHub-hosted runner.
+   [Record 17](0017-all-actions-on-own-runners.md) keeps its rule under
+   GitHub; [record 29](0029-forgejo-action-references.md) absolute-URL
+   references are no longer required (`owner/repo@sha` resolves), and the
    no-`permissions:` rule of [record 30](0030-no-actions-permissions-field.md)
-   (D-90, D-94, D-95): on GitHub, `permissions:` works and stays, and
-   third-party actions are referenced as `owner/repo@sha`.
+   is lifted: on GitHub, `permissions:` works and stays.
 3. **The Premier Forgejo is retired to a read-only archive.** Nothing is
    pushed to it again and no pull request is opened there. Its branches
    were carried to GitHub so nothing is lost.
@@ -44,7 +45,8 @@ full parity on GitHub, off the Forgejo, enforced everywhere.
 
 - `AGENTS.md` names GitHub only, so every coding agent lands its work
   there; the Forgejo remote is removed from the working copies.
-- The gate, qodana and the mutation shards run as GitHub Actions. A
+- The gate, qodana and the mutation shards run on the project's own
+  runners through GitHub Actions. A
   macOS machine still cannot build the workspace (the worker's seccomp
   crate is Linux-only), so CI stays the definition of done.
 - The retired Forgejo is treated as an archive: if it ever answers, read
