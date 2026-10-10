@@ -8293,6 +8293,7 @@ packages it names verify the behaviour.
 | WP-232 | Resume points, Continue Watching and Next Up | 8 | M | WP-034, WP-207 | `core/src/video/progress.rs`, `server/src/progress/` | VID-118 to VID-122, DIS-024 to DIS-031; API-LOG-07, API-VID-02 | TB4; TM-T18; SEC-PRV-028 |
 | WP-233 | Statistics and year in review | 8 | S | WP-034 | `core/src/stats.rs` | MUS-186, MUS-187; API-LOG-06 | TB4; TM-T18 |
 | WP-234 | Partial sync and restricted-profile filtering | 9 | M | WP-084, WP-222 | `server/src/sync/partial.rs` | CLI-023, DIS-144, DIS-155; API-SYNC-08, API-SYNC-09 | TB4, TB5; TM-T15; SEC-IAM-064, SEC-IAM-076 |
+| WP-243 | Lidarr bridge plugin (`request-provider`) | 9 | M | WP-225; record 32 | `plugins/lidarr/` | INT-128 | TB7; TM-T33, TM-T34; SEC-EXT-026, SEC-EXT-050, SEC-EXT-076, SEC-API-079 |
 | WP-091 | Scoped API keys and the tool change feed (moved from R1) | 7 | M | WP-031, WP-033, WP-047, WP-062, WP-065, WP-066, WP-118 | `server/src/tokens/` | ACC-049, INT-006, INT-012, INT-017 to INT-022 (INT-023 stays R1 with WP-031 and WP-043); API-TOK-01, API-TOK-02 | TB4; TM-T14; SEC-EXT-008, SEC-EXT-009, SEC-EXT-010, SEC-EXT-011, SEC-EXT-012, SEC-EXT-013, SEC-EXT-014, SEC-EXT-015, SEC-EXT-016, SEC-EXT-017, SEC-IAM-083 |
 
 R2 also needs the owner's answers on the Linux desktop shell, Dolby Vision
