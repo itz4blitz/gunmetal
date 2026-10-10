@@ -28,7 +28,7 @@ concurrency:
 jobs:
   # Every step of scripts/gate.sh except mutation testing.
   checks:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 60
     permissions:
       contents: read
@@ -72,7 +72,7 @@ jobs:
     # that split is gone. The controls that keep outsiders off the build
     # host are still the repository settings record 15 lists, not this
     # line: a pull request can rewrite it.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     # 15 hours: about 800 mutants at 20 to 35 seconds each is 4.5 to 8
     # hours, and the limit leaves room for the workspace to double. A
     # timed-out shard fails `gate`.
@@ -113,7 +113,7 @@ jobs:
   # SEC-MED-004: the core's tests, property tests included, on a target where
   # usize is 32 bits wide, so a length that only fits in 64 bits is caught.
   core-32-bit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -138,7 +138,7 @@ jobs:
   # SEC-SUP-020: proves the gate refuses a manifest that Cargo.lock does not
   # match, by adding a crate without updating the lock file.
   locked-self-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -166,7 +166,7 @@ jobs:
   # The gate's switches refuse a value they cannot read and any combination,
   # before anything runs, so no mistyped job passes by testing nothing.
   gate-switches-self-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -202,7 +202,7 @@ jobs:
   gate:
     if: ${{ always() }}
     needs: [checks, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions: {}
     steps:
