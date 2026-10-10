@@ -52,7 +52,9 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use cap_std::fs::{Dir, DirBuilder, DirBuilderExt, MetadataExt as _, OpenOptions, OpenOptionsExt};
-use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawMode, Stat};
+#[cfg(not(target_os = "linux"))]
+use rustix::fs::RawMode;
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 
 use crate::host::{Holds, HostFacts, NetworkFs};
 use crate::path::{self, DataDir, DataPath, LogMonth, LogStream, USER_LOG};
@@ -385,21 +387,26 @@ impl Facts {
     }
 }
 
-/// The `Mode` for stored permission bits. The stored bits are wider than
-/// `mode_t` is on some platforms, and a value that does not fit is
-/// refused, so one can never be written truncated.
+/// The `Mode` for stored permission bits.
+///
+/// `mode_t` is `u32` on Linux, so the bits are it already. Elsewhere they
+/// are wider than `mode_t`, and a value that does not fit is refused, so
+/// one can never be written truncated.
+#[cfg(target_os = "linux")]
+fn mode_for(bits: u32) -> Mode {
+    Mode::from_raw_mode(bits)
+}
+
+/// The `Mode` for stored permission bits.
+///
+/// `mode_t` is `u32` on Linux, so the bits are it already. Elsewhere they
+/// are wider than `mode_t`, and a value that does not fit is refused, so
+/// one can never be written truncated.
+#[cfg(not(target_os = "linux"))]
 fn mode_for(bits: u32) -> io::Result<Mode> {
-    #[cfg(target_os = "linux")]
-    {
-        // `mode_t` is `u32` here: the bits are it already.
-        Ok(Mode::from_raw_mode(bits))
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        RawMode::try_from(bits)
-            .map(Mode::from_raw_mode)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "mode does not fit mode_t"))
-    }
+    RawMode::try_from(bits)
+        .map(Mode::from_raw_mode)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "mode does not fit mode_t"))
 }
 
 /// Decides what to do about `item`, given what was found there.
@@ -513,19 +520,27 @@ impl Settler {
             })
             .and_then(|(facts, change)| match change {
                 None => Ok(facts.kind),
-                Some(required) => mode_for(required)
-                    .and_then(|mode| repair(mode).map_err(io::Error::from))
-                    .map_err(io_error(item.clone(), Op::Repair))
-                    .and_then(|()| look())
-                    .and_then(|after| confirm(item, after, required))
-                    .map(|()| {
-                        self.repairs.push(Repair::Mode {
-                            item: item.clone(),
-                            from: facts.mode,
-                            to: required,
-                        });
-                        facts.kind
-                    }),
+                Some(required) => {
+                    // Linux `mode_for` returns the mode directly. Wrapping
+                    // it in `Ok` here keeps one repair path; a helper that
+                    // only returned `Ok` would not pass Clippy on Linux.
+                    #[cfg(target_os = "linux")]
+                    let mode = Ok(mode_for(required));
+                    #[cfg(not(target_os = "linux"))]
+                    let mode = mode_for(required);
+                    mode.and_then(|mode| repair(mode).map_err(io::Error::from))
+                        .map_err(io_error(item.clone(), Op::Repair))
+                        .and_then(|()| look())
+                        .and_then(|after| confirm(item, after, required))
+                        .map(|()| {
+                            self.repairs.push(Repair::Mode {
+                                item: item.clone(),
+                                from: facts.mode,
+                                to: required,
+                            });
+                            facts.kind
+                        })
+                }
             })
     }
 
@@ -565,7 +580,11 @@ impl Settler {
                 // reason the create fails shows up there as well, as the
                 // error the inspection reports, so its result needs no
                 // handling here.
-                let _ = mode_for(DIR_MODE).map(|mode| rustix::fs::mkdirat(root, dir.name(), mode));
+                #[cfg(target_os = "linux")]
+                let mode = Ok(mode_for(DIR_MODE));
+                #[cfg(not(target_os = "linux"))]
+                let mode = mode_for(DIR_MODE);
+                let _ = mode.map(|mode| rustix::fs::mkdirat(root, dir.name(), mode));
                 self.settle(
                     || rustix::fs::statat(root, dir.name(), AtFlags::SYMLINK_NOFOLLOW),
                     |mode| rustix::fs::chmodat(root, dir.name(), mode, AtFlags::empty()),
@@ -1163,6 +1182,28 @@ mod tests {
     use std::io::Read;
 
     const UID: u32 = 1000;
+
+    /// Verifies: SEC-OPS-012
+    #[test]
+    fn mode_for_keeps_the_permission_bits() {
+        for bits in [0o700_u32, 0o600] {
+            #[cfg(target_os = "linux")]
+            let mode = mode_for(bits);
+            #[cfg(not(target_os = "linux"))]
+            let mode = mode_for(bits).expect("permission bits fit mode_t");
+            assert_eq!(u32::from(mode.as_raw_mode()), bits);
+        }
+    }
+
+    /// Verifies: SEC-OPS-012
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn mode_for_refuses_bits_wider_than_mode_t() {
+        let bits = u32::from(RawMode::MAX) + 1;
+        let error = mode_for(bits).expect_err("wider than mode_t");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "mode does not fit mode_t");
+    }
 
     fn facts(kind: Kind, owner: u32, mode: u32) -> Facts {
         Facts { kind, owner, mode }
