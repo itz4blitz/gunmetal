@@ -22,9 +22,13 @@
   color: var(--gm-text-muted, #8a97a8);
 }
 
+/* The pane sits beside the queue: it takes the width it is given and wraps inside that. */
 #sources-pane {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 #source-list {
@@ -86,11 +90,14 @@
   color: var(--gm-text, #e8edf3);
   padding: 8px 10px;
   font: inherit;
-  min-width: 220px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-#source-add select {
-  min-width: 140px;
+#source-add label {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 #source-add button,
