@@ -808,32 +808,16 @@ mod tests {
         // longest link that can exist is made instead; the refusal is
         // proven where an over-limit link can exist.
         #[cfg(target_os = "linux")]
-        let at_the_limit = format!("{}track.flac", "./".repeat(507));
-        #[cfg(not(target_os = "linux"))]
-        let at_the_limit = format!("{}12345678.flac", "./".repeat(505));
-        #[cfg(target_os = "linux")]
-        let over = Some(format!("{}/track.flac", "./".repeat(507)));
-        #[cfg(not(target_os = "linux"))]
-        let over: Option<String> = None;
-        #[cfg(target_os = "linux")]
-        assert_eq!(
-            (at_the_limit.len(), over.as_deref().map_or(0, str::len)),
-            (1024, 1025)
-        );
-        #[cfg(not(target_os = "linux"))]
-        assert_eq!(at_the_limit.len(), 1023);
-        #[cfg(not(target_os = "linux"))]
-        std::fs::write(temp.path().join("music/12345678.flac"), b"fLaC")
-            .expect("the link's target");
-        std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
-            .expect("make a link at the limit");
-        if let Some(over) = &over {
-            std::os::unix::fs::symlink(over, temp.path().join("music/over.flac"))
+        {
+            let at_the_limit = format!("{}track.flac", "./".repeat(507));
+            let over = format!("{}/track.flac", "./".repeat(507));
+            assert_eq!((at_the_limit.len(), over.len()), (1024, 1025));
+            std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
+                .expect("make a link at the limit");
+            std::os::unix::fs::symlink(&over, temp.path().join("music/over.flac"))
                 .expect("make a long link");
-        }
-        root.open_file(&rel(&names("limit.flac")).expect("path"))
-            .expect("the link at the limit is followed");
-        if let Some(over) = &over {
+            root.open_file(&rel(&names("limit.flac")).expect("path"))
+                .expect("the link at the limit is followed");
             assert_eq!(
                 root.open_file(&rel(&names("over.flac")).expect("path"))
                     .map(|_| ()),
@@ -842,6 +826,17 @@ mod tests {
                     max: MAX_LINK_TEXT
                 })
             );
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let at_the_limit = format!("{}12345678.flac", "./".repeat(505));
+            assert_eq!(at_the_limit.len(), 1023);
+            std::fs::write(temp.path().join("music/12345678.flac"), b"fLaC")
+                .expect("the link's target");
+            std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
+                .expect("make a link at the limit");
+            root.open_file(&rel(&names("limit.flac")).expect("path"))
+                .expect("the link at the limit is followed");
         }
     }
 

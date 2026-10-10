@@ -49,8 +49,7 @@ impl Privileges {
     ///
     /// The kernel's error when the capability sets cannot be read.
     pub fn probe() -> Result<Self, Errno> {
-        let (effective, permitted) = capability_sets()?;
-        Ok(Self {
+        capability_sets().map(|(effective, permitted)| Self {
             euid: rustix::process::geteuid().as_raw(),
             effective,
             permitted,
@@ -124,10 +123,17 @@ pub fn disable_core_dumps() -> Result<(), Errno> {
         current: Some(0),
         maximum: Some(0),
     };
-    rustix::process::setrlimit(Resource::Core, none)?;
+    // Returned whole, so a kernel error stays the kernel's `Result` and is
+    // not a branch of this function that the tests cannot reach.
     #[cfg(target_os = "linux")]
-    rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable)?;
-    Ok(())
+    {
+        rustix::process::setrlimit(Resource::Core, none)
+            .and_then(|()| rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        rustix::process::setrlimit(Resource::Core, none)
+    }
 }
 
 #[cfg(test)]

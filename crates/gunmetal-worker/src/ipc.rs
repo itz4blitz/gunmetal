@@ -877,8 +877,14 @@ mod tests {
         // so the same deadline is kept by polling a non-blocking read,
         // which behaves the same on every platform.
         kept.set_nonblocking(true).unwrap();
-        let started = std::time::Instant::now();
         let mut reader = kept;
+        poll_read(&mut reader, wait)
+    }
+
+    /// Polls `reader` until it yields octets, the wait ends, or the read
+    /// fails for a reason other than having nothing ready.
+    fn poll_read(reader: &mut impl Read, wait: Duration) -> Result<usize, io::ErrorKind> {
+        let started = std::time::Instant::now();
         loop {
             match reader.read(&mut [0_u8; 1]) {
                 Ok(count) => return Ok(count),
@@ -891,6 +897,22 @@ mod tests {
                 Err(error) => return Err(error.kind()),
             }
         }
+    }
+
+    /// Verifies the arm a socket pair does not produce: a read that fails
+    /// for a reason other than having nothing ready is that reason.
+    #[test]
+    fn a_read_that_fails_outright_keeps_that_kind() {
+        struct Closed;
+        impl Read for Closed {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::ConnectionReset, "closed"))
+            }
+        }
+        assert_eq!(
+            poll_read(&mut Closed, Duration::from_secs(30)),
+            Err(io::ErrorKind::ConnectionReset)
+        );
     }
 
     /// Runs `transmit` over `whole` with a first call that answers with
