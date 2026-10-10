@@ -9,9 +9,10 @@ export function createAudioElement(): HTMLAudioElement {
 export type OutputDevice = { id: string; label: string };
 
 /**
- * Audio outputs the browser will name. No preference and no invented label:
- * an entry stays only when its kind is `audiooutput`. No mediaDevices means
- * there is nothing to list.
+ * Audio outputs the browser will name. No preference: an entry stays only
+ * when its kind is `audiooutput`, and an entry the browser left unnamed
+ * falls back to its place in the list (`Output 1`, `Output 2`, ...). No
+ * mediaDevices means there is nothing to list.
  */
 export async function listOutputDevices(): Promise<OutputDevice[]> {
   const mediaDevices = navigator.mediaDevices as MediaDevices | undefined;
@@ -21,5 +22,8 @@ export async function listOutputDevices(): Promise<OutputDevice[]> {
   const devices = await mediaDevices.enumerateDevices();
   return devices
     .filter((device) => device.kind === 'audiooutput')
-    .map((device) => ({ id: device.deviceId, label: device.label }));
+    .map((device, index) => ({
+      id: device.deviceId,
+      label: device.label === '' ? `Output ${index + 1}` : device.label,
+    }));
 }

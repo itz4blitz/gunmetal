@@ -8,6 +8,13 @@ import { outputVolume } from './gain.ts';
 // A fixture tone is a short loop under a longer catalogue duration. A file
 // whose length matches that row plays once, and the element's own end
 // hands the track over. CP-019/WP-030 replace this clock.
+//
+// Crossfade: with a second element the engine performs a real overlap —
+// the next track starts on the spare element at zero volume and the two
+// ramp across the window, then the spare becomes the active one and the
+// engine tells its owner (`onCrossfade`). With one element only (tests, or
+// a caller that supplies the same instance twice) the hook fires at the
+// window's start, which is the one-element handoff the owner must make.
 
 /** The element events the engine mirrors into honest playback state. */
 export type DemoAudioEvent = 'timeupdate' | 'ended' | 'waiting' | 'stalled' | 'playing' | 'loadedmetadata' | 'error';
@@ -45,9 +52,11 @@ export type DemoAudioHooks = {
    */
   onDuration: (durationMs: number) => void;
   /**
-   * Fired once per track when the virtual clock enters the crossfade
-   * window and a next url is armed. The owner starts that url; this
-   * element is the one fading out.
+   * With a second element: fired once when the overlap completes and the
+   * successor is the active element — the owner moves its state to that
+   * track. With one element: fired once per track when the virtual clock
+   * enters the crossfade window and a next url is armed; the owner starts
+   * that url, and this element is the one fading out.
    */
   onCrossfade?: (url: string) => void;
 };
@@ -69,6 +78,8 @@ export type DemoAudio = {
   armNext: (url: string, durationMs: number) => void;
   /** Ask the element to play through this device, when it knows how. */
   setSinkId: (id: string) => void;
+  /** The url the active element is pointed at, or undefined when none is. */
+  playingUrl: () => string | undefined;
   /** Stop mirroring events (effect cleanup). */
   detach: () => void;
 };
@@ -92,8 +103,20 @@ export function loopsFixtureTone(catalogueMs: number, fileSeconds: number): bool
   return fileSeconds * 1000 + 1_500 < catalogueMs;
 }
 
-export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks): DemoAudio {
-  element.loop = true;
+export function createDemoAudio(
+  element: DemoAudioElement,
+  hooks: DemoAudioHooks,
+  nextElement?: DemoAudioElement,
+): DemoAudio {
+  /* The same instance means the caller has only one element; the engine
+     then falls back to the one-element handoff. */
+  const spare = nextElement !== undefined && nextElement !== element ? nextElement : undefined;
+  let activeIndex = 0;
+  const act = (): DemoAudioElement => (activeIndex === 0 ? element : (spare as DemoAudioElement));
+  const other = (): DemoAudioElement | undefined =>
+    spare === undefined ? undefined : activeIndex === 0 ? spare : element;
+  act().loop = true;
+
   let trackDurationMs = 0;
   let virtualMs = 0;
   let lastElementSeconds = 0;
@@ -104,9 +127,26 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
   let crossfadeMs = 0;
   let armed: { url: string; durationMs: number } | undefined;
   let crossfadeFired = false;
+  /* A real overlap in progress: when it began on the virtual clock and how
+     far the ramp has come. */
+  let fading = false;
+  let fadeStartedMs = 0;
+  let fadeProgress = 0;
+  /* The successor the in-progress fade is playing; set with `fading`. */
+  let fadeNext: { url: string; durationMs: number } | undefined;
 
-  const writeVolume = () => {
-    element.volume = outputVolume(userVolume, 'track', gainDb, undefined);
+  const baseVolume = () => outputVolume(userVolume, 'track', gainDb, undefined);
+
+  /* During a fade the active element ramps down and the spare ramps up from
+     the same base; otherwise the active element takes the base and the spare
+     rests silent. */
+  const applyVolumes = () => {
+    const base = baseVolume();
+    act().volume = fading ? base * (1 - fadeProgress) : base;
+    const o = other();
+    if (o !== undefined) {
+      o.volume = fading ? base * fadeProgress : 0;
+    }
   };
 
   // The handoff belongs to this track only. A fixture tone has to keep
@@ -124,23 +164,64 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
       return;
     }
     crossfadeFired = true;
-    element.loop = false;
+    act().loop = false;
+    const o = other();
+    if (o === undefined) {
+      hooks.onCrossfade?.(next.url);
+      return;
+    }
+    fading = true;
+    fadeStartedMs = virtualMs;
+    fadeProgress = 0;
+    fadeNext = next;
+    o.src = next.url;
+    o.loop = false;
+    o.currentTime = 0;
+    o.volume = 0;
+    void o.play();
+    applyVolumes();
+  };
+
+  const completeFade = () => {
+    const next = fadeNext as { url: string; durationMs: number };
+    act().pause();
+    activeIndex = activeIndex === 0 ? 1 : 0;
+    fading = false;
+    fadeProgress = 0;
+    fadeNext = undefined;
+    trackDurationMs = next.durationMs;
+    const fresh = act();
+    virtualMs = fresh.currentTime * 1000;
+    lastElementSeconds = fresh.currentTime;
+    endedFired = false;
+    /* The new track gets its own handoff when its window arrives. */
+    crossfadeFired = false;
+    armed = undefined;
+    fresh.loop = loopsFixtureTone(trackDurationMs, fresh.duration);
+    applyVolumes();
     hooks.onCrossfade?.(next.url);
   };
 
   const advance = () => {
-    const now = element.currentTime;
+    const now = act().currentTime;
     let delta = now - lastElementSeconds;
     if (delta < 0) {
       // A loop seam is a wrap near the element's end. A reload that resets
       // the element to 0 is not a seam, and must not jump the clock.
-      const length = element.duration > 0 ? element.duration : 0;
-      const seam = element.loop && length > 0 && lastElementSeconds > length - 1 && now < 1;
+      const length = act().duration > 0 ? act().duration : 0;
+      const seam = act().loop && length > 0 && lastElementSeconds > length - 1 && now < 1;
       delta = seam ? delta + length : 0;
     }
     lastElementSeconds = now;
     if (delta > 0) {
       virtualMs += delta * 1000;
+    }
+    if (fading) {
+      fadeProgress = Math.max(0, Math.min(1, (virtualMs - fadeStartedMs) / crossfadeMs));
+      applyVolumes();
+      if (fadeProgress >= 1) {
+        completeFade();
+      }
     }
     maybeCrossfade();
     if (trackDurationMs > 0 && virtualMs >= trackDurationMs && !endedFired) {
@@ -164,24 +245,24 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
     hooks.onBuffering(false);
   };
   const applyElementTime = (positionMs: number) => {
-    const elementSeconds = element.duration > 0 ? element.duration : 0;
+    const elementSeconds = act().duration > 0 ? act().duration : 0;
     const withinLoop = elementSeconds > 0 ? (positionMs / 1000) % elementSeconds : 0;
-    element.currentTime = withinLoop;
+    act().currentTime = withinLoop;
     lastElementSeconds = withinLoop;
     if (elementSeconds > 0) {
       pendingSeekMs = undefined;
     }
   };
   const onLoadedMetadata = () => {
-    if (pendingSeekMs !== undefined && element.duration > 0) {
+    if (pendingSeekMs !== undefined && act().duration > 0) {
       applyElementTime(pendingSeekMs);
     }
     hooks.onBuffering(false);
     /* The element's own length is the truth about the track when the
        catalogue had none to give. A real file's metadata, once adopted,
        becomes the clock's scale too. */
-    const seconds = element.duration;
-    element.loop = !crossfadeFired && loopsFixtureTone(trackDurationMs, seconds);
+    const seconds = act().duration;
+    act().loop = !crossfadeFired && loopsFixtureTone(trackDurationMs, seconds);
     if (trackDurationMs === 0 && Number.isFinite(seconds) && seconds > 0) {
       trackDurationMs = seconds * 1000;
       hooks.onDuration(trackDurationMs);
@@ -196,19 +277,86 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
     hooks.onEnded();
   };
   const onError = () => {
-    hooks.onError(element.error?.message ?? '');
+    hooks.onError(act().error?.message ?? '');
   };
-  const listeners: ReadonlyArray<[DemoAudioEvent, () => void]> = [
-    ['timeupdate', onTime],
-    ['waiting', onWaiting],
-    ['stalled', onStalled],
-    ['playing', onPlaying],
-    ['loadedmetadata', onLoadedMetadata],
-    ['ended', onElementEnded],
-    ['error', onError],
-  ];
-  for (const [type, listener] of listeners) {
-    element.addEventListener(type, listener);
+
+  /* Both elements are bound, but only the active one's events move the
+     engine: the spare's ticks during a fade belong to the next track. */
+  const bind = (el: DemoAudioElement): ReadonlyArray<[DemoAudioEvent, () => void]> => {
+    const listeners: ReadonlyArray<[DemoAudioEvent, () => void]> = [
+      [
+        'timeupdate',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onTime();
+        },
+      ],
+      [
+        'waiting',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onWaiting();
+        },
+      ],
+      [
+        'stalled',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onStalled();
+        },
+      ],
+      [
+        'playing',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onPlaying();
+        },
+      ],
+      [
+        'loadedmetadata',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onLoadedMetadata();
+        },
+      ],
+      [
+        'ended',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onElementEnded();
+        },
+      ],
+      [
+        'error',
+        () => {
+          if (el !== act()) {
+            return;
+          }
+          onError();
+        },
+      ],
+    ];
+    for (const [type, listener] of listeners) {
+      el.addEventListener(type, listener);
+    }
+    return listeners;
+  };
+  const bound = new Map<DemoAudioElement, ReadonlyArray<[DemoAudioEvent, () => void]>>();
+  bound.set(element, bind(element));
+  if (spare !== undefined) {
+    bound.set(spare, bind(spare));
   }
 
   return {
@@ -219,18 +367,30 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
       // The armed successor belonged to the track just replaced.
       crossfadeFired = false;
       armed = undefined;
-      element.loop = true;
-      element.src = url;
-      element.currentTime = 0;
+      if (fading) {
+        /* A load mid-fade abandons the overlap: silence the spare. */
+        other()?.pause();
+      }
+      fading = false;
+      fadeProgress = 0;
+      fadeNext = undefined;
+      act().loop = true;
+      act().src = url;
+      act().currentTime = 0;
       lastElementSeconds = 0;
       pendingSeekMs = undefined;
+      applyVolumes();
     },
     setPlaying(playing: boolean) {
       if (playing) {
-        void element.play();
+        void act().play();
         return;
       }
-      element.pause();
+      act().pause();
+      if (fading) {
+        /* Pausing mid-fade must silence the incoming side too. */
+        other()?.pause();
+      }
     },
     seek(positionMs: number) {
       const cap = trackDurationMs > 0 ? trackDurationMs : positionMs;
@@ -244,11 +404,11 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
     },
     setVolume(volume: number) {
       userVolume = clampVolume(volume);
-      writeVolume();
+      applyVolumes();
     },
     setGainDb(db: number | undefined) {
       gainDb = db;
-      writeVolume();
+      applyVolumes();
     },
     setCrossfadeMs(ms: number) {
       crossfadeMs = ms;
@@ -257,19 +417,30 @@ export function createDemoAudio(element: DemoAudioElement, hooks: DemoAudioHooks
       armed = { url, durationMs };
     },
     setSinkId(id: string) {
-      const sink = element.setSinkId;
-      if (sink === undefined) {
-        return;
+      for (const el of [element, spare]) {
+        if (el === undefined) {
+          continue;
+        }
+        const sink = el.setSinkId;
+        if (sink === undefined) {
+          continue;
+        }
+        // A device the element refuses must not become an unhandled rejection.
+        // Playback keeps the output it already has.
+        void sink.call(el, id).catch(() => undefined);
       }
-      // A device the element refuses must not become an unhandled rejection.
-      // Playback keeps the output it already has.
-      void sink.call(element, id).catch(() => undefined);
+    },
+    playingUrl() {
+      const src = act().src;
+      return src === '' ? undefined : src;
     },
     detach() {
-      for (const [type, listener] of listeners) {
-        element.removeEventListener(type, listener);
+      for (const [el, listeners] of bound) {
+        for (const [type, listener] of listeners) {
+          el.removeEventListener(type, listener);
+        }
+        el.pause();
       }
-      element.pause();
     },
   };
 }

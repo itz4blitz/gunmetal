@@ -30,7 +30,31 @@ test('only audiooutput entries are kept, with the id and label the browser gave'
   try {
     expect(await listOutputDevices()).toStrictEqual([
       { id: 'speakers', label: 'Studio speakers' },
-      { id: 'quiet', label: '' },
+      { id: 'quiet', label: 'Output 2' },
+    ]);
+  } finally {
+    restoreMediaDevices();
+  }
+});
+
+test('an unnamed output falls back to its place among the audio outputs', async () => {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      enumerateDevices: () =>
+        Promise.resolve([
+          { kind: 'audiooutput', deviceId: 'first', label: '', groupId: 'g' },
+          { kind: 'audioinput', deviceId: 'mic', label: '', groupId: 'g' },
+          { kind: 'audiooutput', deviceId: 'second', label: '', groupId: 'g' },
+          { kind: 'audiooutput', deviceId: 'named', label: 'Headphones', groupId: 'g' },
+        ]),
+    },
+  });
+  try {
+    expect(await listOutputDevices()).toStrictEqual([
+      { id: 'first', label: 'Output 1' },
+      { id: 'second', label: 'Output 2' },
+      { id: 'named', label: 'Headphones' },
     ]);
   } finally {
     restoreMediaDevices();

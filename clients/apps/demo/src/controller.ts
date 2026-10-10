@@ -22,7 +22,6 @@ import {
   adoptDuration,
   carryQueueOpen,
   cycleRepeatMode,
-  emptyPlayback,
   findTrack,
   removeLine,
   seekTo,
@@ -90,37 +89,66 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
   const shuffleSeedRef = useRef(0);
   const sessionStateRef = useRef(state);
   sessionStateRef.current = state;
+  /* The track id the engine's crossfade already started on its spare
+     element. The load effect skips one reload for exactly that track. */
+  const handoffRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    const audio = createDemoAudio(wiring?.createElement?.() ?? createAudioElement(), {
-      onTime: (positionMs) => {
-        if (holdReports.current) {
-          return;
-        }
-        setState((current) => (current.trackId === undefined ? current : { ...current, positionMs }));
+    const makeElement = wiring?.createElement ?? createAudioElement;
+    const primary = makeElement();
+    const spare = makeElement();
+    /* Distinct instances mean a real overlap; the same one means a single
+       element, and the engine falls back to the window-start handoff. */
+    const dual = spare !== primary;
+    const audio = createDemoAudio(
+      primary,
+      {
+        onTime: (positionMs) => {
+          if (holdReports.current) {
+            return;
+          }
+          setState((current) => (current.trackId === undefined ? current : { ...current, positionMs }));
+        },
+        onEnded: () => {
+          const current = sessionStateRef.current;
+          const stepped = advanceQueue(current);
+          if (stepped.playing && stepped.trackId === current.trackId) {
+            /* Repeat one, or the next line is the same track: track id and
+               media url do not change, so the load effect never runs. The
+               engine must restart in place or the bar sticks at the end. */
+            audioRef.current?.load(stepped.mediaUrl, stepped.durationMs);
+            audioRef.current?.setPlaying(true);
+          }
+          setState(stepped);
+        },
+        onBuffering: (buffering) => {
+          setState((current) => (current.trackId === undefined ? current : { ...current, buffering }));
+        },
+        onError: (message) => {
+          setState((current) => (current.trackId === undefined ? current : { ...current, playbackError: message }));
+        },
+        onDuration: (reportedMs) => {
+          setState((current) => adoptDuration(current, reportedMs));
+        },
+        ...(dual
+          ? {
+              onCrossfade: (url: string) => {
+                const current = sessionStateRef.current;
+                const next = successor(current);
+                if (next === undefined || next.mediaUrl !== url) {
+                  return;
+                }
+                const stepped = advanceQueue(current);
+                /* The engine is already playing this track on the element it
+                   swapped in; the load effect must not restart it. */
+                handoffRef.current = stepped.trackId;
+                setState(stepped);
+              },
+            }
+          : {}),
       },
-      onEnded: () => {
-        const current = sessionStateRef.current;
-        const stepped = advanceQueue(current);
-        if (stepped.playing && stepped.trackId === current.trackId) {
-          /* Repeat one, or the next line is the same track: track id and
-             media url do not change, so the load effect never runs. The
-             engine must restart in place or the bar sticks at the end. */
-          audioRef.current?.load(stepped.mediaUrl, stepped.durationMs);
-          audioRef.current?.setPlaying(true);
-        }
-        setState(stepped);
-      },
-      onBuffering: (buffering) => {
-        setState((current) => (current.trackId === undefined ? current : { ...current, buffering }));
-      },
-      onError: (message) => {
-        setState((current) => (current.trackId === undefined ? current : { ...current, playbackError: message }));
-      },
-      onDuration: (reportedMs) => {
-        setState((current) => adoptDuration(current, reportedMs));
-      },
-    });
+      spare,
+    );
     audio.setVolume(memory.muted ? 0 : memory.volume);
     audioRef.current = audio;
     return () => {
@@ -132,11 +160,17 @@ export function useDemoPlayback(library: ShellLibrary | undefined, wiring?: Demo
   }, []);
 
   /* The media element reloads only when the track changes; a duration that
-     arrives later (loadedmetadata) must not restart it. */
+     arrives later (loadedmetadata) must not restart it. A crossfade handoff
+     is the one exception: the engine already moved to that track. */
   useEffect(() => {
     const audio = audioRef.current;
     const track = trackRef.current;
     if (audio === undefined || track.trackId === undefined || track.mediaUrl === '') {
+      return;
+    }
+    if (handoffRef.current === track.trackId) {
+      handoffRef.current = undefined;
+      resumeMsRef.current = 0;
       return;
     }
     audio.load(track.mediaUrl, track.durationMs);

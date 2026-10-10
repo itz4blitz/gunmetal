@@ -53,6 +53,9 @@ test('the catalogue returns trusted shell and destination strings', () => {
       playerRemove: 'Remove from queue',
       /* The Store door. An extension is a record, not a download. */
       navStore: 'Store',
+      /* The destination pin. Its name carries the state it will move to. */
+      pinToSidebar: 'Pins the page to the sidebar',
+      unpinFromSidebar: 'Unpins the page from the sidebar',
     },
     destinations: {
       homeHeadline: 'Home',

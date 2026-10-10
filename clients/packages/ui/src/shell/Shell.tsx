@@ -468,13 +468,12 @@ export function Shell({
 
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
-  const resolvedMedia = match.kind === 'ok' && match.media !== undefined && library !== undefined ? resolveMedia(library, match.media) : undefined;
+  const resolvedMedia =
+    match.kind === 'ok' && match.media !== undefined && library !== undefined
+      ? resolveMedia(library, match.media)
+      : undefined;
   const itemId =
-    resolvedMedia !== undefined
-      ? resolvedMedia.itemId
-      : match.kind === 'ok'
-        ? match.history.itemId
-        : undefined;
+    resolvedMedia !== undefined ? resolvedMedia.itemId : match.kind === 'ok' ? match.history.itemId : undefined;
   const pageId = `${location.pathname} ${itemId ?? ''}`;
   const resolvedTheme = resolveTheme(themeChoice, systemDark);
 
@@ -486,7 +485,7 @@ export function Shell({
   const navActive = navActivePath(activePath, items);
   const pinTarget = pinForPlace(activePath, itemId, library, messages);
   const pinPressed = pinTarget !== undefined && pins.some((pin) => samePinnedPage(pin, pinTarget, library));
-  const pinName = pinPressed ? 'Unpins the page from the sidebar' : 'Pins the page to the sidebar';
+  const pinName = pinPressed ? messages.shell.unpinFromSidebar : messages.shell.pinToSidebar;
   const servedLibrary = library?.kind === 'folder';
   const libraryFact = librarySizeFact(library);
 

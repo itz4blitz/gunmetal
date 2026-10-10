@@ -343,6 +343,7 @@ test('a blocked playback store is not remembered and does not throw', () => {
 test('output devices are listed once and choosing one writes the sink', async () => {
   window.localStorage.clear();
   const calls: string[] = [];
+  const watched: string[] = [];
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: {
@@ -354,12 +355,18 @@ test('output devices are listed once and choosing one writes the sink', async ()
           { kind: 'videoinput', deviceId: 'cam', label: 'Camera', groupId: 'g' },
         ]);
       },
+      addEventListener: (type: string) => {
+        watched.push(type);
+      },
+      removeEventListener: (type: string) => {
+        watched.push(`off ${type}`);
+      },
     },
   });
   try {
     window.history.pushState(null, '', '/settings/playback');
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
-    render(<App />);
+    const view = render(<App />);
     const speakers = await screen.findByRole('radio', { name: 'Studio speakers' });
     expect(screen.queryByRole('radio', { name: 'Mic' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'Camera' })).toBeNull();
@@ -369,6 +376,8 @@ test('output devices are listed once and choosing one writes the sink', async ()
       '{"levelling":"off","crossfadeSeconds":0,"sinkId":"speakers"}',
     );
     expect(calls).toStrictEqual(['enumerate']);
+    view.unmount();
+    expect(watched).toStrictEqual(['devicechange', 'off devicechange']);
   } finally {
     Reflect.deleteProperty(navigator, 'mediaDevices');
     window.localStorage.clear();
@@ -456,6 +465,7 @@ test('a finished activity job reloads a served library, and a zero count does no
 test('a device list that arrives after unmount is ignored', async () => {
   window.localStorage.clear();
   let resolveDevices: (devices: MediaDeviceInfo[]) => void = () => {};
+  const unwatched: string[] = [];
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: {
@@ -463,6 +473,10 @@ test('a device list that arrives after unmount is ignored', async () => {
         new Promise<MediaDeviceInfo[]>((resolve) => {
           resolveDevices = resolve;
         }),
+      addEventListener: () => undefined,
+      removeEventListener: (type: string) => {
+        unwatched.push(type);
+      },
     },
   });
   try {
@@ -474,7 +488,54 @@ test('a device list that arrives after unmount is ignored', async () => {
       await Promise.resolve();
     });
     expect(document.querySelector('#token-shell')).toBeNull();
+    expect(unwatched).toStrictEqual(['devicechange']);
   } finally {
     Reflect.deleteProperty(navigator, 'mediaDevices');
+  }
+});
+
+test('a devicechange re-lists the outputs, and unmount removes the listener', async () => {
+  window.localStorage.clear();
+  let devices: MediaDeviceInfo[] = [
+    { kind: 'audiooutput', deviceId: 'speakers', label: 'Studio speakers', groupId: 'g' } as MediaDeviceInfo,
+    { kind: 'audiooutput', deviceId: 'quiet', label: '', groupId: 'g' } as MediaDeviceInfo,
+  ];
+  const listeners: Array<{ type: string; listener: () => void }> = [];
+  const removed: Array<{ type: string; listener: () => void }> = [];
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      enumerateDevices: () => Promise.resolve(devices),
+      addEventListener: (type: string, listener: () => void) => {
+        listeners.push({ type, listener });
+      },
+      removeEventListener: (type: string, listener: () => void) => {
+        removed.push({ type, listener });
+      },
+    },
+  });
+  try {
+    window.history.pushState(null, '', '/settings/playback');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
+    const view = render(<App />);
+    expect(await screen.findByRole('radio', { name: 'Studio speakers' })).not.toBeNull();
+    // The browser left the second output unnamed: its place names it.
+    expect(screen.getByRole('radio', { name: 'Output 2' })).not.toBeNull();
+    expect(listeners.map((entry) => entry.type)).toStrictEqual(['devicechange']);
+
+    devices = [{ kind: 'audiooutput', deviceId: 'headphones', label: 'Headphones', groupId: 'g' } as MediaDeviceInfo];
+    await act(async () => {
+      listeners[0]?.listener();
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole('radio', { name: 'Headphones' })).not.toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Studio speakers' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Output 2' })).toBeNull();
+
+    view.unmount();
+    expect(removed).toStrictEqual([{ type: 'devicechange', listener: listeners[0]?.listener }]);
+  } finally {
+    Reflect.deleteProperty(navigator, 'mediaDevices');
+    window.localStorage.clear();
   }
 });
