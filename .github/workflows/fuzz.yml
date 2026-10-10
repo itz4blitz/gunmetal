@@ -47,7 +47,7 @@ jobs:
   # this file. xtask refuses any name that is not lowercase ASCII letters,
   # digits and underscores, because the jobs below put names in paths.
   targets:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -74,7 +74,7 @@ jobs:
 
   fuzz:
     needs: targets
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -128,7 +128,7 @@ jobs:
           retention-days: 30
 
   canary:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 45
     permissions:
       contents: read

@@ -15,7 +15,7 @@ permissions: {}
 
 jobs:
   deny:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -45,7 +45,7 @@ jobs:
   report:
     needs: deny
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions:
       issues: write

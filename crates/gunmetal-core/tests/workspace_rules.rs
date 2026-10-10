@@ -35,7 +35,7 @@ const SETTINGS_DRIFT: &str = include_str!("../../../.github/workflows/settings-d
 const STANDARDS_WATCH: &str = include_str!("../../../.github/workflows/standards-watch.yml");
 const WASM: &str = include_str!("../../../.github/workflows/wasm.yml");
 const WORKFLOW_LINT: &str = include_str!("../../../.github/workflows/workflow-lint.yml");
-const OWN_RUNNER: &str = "runs-on: ubuntu-latest";
+const OWN_RUNNER: &str = "runs-on: [self-hosted, gunmetal-mutants]";
 const VET_CONFIG: &str = include_str!("../../../supply-chain/config.toml");
 const EXCEPTIONS: &str = include_str!("../../../supply-chain/exceptions.toml");
 const CORE_ALLOWLIST: &str = include_str!("../../../supply-chain/core-allowlist.toml");
@@ -2140,7 +2140,7 @@ fn every_actions_job_runs_on_the_project_runners() {
             assert_eq!(
                 runners,
                 [OWN_RUNNER],
-                "{path} job {job} must run only on ubuntu-latest"
+                "{path} job {job} must run only on [self-hosted, gunmetal-mutants]"
             );
         }
     }
