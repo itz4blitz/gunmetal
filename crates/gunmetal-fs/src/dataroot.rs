@@ -1193,6 +1193,10 @@ mod tests {
             let mode = mode_for(bits);
             #[cfg(not(target_os = "linux"))]
             let mode = mode_for(bits).expect("permission bits fit mode_t");
+            // `mode_t` is already `u32` on Linux. Elsewhere it is narrower.
+            #[cfg(target_os = "linux")]
+            assert_eq!(mode.as_raw_mode(), bits);
+            #[cfg(not(target_os = "linux"))]
             assert_eq!(u32::from(mode.as_raw_mode()), bits);
         }
     }
