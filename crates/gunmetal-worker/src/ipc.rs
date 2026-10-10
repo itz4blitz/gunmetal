@@ -883,7 +883,11 @@ mod tests {
 
     /// Polls `reader` until it yields octets, the wait ends, or the read
     /// fails for a reason other than having nothing ready.
-    fn poll_read(reader: &mut impl Read, wait: Duration) -> Result<usize, io::ErrorKind> {
+    ///
+    /// One function, not one per reader. The coverage gate counts each
+    /// generic copy on its own, and the socket these tests keep never
+    /// takes the arm a stand-in reader is here to reach.
+    fn poll_read(reader: &mut dyn Read, wait: Duration) -> Result<usize, io::ErrorKind> {
         let started = std::time::Instant::now();
         loop {
             match reader.read(&mut [0_u8; 1]) {
