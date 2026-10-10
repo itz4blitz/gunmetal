@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native-web';
 import type { ShellMessages } from '../messages/en/shell.ts';
 import { CoverTile } from './destinations/CoverTile.tsx';
@@ -7,7 +7,7 @@ import { noLyrics, type LyricsResolver } from './content.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { RepeatGlyph } from './player-glyphs.tsx';
 import { LyricsPane } from './LyricsPane.tsx';
-import { usePositionMs, type PositionClock } from './position-clock.ts';
+import { progressFillWidth, usePositionMs, type PositionClock } from './position-clock.ts';
 import type { SyncedLine, TimedLyricsResolver } from './synced-lyrics.ts';
 import type { PlayerQueueLine, PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
 
@@ -165,6 +165,27 @@ export function PlayerFull({
       setQueueRaised(false);
     }
   }, [open, queueOpen]);
+  /* The raised sheet is a sibling of this dialog, so the dialog's own focus
+     work pauses while it is up: the sheet's close control takes the focus
+     when it rises and the queue control gets it back when it goes down. */
+  const sheetOver = open && queueOpen && queueRaised;
+  const sheetWasOver = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      sheetWasOver.current = false;
+      return;
+    }
+    if (sheetOver) {
+      sheetWasOver.current = true;
+      globalThis.document.getElementById('queue-close')?.focus();
+      return;
+    }
+    if (!sheetWasOver.current) {
+      return;
+    }
+    sheetWasOver.current = false;
+    globalThis.document.getElementById('player-full-queue')?.focus();
+  }, [open, sheetOver]);
   useEffect(() => {
     if (!open) {
       return;
@@ -197,14 +218,16 @@ export function PlayerFull({
     };
   }, [open]);
   /* Tab never leaves the dialog while it is open: at either end it wraps to
-     the other, and a focus that escaped (a click on the scrim) comes back. */
+     the other, and a focus that escaped (a click on the scrim) comes back.
+     While the queue sheet is raised the trap stands aside instead: that
+     sheet is a sibling surface and its lines are the natural next stops. */
   const trapTab = (event: {
     key: string;
     shiftKey?: boolean;
     preventDefault: () => void;
     currentTarget: HTMLElement;
   }) => {
-    if (event.key !== 'Tab') {
+    if (event.key !== 'Tab' || sheetOver) {
       return;
     }
     const target = tabWrapTarget(
@@ -417,7 +440,11 @@ export function PlayerFull({
                     value={volume}
                     aria-label={messages.volume}
                     onChange={(event) => {
-                      onVolume(Number(event.currentTarget.value));
+                      const level = Number(event.currentTarget.value);
+                      if ((muted ?? false) && level > 0) {
+                        onMuted?.(false);
+                      }
+                      onVolume(level);
                     }}
                   />
                 </View>
@@ -443,6 +470,7 @@ export function PlayerFull({
                   id="player-full-queue"
                   accessibilityRole="button"
                   accessibilityLabel={messages.queue}
+                  aria-pressed={queueOpen}
                   tabIndex={0}
                   onClick={toggleQueue}
                   onKeyDown={onActivate(toggleQueue)}
@@ -536,7 +564,7 @@ function LiveProgress({
           <View
             id="player-full-progress-fill"
             dataSet={{ fill: `${Math.round(progress * 100)}` }}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: progressFillWidth(at, durationMs) }}
           />
         </View>
       </View>

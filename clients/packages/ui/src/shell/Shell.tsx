@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Text, View } from 'react-native-web';
-import { catalogue } from '../messages/catalogue.ts';
+import { catalogue, type MessageCatalogue } from '../messages/catalogue.ts';
+import { extensionTitle, storeIdFromPath } from '../plugins/repository.ts';
 import { BrandMark } from './brand-mark.tsx';
-import { matchAddress, type MatchResult } from '../router/match.ts';
-import { pushPath } from '../router/navigate.ts';
+import { itemAddress, resolveMedia } from '../router/catalogue-address.ts';
+import { labelFromKey, parseMediaPath } from '../router/media-path.ts';
+import { addressOnLoad, browserWins, canonicalPath, matchAddress, type MatchResult } from '../router/match.ts';
+import { pushPath, replacePath } from '../router/navigate.ts';
 import { noLyrics, type LibrarySearch, type LyricsResolver } from './content.ts';
 import { Destination } from './destinations/Destination.tsx';
-import type { PluginSlot } from './destinations/settings.ts';
+import { Icon } from './Icon.tsx';
+import type { PluginSlot, SettingsCrossfadeSeconds, SettingsLevelling } from './destinations/settings.ts';
 import type { ShellLibrary } from './library-types.ts';
 import type { TimedLyricsResolver } from './synced-lyrics.ts';
 import { useTransportKeys } from './use-transport-keys.ts';
-import { Icon } from './Icon.tsx';
-import { Nav, navItems } from './Nav.tsx';
+import { Nav, navItems, withPins } from './Nav.tsx';
+import { readPins, serializePins, togglePin, type Pin } from './pins.ts';
 import { PaneResizer } from './PaneResizer.tsx';
 import {
   noLayoutStore,
@@ -46,7 +50,7 @@ export type ShellProps = {
   widthPx?: number;
   theme?: ThemeId;
   showDemoLabel?: boolean;
-  library?: ShellLibrary;
+  library?: (ShellLibrary & { kind?: string | undefined }) | undefined;
   /** The composition root's playback implementation (see PlaybackController). */
   playback: PlaybackController;
   /** Library search read (demo filter today, ServerPort search later). */
@@ -62,6 +66,11 @@ export type ShellProps = {
   /** Where the theme choice is kept between visits (localStorage in apps/demo). */
   settingsStore?: SettingsStore | undefined;
   /**
+   * Where sidebar pins are kept. Same read/write pair as the settings store.
+   * When omitted, pins live in localStorage under `gunmetal.pins`.
+   */
+  pinsStore?: SettingsStore | undefined;
+  /**
    * How the shell asks the operating system about its colour scheme
    * (design-language §4). Defaults to the runtime's matchMedia; null answers
    * "cannot be asked" and resolves the system choice to dark.
@@ -69,6 +78,17 @@ export type ShellProps = {
   systemThemeQuery?: (query: string) => SystemThemeQuery | null;
   onNavigate?: (path: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
+  /** Volume levelling. The settings pane calls `onLevelling` when this is passed. */
+  levelling?: SettingsLevelling | undefined;
+  onLevelling?: ((levelling: SettingsLevelling) => void) | undefined;
+  /** Crossfade length in seconds. The settings pane calls `onCrossfade` when this is passed. */
+  crossfadeSeconds?: SettingsCrossfadeSeconds | undefined;
+  onCrossfade?: ((seconds: SettingsCrossfadeSeconds) => void) | undefined;
+  /** Output devices this browser can play through. */
+  outputs?: readonly { id: string; label: string }[] | undefined;
+  /** The chosen output. Empty is the browser default. */
+  sinkId?: string | undefined;
+  onOutput?: ((id: string) => void) | undefined;
 };
 
 function readWindowWidth(): number {
@@ -104,6 +124,155 @@ function scrollContentToTop(): void {
   });
 }
 
+/** Pins are navigation only. The key is not a layout or theme document. */
+const PINS_STORAGE_KEY = 'gunmetal.pins';
+
+/**
+ * The settings-store shape, backed by localStorage when the composition root
+ * did not pass a pins store. A blocked or full store remembers nothing and
+ * does not throw: the pin still applies for this visit.
+ */
+function browserPinsStore(): SettingsStore {
+  return {
+    read: () => {
+      try {
+        return globalThis.localStorage.getItem(PINS_STORAGE_KEY);
+      } catch {
+        return null;
+      }
+    },
+    write: (value) => {
+      try {
+        globalThis.localStorage.setItem(PINS_STORAGE_KEY, value);
+      } catch {
+        // Nothing to do: the pin still applies for this visit.
+      }
+    },
+  };
+}
+
+function pinKey(pin: Pin, library: ShellLibrary | undefined): string {
+  if (pin.itemId !== undefined) {
+    return `item:${pin.itemId}`;
+  }
+  const media = parseMediaPath(pin.path);
+  if (media === undefined || library === undefined) {
+    return `path:${pin.path}`;
+  }
+  const resolved = resolveMedia(library, media);
+  if (resolved === undefined) {
+    return `path:${pin.path}`;
+  }
+  return `item:${resolved.itemId}`;
+}
+
+function commitPins(
+  current: readonly Pin[],
+  target: Pin,
+  store: SettingsStore,
+  library: ShellLibrary | undefined,
+): readonly Pin[] {
+  const matches = current.some((pin) => samePinnedPage(pin, target, library));
+  const without = current.filter((pin) => !samePinnedPage(pin, target, library));
+  const next = matches ? without : togglePin(without, target);
+  store.write(serializePins(next));
+  return next;
+}
+
+/** A destination the person can pin. Anything else (not found) has no button. */
+function pinForRoute(path: string, messages: MessageCatalogue): Pin | undefined {
+  if (path === '/') {
+    return { path, label: messages.shell.navHome };
+  }
+  if (path === '/search') {
+    return { path, label: messages.shell.navSearch };
+  }
+  if (path === '/library') {
+    return { path, label: messages.shell.navLibrary };
+  }
+  if (path === '/store') {
+    return { path, label: messages.shell.navStore };
+  }
+  const storeId = storeIdFromPath(path);
+  if (storeId !== undefined) {
+    return { path, label: extensionTitle(storeId) };
+  }
+  if (path === '/settings/appearance') {
+    return { path, label: messages.destinations.settingsAppearance };
+  }
+  if (path === '/settings/playback') {
+    return { path, label: messages.destinations.settingsPlayback };
+  }
+  if (path === '/settings/connected') {
+    return { path, label: messages.destinations.settingsConnected };
+  }
+  if (path === '/settings/about') {
+    return { path, label: messages.destinations.settingsAbout };
+  }
+  if (path === '/settings/privacy') {
+    return { path, label: messages.destinations.settingsPrivacy };
+  }
+  return undefined;
+}
+
+/** The open album or artist, or the page itself when nothing is open. */
+function pinForPlace(
+  path: string,
+  itemId: string | undefined,
+  library: ShellLibrary | undefined,
+  messages: MessageCatalogue,
+): Pin | undefined {
+  const media = parseMediaPath(path);
+  if (media !== undefined) {
+    if (library !== undefined) {
+      const resolved = resolveMedia(library, media);
+      if (resolved !== undefined) {
+        return { path: resolved.path, label: resolved.label };
+      }
+    }
+    return { path: media.path, label: labelFromKey(media.key) };
+  }
+  if (itemId !== undefined && library !== undefined) {
+    const artist = library.artists.find((entry) => entry.key === itemId);
+    if (artist !== undefined) {
+      return { path: '/library', label: artist.name, itemId };
+    }
+    const album = library.albums.find((entry) => entry.id === itemId);
+    if (album !== undefined) {
+      return { path: '/library', label: album.title, itemId };
+    }
+  }
+  return pinForRoute(path, messages);
+}
+
+function samePinnedPage(left: Pin, right: Pin, library: ShellLibrary | undefined): boolean {
+  return pinKey(left, library) === pinKey(right, library);
+}
+
+/**
+ * Nav matches a path exactly. A settings section that is not itself pinned
+ * still marks Settings, which is the page those sections belong to.
+ */
+function navActivePath(activePath: string, items: readonly { path: string }[]): string {
+  if (items.some((item) => item.path === activePath)) {
+    return activePath;
+  }
+  if (activePath.startsWith('/store')) {
+    return '/store';
+  }
+  if (activePath.startsWith('/settings')) {
+    return '/settings';
+  }
+  return activePath;
+}
+
+function librarySizeFact(library: (ShellLibrary & { kind?: string | undefined }) | undefined): string | undefined {
+  if (library === undefined || library.kind !== 'folder') {
+    return undefined;
+  }
+  return `${library.albums.length} albums · ${library.artists.length} artists`;
+}
+
 /* The frame's grid reads the pane widths from two custom properties on the
    shell root; they are written through the CSSOM, never a style attribute. */
 function applyPaneWidth(pane: PaneId, widthPx: number): void {
@@ -127,25 +296,32 @@ export function Shell({
   pluginSlots,
   layoutStore,
   settingsStore,
+  pinsStore,
   systemThemeQuery = defaultSystemThemeQuery,
   onNavigate,
   onThemeChange,
+  levelling,
+  onLevelling,
+  crossfadeSeconds,
+  onCrossfade,
+  outputs,
+  sinkId,
+  onOutput,
 }: ShellProps) {
   const messages = catalogue();
   const [store] = useState<LayoutStore>(() => layoutStore ?? noLayoutStore());
   const [paneWidths, setPaneWidths] = useState<PaneWidths>(() => parsePaneWidths(store.read()));
   const [settings] = useState<SettingsStore>(() => settingsStore ?? noSettingsStore());
+  const [pinsKept] = useState<SettingsStore>(() => pinsStore ?? browserPinsStore());
+  const [pins, setPins] = useState<readonly Pin[]>(() => readPins(pinsKept.read()));
   /* The choice (what was picked, `system` included) and the OS's answer are
      two states: only their meeting decides what `data-theme` paints. */
   const [themeChoice, setThemeChoice] = useState<ThemeId>(() => themeProp ?? parseThemeChoice(settings.read()));
   const [systemDark, setSystemDark] = useState<boolean>(() => systemThemeQuery(SYSTEM_THEME_QUERY)?.matches ?? true);
   const [width, setWidth] = useState<WidthClass>(() => widthClass(widthPx ?? readWindowWidth()));
-  const [location, setLocation] = useState(() => {
-    if (path !== undefined) {
-      return { pathname: path, search, hash, state: historyState };
-    }
-    return readLocation();
-  });
+  const [location, setLocation] = useState(() =>
+    addressOnLoad(readLocation(), { path, search, hash, state: historyState }),
+  );
 
   useEffect(() => {
     if (themeProp !== undefined) {
@@ -189,18 +365,62 @@ export function Shell({
   }, [widthPx]);
 
   useEffect(() => {
-    if (path !== undefined) {
-      setLocation({ pathname: path, search, hash, state: historyState });
+    const live = readLocation();
+    const parent = { path, search, hash, state: historyState };
+    const urlWins = browserWins(live.pathname, path);
+    if (!urlWins) {
+      setLocation(addressOnLoad(live, parent));
       return;
     }
+    if (path !== undefined) {
+      setLocation(addressOnLoad(live, parent));
+    }
     const onPop = () => {
-      setLocation(readLocation());
+      const next = readLocation();
+      setLocation(addressOnLoad(next, { path: undefined, search: '', hash: '', state: next.state }));
     };
     globalThis.addEventListener('popstate', onPop);
     return () => {
       globalThis.removeEventListener('popstate', onPop);
     };
   }, [path, search, hash, historyState]);
+
+  /* `/settings` is appearance. Replace it so the address bar matches the page.
+     A query or a fragment is a refused address and stays as the browser has it. */
+  useLayoutEffect(() => {
+    if (path !== undefined) {
+      return;
+    }
+    const live = readLocation();
+    const next = canonicalPath(live.pathname);
+    if (next === live.pathname || live.search !== '' || live.hash !== '') {
+      return;
+    }
+    replacePath(globalThis.history, next);
+  }, [path, location.pathname]);
+
+  /* An id address opens the same page as its slug. The address bar shows the
+     style this build emits. A controlled preview path is left alone. */
+  useLayoutEffect(() => {
+    if (path !== undefined || library === undefined) {
+      return;
+    }
+    const media = parseMediaPath(location.pathname);
+    if (media === undefined) {
+      return;
+    }
+    const resolved = resolveMedia(library, media);
+    if (resolved === undefined || resolved.path === location.pathname) {
+      return;
+    }
+    replacePath(globalThis.history, resolved.path);
+    setLocation({
+      pathname: resolved.path,
+      search: '',
+      hash: '',
+      state: { scrollY: 0, itemId: undefined },
+    });
+  }, [path, library, location.pathname]);
 
   useLayoutEffect(() => {
     applyPaneWidth('sidebar', paneWidths.sidebar);
@@ -248,27 +468,38 @@ export function Shell({
 
   const match = matchAddress(location);
   const activePath = match.kind === 'ok' ? match.route.path : '';
-  const itemId = match.kind === 'ok' ? match.history.itemId : undefined;
+  const resolvedMedia =
+    match.kind === 'ok' && match.media !== undefined && library !== undefined
+      ? resolveMedia(library, match.media)
+      : undefined;
+  const itemId =
+    resolvedMedia !== undefined ? resolvedMedia.itemId : match.kind === 'ok' ? match.history.itemId : undefined;
   const pageId = `${location.pathname} ${itemId ?? ''}`;
   const resolvedTheme = resolveTheme(themeChoice, systemDark);
 
   useLayoutEffect(() => {
     scrollContentToTop();
   }, [pageId]);
-  const items = navItems(messages.shell);
+  const items = withPins(navItems(messages.shell, messages.destinations), pins);
   const currentLandmarks = landmarksForClass(width);
+  const navActive = navActivePath(activePath, items);
+  const pinTarget = pinForPlace(activePath, itemId, library, messages);
+  const pinPressed = pinTarget !== undefined && pins.some((pin) => samePinnedPage(pin, pinTarget, library));
+  const pinName = pinPressed ? messages.shell.unpinFromSidebar : messages.shell.pinToSidebar;
+  const servedLibrary = library?.kind === 'folder';
+  const libraryFact = librarySizeFact(library);
 
   const navigate = (next: string) => {
+    const pathname = canonicalPath(next);
+    pushPath(globalThis.history, pathname);
+    setLocation({ pathname, search: '', hash: '', state: { scrollY: 0, itemId: undefined } });
     if (onNavigate !== undefined) {
-      onNavigate(next);
-      return;
+      onNavigate(pathname);
     }
-    pushPath(globalThis.history, next);
-    setLocation({ pathname: next, search: '', hash: '', state: { scrollY: 0, itemId: undefined } });
   };
 
   const openAlbum = (albumId: string) => {
-    const nextPath = detailPath(match);
+    const nextPath = itemAddress(library, albumId) ?? detailPath(match);
     if (onNavigate !== undefined) {
       onNavigate(nextPath);
       setLocation({
@@ -286,6 +517,14 @@ export function Shell({
       hash: '',
       state: { scrollY: 0, itemId: albumId },
     });
+  };
+
+  const openFromNav = (path: string, navItemId?: string) => {
+    if (navItemId !== undefined) {
+      openAlbum(navItemId);
+      return;
+    }
+    navigate(path);
   };
 
   const backFromAlbum = () => {
@@ -315,35 +554,8 @@ export function Shell({
     onThemeChange?.(next);
   };
 
-  const settingsLink = (
-    <View
-      id="nav-item-settings"
-      dataSet={{ navGlyph: 'settings', selected: activePath === '/settings' ? '1' : '0' }}
-      accessibilityRole="link"
-      accessibilityLabel={messages.shell.navSettings}
-      accessibilityState={{ selected: activePath === '/settings' }}
-      tabIndex={0}
-      onClick={() => {
-        navigate('/settings');
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          navigate('/settings');
-        }
-      }}
-    >
-      <Icon name="settings" />
-      <Text dataSet={{ navLabel: '1' }}>{messages.shell.navSettings}</Text>
-    </View>
-  );
-
-  /* The theme switcher lives in Settings; the rail and the brand bar stay quiet. */
-  const navFooter = <View id="nav-footer">{settingsLink}</View>;
-
   const showWideQueue = width === 'wide';
   const sidebarBrand = width === 'expanded' || width === 'wide';
-  const topBarBrand = !sidebarBrand;
   const state = playback.state;
   const artTone = state.playing && state.trackId !== undefined ? state.coverTone : undefined;
   const playingAlbumTitle =
@@ -358,8 +570,7 @@ export function Shell({
         </View>
         <View id="shell-brand-rule" accessibilityRole="none" />
       </View>
-      {showDemoLabel ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
-      {topBarBrand ? settingsLink : null}
+      {showDemoLabel && !servedLibrary ? <Text id="demo-label">{messages.shell.demoData}</Text> : null}
     </View>
   );
 
@@ -439,9 +650,9 @@ export function Shell({
             id="nav-rail"
             label={messages.shell.primaryNav}
             items={items}
-            activePath={activePath}
-            onNavigate={navigate}
-            footer={navFooter}
+            activePath={navActive}
+            activeItemId={itemId}
+            onNavigate={openFromNav}
           />
         ) : null}
         {sidebarBrand ? (
@@ -449,10 +660,10 @@ export function Shell({
             id="nav-sidebar"
             label={messages.shell.primaryNav}
             items={items}
-            activePath={activePath}
-            onNavigate={navigate}
+            activePath={navActive}
+            activeItemId={itemId}
+            onNavigate={openFromNav}
             brand={brandBlock}
-            footer={navFooter}
           />
         ) : null}
         {sidebarBrand ? (
@@ -465,6 +676,27 @@ export function Shell({
           />
         ) : null}
         <View id="content" accessibilityRole="main" tabIndex={-1}>
+          {pinTarget === undefined ? null : (
+            <View
+              id="destination-pin"
+              accessibilityRole="button"
+              accessibilityLabel={pinName}
+              aria-pressed={pinPressed}
+              dataSet={{ pressed: pinPressed ? '1' : '0', tip: pinName }}
+              tabIndex={0}
+              onClick={() => {
+                setPins((current) => commitPins(current, pinTarget, pinsKept, library));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setPins((current) => commitPins(current, pinTarget, pinsKept, library));
+                }
+              }}
+            >
+              <Icon name="pin" size={16} />
+            </View>
+          )}
           <Destination
             searchLibrary={searchLibrary}
             lyricsFor={lyricsFor}
@@ -487,8 +719,18 @@ export function Shell({
             onSeeAll={() => {
               navigate('/library');
             }}
+            onOpenPath={navigate}
+            levelling={levelling}
+            onLevelling={onLevelling}
+            crossfadeSeconds={crossfadeSeconds}
+            onCrossfade={onCrossfade}
+            outputs={outputs}
+            sinkId={sinkId}
+            onOutput={onOutput}
             currentTrackId={state.trackId}
             playingAlbumId={state.albumId}
+            served={library?.kind === 'folder'}
+            libraryFact={libraryFact}
             width={width}
           />
         </View>
@@ -565,8 +807,9 @@ export function Shell({
             id="nav-tabs"
             label={messages.shell.primaryNav}
             items={items}
-            activePath={activePath}
-            onNavigate={navigate}
+            activePath={navActive}
+            activeItemId={itemId}
+            onNavigate={openFromNav}
           />
         ) : null}
       </View>

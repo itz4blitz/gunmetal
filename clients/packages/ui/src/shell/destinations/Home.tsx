@@ -150,10 +150,20 @@ function ArtistTile({ artist, name, tone, onOpen, staggerIndex, playing }: Artis
   );
 }
 
-/** "2021 · 4 tracks" — facts from the catalogue, never invented ones. */
+/**
+ * The release Home features: the first one with a cover, else the first
+ * browsable release. A cover-less lead must not stand in for a library that
+ * has art further down.
+ */
+function spotlightAlbum(albums: readonly ShellAlbum[]): ShellAlbum | undefined {
+  return albums.find((album) => album.coverUrl !== '') ?? albums[0];
+}
+
+/** "Artist · 2021 · 4 tracks" — facts from the catalogue, never invented ones. */
 function spotlightMeta(album: ShellAlbum, messages: DestinationMessages): string {
   const count = `${album.tracks.length} ${messages.trackCountLabel}`;
-  return album.year > 0 ? `${album.year} · ${count}` : count;
+  const dated = album.year > 0 ? `${album.year} · ${count}` : count;
+  return `${album.artistName} · ${dated}`;
 }
 
 export function Home({
@@ -168,7 +178,7 @@ export function Home({
   playingAlbumId,
 }: HomeProps) {
   const albums = browsableAlbums(library);
-  const spotlight = albums[0];
+  const spotlight = spotlightAlbum(albums);
   const homeData = spotlight === undefined ? undefined : { artTone: spotlight.coverTone };
   const artists = shelfArtists(library, albums);
   // Index reads, built once per library change — never per tile.

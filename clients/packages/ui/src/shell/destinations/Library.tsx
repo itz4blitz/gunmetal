@@ -18,7 +18,7 @@ import {
 } from './library-sort.ts';
 import { TrackRow } from './TrackRow.tsx';
 import { intersectionObserverFactory } from './near-view.ts';
-import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange, spacerHeights } from './windowing.ts';
 
 export type LibraryTab = 'albums' | 'artists' | 'tracks';
 
@@ -217,6 +217,9 @@ export function Library({
     LIST_OVERSCAN_ROWS,
   );
   const shownTracks = sortedTracks.slice(trackWindow.start, trackWindow.end);
+  /* The rows the window leaves out must still take up their space, or the
+     list shrinks to the window and the tail can never be scrolled to. */
+  const trackSpacers = spacerHeights(trackWindow, sortedTracks.length, TRACK_ROW_HEIGHTS[density]);
   const chooseSort = (key: AlbumSort | ArtistSort | TrackSort) => {
     setSorts((prev) => ({ ...prev, [tab]: key }) as LibrarySorts);
   };
@@ -439,6 +442,7 @@ export function Library({
             <Text dataSet={{ trackHeadAlbum: '1' }}>{messages.columnAlbum}</Text>
             <Text dataSet={{ trackHeadTime: '1' }}>{messages.columnTime}</Text>
           </View>
+          <View aria-hidden="true" dataSet={{ listSpacer: 'top' }} style={{ height: trackSpacers.top }} />
           {shownTracks.map(({ album, track }, index) => (
             <TrackRow
               key={track.id}
@@ -456,6 +460,7 @@ export function Library({
               onOpenArtist={onOpenArtist}
             />
           ))}
+          <View aria-hidden="true" dataSet={{ listSpacer: 'bottom' }} style={{ height: trackSpacers.bottom }} />
         </View>
       ) : null}
     </View>

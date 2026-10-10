@@ -544,8 +544,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   grid-area: sidebar;
   flex-direction: column;
   gap: var(--gm-space-1);
+  min-height: 0;
   padding: var(--gm-space-6) var(--gm-space-4) var(--gm-space-5);
   border-right-width: 1px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #nav-rail {
@@ -553,8 +556,11 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   flex-direction: column;
   align-items: stretch;
   gap: var(--gm-space-1);
+  min-height: 0;
   padding: 12px 6px;
   border-right-width: 1px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #nav-tabs {
@@ -565,6 +571,19 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   gap: var(--gm-space-2);
   padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top-width: 1px;
+  /* A pin can push the tabs past a phone's width; scrolling keeps every tab
+     reachable instead of clipping the last one. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+#nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+#nav-tabs > [id^='nav-item-'] {
+  flex: 0 0 auto;
 }
 
 #content {
@@ -629,6 +648,64 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 
 #token-shell[data-width='compact'] #player-bar {
   scroll-margin-bottom: var(--gm-tabs-height);
+}
+
+#destination-pin {
+  position: absolute;
+  z-index: 4;
+  top: 22px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-m);
+  background: var(--gm-bg-raised);
+  box-shadow: var(--gm-elev-raised);
+  cursor: pointer;
+  --gm-text: var(--gm-text-secondary);
+  color: var(--gm-text-secondary);
+}
+
+#destination-pin::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid var(--gm-line-subtle);
+  border-radius: var(--gm-radius-s);
+  background: var(--gm-bg-overlay, var(--gm-bg-raised));
+  box-shadow: var(--gm-elev-overlay, var(--gm-elev-raised));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  --gm-text: var(--gm-text-primary);
+  color: var(--gm-text-primary);
+}
+
+#destination-pin:hover::after,
+#destination-pin:focus-visible::after {
+  opacity: 1;
+}
+
+#destination-pin[data-pressed='1'] {
+  border-color: var(--gm-accent-text);
+  --gm-text: var(--gm-accent-text);
+  color: var(--gm-accent-text);
+}
+
+#content:has(#destination-pin) #destination-headline {
+  padding-right: 44px;
 }
 
 #destination-headline {
@@ -1221,6 +1298,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 [data-album-shelf] {
   display: flex;
   flex-direction: row;
+  /* Hug each card. Stretching to the tallest wrapped title paints the
+     hover plate as an empty slab under a one-line name. */
+  align-items: flex-start;
   gap: 16px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -3349,7 +3429,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-tabs [id^='nav-item-']:focus,
 #nav-item-settings:focus,
 [data-album-tile]:focus,
+[data-album-open]:focus,
 [data-album-play]:focus,
+#artist-play:focus,
 #library-tabs [role='tab']:focus,
 #settings-nav [role='tab']:focus,
 [data-track-row]:focus,
@@ -3388,7 +3470,9 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
 #nav-tabs [id^='nav-item-']:focus-visible,
 #nav-item-settings:focus-visible,
 [data-album-tile]:focus-visible,
+[data-album-open]:focus-visible,
 [data-album-play]:focus-visible,
+#artist-play:focus-visible,
 #library-tabs [role='tab']:focus-visible,
 #settings-nav [role='tab']:focus-visible,
 [data-track-play]:focus-visible,
@@ -4609,4 +4693,41 @@ html:has(#token-shell[data-theme='high-contrast']) #root {
   #player-progress-fill::after {
     transition: none;
   }
+}
+
+#activity-bar {
+  position: fixed;
+  z-index: 40;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(280px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised, #1c2228) 92%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
+#activity-bar [data-activity-label] {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#activity-bar [data-activity-track] {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink, #fff) 12%, transparent);
+}
+
+#activity-bar [data-activity-fill] {
+  height: 100%;
+  background: var(--brass, #c4a574);
+}
+
+#activity-bar [data-activity-count] {
+  font-size: 12px;
+  opacity: 0.72;
 }

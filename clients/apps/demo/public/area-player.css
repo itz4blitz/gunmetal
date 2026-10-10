@@ -648,6 +648,15 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* On a wide frame the queue is a fixed pane beside the content, never a
+   sheet: the controls that would raise or toggle a sheet have nothing
+   visible to do, so neither the bar's nor the full player's queue control
+   is drawn. */
+#token-shell[data-width='wide'] #player-queue,
+#token-shell[data-width='wide'] #player-full-queue {
+  display: none;
+}
+
 /* Pane and sheet share one body: a pinned header over a scrolling list.
    Nothing here assumes a width — the pane is resizable (--gm-queue-w). */
 #token-shell :is(#right-pane, #queue-sheet) {

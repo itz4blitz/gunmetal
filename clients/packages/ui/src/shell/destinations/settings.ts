@@ -1,32 +1,54 @@
-/** Display types for the plugin-slot list; values arrive via props. */
+/** Display types for the first-party jobs list; values arrive via props. */
 export type PluginPlane = 'server' | 'client';
 
 export type PluginSlotId =
   'metadata-provider' | 'lyrics-provider' | 'search-provider' | 'scrobbler' | 'theme-pack' | 'home-row';
 
+/** Closed status for a job. Not a plugin load bit, and not a release badge. */
+export type FirstPartyJobStatus = 'on' | 'not-serving' | 'not-in-build' | 'not-a-plugin';
+
 export type PluginSlot = {
   id: PluginSlotId;
-  plane: PluginPlane;
-  featureId: 'INT-075' | 'INT-077' | 'INT-078' | 'INT-081' | 'INT-083';
-  loaded: boolean;
-  /** What the slot's manifest advertises, when one exists (ADR 22: data only). */
-  manifest?: { title: string; version: string };
+  status: FirstPartyJobStatus;
 };
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
 import { themes, type ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
 
-export type SettingsSection = 'appearance' | 'playback' | 'connected' | 'extensions' | 'about' | 'privacy';
+export type SettingsSection = 'appearance' | 'playback' | 'connected' | 'about' | 'privacy';
 
 export type SettingsLayout = 'stack' | 'side';
 
 export function settingsSections(): readonly SettingsSection[] {
-  return ['appearance', 'playback', 'connected', 'extensions', 'about', 'privacy'];
+  return ['appearance', 'playback', 'connected', 'about', 'privacy'];
 }
 
 export function defaultSettingsSection(): SettingsSection {
   return 'appearance';
+}
+
+/**
+ * The settings section a route names. `/settings` is appearance. A path that
+ * is not a settings section answers undefined so the page keeps its own choice.
+ */
+export function settingsSectionFromPath(path: string): SettingsSection | undefined {
+  if (path === '/settings' || path === '/settings/appearance') {
+    return 'appearance';
+  }
+  if (path === '/settings/playback') {
+    return 'playback';
+  }
+  if (path === '/settings/connected') {
+    return 'connected';
+  }
+  if (path === '/settings/about') {
+    return 'about';
+  }
+  if (path === '/settings/privacy') {
+    return 'privacy';
+  }
+  return undefined;
 }
 
 export function settingsLayout(width: WidthClass): SettingsLayout {
@@ -39,11 +61,9 @@ export function settingsLayout(width: WidthClass): SettingsLayout {
   return 'stack';
 }
 
-export function settingsRelease(section: SettingsSection): 'R1' | 'R2' {
+/** A section wears no release badge: a badge there would pretend a state exists. */
+export function settingsRelease(section: SettingsSection): 'R1' | 'R2' | undefined {
   if (section === 'connected') {
-    return 'R2';
-  }
-  if (section === 'extensions') {
     return 'R2';
   }
   return 'R1';
@@ -59,13 +79,26 @@ export function settingsSectionTitle(section: SettingsSection, messages: Destina
   if (section === 'connected') {
     return messages.settingsConnected;
   }
-  if (section === 'extensions') {
-    return messages.settingsExtensions;
-  }
   if (section === 'about') {
     return messages.settingsAbout;
   }
   return messages.settingsPrivacy;
+}
+
+export function settingsSectionPath(section: SettingsSection): string {
+  if (section === 'appearance') {
+    return '/settings/appearance';
+  }
+  if (section === 'playback') {
+    return '/settings/playback';
+  }
+  if (section === 'connected') {
+    return '/settings/connected';
+  }
+  if (section === 'about') {
+    return '/settings/about';
+  }
+  return '/settings/privacy';
 }
 
 export function settingsNavItems(messages: DestinationMessages): readonly { id: SettingsSection; label: string }[] {
@@ -99,6 +132,31 @@ export function settingsSlotPlaneLabel(plane: PluginPlane, messages: Destination
     return messages.settingsSlotServer;
   }
   return messages.settingsSlotClient;
+}
+
+/** The sentence under a job, when the job has one. Lyrics, search and scrobble do not. */
+export function settingsJobDetail(id: PluginSlotId, messages: DestinationMessages): string | undefined {
+  if (id === 'metadata-provider') {
+    return messages.settingsJobCoverArt;
+  }
+  if (id === 'theme-pack') {
+    return messages.settingsJobThemes;
+  }
+  if (id === 'home-row') {
+    return messages.settingsJobHome;
+  }
+  return undefined;
+}
+
+/** Status words. Not-serving and not-a-plugin have none: a tag there would pretend a plugin state. */
+export function settingsJobStatusLabel(status: FirstPartyJobStatus, messages: DestinationMessages): string | undefined {
+  if (status === 'on') {
+    return messages.settingsJobOn;
+  }
+  if (status === 'not-in-build') {
+    return messages.settingsJobNotInBuild;
+  }
+  return undefined;
 }
 
 /** A choice's catalogue label: the name on its preview card. */
@@ -141,8 +199,14 @@ export function settingsThemeForKey(current: ThemeId, key: string): ThemeId | un
 /** One setting row's words: what the setting is called and what it does. */
 export type SettingsRowCopy = { id: string; label: string; hint: string };
 
-/** Playback settings that arrive with the playback controller; none is wired yet. */
-export function settingsPlaybackRows(messages: DestinationMessages): readonly SettingsRowCopy[] {
+export type SettingsLevelling = 'off' | 'track' | 'album';
+
+export type SettingsCrossfadeSeconds = 0 | 2 | 4 | 6 | 8 | 12;
+
+/** Label and hint for each playback setting. The pane renders each as a control. */
+export function settingsPlaybackRows(
+  messages: DestinationMessages,
+): readonly [SettingsRowCopy, SettingsRowCopy, SettingsRowCopy] {
   return [
     { id: 'levelling', label: messages.settingsPlaybackLevelling, hint: messages.settingsPlaybackLevellingHint },
     { id: 'crossfade', label: messages.settingsPlaybackCrossfade, hint: messages.settingsPlaybackCrossfadeHint },

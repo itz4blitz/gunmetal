@@ -1,0 +1,15 @@
+{
+  "name": "Gunmetal",
+  "short_name": "Gunmetal",
+  "description": "Gunmetal is an open-source media server and player for music, movies and TV. The server sends the original file and gets out of the way.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1317",
+  "theme_color": "#0f1317",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

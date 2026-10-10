@@ -60,6 +60,11 @@ export type DestinationMessages = {
   searchPluginNotice: string;
   albumMissing: string;
   artistMissing: string;
+  mediaAlbumEmpty: string;
+  mediaArtistEmpty: string;
+  mediaTrackEmpty: string;
+  mediaMovieEmpty: string;
+  mediaShowEmpty: string;
   goToArtist: string;
   moreActions: string;
   contextMenu: string;
@@ -143,6 +148,46 @@ export type DestinationMessages = {
   searchFilterHeadline: string;
   searchFilterHint: string;
   searchEmptyLibrary: string;
+  /* First-party jobs on the extensions pane. Append-only. */
+  settingsJobOn: string;
+  settingsJobNotInBuild: string;
+  settingsJobCoverArt: string;
+  settingsJobThemes: string;
+  settingsJobHome: string;
+  /* Playback controls: levelling, crossfade and the output device. Append-only. */
+  settingsPlaybackOff: string;
+  settingsPlaybackTrack: string;
+  settingsPlaybackAlbum: string;
+  settingsPlaybackSeconds2: string;
+  settingsPlaybackSeconds4: string;
+  settingsPlaybackSeconds6: string;
+  settingsPlaybackSeconds8: string;
+  settingsPlaybackSeconds12: string;
+  settingsPlaybackDefault: string;
+  /* Extension record page. Append-only. */
+  settingsExtensionBack: string;
+  settingsExtensionIdentifier: string;
+  settingsExtensionSlot: string;
+  settingsExtensionRepository: string;
+  settingsExtensionInterface: string;
+  settingsExtensionMaintained: string;
+  settingsExtensionGrants: string;
+  settingsExtensionDoes: string;
+  settingsExtensionShips: string;
+  /* Store page. The catalogue this server already holds. Append-only. */
+  storeHeadline: string;
+  storeLede: string;
+  storeOn: string;
+  storeCatalogue: string;
+  /* Install, uninstall and settings. A choice on this server, not a download. Append-only. */
+  settingsExtensionInstall: string;
+  settingsExtensionUninstall: string;
+  settingsExtensionOff: string;
+  settingsExtensionSaved: string;
+  settingsExtensionChoice: string;
+  storeInstall: string;
+  storeUninstall: string;
+  storeSaved: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -177,27 +222,28 @@ export function destinationMessages(): DestinationMessages {
     searchRecentHeading: 'Recent searches',
     searchRecentEmpty: 'No recent searches',
     searchTypeFilter: 'Result types',
-    searchDemoLocalNotice: 'Demo-local filter — not CorePort search',
+    searchDemoLocalNotice: 'Search this library',
     searchNoHits: 'No matches for this query in Music',
     settingsAppearance: 'Appearance',
     settingsPlayback: 'Playback',
-    settingsPlaybackPlaceholder: 'Gain, crossfade and output arrive with CorePort (CP-020).',
+    settingsPlaybackPlaceholder: "Playback uses this server's files.",
     settingsConnected: 'Connected services',
-    settingsConnectedEmpty: 'Scrobblers and lyrics lookup arrive as signed plugins in R2.',
+    settingsConnectedEmpty: 'No connected services.',
     settingsExtensions: 'Extensions / Plugins',
-    settingsExtensionsBody: 'Plugins run as WebAssembly with per-grant consent; none load in this build.',
+    settingsExtensionsBody:
+      'The extensions this server knows. Cover art runs here. The others are records a package can target. Nothing is downloaded.',
     settingsBadgeR1: 'R1',
     settingsBadgeR2: 'R2',
     settingsAbout: 'About this connection',
-    settingsAboutData: 'Demo data',
-    settingsAboutAddress: 'loopback',
-    settingsAboutVersion: 'demo',
+    settingsAboutData: 'This library',
+    settingsAboutAddress: 'This server',
+    settingsAboutVersion: '0.0.0',
     settingsPrivacy: 'Privacy',
-    settingsPrivacyBody: 'History and loves stay on this profile; this demo has no server yet.',
+    settingsPrivacyBody: 'History stays on this server. Nothing is sent anywhere else.',
     settingsNav: 'Settings sections',
     settingsSlotMetadata: 'Metadata and artwork',
     settingsSlotLyrics: 'Lyrics lookup',
-    settingsSlotSearch: 'Catalogue search',
+    settingsSlotSearch: 'Catalog search',
     settingsSlotScrobble: 'Scrobblers',
     settingsSlotTheme: 'Themes',
     settingsSlotHome: 'Home rows',
@@ -205,9 +251,14 @@ export function destinationMessages(): DestinationMessages {
     settingsSlotClient: 'Client',
     settingsSlotUnloaded: 'Not loaded',
     licenseLabel: 'License',
-    searchPluginNotice: 'A signed catalogue plugin can find releases outside this library. None is loaded.',
+    searchPluginNotice: 'A signed catalog extension can find releases outside this library. None is loaded.',
     albumMissing: 'That album is not in the demo library',
     artistMissing: 'That artist is not in the demo library',
+    mediaAlbumEmpty: 'That album is not in this library.',
+    mediaArtistEmpty: 'That artist is not in this library.',
+    mediaTrackEmpty: 'That song is not in this library.',
+    mediaMovieEmpty: 'Movies are not connected to this library yet. This address is ready for them.',
+    mediaShowEmpty: 'TV shows are not connected to this library yet. This address is ready for them.',
     goToArtist: 'Go to artist',
     moreActions: 'More',
     contextMenu: 'Actions',
@@ -250,7 +301,7 @@ export function destinationMessages(): DestinationMessages {
     /* Layout pass over Settings, Search and Library. Append-only. */
     settingsThemeHint:
       'System follows this device, with Dark as the fallback. OLED uses true black, and High contrast strengthens every edge.',
-    settingsUnavailable: 'Not available yet',
+    settingsUnavailable: 'Not connected',
     settingsPlaybackLevelling: 'Volume levelling',
     settingsPlaybackLevellingHint: 'Plays tracks at a consistent loudness, from the tags in your files.',
     settingsPlaybackCrossfade: 'Crossfade',
@@ -289,5 +340,44 @@ export function destinationMessages(): DestinationMessages {
     searchFilterHeadline: 'No results for the current filter',
     searchFilterHint: 'Turn a type back on to see its results.',
     searchEmptyLibrary: 'The library is empty — nothing to search yet.',
+    settingsJobOn: 'On',
+    settingsJobNotInBuild: 'Not in this build',
+    settingsJobCoverArt: 'Built into this library host. Cover Art Archive.',
+    settingsJobThemes: 'Not a separate plugin. Themes are the settings appearance control.',
+    settingsJobHome: 'Not a separate plugin.',
+    /* Playback controls: levelling, crossfade and the output device. Append-only. */
+    settingsPlaybackOff: 'Off',
+    settingsPlaybackTrack: 'Track',
+    settingsPlaybackAlbum: 'Album',
+    settingsPlaybackSeconds2: '2 seconds',
+    settingsPlaybackSeconds4: '4 seconds',
+    settingsPlaybackSeconds6: '6 seconds',
+    settingsPlaybackSeconds8: '8 seconds',
+    settingsPlaybackSeconds12: '12 seconds',
+    settingsPlaybackDefault: 'Default',
+    settingsExtensionBack: 'Back to extensions',
+    settingsExtensionIdentifier: 'Identifier',
+    settingsExtensionSlot: 'Slot',
+    settingsExtensionRepository: 'Repository',
+    settingsExtensionInterface: 'Interface',
+    settingsExtensionMaintained: 'Maintained in',
+    settingsExtensionGrants: 'Grants',
+    settingsExtensionDoes: 'What it does',
+    settingsExtensionShips:
+      'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
+    /* Store page. The catalogue this server already holds. Append-only. */
+    storeHeadline: 'Store',
+    storeLede:
+      'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
+    storeOn: 'On this server',
+    storeCatalogue: 'In the store',
+    settingsExtensionInstall: 'Install',
+    settingsExtensionUninstall: 'Uninstall',
+    settingsExtensionOff: 'Off',
+    settingsExtensionSaved: 'Saved. This server does not run it yet.',
+    settingsExtensionChoice: 'Install saves your choice on this server. It does not download or run a package.',
+    storeInstall: 'Install',
+    storeUninstall: 'Uninstall',
+    storeSaved: 'Saved',
   };
 }

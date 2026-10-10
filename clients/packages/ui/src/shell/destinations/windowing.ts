@@ -51,6 +51,23 @@ export function readContentViewport(scroller: HTMLElement): ViewportRead {
   return { scrollTop: scroller.scrollTop, viewportHeight: scroller.clientHeight };
 }
 
+/**
+ * The heights of the two aria-hidden spacers that stand in for the rows a
+ * window leaves out, so a windowed list keeps its full scroll extent and
+ * every row stays reachable instead of the list shrinking to its window.
+ */
+export function spacerHeights(
+  window: VisibleWindow,
+  count: number,
+  rowHeight: number,
+): { top: number; bottom: number } {
+  const rows = count > 0 ? count : 0;
+  const height = Number.isFinite(rowHeight) && rowHeight > 0 ? rowHeight : 0;
+  const start = Math.max(0, Math.min(window.start, rows));
+  const end = Math.max(start, Math.min(window.end, rows));
+  return { top: start * height, bottom: (rows - end) * height };
+}
+
 const EMPTY_VIEWPORT: ViewportRead = { scrollTop: 0, viewportHeight: 0 };
 
 /** The content pane, by the id the shell frame gives it. */

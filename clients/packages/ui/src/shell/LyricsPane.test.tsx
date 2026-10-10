@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { LyricsPane } from './LyricsPane.tsx';
+import { LyricsPane, PROGRAMMATIC_SCROLL_GRACE_MS } from './LyricsPane.tsx';
 import { FOLLOW_IDLE_MS, type SyncedLine } from './synced-lyrics.ts';
 
 afterEach(cleanup);
@@ -14,6 +14,19 @@ const TIMED: readonly SyncedLine[] = [
   { atMs: 4_000, text: 'the rest wait their turn' },
   { atMs: 9_000, text: 'no clock in the demo' },
 ];
+
+/* jsdom has no scrollIntoView; the tests give every line a recorded one so
+   whichever line becomes current answers the pane's request. */
+function attachScrollIntoView(root: HTMLElement, scrolled: string[]): void {
+  for (const line of root.querySelectorAll('[data-lyrics-line="1"]')) {
+    Object.defineProperty(line, 'scrollIntoView', {
+      configurable: true,
+      value: (options: unknown) => {
+        scrolled.push(JSON.stringify(options));
+      },
+    });
+  }
+}
 
 async function areaLyricsCss(): Promise<string> {
   return readFile(join(process.cwd(), 'apps/demo/public/area-lyrics.css'), 'utf8');
@@ -207,6 +220,79 @@ test('a wheel or touch pause stops the follow, and the idle delay resumes it', (
   }
 });
 
+test('the programmatic scroll grace window is a stated constant', () => {
+  expect(PROGRAMMATIC_SCROLL_GRACE_MS).toStrictEqual(500);
+});
+
+test('a position tick inside the sounding line does not re-scroll the pane', () => {
+  const scrolled: string[] = [];
+  const view = (positionMs: number) => (
+    <LyricsPane id="lyrics-pane" label="Lyrics" lines={[]} synced open timedLines={TIMED} positionMs={positionMs} />
+  );
+  const { container, rerender } = render(view(0));
+  attachScrollIntoView(container, scrolled);
+  // The same first line, later in time: nothing new to bring into view.
+  rerender(view(3_999));
+  expect(scrolled).toStrictEqual([]);
+  // The second line starts: exactly one programmatic scroll.
+  rerender(view(4_000));
+  expect(scrolled).toStrictEqual(['{"block":"center"}']);
+  // The same second line again: no second scroll.
+  rerender(view(8_999));
+  expect(scrolled).toStrictEqual(['{"block":"center"}']);
+  // The third line starts: one more.
+  rerender(view(9_000));
+  expect(scrolled).toStrictEqual(['{"block":"center"}', '{"block":"center"}']);
+  // The rest of the track stays on the third line: no further scrolls.
+  rerender(view(60_000));
+  expect(scrolled).toStrictEqual(['{"block":"center"}', '{"block":"center"}']);
+});
+
+test('a rebuilt timed sheet with the same sounding line does not re-scroll the pane', () => {
+  const scrolled: string[] = [];
+  const view = (positionMs: number) => (
+    <LyricsPane
+      id="lyrics-pane"
+      label="Lyrics"
+      lines={[]}
+      synced
+      open
+      timedLines={[...TIMED]}
+      positionMs={positionMs}
+    />
+  );
+  const { container, rerender } = render(view(0));
+  attachScrollIntoView(container, scrolled);
+  // The parent hands over a fresh array on every render; the same sounding
+  // line must not re-run the follow effect (only the line index may).
+  rerender(view(1_000));
+  rerender(view(3_999));
+  expect(scrolled).toStrictEqual([]);
+  // A new sounding line still scrolls exactly once, however fresh the array.
+  rerender(view(4_000));
+  expect(scrolled).toStrictEqual(['{"block":"center"}']);
+  rerender(view(5_000));
+  expect(scrolled).toStrictEqual(['{"block":"center"}']);
+});
+
+test('a synced sheet without timestamps keeps its static highlight and never scrolls it', () => {
+  const scrolled: string[] = [];
+  const view = (currentLine: number) => (
+    <LyricsPane id="lyrics-pane" label="Lyrics" lines={VERSE} synced open currentLine={currentLine} />
+  );
+  const { container, rerender } = render(view(0));
+  attachScrollIntoView(container, scrolled);
+  // The prop moves the highlight, but without a timed sheet the pane owns
+  // no clock, so it must not drive the scroller.
+  rerender(view(1));
+  expect(
+    [...container.querySelectorAll('[data-lyrics-line="1"]')].map((node) => node.getAttribute('data-current')),
+  ).toStrictEqual(['0', '1', '0']);
+  expect(scrolled).toStrictEqual([]);
+  rerender(view(2));
+  expect(scrolled).toStrictEqual([]);
+});
+
 test('while following, the current line is brought into view, and our own scroll is not a manual one', () => {
   vi.useFakeTimers();
   try {
@@ -216,29 +302,31 @@ test('while following, the current line is brought into view, and our own scroll
     );
     const { container, rerender } = render(view(4_000));
     const scroller = container.querySelector('[data-lyrics-scroll="1"]') as HTMLElement;
-    // Give every line the capability: whichever becomes current answers it.
-    for (const line of container.querySelectorAll('[data-lyrics-line="1"]')) {
-      Object.defineProperty(line, 'scrollIntoView', {
-        configurable: true,
-        value: (options: unknown) => {
-          scrolled.push(JSON.stringify(options));
-        },
-      });
-    }
+    attachScrollIntoView(container, scrolled);
     // The first line of this render was already lit without the capability;
     // moving to the next line asks the pane to bring it into view.
     rerender(view(9_000));
     expect(scrolled).toStrictEqual(['{"block":"center"}']);
-    // The pane's own programmatic scroll does not count as manual.
+    // A smooth scroll reports a whole burst of scroll events: every one of
+    // them is the pane's own, so none of them cancels the follow. This is
+    // the regression the fix closes; the follow used to cancel itself here.
+    fireEvent.scroll(scroller);
+    fireEvent.scroll(scroller);
     fireEvent.scroll(scroller);
     expect(scroller.getAttribute('data-following')).toStrictEqual('1');
-    // A second scroll event is somebody else's: it pauses the follow.
+    // Once the grace window has run out, a scroll with no programmatic cause
+    // is a manual one and pauses the follow.
+    act(() => {
+      vi.advanceTimersByTime(PROGRAMMATIC_SCROLL_GRACE_MS);
+    });
     fireEvent.scroll(scroller);
     expect(scroller.getAttribute('data-following')).toStrictEqual('0');
+    // The idle delay resumes the follow and brings the sounding line back.
     act(() => {
       vi.advanceTimersByTime(FOLLOW_IDLE_MS);
     });
     expect(scroller.getAttribute('data-following')).toStrictEqual('1');
+    expect(scrolled).toStrictEqual(['{"block":"center"}', '{"block":"center"}']);
   } finally {
     vi.useRealTimers();
   }

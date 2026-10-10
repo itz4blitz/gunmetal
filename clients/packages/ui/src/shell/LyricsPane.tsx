@@ -9,6 +9,14 @@ import { currentLineAt, FOLLOW_IDLE_MS, type SyncedLine } from './synced-lyrics.
  */
 const FAR_DISTANCE = 4;
 
+/**
+ * How long a programmatic scroll owns the scroll events it causes. A smooth
+ * scroll reports a whole burst of them while it runs; inside this window the
+ * pane treats every scroll report as its own, so its own scroll can never
+ * cancel the follow (the self-cancelling cycle of MUS-155).
+ */
+export const PROGRAMMATIC_SCROLL_GRACE_MS = 500;
+
 export type LyricsPaneProps = {
   id: string;
   label: string;
@@ -44,7 +52,7 @@ export function LyricsPane({
 }: LyricsPaneProps) {
   const [following, setFollowing] = useState(true);
   const resumeRef = useRef<number | undefined>(undefined);
-  const ownScrollRef = useRef(false);
+  const programmaticUntilRef = useRef(0);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     return () => {
@@ -62,11 +70,22 @@ export function LyricsPane({
       setFollowing(true);
     }, followIdleMs) as unknown as number;
   };
+  /* The timed sheet replaces the plain one: its texts are the lines and its
+     timestamps are the clock. A plain pane ignores it. */
+  const sheet = synced && timedLines !== undefined ? timedLines : null;
+  const texts = sheet === null ? lines : sheet.map((line) => line.text);
+  const active = sheet === null ? currentLine : currentLineAt(sheet, positionMs);
+  /* A boolean, not the sheet itself: a parent may rebuild the array on every
+     render and the identity must not re-run the follow effect. */
+  const followsTimedSheet = sheet !== null;
   /* While following, the sounding line stays in view, about a third of the
-     way down (MUS-155). The scroll behaviour itself is the stylesheet's —
-     smooth where motion is welcome, a jump under reduced motion. */
+     way down (MUS-155). The effect is keyed on the sounding line index, not
+     the position: a tick inside one line has nothing new to bring into
+     view, and scrolling on every tick would renew the ownership window on
+     every tick. The scroll behaviour itself is the stylesheet's — smooth
+     where motion is welcome, a jump under reduced motion. */
   useEffect(() => {
-    if (!following || !synced || timedLines === undefined) {
+    if (!following || !followsTimedSheet) {
       return;
     }
     const scroller = scrollerRef.current;
@@ -74,17 +93,12 @@ export function LyricsPane({
     if (line === null || typeof line.scrollIntoView !== 'function') {
       return;
     }
-    ownScrollRef.current = true;
+    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_GRACE_MS;
     line.scrollIntoView({ block: 'center' });
-  }, [following, synced, timedLines, positionMs]);
+  }, [following, followsTimedSheet, active, open]);
   if (!open) {
     return null;
   }
-  /* The timed sheet replaces the plain one: its texts are the lines and its
-     timestamps are the clock. A plain pane ignores it. */
-  const sheet = synced && timedLines !== undefined ? timedLines : null;
-  const texts = sheet === null ? lines : sheet.map((line) => line.text);
-  const active = sheet === null ? currentLine : currentLineAt(sheet, positionMs);
   return (
     <View
       id={id}
@@ -105,8 +119,10 @@ export function LyricsPane({
           pauseFollowing();
         }}
         onScroll={() => {
-          if (ownScrollRef.current) {
-            ownScrollRef.current = false;
+          /* A scroll inside the ownership window is the pane's own: the
+             burst a smooth scroll reports must not pause the follow. Only a
+             later scroll, with no programmatic cause, is manual. */
+          if (Date.now() < programmaticUntilRef.current) {
             return;
           }
           pauseFollowing();

@@ -8,7 +8,7 @@ import { AlbumTile } from './AlbumTile.tsx';
 import { indexAlbums } from './library-index.ts';
 import { intersectionObserverFactory } from './near-view.ts';
 import { TrackRow } from './TrackRow.tsx';
-import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange, spacerHeights } from './windowing.ts';
 
 /** The all-songs table's row height, pinned by the area CSS row contract. */
 const TRACK_ROW_HEIGHT = 52;
@@ -142,6 +142,7 @@ export function ArtistDetail({
     LIST_OVERSCAN_ROWS,
   );
   const shownSongs = songs.slice(songWindow.start, songWindow.end);
+  const songSpacers = spacerHeights(songWindow, songs.length, TRACK_ROW_HEIGHT);
   // Undefined in jsdom: no factory, every cover paints immediately.
   const nearArt = useMemo(
     () => intersectionObserverFactory(nearViewObserver ?? globalThis.IntersectionObserver),
@@ -266,6 +267,7 @@ export function ArtistDetail({
             <Text>{messages.columnTime}</Text>
           </View>
           <View dataSet={{ artistSongList: '1' }}>
+            <View aria-hidden={true} dataSet={{ listSpacer: 'top' }} style={{ height: songSpacers.top }} />
             {shownSongs.map(({ album, track }) => (
               <TrackRow
                 key={track.id}
@@ -280,6 +282,7 @@ export function ArtistDetail({
                 onOpenArtist={onOpenArtist}
               />
             ))}
+            <View aria-hidden={true} dataSet={{ listSpacer: 'bottom' }} style={{ height: songSpacers.bottom }} />
           </View>
         </View>
       ) : null}

@@ -34,6 +34,10 @@ export type CatalogueTrack = {
   lyricsKind: CatalogueLyricsKind;
   /** Same-origin URL for the playable media of this track. */
   mediaUrl: string;
+  /** ReplayGain track gain in decibels. Absent when the file has no tag. */
+  trackGainDb?: number | undefined;
+  /** ReplayGain album gain in decibels. Absent when the file has no tag. */
+  albumGainDb?: number | undefined;
 };
 
 export type CatalogueLicense = {

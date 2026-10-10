@@ -1,61 +1,32 @@
-import type { ClientPluginManifest, PluginConsent } from '../../ports/src/plugins/types.ts';
-
-export type PluginPlane = 'server' | 'client';
-
 export type PluginSlotId =
   'metadata-provider' | 'lyrics-provider' | 'search-provider' | 'scrobbler' | 'theme-pack' | 'home-row';
 
+/**
+ * A first-party job, not a plugin load bit. `on` is Cover Art Archive while
+ * this host is serving covers. The other jobs are absent or not plugins.
+ */
+export type FirstPartyJobStatus = 'on' | 'not-serving' | 'not-in-build' | 'not-a-plugin';
+
 export type PluginSlot = {
-  id: PluginSlotId;
-  plane: PluginPlane;
-  featureId: 'INT-075' | 'INT-077' | 'INT-078' | 'INT-081' | 'INT-083';
-  loaded: boolean;
-  /** What a server would advertise for a client-plane slot; server-plane rows carry none. */
-  manifest?: ClientPluginManifest;
+  readonly id: PluginSlotId;
+  readonly status: FirstPartyJobStatus;
 };
 
-/** The client-plane manifests the demo advertises, keyed by slot: data only, nothing loads (ADR 22). */
-export function demoPluginManifests(): Readonly<{
-  'home-row': ClientPluginManifest;
-  'theme-pack': ClientPluginManifest;
-}> {
-  return {
-    'home-row': {
-      id: 'from-the-vault',
-      title: 'From the vault',
-      version: '1.0.0',
-      plane: 'client',
-      slot: 'home-row',
-      grants: ['home-row:read'],
-    },
-    'theme-pack': {
-      id: 'demo-theme-pack',
-      title: 'Demo theme pack',
-      version: '1.0.0',
-      plane: 'client',
-      slot: 'theme-pack',
-      grants: ['theme-pack:apply'],
-    },
-  };
+/** Covers this library host serves: `GET /media/library/covers/{id}.jpg` or `.png`. */
+const LIBRARY_COVER = '/media/library/covers/';
+
+export function hostServesCovers(albums: readonly { readonly coverUrl: string }[]): boolean {
+  return albums.some((album) => album.coverUrl.startsWith(LIBRARY_COVER));
 }
 
-/** The demo consent ledger: empty, because R1 grants nothing and loads nothing (ADR 22). */
-export function demoPluginConsents(): readonly PluginConsent[] {
-  return [];
-}
-
-export function pluginSlots(): readonly PluginSlot[] {
-  const manifests = demoPluginManifests();
+/** The six jobs the extensions pane lists. No manifest, no version, no host. */
+export function pluginSlots(coversServed: boolean): readonly PluginSlot[] {
   return [
-    { id: 'metadata-provider', plane: 'server', featureId: 'INT-077', loaded: false },
-    { id: 'lyrics-provider', plane: 'server', featureId: 'INT-078', loaded: false },
-    { id: 'search-provider', plane: 'server', featureId: 'INT-083', loaded: false },
-    { id: 'scrobbler', plane: 'server', featureId: 'INT-075', loaded: false },
-    { id: 'theme-pack', plane: 'client', featureId: 'INT-081', loaded: false, manifest: manifests['theme-pack'] },
-    { id: 'home-row', plane: 'client', featureId: 'INT-081', loaded: false, manifest: manifests['home-row'] },
+    { id: 'metadata-provider', status: coversServed ? 'on' : 'not-serving' },
+    { id: 'lyrics-provider', status: 'not-in-build' },
+    { id: 'search-provider', status: 'not-in-build' },
+    { id: 'scrobbler', status: 'not-in-build' },
+    { id: 'theme-pack', status: 'not-a-plugin' },
+    { id: 'home-row', status: 'not-a-plugin' },
   ];
-}
-
-export function loadedPluginSlots(slots: readonly PluginSlot[]): readonly PluginSlot[] {
-  return slots.filter((slot) => slot.loaded);
 }

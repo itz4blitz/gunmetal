@@ -1,87 +1,33 @@
 import { expect, test } from 'vitest';
-import {
-  demoPluginConsents,
-  demoPluginManifests,
-  loadedPluginSlots,
-  pluginSlots,
-  type PluginSlot,
-} from './plugin-slots.ts';
+import { hostServesCovers, pluginSlots } from './plugin-slots.ts';
 
-test('first-party extension points exist on both planes and none are loaded', () => {
-  const slots = pluginSlots();
-  expect(slots.map((slot) => slot.id)).toStrictEqual([
-    'metadata-provider',
-    'lyrics-provider',
-    'search-provider',
-    'scrobbler',
-    'theme-pack',
-    'home-row',
+test('the library host serves covers only at its own cover route', () => {
+  expect(hostServesCovers([])).toStrictEqual(false);
+  expect(hostServesCovers([{ coverUrl: '' }])).toStrictEqual(false);
+  expect(hostServesCovers([{ coverUrl: '/media/covers/demo-album-01.svg' }])).toStrictEqual(false);
+  expect(hostServesCovers([{ coverUrl: '/media/library/covers' }])).toStrictEqual(false);
+  expect(hostServesCovers([{ coverUrl: 'https://coverartarchive.org/release/x/front' }])).toStrictEqual(false);
+  expect(hostServesCovers([{ coverUrl: '/media/library/covers/aaaaaaaaaaaaaaaa.jpg' }])).toStrictEqual(true);
+  expect(
+    hostServesCovers([{ coverUrl: '' }, { coverUrl: '/media/library/covers/aaaaaaaaaaaaaaaa.png' }]),
+  ).toStrictEqual(true);
+});
+
+test('jobs are first-party facts: Cover Art Archive is on only while covers are served', () => {
+  expect(pluginSlots(true)).toStrictEqual([
+    { id: 'metadata-provider', status: 'on' },
+    { id: 'lyrics-provider', status: 'not-in-build' },
+    { id: 'search-provider', status: 'not-in-build' },
+    { id: 'scrobbler', status: 'not-in-build' },
+    { id: 'theme-pack', status: 'not-a-plugin' },
+    { id: 'home-row', status: 'not-a-plugin' },
   ]);
-  expect(slots.map((slot) => slot.plane)).toStrictEqual(['server', 'server', 'server', 'server', 'client', 'client']);
-  expect(slots.map((slot) => slot.featureId)).toStrictEqual([
-    'INT-077',
-    'INT-078',
-    'INT-083',
-    'INT-075',
-    'INT-081',
-    'INT-081',
+  expect(pluginSlots(false)).toStrictEqual([
+    { id: 'metadata-provider', status: 'not-serving' },
+    { id: 'lyrics-provider', status: 'not-in-build' },
+    { id: 'search-provider', status: 'not-in-build' },
+    { id: 'scrobbler', status: 'not-in-build' },
+    { id: 'theme-pack', status: 'not-a-plugin' },
+    { id: 'home-row', status: 'not-a-plugin' },
   ]);
-  expect(slots.every((slot) => slot.loaded === false)).toStrictEqual(true);
-  expect(loadedPluginSlots(slots)).toStrictEqual([]);
-});
-
-test('a slot marked loaded is the only one the host index would return', () => {
-  const slots = pluginSlots();
-  const metadata = slots[0] as PluginSlot;
-  const themePack = slots[4] as PluginSlot;
-  expect(metadata).toStrictEqual({ id: 'metadata-provider', plane: 'server', featureId: 'INT-077', loaded: false });
-  expect(loadedPluginSlots([{ ...metadata, loaded: true }, ...slots.slice(1)]).map((slot) => slot.id)).toStrictEqual([
-    'metadata-provider',
-  ]);
-  expect(loadedPluginSlots([{ ...themePack, loaded: true }]).map((slot) => slot.plane)).toStrictEqual(['client']);
-});
-
-test('the demo advertises one manifest per client-plane slot, as data only', () => {
-  expect(demoPluginManifests()).toStrictEqual({
-    'home-row': {
-      id: 'from-the-vault',
-      title: 'From the vault',
-      version: '1.0.0',
-      plane: 'client',
-      slot: 'home-row',
-      grants: ['home-row:read'],
-    },
-    'theme-pack': {
-      id: 'demo-theme-pack',
-      title: 'Demo theme pack',
-      version: '1.0.0',
-      plane: 'client',
-      slot: 'theme-pack',
-      grants: ['theme-pack:apply'],
-    },
-  });
-});
-
-test('the demo consent ledger ships empty: R1 grants nothing, so every client plugin stays dark', () => {
-  expect(demoPluginConsents()).toStrictEqual([]);
-});
-
-test('the two client-plane slots carry the demo manifests; the server-plane slots carry none', () => {
-  const slots = pluginSlots();
-  const manifests = demoPluginManifests();
-  expect(slots[4]).toStrictEqual({
-    id: 'theme-pack',
-    plane: 'client',
-    featureId: 'INT-081',
-    loaded: false,
-    manifest: manifests['theme-pack'],
-  });
-  expect(slots[5]).toStrictEqual({
-    id: 'home-row',
-    plane: 'client',
-    featureId: 'INT-081',
-    loaded: false,
-    manifest: manifests['home-row'],
-  });
-  expect(slots.slice(0, 4).map((slot) => 'manifest' in slot)).toStrictEqual([false, false, false, false]);
 });

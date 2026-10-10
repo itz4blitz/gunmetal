@@ -3,11 +3,13 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { stubPlayback, queuedSnapshot } from '../test-playback.ts';
 import { demoLocalFilter } from '../../../../fake-server/src/filter.ts';
 import { demoLibrary } from '../../../../fake-server/src/catalogue.ts';
+import { pluginSlots } from '../../../../fake-server/src/plugin-slots.ts';
 import type { ShellLibrary } from '../library-types.ts';
 import { catalogue } from '../../messages/catalogue.ts';
 import { matchAddress } from '../../router/match.ts';
 import { Shell } from '../Shell.tsx';
 import { Destination } from './Destination.tsx';
+import { Store } from './Store.tsx';
 
 /** A lookup that must land: the test names what it could not find. */
 function required<T extends Element>(node: T | null | undefined, what: string): T {
@@ -17,7 +19,10 @@ function required<T extends Element>(node: T | null | undefined, what: string): 
   return node;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.pushState(null, '', '/');
+});
 
 test('missing album itemId and empty shell without library keep closed routes', () => {
   const library = demoLibrary();
@@ -41,21 +46,25 @@ test('missing album itemId and empty shell without library keep closed routes', 
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
   missing.unmount();
 
+  window.history.pushState(null, '', '/');
   const emptyHome = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Home' }).id).toStrictEqual('destination-headline');
   emptyHome.unmount();
+  window.history.pushState(null, '', '/search');
   const emptySearch = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/search" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
   emptySearch.unmount();
+  window.history.pushState(null, '', '/library');
   const emptyLibrary = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/library" widthPx={1600} />,
   );
   expect(screen.getByRole('heading', { name: 'Library' }).id).toStrictEqual('destination-headline');
   emptyLibrary.unmount();
+  window.history.pushState(null, '', '/settings');
   const emptySettings = render(
     <Shell playback={stubPlayback().controller} searchLibrary={demoLocalFilter} path="/settings" widthPx={1600} />,
   );
@@ -362,6 +371,7 @@ test('an album page lists other releases by its artist, and nothing for a one-re
     'album-tile-demo-album-01',
   ]);
   view.unmount();
+  window.history.pushState(null, '', '/library');
 
   // The Compound has one release in the fixture: no section at all.
   render(
@@ -482,4 +492,166 @@ test('the library error and retry travel from the destination to the page', () =
   expect(document.querySelector('#library-error')).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(onLibraryRetry).toHaveBeenCalledTimes(1);
+});
+
+test('a media address with no item shows the kind, and a loaded library says it is missing', () => {
+  const base = {
+    searchLibrary: demoLocalFilter,
+    lyricsFor: () => [] as string[],
+    pluginSlots: [],
+    messages: catalogue(),
+    theme: 'dark' as const,
+    onThemeChange: vi.fn(),
+    onOpenAlbum: vi.fn(),
+    onOpenArtist: vi.fn(),
+    onBackFromAlbum: vi.fn(),
+    onPlayAlbum: vi.fn(),
+    onPlayTrack: vi.fn(),
+    onSeeAll: vi.fn(),
+    width: 'wide' as const,
+  };
+  const waiting = render(
+    <Destination
+      {...base}
+      library={undefined}
+      itemId={undefined}
+      match={matchAddress({ pathname: '/music/albums/harbour-lights', search: '', hash: '', state: null })}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Harbour Lights' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('[data-media-empty]')).toBeNull();
+  waiting.unmount();
+
+  const cases = [
+    ['/music/albums/not-here', 'album', 'That album is not in this library.'],
+    ['/music/artists/not-here', 'artist', 'That artist is not in this library.'],
+    ['/music/tracks/not-here', 'track', 'That song is not in this library.'],
+    [
+      '/watch/movies/inception',
+      'movie',
+      'Movies are not connected to this library yet. This address is ready for them.',
+    ],
+    [
+      '/watch/shows/the-wire',
+      'show',
+      'TV shows are not connected to this library yet. This address is ready for them.',
+    ],
+  ] as const;
+  for (const [pathname, kind, copy] of cases) {
+    const view = render(
+      <Destination
+        {...base}
+        library={demoLibrary()}
+        itemId={undefined}
+        match={matchAddress({ pathname, search: '', hash: '', state: null })}
+      />,
+    );
+    expect(document.querySelector('[data-media-kind]')?.getAttribute('data-media-kind')).toStrictEqual(kind);
+    expect(document.querySelector('[data-media-empty]')?.textContent).toStrictEqual(copy);
+    view.unmount();
+  }
+});
+
+// Verifies: SEC-EXT-018
+test('the store route shows the catalogue and opens an extension page, not settings', () => {
+  const onOpenPath = vi.fn();
+  localStorage.removeItem('gunmetal.extension.choices');
+  render(
+    <Destination
+      searchLibrary={demoLocalFilter}
+      lyricsFor={() => []}
+      pluginSlots={[]}
+      match={matchAddress({ pathname: '/store', search: '', hash: '', state: null })}
+      messages={catalogue()}
+      library={demoLibrary()}
+      itemId={undefined}
+      theme="dark"
+      onThemeChange={vi.fn()}
+      onOpenAlbum={vi.fn()}
+      onOpenArtist={vi.fn()}
+      onBackFromAlbum={vi.fn()}
+      onPlayAlbum={vi.fn()}
+      onPlayTrack={vi.fn()}
+      onSeeAll={vi.fn()}
+      onOpenPath={onOpenPath}
+      width="wide"
+    />,
+  );
+  expect(matchAddress({ pathname: '/store', search: '', hash: '', state: null })).toStrictEqual({
+    kind: 'ok',
+    route: { path: '/store', surface: 'SUR-073', needsSession: true, needsAdminSession: false },
+    history: { scrollY: 0, itemId: undefined },
+  });
+  expect(screen.getByRole('heading', { name: 'Store' }).id).toStrictEqual('destination-headline');
+  expect(document.querySelector('#destination-store')).not.toBeNull();
+  expect(document.querySelector('#destination-settings')).toBeNull();
+  expect(document.querySelector('[data-store-home]')).toBeNull();
+  expect(document.querySelector('[data-store-lede]')).toBeNull();
+  expect(
+    [...document.querySelectorAll('[data-store-card]')].map((node) => [
+      node.getAttribute('data-store-card'),
+      node.querySelector('[data-store-status]')?.textContent,
+    ]),
+  ).toStrictEqual([
+    ['cover-art', 'On this server'],
+    ['lyrics', 'In the store'],
+    ['catalogue-search', 'In the store'],
+    ['scrobble', 'In the store'],
+    ['themes', 'In the store'],
+    ['home-rows', 'In the store'],
+    ['url-style', 'On this server'],
+  ]);
+  const card = screen.getByRole('button', { name: 'Metadata and artwork' });
+  expect(card.getAttribute('data-store-card')).toStrictEqual('cover-art');
+  expect(card.textContent).toContain(
+    'Fills missing album art and artist photos from MusicBrainz and Cover Art Archive.',
+  );
+  expect(card.textContent).toContain('On this server');
+  expect(screen.getByRole('button', { name: 'Uninstall Metadata and artwork' })).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'Install Lyrics lookup' })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Install Lyrics lookup' }));
+  expect(onOpenPath).not.toHaveBeenCalled();
+  // Uninstalling a job the server runs turns its card Off right there.
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall Metadata and artwork' }));
+  expect(document.querySelector('[data-store-card="cover-art"] [data-store-status]')?.textContent).toStrictEqual('Off');
+  fireEvent.click(card);
+  expect(onOpenPath).toHaveBeenCalledTimes(1);
+  expect(onOpenPath).toHaveBeenCalledWith('/store/cover-art');
+  fireEvent.keyDown(card, { key: 'Enter' });
+  expect(onOpenPath).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(card, { key: ' ' });
+  expect(onOpenPath).toHaveBeenCalledTimes(3);
+  fireEvent.keyDown(card, { key: 'Tab' });
+  expect(onOpenPath).toHaveBeenCalledTimes(3);
+});
+
+test('a record that arrived from a merged pull request is listed and not opened as a page', () => {
+  const onOpenPath = vi.fn();
+  const view = render(
+    <Store
+      messages={catalogue().destinations}
+      listings={[
+        {
+          id: 'desk-lamp',
+          title: 'Desk lamp',
+          version: '1.0.0',
+          plane: 'client',
+          slot: 'theme-pack',
+          status: 'not-in-build',
+          summary: 'Would add a lamp colour as data.',
+          detail: ['A merge lists it.'],
+          grants: ['theme:apply'],
+        },
+      ]}
+      onOpenPath={onOpenPath}
+    />,
+  );
+  expect(document.querySelector('[data-store-card="desk-lamp"]')?.textContent).toContain('In the store');
+  const card = view.container.querySelector('[data-store-card="desk-lamp"]');
+  // This build has no page for the id, so the card is a heading and a
+  // summary, not a button that promises one.
+  expect(card?.getAttribute('role')).toBeNull();
+  expect(card?.getAttribute('tabindex')).toBeNull();
+  fireEvent.click(card as Element);
+  expect(onOpenPath).not.toHaveBeenCalled();
 });

@@ -313,6 +313,19 @@
   color: var(--gm-text-muted);
 }
 
+/* Year · tracks · total time. Unknown year is absent, never a printed 0. */
+#token-shell #library-album-grid [data-album-facts],
+#token-shell #destination-search [data-search-album-grid] [data-album-facts] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--gm-type-small-size);
+  line-height: var(--gm-type-small-line);
+  font-variant-numeric: tabular-nums;
+  --gm-text: var(--gm-text-muted);
+  color: var(--gm-text-muted);
+}
+
 /* —— People are nuts: the artist avatar, here and in Search —— */
 
 #token-shell :is(#destination-library, #destination-search) [data-artist-avatar] {
@@ -667,6 +680,9 @@
 }
 
 #token-shell :is(#library-track-list, #search-track-list) [data-track-duration] {
+  min-width: var(--track-col-time);
+  overflow: visible;
+  white-space: nowrap;
   font-size: var(--gm-type-small-size);
   line-height: var(--gm-type-small-line);
   font-variant-numeric: tabular-nums;
@@ -1408,6 +1424,8 @@
 
 /* The mark is the identity shape: a hollow steel nut around an icon. */
 #token-shell #search-no-hits [data-search-empty-mark],
+#token-shell #search-empty-library [data-search-empty-mark],
+#token-shell #search-filter-empty [data-search-empty-mark],
 #token-shell #library-empty [data-library-empty-mark] {
   position: relative;
   display: flex;
@@ -1424,6 +1442,8 @@
 }
 
 #token-shell #search-no-hits [data-search-empty-mark]::before,
+#token-shell #search-empty-library [data-search-empty-mark]::before,
+#token-shell #search-filter-empty [data-search-empty-mark]::before,
 #token-shell #library-empty [data-library-empty-mark]::before {
   content: '';
   position: absolute;
@@ -1433,6 +1453,8 @@
 }
 
 #token-shell #search-no-hits [data-search-empty-mark] svg[data-icon],
+#token-shell #search-empty-library [data-search-empty-mark] svg[data-icon],
+#token-shell #search-filter-empty [data-search-empty-mark] svg[data-icon],
 #token-shell #library-empty [data-library-empty-mark] svg[data-icon] {
   position: relative;
 }
@@ -1445,7 +1467,9 @@
   color: var(--gm-text-secondary);
 }
 
-#token-shell #search-no-hits [data-search-empty-title] {
+#token-shell #search-no-hits [data-search-empty-title],
+#token-shell #search-empty-library [data-search-empty-title],
+#token-shell #search-filter-empty [data-search-empty-title] {
   font-size: 18px;
   line-height: 24px;
   font-weight: 650;

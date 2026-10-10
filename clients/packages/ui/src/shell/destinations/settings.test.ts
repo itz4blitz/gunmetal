@@ -4,10 +4,14 @@ import { shellMessages } from '../../messages/en/shell.ts';
 import {
   defaultSettingsSection,
   settingsConnectedRows,
+  settingsJobDetail,
+  settingsJobStatusLabel,
   settingsLayout,
   settingsNavItems,
   settingsPlaybackRows,
   settingsRelease,
+  settingsSectionFromPath,
+  settingsSectionPath,
   settingsSectionTitle,
   settingsSections,
   settingsSlotPlaneLabel,
@@ -17,9 +21,29 @@ import {
   settingsThemeLabel,
 } from './settings.ts';
 
-test('settings sections are the six 2026 catalogue panes in listed order', () => {
-  expect(settingsSections()).toStrictEqual(['appearance', 'playback', 'connected', 'extensions', 'about', 'privacy']);
+test('settings sections are the five 2026 catalogue panes in listed order', () => {
+  expect(settingsSections()).toStrictEqual(['appearance', 'playback', 'connected', 'about', 'privacy']);
   expect(defaultSettingsSection()).toStrictEqual('appearance');
+});
+
+test('a settings route names its pane, and any other path names none', () => {
+  expect(settingsSectionFromPath('/settings')).toStrictEqual('appearance');
+  expect(settingsSectionFromPath('/settings/appearance')).toStrictEqual('appearance');
+  expect(settingsSectionFromPath('/settings/playback')).toStrictEqual('playback');
+  expect(settingsSectionFromPath('/settings/about')).toStrictEqual('about');
+  expect(settingsSectionFromPath('/settings/privacy')).toStrictEqual('privacy');
+  expect(settingsSectionFromPath('/settings/connected')).toStrictEqual('connected');
+  expect(settingsSectionFromPath('/store')).toStrictEqual(undefined);
+  expect(settingsSectionFromPath('/library')).toStrictEqual(undefined);
+  expect(settingsSectionFromPath('')).toStrictEqual(undefined);
+});
+
+test('every section answers its settings address', () => {
+  expect(settingsSectionPath('appearance')).toStrictEqual('/settings/appearance');
+  expect(settingsSectionPath('playback')).toStrictEqual('/settings/playback');
+  expect(settingsSectionPath('connected')).toStrictEqual('/settings/connected');
+  expect(settingsSectionPath('about')).toStrictEqual('/settings/about');
+  expect(settingsSectionPath('privacy')).toStrictEqual('/settings/privacy');
 });
 
 test('settings layout is a left list on expanded and wide and stacked on compact', () => {
@@ -29,13 +53,12 @@ test('settings layout is a left list on expanded and wide and stacked on compact
   expect(settingsLayout('wide')).toStrictEqual('side');
 });
 
-test('release badges are honest R1 for present panes and R2 for plugins', () => {
+test('release badges are honest R1 or R2', () => {
   expect(settingsRelease('appearance')).toStrictEqual('R1');
   expect(settingsRelease('playback')).toStrictEqual('R1');
   expect(settingsRelease('about')).toStrictEqual('R1');
   expect(settingsRelease('privacy')).toStrictEqual('R1');
   expect(settingsRelease('connected')).toStrictEqual('R2');
-  expect(settingsRelease('extensions')).toStrictEqual('R2');
 });
 
 test('section titles and nav items are the catalogue literals', () => {
@@ -43,24 +66,40 @@ test('section titles and nav items are the catalogue literals', () => {
   expect(settingsSectionTitle('appearance', messages)).toStrictEqual('Appearance');
   expect(settingsSectionTitle('playback', messages)).toStrictEqual('Playback');
   expect(settingsSectionTitle('connected', messages)).toStrictEqual('Connected services');
-  expect(settingsSectionTitle('extensions', messages)).toStrictEqual('Extensions / Plugins');
   expect(settingsSectionTitle('about', messages)).toStrictEqual('About this connection');
   expect(settingsSectionTitle('privacy', messages)).toStrictEqual('Privacy');
   expect(settingsNavItems(messages)).toStrictEqual([
     { id: 'appearance', label: 'Appearance' },
     { id: 'playback', label: 'Playback' },
     { id: 'connected', label: 'Connected services' },
-    { id: 'extensions', label: 'Extensions / Plugins' },
     { id: 'about', label: 'About this connection' },
     { id: 'privacy', label: 'Privacy' },
   ]);
+});
+
+test('job detail and status are the catalogue literals, with no plugin version or badge', () => {
+  const messages = destinationMessages();
+  expect(settingsJobDetail('metadata-provider', messages)).toStrictEqual(
+    'Built into this library host. Cover Art Archive.',
+  );
+  expect(settingsJobDetail('lyrics-provider', messages)).toStrictEqual(undefined);
+  expect(settingsJobDetail('search-provider', messages)).toStrictEqual(undefined);
+  expect(settingsJobDetail('scrobbler', messages)).toStrictEqual(undefined);
+  expect(settingsJobDetail('theme-pack', messages)).toStrictEqual(
+    'Not a separate plugin. Themes are the settings appearance control.',
+  );
+  expect(settingsJobDetail('home-row', messages)).toStrictEqual('Not a separate plugin.');
+  expect(settingsJobStatusLabel('on', messages)).toStrictEqual('On');
+  expect(settingsJobStatusLabel('not-serving', messages)).toStrictEqual(undefined);
+  expect(settingsJobStatusLabel('not-in-build', messages)).toStrictEqual('Not in this build');
+  expect(settingsJobStatusLabel('not-a-plugin', messages)).toStrictEqual(undefined);
 });
 
 test('plugin slot titles and planes are the catalogue literals', () => {
   const messages = destinationMessages();
   expect(settingsSlotTitle('metadata-provider', messages)).toStrictEqual('Metadata and artwork');
   expect(settingsSlotTitle('lyrics-provider', messages)).toStrictEqual('Lyrics lookup');
-  expect(settingsSlotTitle('search-provider', messages)).toStrictEqual('Catalogue search');
+  expect(settingsSlotTitle('search-provider', messages)).toStrictEqual('Catalog search');
   expect(settingsSlotTitle('scrobbler', messages)).toStrictEqual('Scrobblers');
   expect(settingsSlotTitle('theme-pack', messages)).toStrictEqual('Themes');
   expect(settingsSlotTitle('home-row', messages)).toStrictEqual('Home rows');
