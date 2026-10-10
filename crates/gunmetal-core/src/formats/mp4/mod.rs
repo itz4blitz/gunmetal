@@ -13,6 +13,7 @@ pub mod boxes;
 pub mod ilst;
 pub mod probe;
 pub mod sample_table;
+pub mod video;
 
 pub use audio::{
     Alac, AudioEntry, AudioSpecificConfig, AudioTrack, ChunkOffsets, CodecConfig, Esds, Extension,
@@ -21,3 +22,4 @@ pub use audio::{
 pub use boxes::FourCc;
 pub use ilst::{IlstItem, ItemKey, ItemValue, PictureRef};
 pub use probe::{FIXED_STEPS, FileType, Mp4Audio, Mp4Error, Mp4Problem, Probe, STEPS_PER_BYTE};
+pub use video::VideoSample;
