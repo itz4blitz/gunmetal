@@ -375,6 +375,11 @@ impl Facts {
         Self {
             kind,
             owner: stat.st_uid,
+            // `mode_t` is `u32` on Linux and narrower elsewhere; the field
+            // is the wider one on every platform.
+            #[cfg(target_os = "linux")]
+            mode: stat.st_mode & 0o7777,
+            #[cfg(not(target_os = "linux"))]
             mode: u32::from(stat.st_mode & 0o7777),
         }
     }
@@ -384,9 +389,17 @@ impl Facts {
 /// `mode_t` is on some platforms, and a value that does not fit is
 /// refused, so one can never be written truncated.
 fn mode_for(bits: u32) -> io::Result<Mode> {
-    RawMode::try_from(bits)
-        .map(Mode::from_raw_mode)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "mode does not fit mode_t"))
+    #[cfg(target_os = "linux")]
+    {
+        // `mode_t` is `u32` here: the bits are it already.
+        Ok(Mode::from_raw_mode(bits))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        RawMode::try_from(bits)
+            .map(Mode::from_raw_mode)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "mode does not fit mode_t"))
+    }
 }
 
 /// Decides what to do about `item`, given what was found there.
