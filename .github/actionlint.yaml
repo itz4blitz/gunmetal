@@ -2,10 +2,6 @@
 self-hosted-runner:
   labels:
     - gunmetal-mutants
-
-# actionlint's grammar is owner/repo@ref. Forgejo clones a short name from
-# data.forgejo.org, which does not have these actions, so the workflows use
-# absolute GitHub URLs (record 23). That is not an unpinned or malformed use.
 paths:
   .github/workflows/**/*.{yml,yaml}:
     ignore:

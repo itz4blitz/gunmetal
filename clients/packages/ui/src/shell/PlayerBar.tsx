@@ -60,6 +60,7 @@ export function PlayerBar({
      while the title is expanded stays correct; the shift is written as a CSS
      custom property so the motion itself stays CSS-only and pauses on hover
      or focus (see the gm-title-marquee rules in the demo stylesheet). */
+  const [titleOverflows, setTitleOverflows] = useState(false);
   useLayoutEffect(() => {
     if (empty) {
       return;
@@ -77,6 +78,7 @@ export function PlayerBar({
       /* The clip is the credit block whose first child is the title. */
       const el = clip.firstElementChild as HTMLElement;
       const shift = titleMarqueeShift(el.scrollWidth, available);
+      setTitleOverflows(shift !== null);
       if (shift === null) {
         el?.style.removeProperty('--gm-title-shift');
         return;
@@ -162,7 +164,7 @@ export function PlayerBar({
                 }
               }}
             >
-              <Text id="player-title" accessibilityRole="header">
+              <Text id="player-title" accessibilityRole="header" dataSet={{ marquee: titleOverflows ? '1' : '0' }}>
                 {playback.title}
               </Text>
               <Text

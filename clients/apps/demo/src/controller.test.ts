@@ -643,6 +643,104 @@ test('a refresh restores the queue and the place in the song, then keeps the new
   again.unmount();
 });
 
+test('with two elements the crossfade overlap advances the state without a reload', () => {
+  const primary = new FakeAudio();
+  const spare = new FakeAudio();
+  const made: FakeAudio[] = [];
+  const hook = renderHook(() =>
+    useDemoPlayback(demoLibrary(), {
+      createElement: () => {
+        const next = made.length === 0 ? primary : spare;
+        made.push(next);
+        return next;
+      },
+      prefs: { levelling: 'off', crossfadeSeconds: 2, sinkId: '' },
+    }),
+  );
+  act(() => {
+    hook.result.current.playTrack('demo-album-01', 'demo-track-01-01');
+  });
+  expect(hook.result.current.state.trackId).toStrictEqual('demo-track-01-01');
+  expect(hook.result.current.state.playing).toStrictEqual(true);
+  // A real-length file: the element's own end is the clock's end.
+  act(() => {
+    primary.duration = 214;
+    primary.fire('loadedmetadata');
+  });
+  // Into the window: the spare takes the next url and starts under the fade.
+  act(() => {
+    primary.currentTime = 212;
+    primary.fire('timeupdate');
+  });
+  expect(hook.result.current.state.trackId).toStrictEqual('demo-track-01-01');
+  expect(spare.src).toStrictEqual('/media/audio/demo-album-01.wav');
+  expect(spare.playCalls).toStrictEqual(1);
+  expect(spare.volume).toBeCloseTo(0, 5);
+  // The window completes: the engine hands over, and the state follows.
+  const pausesBefore = primary.pauseCalls;
+  act(() => {
+    spare.currentTime = 1;
+    primary.currentTime = 214;
+    primary.fire('timeupdate');
+  });
+  expect(hook.result.current.state.trackId).toStrictEqual('demo-track-01-02');
+  expect(hook.result.current.state.playing).toStrictEqual(true);
+  // The bar tells the truth: the overlap's second is already played.
+  expect(hook.result.current.state.positionMs).toStrictEqual(1000);
+  // The overlap paused the outgoing side exactly once.
+  expect(primary.pauseCalls - pausesBefore).toStrictEqual(1);
+  // The load effect did not restart the handed-over track: its place stands.
+  expect(spare.currentTime).toStrictEqual(1);
+  // The spare now carries the user's volume (the demo default, 0.8).
+  expect(spare.volume).toBeCloseTo(0.8, 5);
+  // The new track plays on: a tick there moves the position.
+  act(() => {
+    spare.tick(1);
+  });
+  expect(hook.result.current.state.positionMs).toStrictEqual(2000);
+});
+
+test('a fade whose successor left the queue does not advance the state', () => {
+  const primary = new FakeAudio();
+  const spare = new FakeAudio();
+  const made: FakeAudio[] = [];
+  const hook = renderHook(() =>
+    useDemoPlayback(demoLibrary(), {
+      createElement: () => {
+        const next = made.length === 0 ? primary : spare;
+        made.push(next);
+        return next;
+      },
+      prefs: { levelling: 'off', crossfadeSeconds: 2, sinkId: '' },
+    }),
+  );
+  act(() => {
+    hook.result.current.playTrack('demo-album-01', 'demo-track-01-01');
+  });
+  act(() => {
+    primary.duration = 214;
+    primary.fire('loadedmetadata');
+  });
+  act(() => {
+    primary.currentTime = 212;
+    primary.fire('timeupdate');
+  });
+  // The lines ahead are removed before the overlap completes.
+  act(() => {
+    hook.result.current.removeQueueLine('demo-track-01-02');
+    hook.result.current.removeQueueLine('demo-track-01-03');
+    hook.result.current.removeQueueLine('demo-track-01-04');
+  });
+  act(() => {
+    spare.currentTime = 1;
+    primary.currentTime = 214;
+    primary.fire('timeupdate');
+  });
+  // The engine handed over, but there is no line to advance into.
+  expect(hook.result.current.state.trackId).toStrictEqual('demo-track-01-01');
+  expect(hook.result.current.state.queue.map((line) => line.trackId)).toStrictEqual(['demo-track-01-01']);
+});
+
 test('hiding a fresh visit writes the clock and removes the listeners', () => {
   const written: string[] = [];
   const hook = renderHook(() =>

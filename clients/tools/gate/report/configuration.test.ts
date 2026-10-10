@@ -11,6 +11,8 @@ async function json(name: string): Promise<unknown> {
 
 // The covered set of the client plan: three globs, less test files and the planted-fault fixtures.
 // Every threshold is 100 for each file, and at most four workers run, whatever machine this is.
+// The tools project takes the vitest-style tool tests only; the install gate's node:test files are
+// quarantined (verify.test.ts deletes the workspace's yaml package), so neither runner hosts them here.
 test('the test configuration covers exactly the stated set at 100% per file with four workers', () => {
   expect(tests).toStrictEqual({
     test: {
@@ -20,7 +22,7 @@ test('the test configuration covers exactly the stated set at 100% per file with
         enabled: true,
         provider: 'v8',
         include: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}', 'tools/**/*.ts'],
-        exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**'],
+        exclude: ['**/*.test.{ts,tsx}', 'tools/fixtures/**', 'tools/gate/install/**'],
         thresholds: { perFile: true, lines: 100, functions: 100, statements: 100, branches: 100 },
         reporter: ['text'],
         reportsDirectory: '../target/clients/coverage',
@@ -34,7 +36,14 @@ test('the test configuration covers exactly the stated set at 100% per file with
             include: ['packages/*/src/**/*.test.{ts,tsx}', 'apps/*/src/**/*.test.{ts,tsx}'],
           },
         },
-        { extends: true, test: { name: 'tools', environment: 'node', include: ['tools/**/*.test.ts'] } },
+        {
+          extends: true,
+          test: {
+            name: 'tools',
+            environment: 'node',
+            include: ['tools/lint/**/*.test.ts', 'tools/gate/report/**/*.test.ts'],
+          },
+        },
       ],
     },
   });

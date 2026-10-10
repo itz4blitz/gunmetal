@@ -52,6 +52,10 @@ export function TrackRow({
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAt, setMenuAt] = useState<MenuPoint>({ x: 0, y: 0 });
+  /* A track the server flagged as unplayable or damaged is not a play
+     button: the row says why, and pressing it does not silently start a
+     different track from the queue. */
+  const playable = track.flag === 'ok';
   const openMenu = (event: {
     preventDefault: () => void;
     stopPropagation: () => void;
@@ -91,18 +95,27 @@ export function TrackRow({
       {current ? <View dataSet={{ nowPlaying: '1' }} /> : null}
       <View
         dataSet={{ trackPlay: '1', withAlbum: album === undefined ? '0' : '1' }}
-        accessibilityRole="button"
-        accessibilityLabel={title}
-        tabIndex={0}
-        onClick={() => {
-          onPlay(track.albumId, track.id);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onPlay(track.albumId, track.id);
-          }
-        }}
+        accessibilityRole={playable ? 'button' : undefined}
+        accessibilityLabel={playable ? title : undefined}
+        aria-disabled={playable ? undefined : true}
+        tabIndex={playable ? 0 : undefined}
+        onClick={
+          playable
+            ? () => {
+                onPlay(track.albumId, track.id);
+              }
+            : undefined
+        }
+        onKeyDown={
+          playable
+            ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onPlay(track.albumId, track.id);
+                }
+              }
+            : undefined
+        }
       >
         <Text dataSet={{ trackNumber: '1' }}>{`${track.number}`}</Text>
         <View dataSet={{ trackMeta: '1' }}>
@@ -141,18 +154,34 @@ export function TrackRow({
             messages={messages}
             at={menuAt}
             onOpenArtist={onOpenArtist}
-            onPlay={() => {
-              onPlay(track.albumId, track.id);
-            }}
-            onPlayNext={() => {
-              onPlayNext?.(track.albumId, track.id);
-            }}
-            onAddToQueue={() => {
-              onAddToQueue?.(track.albumId, track.id);
-            }}
-            onGoToAlbum={() => {
-              onGoToAlbum?.(track.albumId);
-            }}
+            onPlay={
+              playable
+                ? () => {
+                    onPlay(track.albumId, track.id);
+                  }
+                : undefined
+            }
+            onPlayNext={
+              playable && onPlayNext !== undefined
+                ? () => {
+                    onPlayNext(track.albumId, track.id);
+                  }
+                : undefined
+            }
+            onAddToQueue={
+              playable && onAddToQueue !== undefined
+                ? () => {
+                    onAddToQueue(track.albumId, track.id);
+                  }
+                : undefined
+            }
+            onGoToAlbum={
+              onGoToAlbum !== undefined
+                ? () => {
+                    onGoToAlbum(track.albumId);
+                  }
+                : undefined
+            }
             onClose={() => {
               setMenuOpen(false);
             }}

@@ -26,10 +26,8 @@ export default defineConfig({
       '/library.json': { target: 'http://127.0.0.1:4875', changeOrigin: true },
       '/media/library': { target: 'http://127.0.0.1:4875', changeOrigin: true },
     },
-    // Tailnet-only access (tailscale serve fronts this loopback port with
-    // HTTPS); the exact host is allow-listed, nothing wild-carded.
-    // The node was renamed to gunmetal — the dev server answers to that host only.
-    allowedHosts: ['gunmetal.taild1bbf.ts.net'],
+    // Dev-only host allow-list: the loopback name and nothing wild-carded.
+    allowedHosts: ['localhost'],
   },
   preview: {
     host: '127.0.0.1',

@@ -5,14 +5,6 @@ import type { ShellMessages } from '../../messages/en/shell.ts';
 import { Icon } from '../Icon.tsx';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import {
-  EXTENSION_REPOSITORY_ID,
-  EXTENSION_REPOSITORY_VERSION,
-  extensionById,
-  extensionRepository,
-  officialExtensionsRepository,
-  type ExtensionId,
-} from '../../plugins/repository.ts';
 import type { PluginSlot } from './settings.ts';
 import {
   defaultSettingsSection,
@@ -21,11 +13,8 @@ import {
   settingsLayout,
   settingsNavItems,
   settingsPlaybackRows,
-  settingsJobDetail,
-  settingsJobStatusLabel,
   settingsSectionTitle,
   settingsSections,
-  settingsSlotTitle,
   settingsSwatchLabels,
   settingsThemeForKey,
   type SettingsCrossfadeSeconds,
@@ -54,7 +43,6 @@ export type SettingsProps = {
   sinkId?: string | undefined;
   onOutput?: ((id: string) => void) | undefined;
   width: WidthClass;
-  extensionId?: ExtensionId | undefined;
   onOpenPath?: ((path: string) => void) | undefined;
 };
 
@@ -280,151 +268,6 @@ function ThemeSwatch({
   );
 }
 
-function JobRow({
-  id,
-  title,
-  summary,
-  status,
-  onOpen,
-}: {
-  id: ExtensionId;
-  title: string;
-  summary: string;
-  status: string;
-  onOpen: (id: ExtensionId) => void;
-}) {
-  return (
-    <View
-      dataSet={{ settingsRow: id, jobStatus: status }}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      tabIndex={0}
-      onClick={() => {
-        onOpen(id);
-      }}
-      onKeyDown={(event) => {
-        activateKey(event, () => {
-          onOpen(id);
-        });
-      }}
-    >
-      <View dataSet={{ settingsRowText: '1' }}>
-        <Text dataSet={{ settingsRowLabel: '1', slotTitle: id }}>{title}</Text>
-        <Text dataSet={{ settingsRowHint: '1', jobDetail: id }}>{summary}</Text>
-      </View>
-      <View dataSet={{ settingsRowAside: '1' }}>
-        <Text dataSet={{ settingsRowStatus: '1', slotState: status }}>{status}</Text>
-        <View dataSet={{ settingsChevron: '1' }}>
-          <Icon name="next" size={16} />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function extensionFacts(
-  record: NonNullable<ReturnType<typeof extensionById>>,
-  messages: DestinationMessages,
-): readonly { id: string; label: string; value: string }[] {
-  return [
-    { id: 'identifier', label: messages.settingsExtensionIdentifier, value: record.id },
-    { id: 'version', label: messages.settingsSlotColumnVersion, value: record.version },
-    {
-      id: 'plane',
-      label: messages.settingsSlotColumnPlane,
-      value: record.plane === 'server' ? messages.settingsSlotServer : messages.settingsSlotClient,
-    },
-    { id: 'slot', label: messages.settingsExtensionSlot, value: record.slot },
-    {
-      id: 'interface',
-      label: messages.settingsExtensionInterface,
-      value: `${EXTENSION_REPOSITORY_ID}/${EXTENSION_REPOSITORY_VERSION}`,
-    },
-    {
-      id: 'maintained',
-      label: messages.settingsExtensionMaintained,
-      value: officialExtensionsRepository().path,
-    },
-  ];
-}
-
-function ExtensionPage({
-  id,
-  messages,
-  onBack,
-}: {
-  id: ExtensionId;
-  messages: DestinationMessages;
-  onBack: () => void;
-}) {
-  const record = extensionById(id);
-  if (record === undefined) {
-    return null;
-  }
-  const status = record.status === 'on' ? messages.settingsJobOn : messages.settingsJobNotInBuild;
-  return (
-    <View id="extension-detail" dataSet={{ extensionId: record.id, extensionStatus: record.status }}>
-      <View
-        id="extension-back"
-        accessibilityRole="button"
-        accessibilityLabel={messages.settingsExtensionBack}
-        tabIndex={0}
-        onClick={onBack}
-        onKeyDown={(event) => {
-          activateKey(event, onBack);
-        }}
-      >
-        <Icon name="back" size={16} />
-        <Text>{messages.settingsExtensionBack}</Text>
-      </View>
-      <View dataSet={{ extensionStory: '1' }}>
-        <View dataSet={{ extensionHero: '1' }}>
-          <View dataSet={{ extensionTitleRow: '1' }}>
-            <Text id="extension-title" accessibilityRole="header" dataSet={{ type: 'title2' }}>
-              {record.title}
-            </Text>
-            <Text dataSet={{ extensionStatus: '1', extensionState: record.status }}>{status}</Text>
-          </View>
-          <Text dataSet={{ extensionSummary: '1' }}>{record.summary}</Text>
-        </View>
-        <View dataSet={{ extensionSection: 'does' }}>
-          <Text accessibilityRole="header" dataSet={{ extensionSectionTitle: '1' }}>
-            {messages.settingsExtensionDoes}
-          </Text>
-          {record.detail.map((line) => (
-            <Text key={line} dataSet={{ extensionDetail: '1' }}>
-              {line}
-            </Text>
-          ))}
-        </View>
-        <Text dataSet={{ extensionShips: '1' }}>{messages.settingsExtensionShips}</Text>
-      </View>
-      <View dataSet={{ extensionRecord: '1' }}>
-        <View id="extension-facts" dataSet={{ settingsFacts: '1' }}>
-          {extensionFacts(record, messages).map((fact) => (
-            <View key={fact.id} dataSet={{ settingsFact: fact.id, extensionFact: fact.id }}>
-              <Text dataSet={{ factLabel: '1' }}>{fact.label}</Text>
-              <Text dataSet={{ factValue: '1' }}>{fact.value}</Text>
-            </View>
-          ))}
-        </View>
-        <View dataSet={{ extensionSection: 'grants' }}>
-          <Text accessibilityRole="header" dataSet={{ extensionSectionTitle: '1' }}>
-            {messages.settingsExtensionGrants}
-          </Text>
-          <View dataSet={{ extensionGrants: '1' }} accessibilityLabel={messages.settingsExtensionGrants}>
-            {record.grants.map((grant) => (
-              <Text key={grant} dataSet={{ extensionGrant: grant }}>
-                {grant}
-              </Text>
-            ))}
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
 export function Settings({
   section: routedSection,
   libraryFact,
@@ -441,7 +284,6 @@ export function Settings({
   sinkId = '',
   onOutput,
   width,
-  extensionId,
   onOpenPath,
 }: SettingsProps) {
   const layout = settingsLayout(width);
@@ -464,10 +306,6 @@ export function Settings({
     }
     setPicked({ route: routedSection, section: next });
   };
-  const openExtension = (id: ExtensionId) => {
-    onOpenPath?.(`/settings/extensions/${id}`);
-  };
-
   return (
     <View id="destination-settings" dataSet={{ settingsLayout: layout }}>
       <Text id="destination-headline" accessibilityRole="header">
@@ -583,35 +421,6 @@ export function Settings({
               ))}
             </View>
             <Text dataSet={{ emptyState: 'connected', settingsNote: '1' }}>{messages.settingsConnectedEmpty}</Text>
-          </SettingsPane>
-        ) : null}
-        {visible.includes('extensions') ? (
-          <SettingsPane id="settings-extensions" section="extensions" messages={messages}>
-            {extensionId !== undefined ? (
-              <ExtensionPage
-                id={extensionId}
-                messages={messages}
-                onBack={() => {
-                  choose('extensions');
-                }}
-              />
-            ) : (
-              <>
-                <Text dataSet={{ emptyState: 'extensions', settingsNote: '1' }}>{messages.settingsExtensionsBody}</Text>
-                <View id="settings-plugin-slots" dataSet={{ settingsRows: 'extensions-jobs' }}>
-                  {extensionRepository().extensions.map((entry) => (
-                    <JobRow
-                      key={entry.id}
-                      id={entry.id}
-                      title={entry.title}
-                      summary={entry.summary}
-                      status={entry.status === 'on' ? messages.settingsJobOn : messages.settingsJobNotInBuild}
-                      onOpen={openExtension}
-                    />
-                  ))}
-                </View>
-              </>
-            )}
           </SettingsPane>
         ) : null}
         {visible.includes('about') ? (

@@ -113,6 +113,23 @@ export function GoToArtistMenu({
   }
 
   const handlers = { onPlay, onPlayNext, onAddToQueue, onGoToAlbum, onOpenArtist };
+  /* An item whose handler is not wired would close the menu and do nothing,
+     so it is not offered. The menu never lies about what it can do. */
+  const offered = catalogueMenuActions(messages).filter((action) => {
+    if (action.id === 'play') {
+      return onPlay !== undefined;
+    }
+    if (action.id === 'play-next') {
+      return onPlayNext !== undefined;
+    }
+    if (action.id === 'add-to-queue') {
+      return onAddToQueue !== undefined;
+    }
+    if (action.id === 'go-to-album') {
+      return onGoToAlbum !== undefined;
+    }
+    return true;
+  });
 
   return createPortal(
     <View
@@ -120,7 +137,7 @@ export function GoToArtistMenu({
       accessibilityRole="menu"
       accessibilityLabel={messages.contextMenu}
     >
-      {catalogueMenuActions(messages).map((action) => (
+      {offered.map((action) => (
         <View
           key={action.id}
           dataSet={{

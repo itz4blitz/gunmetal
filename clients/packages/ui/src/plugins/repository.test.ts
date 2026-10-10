@@ -6,12 +6,12 @@ import {
   EXTENSION_REPOSITORY_ID,
   EXTENSION_REPOSITORY_VERSION,
   extensionById,
-  extensionIdFromPath,
-  extensionPath,
   extensionTitle,
   addressStyle,
   extensionRepository,
   officialExtensionsRepository,
+  storeDetailPath,
+  storeIdFromPath,
 } from './repository.ts';
 
 test('the repository is the closed list extensions target', () => {
@@ -42,7 +42,9 @@ test('the repository is the closed list extensions target', () => {
         slot: 'lyrics-provider',
         status: 'not-in-build',
         summary: 'Would fetch lyrics for tracks whose files have none.',
-        detail: ['This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.'],
+        detail: [
+          'This build does not run it. A package targeting this id would ask for the lyrics grant and nothing else.',
+        ],
         grants: ['lyrics:read'],
       },
       {
@@ -64,7 +66,9 @@ test('the repository is the closed list extensions target', () => {
         slot: 'scrobbler',
         status: 'not-in-build',
         summary: 'Would send plays to a service the owner names.',
-        detail: ['Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.'],
+        detail: [
+          'Nothing is sent. A scrobbler targeting this id would need its own consent before a play left the server.',
+        ],
         grants: ['scrobble:write'],
       },
       {
@@ -108,6 +112,31 @@ test('the repository is the closed list extensions target', () => {
     ],
   });
   expect(addressStyle()).toStrictEqual('slug');
+  localStorage.setItem(
+    'gunmetal.extension.choices',
+    JSON.stringify({ 'url-style': { installed: true, values: { style: 'id' } } }),
+  );
+  expect(addressStyle()).toStrictEqual('id');
+  localStorage.setItem(
+    'gunmetal.extension.choices',
+    JSON.stringify({ 'url-style': { installed: false, values: { style: 'id' } } }),
+  );
+  expect(addressStyle()).toStrictEqual('slug');
+  localStorage.removeItem('gunmetal.extension.choices');
+  // A host with no storage, or one that denies the read, answers the default.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Reflect.deleteProperty(globalThis, 'localStorage');
+  expect(addressStyle()).toStrictEqual('slug');
+  Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new Error('denied');
+    },
+  });
+  expect(addressStyle()).toStrictEqual('slug');
+  Object.defineProperty(globalThis, 'localStorage', descriptor as PropertyDescriptor);
+  expect(addressStyle()).toStrictEqual('slug');
   expect(EXTENSION_REPOSITORY_ID).toStrictEqual('gunmetal.extensions');
   expect(EXTENSION_REPOSITORY_VERSION).toStrictEqual('1');
 });
@@ -126,14 +155,14 @@ test('the catalogue points at the official extensions repository and does not fe
   expect(source.includes('import(')).toStrictEqual(false);
 });
 
-test('an extension id is a page on this host and an unknown id is not', () => {
-  expect(extensionPath('url-style')).toStrictEqual('/settings/extensions/url-style');
-  expect(extensionPath('cover-art')).toStrictEqual('/settings/extensions/cover-art');
+test('an extension id is a store page and an unknown id is not', () => {
+  expect(storeDetailPath('url-style')).toStrictEqual('/store/url-style');
+  expect(storeDetailPath('cover-art')).toStrictEqual('/store/cover-art');
   expect(extensionById('lyrics')?.title).toStrictEqual('Lyrics lookup');
   expect(extensionById('nope')).toStrictEqual(undefined);
   expect(extensionTitle('url-style')).toStrictEqual('Address style');
   expect(extensionTitle('nope')).toStrictEqual('nope');
-  expect(extensionIdFromPath('/settings/extensions/scrobble')).toStrictEqual('scrobble');
-  expect(extensionIdFromPath('/settings/extensions')).toStrictEqual(undefined);
-  expect(extensionIdFromPath('/settings/extensions/nope')).toStrictEqual(undefined);
+  expect(storeIdFromPath('/store/scrobble')).toStrictEqual('scrobble');
+  expect(storeIdFromPath('/store')).toStrictEqual(undefined);
+  expect(storeIdFromPath('/store/nope')).toStrictEqual(undefined);
 });

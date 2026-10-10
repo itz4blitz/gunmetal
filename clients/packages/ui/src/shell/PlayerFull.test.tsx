@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { shellMessages } from '../messages/en/shell.ts';
 import type { PlayerSnapshot } from '../../../ports/src/provisional/player.ts';
-import { emptySnapshot } from './test-playback.ts';
+import { emptySnapshot, queuedSnapshot } from './test-playback.ts';
 import { createPositionClock } from './position-clock.ts';
 import type { SyncedLine } from './synced-lyrics.ts';
 import { PlayerFull, tabWrapTarget } from './PlayerFull.tsx';
+import { QueuePane } from './QueuePane.tsx';
 
 afterEach(cleanup);
 
@@ -304,6 +306,24 @@ test('volume sits in the secondary row only when it is wired, and reports the ne
   fireEvent.change(range, { target: { value: '0.9' } });
   expect(onVolume).toHaveBeenCalledTimes(1);
   expect(onVolume).toHaveBeenCalledWith(0.9);
+  // Raising the slider while muted unmutes first, like the bar.
+  const onMuted = vi.fn();
+  rerender(
+    <PlayerFull
+      messages={shellMessages()}
+      playback={playingSnapshot()}
+      open
+      volume={0}
+      muted
+      onVolume={onVolume}
+      onMuted={onMuted}
+      onClose={vi.fn()}
+    />,
+  );
+  const mutedRange = screen.getByRole('slider', { name: 'Volume' });
+  fireEvent.change(mutedRange, { target: { value: '0.3' } });
+  expect(onMuted).toHaveBeenCalledWith(false);
+  expect(onVolume).toHaveBeenLastCalledWith(0.3);
   rerender(<PlayerFull messages={shellMessages()} playback={playingSnapshot()} open volume={0.4} onClose={vi.fn()} />);
   expect(container.querySelector('#player-full-volume')).toBeNull();
   rerender(
@@ -448,16 +468,20 @@ test('the queue control brings up a sheet left open underneath before it toggles
   // Play opened the queue on its own: it stays under the full player.
   const { rerender } = render(view(true, true));
   expect(sheet()).toStrictEqual('under');
+  // The queue control is a real toggle and says whether the queue is open.
+  const queueButton = () => screen.getByRole('button', { name: 'Queue' });
+  expect(queueButton().getAttribute('aria-pressed')).toStrictEqual('true');
   // Asking for the queue brings that sheet up; nothing is toggled shut.
-  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  fireEvent.click(queueButton());
   expect(onToggleQueue).toHaveBeenCalledTimes(0);
   expect(sheet()).toStrictEqual('over');
   // Asking again closes the sheet that is up.
-  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  fireEvent.click(queueButton());
   expect(onToggleQueue).toHaveBeenCalledTimes(1);
   expect(sheet()).toStrictEqual('over');
   rerender(view(true, false));
   expect(sheet()).toStrictEqual('under');
+  expect(queueButton().getAttribute('aria-pressed')).toStrictEqual('false');
   // A queue that opens again on its own is underneath again.
   rerender(view(true, true));
   expect(sheet()).toStrictEqual('under');
@@ -472,6 +496,75 @@ test('the queue control brings up a sheet left open underneath before it toggles
   expect(document.querySelector('#player-full')).toBeNull();
   rerender(view(true, true));
   expect(sheet()).toStrictEqual('under');
+});
+
+test('a raised queue sheet takes the focus and Escape, and hands the focus back when it closes', () => {
+  /* The compact composition: the queue sheet is a sibling of the full
+     player, both driven by the one playback snapshot. */
+  function CompactPlayer() {
+    const [queueOpen, setQueueOpen] = useState(false);
+    const [playerOpen, setPlayerOpen] = useState(true);
+    const playback = { ...queuedSnapshot(), queueOpen };
+    return (
+      <>
+        <QueuePane
+          messages={shellMessages()}
+          playback={playback}
+          compactSheet
+          onCloseSheet={() => {
+            setQueueOpen(false);
+          }}
+        />
+        <PlayerFull
+          messages={shellMessages()}
+          playback={playback}
+          open={playerOpen}
+          onClose={() => {
+            setPlayerOpen(false);
+          }}
+          onToggleQueue={() => {
+            setQueueOpen((shown) => !shown);
+          }}
+        />
+      </>
+    );
+  }
+  render(<CompactPlayer />);
+  const player = () => document.querySelector('#player-full') as HTMLElement;
+  const sheetState = () => player().getAttribute('data-queue-sheet');
+  const queueButton = () => screen.getByRole('button', { name: 'Queue' });
+  expect(sheetState()).toStrictEqual('under');
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
+  expect(queueButton().getAttribute('aria-pressed')).toStrictEqual('false');
+  // With the sheet down the dialog still traps Tab at its ends.
+  const controls = [...player().querySelectorAll<HTMLElement>('[tabindex="0"], input')].filter(
+    (node) => node.getAttribute('aria-disabled') !== 'true',
+  );
+  present(controls[controls.length - 1], 'last full-player control').focus();
+  expect(fireEvent.keyDown(player(), { key: 'Tab' })).toStrictEqual(false);
+  expect(document.activeElement?.id).toStrictEqual('player-full-collapse');
+  // Raising the sheet opens it over the player and takes the focus at its
+  // close control, so the queue lines and the close are the next stops.
+  fireEvent.click(queueButton());
+  expect(sheetState()).toStrictEqual('over');
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('1');
+  expect(queueButton().getAttribute('aria-pressed')).toStrictEqual('true');
+  expect(document.activeElement?.id).toStrictEqual('queue-close');
+  // The dialog's trap stands aside while the raised sheet is up.
+  expect(fireEvent.keyDown(player(), { key: 'Tab' })).toStrictEqual(true);
+  // Escape closes the raised sheet alone: the player stays up, and the
+  // focus comes back to the control that raised the sheet.
+  expect(fireEvent.keyDown(document.querySelector('#queue-close') as HTMLElement, { key: 'Escape' })).toStrictEqual(
+    false,
+  );
+  expect(player().getAttribute('data-open')).toStrictEqual('1');
+  expect(sheetState()).toStrictEqual('under');
+  expect(document.querySelector('#queue-sheet')?.getAttribute('data-queue-open')).toStrictEqual('0');
+  expect(queueButton().getAttribute('aria-pressed')).toStrictEqual('false');
+  expect(document.activeElement?.id).toStrictEqual('player-full-queue');
+  // With the sheet down again, Escape answers to the dialog once more.
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(document.querySelector('#player-full')).toBeNull();
 });
 
 test('the scrubber seeks by pointer and by arrow keys when it is wired', () => {

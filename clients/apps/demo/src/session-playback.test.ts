@@ -86,3 +86,41 @@ test('a session that names another site, a missing track, or a broken line is dr
 
   expect(serializeSessionPlayback(emptyPlayback())).toStrictEqual('{"queue":[]}');
 });
+
+test('a session without the optional fields restores, and empty cover art is allowed', () => {
+  const minimal = {
+    trackId: 'demo-track-01-01',
+    positionMs: 1_000,
+    queue: [{ ...line('demo-track-01-01'), coverUrl: '', durationMs: 0 }],
+  };
+  const restored = parseSessionPlayback(JSON.stringify(minimal));
+  expect(restored.trackId).toStrictEqual('demo-track-01-01');
+  // The queue line carries no duration; the stored place stands.
+  expect(restored.positionMs).toStrictEqual(1_000);
+  expect(restored.durationMs).toStrictEqual(0);
+  expect(restored.queue[0]?.coverUrl).toStrictEqual('');
+  expect(restored.shuffleSeed).toStrictEqual(0);
+  expect(restored.repeatMode).toStrictEqual('off');
+  expect(restored.shuffleOn).toStrictEqual(false);
+});
+
+test('a broken entry or a bad optional field drops the whole session', () => {
+  const base = { trackId: 'demo-track-01-01', positionMs: 0, queue: [line('demo-track-01-01')] };
+  expect(parseSessionPlayback(JSON.stringify({ ...base, queue: [null] }))).toStrictEqual(emptyPlayback());
+  expect(parseSessionPlayback(JSON.stringify({ ...base, queue: [42] }))).toStrictEqual(emptyPlayback());
+  expect(
+    parseSessionPlayback(JSON.stringify({ ...base, queue: [{ ...line('demo-track-01-01'), trackId: 'a b' }] })),
+  ).toStrictEqual(emptyPlayback());
+  expect(
+    parseSessionPlayback(JSON.stringify({ ...base, queue: [{ ...line('demo-track-01-01'), mediaUrl: '' }] })),
+  ).toStrictEqual(emptyPlayback());
+  expect(
+    parseSessionPlayback(JSON.stringify({ ...base, queue: [{ ...line('demo-track-01-01'), lyricsKind: 'karaoke' }] })),
+  ).toStrictEqual(emptyPlayback());
+  // A missing place in the song is not a place.
+  expect(parseSessionPlayback(JSON.stringify({ trackId: 'demo-track-01-01', queue: base.queue }))).toStrictEqual(
+    emptyPlayback(),
+  );
+  expect(parseSessionPlayback(JSON.stringify({ ...base, repeatMode: 'sometimes' }))).toStrictEqual(emptyPlayback());
+  expect(parseSessionPlayback(JSON.stringify({ ...base, shuffleSeed: 'x' }))).toStrictEqual(emptyPlayback());
+});

@@ -17,10 +17,32 @@ test('a bad activity document is refused', () => {
   expect(activityFromDocument({ jobs: [{ id: '', label: 'Fetching album art', done: 1, total: 2 }] })).toStrictEqual(
     undefined,
   );
-  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: 'Fetching album art', done: 3, total: 2 }] })).toStrictEqual(
+  expect(
+    activityFromDocument({ jobs: [{ id: 'artwork', label: 'Fetching album art', done: 3, total: 2 }] }),
+  ).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: 'nope' })).toStrictEqual(undefined);
+  // Every guard in one job row: shape, id, label, integers, range.
+  expect(activityFromDocument({ jobs: [42] })).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: [{ id: `a${'b'.repeat(33)}`, label: 'x', done: 0, total: 1 }] })).toStrictEqual(
+    undefined,
+  );
+  expect(activityFromDocument({ jobs: [{ id: 'a\0b', label: 'x', done: 0, total: 1 }] })).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: '', done: 0, total: 1 }] })).toStrictEqual(undefined);
+  expect(
+    activityFromDocument({ jobs: [{ id: 'artwork', label: `x${'y'.repeat(80)}`, done: 0, total: 1 }] }),
+  ).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: 'a\0b', done: 0, total: 1 }] })).toStrictEqual(
+    undefined,
+  );
+  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: 'x', done: 0.5, total: 1 }] })).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: 'x', done: 0, total: 0 }] })).toStrictEqual(undefined);
+  expect(activityFromDocument({ jobs: [{ id: 'artwork', label: 'x', done: 0, total: 2001 }] })).toStrictEqual(
     undefined,
   );
   expect(activityFromDocument({ jobs: 'nope' })).toStrictEqual(undefined);
+  expect(
+    activityFromDocument({ jobs: new Array(9).fill({ id: 'artwork', label: 'x', done: 0, total: 1 }) }),
+  ).toStrictEqual(undefined);
 });
 
 test('progress is the share of the job that is done', () => {

@@ -3,8 +3,11 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { stubPlayback, queuedSnapshot } from './test-playback.ts';
 import { demoLibrary } from '../../../fake-server/src/catalogue.ts';
 import { demoLocalFilter } from '../../../fake-server/src/filter.ts';
+import { shellMessages } from '../messages/en/shell.ts';
 import { landmarks } from './width.ts';
 import { Shell } from './Shell.tsx';
+
+const messages = shellMessages();
 
 beforeEach(() => {
   window.localStorage.removeItem('gunmetal.pins');
@@ -337,6 +340,15 @@ test('nav links answer Enter and Space and ignore every other key', () => {
   expect(navigated).toStrictEqual(['/', '/']);
 });
 
+test('the arrow keys seek the playing position through the transport listener', () => {
+  const { calls, controller } = stubPlayback();
+  render(<Shell playback={controller} path="/" widthPx={1600} />);
+  fireEvent.keyDown(document, { key: 'ArrowRight' });
+  fireEvent.keyDown(document, { key: 'ArrowLeft' });
+  fireEvent.keyDown(document, { key: 'ArrowDown' });
+  expect(calls).toStrictEqual(['seek', 'seek']);
+});
+
 test('opening an album from search pushes its address, and back returns to the library', () => {
   const navigated: string[] = [];
   render(
@@ -471,24 +483,24 @@ test('settings sections are not sidebar links until the current path is pinned',
   expect(screen.queryByRole('link', { name: 'Privacy' })).toBeNull();
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   expect(window.location.pathname).toStrictEqual('/settings/appearance');
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(sidebarLabels(sidebar)).toStrictEqual(['Home', 'Search', 'Library', 'Store', 'Settings', 'Appearance']);
   expect(container.querySelector('#nav-item-settings-appearance')?.getAttribute('data-selected')).toStrictEqual('1');
   expect(container.querySelector('#nav-item-settings-appearance')?.getAttribute('data-nav-glyph')).toStrictEqual(
     'settings-appearance',
   );
   expect(container.querySelector('#nav-item-settings')?.getAttribute('data-selected')).toStrictEqual('0');
-  expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.unpinFromSidebar }).id).toStrictEqual('destination-pin');
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/settings/appearance","label":"Appearance"}]',
   );
   expect(screen.getByRole('heading', { name: 'Settings' }).id).toStrictEqual('destination-headline');
   expect(container.querySelector('#settings-appearance')).not.toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.unpinFromSidebar }));
   expect(sidebarLabels(sidebar)).toStrictEqual(['Home', 'Search', 'Library', 'Store', 'Settings']);
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual('[]');
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
 });
 
 test('opening /settings replaces the address with appearance and keeps a refused address', () => {
@@ -801,11 +813,11 @@ test('home, library and search each offer Pin, and a pin of a default route is n
     const view = render(
       <Shell playback={stubPlayback().controller} path={path} widthPx={1600} library={demoLibrary()} />,
     );
-    expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Pins the page to the sidebar' }), { key: 'Tab' });
-    expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Pins the page to the sidebar' }), { key: 'Enter' });
-    expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+    expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+    fireEvent.keyDown(screen.getByRole('button', { name: messages.pinToSidebar }), { key: 'Tab' });
+    expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+    fireEvent.keyDown(screen.getByRole('button', { name: messages.pinToSidebar }), { key: 'Enter' });
+    expect(screen.getByRole('button', { name: messages.unpinFromSidebar }).id).toStrictEqual('destination-pin');
     expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
       `[{"path":"${path}","label":"${labels[index]}"}]`,
     );
@@ -816,8 +828,8 @@ test('home, library and search each offer Pin, and a pin of a default route is n
       'Store',
       'Settings',
     ]);
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }), { key: ' ' });
-    expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
+    fireEvent.keyDown(screen.getByRole('button', { name: messages.unpinFromSidebar }), { key: ' ' });
+    expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
     expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual('[]');
     view.unmount();
   }
@@ -841,8 +853,8 @@ test('a pinned settings section is a sidebar link and navigates to that path', (
     'Playback',
   ]);
   expect(view.container.querySelector('#nav-item-settings')?.getAttribute('data-selected')).toStrictEqual('1');
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
     'Search',
@@ -859,7 +871,7 @@ test('a pinned settings section is a sidebar link and navigates to that path', (
   expect(window.location.pathname).toStrictEqual('/settings/playback');
   expect(view.container.querySelector('#settings-playback')).not.toBeNull();
   expect(view.container.querySelector('#nav-item-settings-playback')?.getAttribute('data-selected')).toStrictEqual('1');
-  expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.unpinFromSidebar }).id).toStrictEqual('destination-pin');
   fireEvent.keyDown(screen.getByRole('link', { name: 'Privacy' }), { key: 'Enter' });
   expect(window.location.pathname).toStrictEqual('/settings/privacy');
   expect(view.container.querySelector('#settings-privacy')).not.toBeNull();
@@ -874,16 +886,17 @@ test('the store door opens the catalogue and a pin of it is labeled Store', () =
   expect(home.container.querySelector('#destination-store')).not.toBeNull();
   expect(home.container.querySelector('#destination-settings')).toBeNull();
   expect(home.container.querySelector('[data-store-card="cover-art"]')?.textContent).toContain('On this server');
-  expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Metadata and artwork' }));
-  expect(window.location.pathname).toStrictEqual('/settings/extensions/cover-art');
-  expect(home.container.querySelector('#extension-detail')).not.toBeNull();
+  expect(window.location.pathname).toStrictEqual('/store/cover-art');
+  expect(home.container.querySelector('#destination-store')).not.toBeNull();
+  expect(home.container.querySelector('#destination-settings')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Back to store' })).not.toBeNull();
   home.unmount();
 
   window.history.pushState(null, '', '/store');
   const pinned = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual('[{"path":"/store","label":"Store"}]');
   expect(sidebarLabels(pinned.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
@@ -895,15 +908,13 @@ test('the store door opens the catalogue and a pin of it is labeled Store', () =
   pinned.unmount();
 });
 
-test('pinning extensions stores that section under its catalogue label', () => {
+test('pinning a store record stores it under its catalogue label', () => {
   window.history.pushState(null, '', '/');
-  render(
-    <Shell playback={stubPlayback().controller} path="/settings/extensions" widthPx={1600} library={demoLibrary()} />,
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
-  expect(screen.getByRole('link', { name: 'Extensions / Plugins' })).not.toBeNull();
+  render(<Shell playback={stubPlayback().controller} path="/store/cover-art" widthPx={1600} library={demoLibrary()} />);
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
+  expect(screen.getByRole('link', { name: 'Metadata and artwork' })).not.toBeNull();
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
-    '[{"path":"/settings/extensions","label":"Extensions / Plugins"}]',
+    '[{"path":"/store/cover-art","label":"Metadata and artwork"}]',
   );
 });
 
@@ -939,14 +950,14 @@ test('pins survive a remount from localStorage and an injected store is not the 
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/settings/playback","label":"Playback"}]',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(pinsRaw).toStrictEqual('[{"path":"/settings/playback","label":"Playback"}]');
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/settings/playback","label":"Playback"}]',
   );
   expect(written).toStrictEqual([]);
   expect(screen.getByRole('link', { name: 'Playback' })).not.toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.unpinFromSidebar }));
   expect(pinsRaw).toStrictEqual('[]');
   expect(screen.queryByRole('link', { name: 'Playback' })).toBeNull();
   view.unmount();
@@ -974,9 +985,9 @@ test('a broken pin store reads as no pins and a blocked write still toggles for 
   try {
     const view = render(<Shell playback={stubPlayback().controller} path="/settings/privacy" widthPx={1600} />);
     expect(screen.queryByRole('link', { name: 'Privacy' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+    fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
     expect(screen.getByRole('link', { name: 'Privacy' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: messages.unpinFromSidebar })).not.toBeNull();
     view.unmount();
   } finally {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: real });
@@ -995,7 +1006,7 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
     'Store',
     'Settings',
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
     'Search',
@@ -1007,11 +1018,11 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/music/albums/harbour-lights","label":"Harbour Lights"}]',
   );
-  expect(view.container.querySelector('#nav-item-music-albums-harbour-lights')?.getAttribute('data-selected')).toStrictEqual(
-    '1',
-  );
+  expect(
+    view.container.querySelector('#nav-item-music-albums-harbour-lights')?.getAttribute('data-selected'),
+  ).toStrictEqual('1');
   expect(view.container.querySelector('#nav-item-library')?.getAttribute('data-selected')).toStrictEqual('0');
-  expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.unpinFromSidebar }).id).toStrictEqual('destination-pin');
 
   fireEvent.click(screen.getByRole('link', { name: 'Search' }));
   expect(screen.getByRole('heading', { name: 'Search' }).id).toStrictEqual('destination-headline');
@@ -1021,8 +1032,8 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
 
   fireEvent.click(screen.getByRole('button', { name: 'Go to artist' }));
   expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
     'Search',
@@ -1039,9 +1050,11 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
   fireEvent.click(screen.getByRole('link', { name: 'Home' }));
   fireEvent.keyDown(screen.getByRole('link', { name: 'Mira Sol' }), { key: 'Enter' });
   expect(screen.getByRole('heading', { name: 'Mira Sol' }).id).toStrictEqual('destination-headline');
-  expect(view.container.querySelector('#nav-item-music-artists-mira-sol')?.getAttribute('data-selected')).toStrictEqual('1');
+  expect(view.container.querySelector('#nav-item-music-artists-mira-sol')?.getAttribute('data-selected')).toStrictEqual(
+    '1',
+  );
 
-  fireEvent.click(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.unpinFromSidebar }));
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
     'Search',
@@ -1051,14 +1064,11 @@ test('pinning an album or artist adds that page to the sidebar and opens it agai
     'Harbour Lights',
   ]);
   expect(screen.queryByRole('link', { name: 'Mira Sol' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Pins the page to the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.pinToSidebar }).id).toStrictEqual('destination-pin');
 });
 
 test('a stored album pin is a sidebar link that opens that album', () => {
-  window.localStorage.setItem(
-    'gunmetal.pins',
-    '[{"path":"/library","label":"Night Shift","itemId":"demo-album-02"}]',
-  );
+  window.localStorage.setItem('gunmetal.pins', '[{"path":"/library","label":"Night Shift","itemId":"demo-album-02"}]');
   const view = render(<Shell playback={stubPlayback().controller} path="/" widthPx={1600} library={demoLibrary()} />);
   expect(sidebarLabels(view.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
@@ -1070,13 +1080,13 @@ test('a stored album pin is a sidebar link that opens that album', () => {
   ]);
   fireEvent.click(screen.getByRole('link', { name: 'Night Shift' }));
   expect(screen.getByRole('heading', { name: 'Night Shift' }).id).toStrictEqual('destination-headline');
-  expect(screen.getByRole('button', { name: 'Unpins the page from the sidebar' }).id).toStrictEqual('destination-pin');
+  expect(screen.getByRole('button', { name: messages.unpinFromSidebar }).id).toStrictEqual('destination-pin');
 });
 
 test('connected services and an extension page pin to the sidebar under their own names', () => {
   window.history.pushState(null, '', '/settings/connected');
   const connected = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(sidebarLabels(connected.container.querySelector('#nav-sidebar'))).toStrictEqual([
     'Home',
     'Search',
@@ -1093,12 +1103,12 @@ test('connected services and an extension page pin to the sidebar under their ow
   connected.unmount();
   window.localStorage.removeItem('gunmetal.pins');
 
-  window.history.pushState(null, '', '/settings/extensions/cover-art');
+  window.history.pushState(null, '', '/store/url-style');
   const extension = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
-  expect(screen.getByRole('link', { name: 'Metadata and artwork' })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
+  expect(screen.getByRole('link', { name: 'Address style' })).not.toBeNull();
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
-    '[{"path":"/settings/extensions/cover-art","label":"Metadata and artwork"}]',
+    '[{"path":"/store/url-style","label":"Address style"}]',
   );
   extension.unmount();
 });
@@ -1116,8 +1126,8 @@ test('a stored pin that is not a pin is dropped, and not-found has no pin button
   broken.unmount();
 
   render(<Shell playback={stubPlayback().controller} path="/nope" widthPx={1600} />);
-  expect(screen.queryByRole('button', { name: 'Pins the page to the sidebar' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Unpins the page from the sidebar' })).toBeNull();
+  expect(screen.queryByRole('button', { name: messages.pinToSidebar })).toBeNull();
+  expect(screen.queryByRole('button', { name: messages.unpinFromSidebar })).toBeNull();
 });
 
 function folderLibrary() {
@@ -1288,7 +1298,7 @@ test('an id address rewrites to the slug, and a slug or a missing watch address 
   const movie = render(<Shell playback={stubPlayback().controller} widthPx={1600} library={demoLibrary()} />);
   expect(window.location.pathname).toStrictEqual('/watch/movies/inception');
   expect(screen.getByRole('heading', { name: 'Inception' }).id).toStrictEqual('destination-headline');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/watch/movies/inception","label":"Inception"}]',
   );
@@ -1299,17 +1309,14 @@ test('an id address rewrites to the slug, and a slug or a missing watch address 
   render(<Shell playback={stubPlayback().controller} widthPx={1600} />);
   expect(window.location.pathname).toStrictEqual('/watch/shows/the-wire');
   expect(screen.getByRole('heading', { name: 'The Wire' }).id).toStrictEqual('destination-headline');
-  fireEvent.click(screen.getByRole('button', { name: 'Pins the page to the sidebar' }));
+  fireEvent.click(screen.getByRole('button', { name: messages.pinToSidebar }));
   expect(window.localStorage.getItem('gunmetal.pins')).toStrictEqual(
     '[{"path":"/watch/shows/the-wire","label":"The Wire"}]',
   );
 });
 
 test('a stored item pin opens that album, and an unknown item falls back to the library', () => {
-  window.localStorage.setItem(
-    'gunmetal.pins',
-    '[{"path":"/library","label":"Missing","itemId":"missing-album"}]',
-  );
+  window.localStorage.setItem('gunmetal.pins', '[{"path":"/library","label":"Missing","itemId":"missing-album"}]');
   const missing = render(
     <Shell playback={stubPlayback().controller} path="/search" widthPx={1600} library={demoLibrary()} />,
   );

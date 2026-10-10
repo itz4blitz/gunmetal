@@ -15,7 +15,7 @@ import {
 } from './settings.ts';
 import type { ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
-import { extensionIdFromPath } from '../../plugins/repository.ts';
+import { storeIdFromPath } from '../../plugins/repository.ts';
 import { labelFromKey } from '../../router/media-path.ts';
 import { AlbumDetail } from './AlbumDetail.tsx';
 import { ArtistDetail } from './ArtistDetail.tsx';
@@ -140,10 +140,11 @@ export function Destination({
     );
   }
 
-  if (match.route.path === '/store') {
+  const storeId = storeIdFromPath(match.route.path);
+  if (match.route.path === '/store' || storeId !== undefined) {
     return (
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
-        <Store messages={messages.destinations} onOpenPath={onOpenPath} />
+        <Store messages={messages.destinations} onOpenPath={onOpenPath} selectedId={storeId} />
       </View>
     );
   }
@@ -280,7 +281,6 @@ export function Destination({
     <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
       <Settings
         section={section ?? settingsSectionFromPath(match.route.path)}
-        extensionId={extensionIdFromPath(match.route.path)}
         onOpenPath={onOpenPath}
         pluginSlots={pluginSlots}
         libraryFact={libraryFact}

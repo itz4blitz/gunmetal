@@ -48,6 +48,9 @@ export type ShellMessages = {
   playerRemove: string;
   /* The Store door. An extension is a record, not a download. */
   navStore: string;
+  /* The destination pin. Its name carries the state it will move to. */
+  pinToSidebar: string;
+  unpinFromSidebar: string;
 };
 
 export function shellMessages(): ShellMessages {
@@ -101,5 +104,8 @@ export function shellMessages(): ShellMessages {
     playerRemove: 'Remove from queue',
     /* The Store door. An extension is a record, not a download. */
     navStore: 'Store',
+    /* The destination pin. Its name carries the state it will move to. */
+    pinToSidebar: 'Pins the page to the sidebar',
+    unpinFromSidebar: 'Unpins the page from the sidebar',
   };
 }

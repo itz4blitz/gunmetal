@@ -631,7 +631,7 @@ export function buildLibrary(files) {
 // Archive. HTTPS only. The archive answers with a redirect to archive.org,
 // then to a download host under archive.org. Those two hops are allowed.
 // Nothing else is.
-const ARTWORK_UA = 'Gunmetal/0.0.0 (https://atomicstudio.taild1bbf.ts.net)';
+const ARTWORK_UA = 'Gunmetal/0.0.0 (+https://github.com/itz4blitz/gunmetal)';
 const ARTWORK_HOSTS = new Set(['musicbrainz.org', 'coverartarchive.org']);
 const ARTWORK_CAP = 40;
 const ARTWORK_INTERVAL_MS = 1000;

@@ -176,9 +176,19 @@ export type DestinationMessages = {
   settingsExtensionDoes: string;
   settingsExtensionShips: string;
   /* Store page. The catalogue this server already holds. Append-only. */
+  storeHeadline: string;
   storeLede: string;
   storeOn: string;
   storeCatalogue: string;
+  /* Install, uninstall and settings. A choice on this server, not a download. Append-only. */
+  settingsExtensionInstall: string;
+  settingsExtensionUninstall: string;
+  settingsExtensionOff: string;
+  settingsExtensionSaved: string;
+  settingsExtensionChoice: string;
+  storeInstall: string;
+  storeUninstall: string;
+  storeSaved: string;
 };
 
 export function destinationMessages(): DestinationMessages {
@@ -358,9 +368,18 @@ export function destinationMessages(): DestinationMessages {
     settingsExtensionShips:
       'Reviewed in itz4blitz/gunmetal-extensions. A pull request merged there lists it in the store. It does not install it on this server.',
     /* Store page. The catalogue this server already holds. Append-only. */
+    storeHeadline: 'Store',
     storeLede:
       'A pull request merged into main lists a record here. That does not install it. On this server means this server already runs the job.',
     storeOn: 'On this server',
     storeCatalogue: 'In the store',
+    settingsExtensionInstall: 'Install',
+    settingsExtensionUninstall: 'Uninstall',
+    settingsExtensionOff: 'Off',
+    settingsExtensionSaved: 'Saved. This server does not run it yet.',
+    settingsExtensionChoice: 'Install saves your choice on this server. It does not download or run a package.',
+    storeInstall: 'Install',
+    storeUninstall: 'Uninstall',
+    storeSaved: 'Saved',
   };
 }

@@ -11,7 +11,7 @@ import { useMenuDismiss } from '../menu-dismiss.ts';
 import { AlbumTile } from './AlbumTile.tsx';
 import { CoverTile } from './CoverTile.tsx';
 import { TrackRow } from './TrackRow.tsx';
-import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange } from './windowing.ts';
+import { LIST_OVERSCAN_ROWS, contentScroller, useContentViewport, visibleRange, spacerHeights } from './windowing.ts';
 
 /** The album table's row height, pinned by the area CSS row contract. */
 const TRACK_ROW_HEIGHT = 52;
@@ -525,7 +525,8 @@ export function AlbumDetail({
               LIST_OVERSCAN_ROWS,
             );
             const shown = album.tracks.slice(rows.start, rows.end);
-            return album.hostile
+            const spacers = spacerHeights(rows, album.tracks.length, TRACK_ROW_HEIGHT);
+            const rowsView = album.hostile
               ? shown.map((track) => (
                   <HostileTrackRow
                     key={track.id}
@@ -536,6 +537,13 @@ export function AlbumDetail({
                   />
                 ))
               : shown.map(renderTrackRow);
+            return (
+              <>
+                <View aria-hidden={true} dataSet={{ listSpacer: 'top' }} style={{ height: spacers.top }} />
+                {rowsView}
+                <View aria-hidden={true} dataSet={{ listSpacer: 'bottom' }} style={{ height: spacers.bottom }} />
+              </>
+            );
           })()}
         </View>
       )}

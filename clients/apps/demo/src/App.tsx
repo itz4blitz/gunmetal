@@ -65,13 +65,21 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
   const [outputs, setOutputs] = useState<readonly OutputDevice[]>([]);
   useEffect(() => {
     let liveList = true;
-    void listOutputDevices().then((devices) => {
-      if (liveList) {
-        setOutputs(devices);
-      }
-    });
+    const load = () => {
+      void listOutputDevices().then((devices) => {
+        if (liveList) {
+          setOutputs(devices);
+        }
+      });
+    };
+    load();
+    /* Plugging in headphones re-lists the outputs; the browser does not reload
+       the page for it. The listener leaves with the component. */
+    const mediaDevices = navigator.mediaDevices as MediaDevices | undefined;
+    mediaDevices?.addEventListener('devicechange', load);
     return () => {
       liveList = false;
+      mediaDevices?.removeEventListener('devicechange', load);
     };
   }, []);
   const onLevelling = useCallback((levelling: Levelling) => {

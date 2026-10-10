@@ -11,13 +11,12 @@ export type PluginSlot = {
   id: PluginSlotId;
   status: FirstPartyJobStatus;
 };
-import { extensionIdFromPath } from '../../plugins/repository.ts';
 import type { DestinationMessages } from '../../messages/en/destinations.ts';
 import type { ShellMessages } from '../../messages/en/shell.ts';
 import { themes, type ThemeId } from '../theme.ts';
 import type { WidthClass } from '../width.ts';
 
-export type SettingsSection = 'appearance' | 'playback' | 'libraries' | 'connected' | 'extensions' | 'about' | 'privacy';
+export type SettingsSection = 'appearance' | 'playback' | 'libraries' | 'connected' | 'about' | 'privacy';
 
 export type SettingsLayout = 'stack' | 'side';
 
@@ -27,7 +26,7 @@ export type SettingsLayout = 'stack' | 'side';
  * the R1 music app would be making.
  */
 export function settingsSections(withLibraries = false): readonly SettingsSection[] {
-  const tail: readonly SettingsSection[] = ['connected', 'extensions', 'about', 'privacy'];
+  const tail: readonly SettingsSection[] = ['connected', 'about', 'privacy'];
   return withLibraries ? ['appearance', 'playback', 'libraries', ...tail] : ['appearance', 'playback', ...tail];
 }
 
@@ -52,9 +51,6 @@ export function settingsSectionFromPath(path: string): SettingsSection | undefin
   if (path === '/settings/connected') {
     return 'connected';
   }
-  if (path === '/settings/extensions' || extensionIdFromPath(path) !== undefined) {
-    return 'extensions';
-  }
   if (path === '/settings/about') {
     return 'about';
   }
@@ -74,11 +70,8 @@ export function settingsLayout(width: WidthClass): SettingsLayout {
   return 'stack';
 }
 
-/** Extensions wears no release badge: a badge there would pretend a plugin exists. */
+/** A section wears no release badge: a badge there would pretend a state exists. */
 export function settingsRelease(section: SettingsSection): 'R1' | 'R2' | undefined {
-  if (section === 'extensions') {
-    return undefined;
-  }
   if (section === 'connected') {
     return 'R2';
   }
@@ -101,9 +94,6 @@ export function settingsSectionTitle(section: SettingsSection, messages: Destina
   if (section === 'connected') {
     return messages.settingsConnected;
   }
-  if (section === 'extensions') {
-    return messages.settingsExtensions;
-  }
   if (section === 'about') {
     return messages.settingsAbout;
   }
@@ -122,9 +112,6 @@ export function settingsSectionPath(section: SettingsSection): string {
   }
   if (section === 'connected') {
     return '/settings/connected';
-  }
-  if (section === 'extensions') {
-    return '/settings/extensions';
   }
   if (section === 'about') {
     return '/settings/about';

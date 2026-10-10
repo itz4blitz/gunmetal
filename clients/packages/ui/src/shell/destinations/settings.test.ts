@@ -21,8 +21,8 @@ import {
   settingsThemeLabel,
 } from './settings.ts';
 
-test('settings sections are the six 2026 catalogue panes in listed order', () => {
-  expect(settingsSections()).toStrictEqual(['appearance', 'playback', 'connected', 'extensions', 'about', 'privacy']);
+test('settings sections are the five 2026 catalogue panes in listed order', () => {
+  expect(settingsSections()).toStrictEqual(['appearance', 'playback', 'connected', 'about', 'privacy']);
   expect(defaultSettingsSection()).toStrictEqual('appearance');
 });
 
@@ -32,7 +32,6 @@ test('with libraries content, the libraries pane sits third in the order', () =>
     'playback',
     'libraries',
     'connected',
-    'extensions',
     'about',
     'privacy',
   ]);
@@ -43,13 +42,21 @@ test('a settings route names its pane, and any other path names none', () => {
   expect(settingsSectionFromPath('/settings/appearance')).toStrictEqual('appearance');
   expect(settingsSectionFromPath('/settings/playback')).toStrictEqual('playback');
   expect(settingsSectionFromPath('/settings/libraries')).toStrictEqual('libraries');
-  expect(settingsSectionFromPath('/settings/extensions')).toStrictEqual('extensions');
+  expect(settingsSectionFromPath('/settings/extensions')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('/settings/about')).toStrictEqual('about');
   expect(settingsSectionFromPath('/settings/privacy')).toStrictEqual('privacy');
   expect(settingsSectionFromPath('/settings/connected')).toStrictEqual('connected');
-  expect(settingsSectionFromPath('/settings/extensions/cover-art')).toStrictEqual('extensions');
+  expect(settingsSectionFromPath('/store')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('/library')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('')).toStrictEqual(undefined);
+});
+
+test('every section answers its settings address', () => {
+  expect(settingsSectionPath('appearance')).toStrictEqual('/settings/appearance');
+  expect(settingsSectionPath('playback')).toStrictEqual('/settings/playback');
+  expect(settingsSectionPath('connected')).toStrictEqual('/settings/connected');
+  expect(settingsSectionPath('about')).toStrictEqual('/settings/about');
+  expect(settingsSectionPath('privacy')).toStrictEqual('/settings/privacy');
 });
 
 test('settings layout is a left list on expanded and wide and stacked on compact', () => {
@@ -59,14 +66,13 @@ test('settings layout is a left list on expanded and wide and stacked on compact
   expect(settingsLayout('wide')).toStrictEqual('side');
 });
 
-test('release badges are honest R1 or R2, and extensions wears none', () => {
+test('release badges are honest R1 or R2', () => {
   expect(settingsRelease('appearance')).toStrictEqual('R1');
   expect(settingsRelease('playback')).toStrictEqual('R1');
   expect(settingsRelease('about')).toStrictEqual('R1');
   expect(settingsRelease('privacy')).toStrictEqual('R1');
   expect(settingsRelease('connected')).toStrictEqual('R2');
   expect(settingsRelease('libraries')).toStrictEqual('R2');
-  expect(settingsRelease('extensions')).toStrictEqual(undefined);
 });
 
 test('section titles and nav items are the catalogue literals', () => {
@@ -75,14 +81,12 @@ test('section titles and nav items are the catalogue literals', () => {
   expect(settingsSectionTitle('playback', messages)).toStrictEqual('Playback');
   expect(settingsSectionTitle('libraries', messages)).toStrictEqual('Libraries');
   expect(settingsSectionTitle('connected', messages)).toStrictEqual('Connected services');
-  expect(settingsSectionTitle('extensions', messages)).toStrictEqual('Extensions / Plugins');
   expect(settingsSectionTitle('about', messages)).toStrictEqual('About this connection');
   expect(settingsSectionTitle('privacy', messages)).toStrictEqual('Privacy');
   expect(settingsNavItems(messages)).toStrictEqual([
     { id: 'appearance', label: 'Appearance' },
     { id: 'playback', label: 'Playback' },
     { id: 'connected', label: 'Connected services' },
-    { id: 'extensions', label: 'Extensions / Plugins' },
     { id: 'about', label: 'About this connection' },
     { id: 'privacy', label: 'Privacy' },
   ]);
@@ -91,7 +95,6 @@ test('section titles and nav items are the catalogue literals', () => {
     { id: 'playback', label: 'Playback' },
     { id: 'libraries', label: 'Libraries' },
     { id: 'connected', label: 'Connected services' },
-    { id: 'extensions', label: 'Extensions / Plugins' },
     { id: 'about', label: 'About this connection' },
     { id: 'privacy', label: 'Privacy' },
   ]);
@@ -103,7 +106,6 @@ test('every section has its own path', () => {
   expect(settingsSectionPath('playback')).toStrictEqual('/settings/playback');
   expect(settingsSectionPath('libraries')).toStrictEqual('/settings/libraries');
   expect(settingsSectionPath('connected')).toStrictEqual('/settings/connected');
-  expect(settingsSectionPath('extensions')).toStrictEqual('/settings/extensions');
   expect(settingsSectionPath('about')).toStrictEqual('/settings/about');
   expect(settingsSectionPath('privacy')).toStrictEqual('/settings/privacy');
 });
