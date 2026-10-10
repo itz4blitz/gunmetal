@@ -35,6 +35,10 @@ jobs:
     if: failure()
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
+    # Forgejo warns on the permission field; it stays so the daily check can
+    # open or update its tracking issue (SEC-SUP-023).
+    permissions:
+      issues: write
     steps:
       - name: Open or update the tracking issue
         env:
