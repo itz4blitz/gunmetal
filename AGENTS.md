@@ -18,8 +18,14 @@
 - `gunmetal-core` is pure logic: no I/O, no `unsafe`, no panics on any input.
   Malformed media must come back as a typed error.
 - Do not add a code directory, crate or dependency until a test needs it.
-- The public repository is `https://github.com/itz4blitz/gunmetal`.
-  Clone, push and open pull requests there.
+- The source of truth is GitHub:
+  `https://github.com/itz4blitz/gunmetal`
+  ([D-96](docs/decisions.md#d-96-source-of-truth-github),
+  [record 31](docs/adr/0031-github-is-the-source-of-truth.md)). Clone,
+  push and open pull requests there, and nowhere else. The Premier
+  Forgejo (`git.taild1bbf.ts.net`) is a read-only archive: never push to
+  it, never open a pull request there. Actions run on GitHub-hosted
+  runners.
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is
