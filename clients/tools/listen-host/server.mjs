@@ -1284,7 +1284,12 @@ async function artistFetch(url, ctx, depth) {
     return undefined;
   }
   const type = headerOf(response, 'content-type');
-  const bytes = await readCapped(response, parsed.hostname.endsWith('wikimedia.org') && parsed.pathname.includes('/wikipedia/commons/') ? ARTWORK_IMAGE_MAX : ARTWORK_JSON_MAX);
+  // The image cap is the same two hosts the hop allowlist treats as Commons files.
+  // A suffix check would also match a name that merely ends in those labels.
+  const wikimediaImage =
+    (parsed.hostname === 'upload.wikimedia.org' || parsed.hostname === 'thumb.wikimedia.org') &&
+    parsed.pathname.includes('/wikipedia/commons/');
+  const bytes = await readCapped(response, wikimediaImage ? ARTWORK_IMAGE_MAX : ARTWORK_JSON_MAX);
   if (bytes === undefined) {
     return undefined;
   }

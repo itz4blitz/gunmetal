@@ -317,7 +317,9 @@ test('wordmark and form controls use theme tokens and Inter, not hardcoded dark 
   const css = await demoShellCss();
   const face = css.slice(css.indexOf('@font-face'), css.indexOf('html,'));
   expect(face.includes('/fonts/InterVariable.woff2')).toStrictEqual(true);
-  expect(css.includes('fonts.googleapis.com') || css.includes('fonts.gstatic.com')).toStrictEqual(false);
+  // Counted by splitting, so the absence of a font host is not a URL-substring check.
+  expect(css.split('fonts.googleapis.com').length).toStrictEqual(1);
+  expect(css.split('fonts.gstatic.com').length).toStrictEqual(1);
   const wordmark = css.slice(css.indexOf('#shell-wordmark'), css.indexOf('#nav-sidebar #shell-wordmark'));
   expect(wordmark.includes('var(--gm-text-primary)')).toStrictEqual(true);
   expect(wordmark.includes('#e9eef2')).toStrictEqual(false);
