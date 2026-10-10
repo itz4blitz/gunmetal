@@ -48,18 +48,23 @@ function loadPlaybackPrefs(): PlaybackPrefs {
 }
 
 export function App({ library }: { library?: DemoLibrary | undefined }) {
-  const [mode, setMode] = useState<'music' | 'video'>('music');
   const [live, setLive] = useState(library);
-  const refresh = useCallback((done: number) => {
-    if (done < 1) {
-      return;
-    }
+  const reloadLibrary = useCallback(() => {
     void loadServedLibrary().then((next) => {
       if (next !== undefined) {
         setLive(next);
       }
     });
   }, []);
+  const refresh = useCallback(
+    (done: number) => {
+      if (done < 1) {
+        return;
+      }
+      reloadLibrary();
+    },
+    [reloadLibrary],
+  );
   const demo = composeDemo(live);
   const [prefs, setPrefs] = useState<PlaybackPrefs>(() => loadPlaybackPrefs());
   const [outputs, setOutputs] = useState<readonly OutputDevice[]>([]);
@@ -113,24 +118,7 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
   return (
     <>
       <ActivityBar onAdvance={refresh} />
-      <nav id="demo-mode-switch" aria-label="Area">
-        <button
-          type="button"
-          aria-pressed={mode === 'music'}
-          onClick={() => setMode('music')}
-        >
-          Music
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === 'video'}
-          onClick={() => setMode('video')}
-        >
-          Watch
-        </button>
-      </nav>
-      {mode === 'music' ? (
-        <Shell
+      <Shell
         showDemoLabel={demo.showDemoLabel}
         library={demo.library}
         searchLibrary={demo.searchLibrary}
@@ -138,7 +126,8 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
         timedLyricsFor={demo.timedLyricsFor}
         pluginSlots={demo.pluginSlots}
         settingsStore={createSettingsStore(globalThis.localStorage)}
-        settingsLibraries={<SourcesPane />}
+        settingsLibraries={<SourcesPane onChange={reloadLibrary} />}
+        watch={<WatchArea />}
         playback={playback}
         layoutStore={createLayoutStore(globalThis.localStorage)}
         levelling={prefs.levelling}
@@ -149,9 +138,6 @@ export function App({ library }: { library?: DemoLibrary | undefined }) {
         sinkId={prefs.sinkId}
         onOutput={onOutput}
       />
-      ) : (
-        <WatchArea />
-      )}
     </>
   );
 }

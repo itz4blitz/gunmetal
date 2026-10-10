@@ -2,7 +2,9 @@ import { expect, test, vi } from 'vitest';
 import { addSource, loadSources, loadVideoDocument, removeSource, rescanSource } from './video-api.ts';
 import { sourcesFromDocument, videoFromDocument } from './video-types.ts';
 
-const sourcesBody = { sources: [{ id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', titles: 1 }] };
+const sourcesBody = {
+  sources: [{ id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', kind: 'movies', items: 1 }],
+};
 const videoBody = {
   kind: 'video',
   titles: [
@@ -78,11 +80,11 @@ test('a video document over a refused answer names the status', async () => {
 
 test('adding a source posts the name and path as json', async () => {
   const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 201));
-  expect(await addSource('Movies', '/media/movies', fetchImpl)).toStrictEqual({ ok: true, value: true });
+  expect(await addSource('Movies', '/media/movies', 'movies', fetchImpl)).toStrictEqual({ ok: true, value: true });
   expect(fetchImpl).toHaveBeenCalledWith('/api/sources', {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
-    body: JSON.stringify({ name: 'Movies', path: '/media/movies' }),
+    body: JSON.stringify({ name: 'Movies', path: '/media/movies', kind: 'movies' }),
   });
 });
 
@@ -90,7 +92,7 @@ test('a refused add carries the server reason when it has one', async () => {
   const fetchImpl = vi
     .fn()
     .mockResolvedValue(jsonResponse({ error: 'the path is not a directory this container can see' }, 400));
-  expect(await addSource('Movies', '/nowhere', fetchImpl)).toStrictEqual({
+  expect(await addSource('Movies', '/nowhere', 'movies', fetchImpl)).toStrictEqual({
     ok: false,
     error: 'the path is not a directory this container can see',
   });
@@ -98,12 +100,12 @@ test('a refused add carries the server reason when it has one', async () => {
 
 test('a refused add without a reason names the status', async () => {
   const plain = vi.fn().mockResolvedValue(new Response('bad', { status: 400 }));
-  expect(await addSource('Movies', '/nowhere', plain)).toStrictEqual({
+  expect(await addSource('Movies', '/nowhere', 'movies', plain)).toStrictEqual({
     ok: false,
     error: 'the server answered 400',
   });
   const emptyJson = vi.fn().mockResolvedValue(jsonResponse({}, 409));
-  expect(await addSource('Movies', '/media/movies', emptyJson)).toStrictEqual({
+  expect(await addSource('Movies', '/media/movies', 'movies', emptyJson)).toStrictEqual({
     ok: false,
     error: 'the server answered 409',
   });
@@ -111,7 +113,7 @@ test('a refused add without a reason names the status', async () => {
 
 test('an unreachable add says so', async () => {
   const fetchImpl = vi.fn().mockRejectedValue(new Error('offline'));
-  expect(await addSource('Movies', '/media/movies', fetchImpl)).toStrictEqual({
+  expect(await addSource('Movies', '/media/movies', 'music', fetchImpl)).toStrictEqual({
     ok: false,
     error: 'the server could not be reached',
   });
@@ -119,7 +121,7 @@ test('an unreachable add says so', async () => {
 
 test('an add that answers not-json says so', async () => {
   const fetchImpl = vi.fn().mockResolvedValue(new Response('created', { status: 201 }));
-  expect(await addSource('Movies', '/media/movies', fetchImpl)).toStrictEqual({
+  expect(await addSource('Shows', '/media/tvshows', 'shows', fetchImpl)).toStrictEqual({
     ok: false,
     error: 'the server answered something that is not json',
   });
@@ -131,7 +133,6 @@ test('removing a source deletes its route', async () => {
   expect(fetchImpl).toHaveBeenCalledWith('/api/sources/a1a1a1a1a1a1a1a1', {
     method: 'DELETE',
     headers: { accept: 'application/json' },
-    body: undefined,
   });
 });
 
@@ -149,7 +150,6 @@ test('rescanning a source posts its route', async () => {
   expect(fetchImpl).toHaveBeenCalledWith('/api/sources/a1a1a1a1a1a1a1a1/rescan', {
     method: 'POST',
     headers: { accept: 'application/json' },
-    body: undefined,
   });
 });
 

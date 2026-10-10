@@ -92,6 +92,8 @@ export type ShellProps = {
   onOutput?: ((id: string) => void) | undefined;
   /** Libraries content for the settings page. Absent, the section stays hidden. */
   settingsLibraries?: ReactNode | undefined;
+  /** The watch area: films and shows. Absent, the sidebar has no Watch entry. */
+  watch?: ReactNode | undefined;
 };
 
 function readWindowWidth(): number {
@@ -311,6 +313,7 @@ export function Shell({
   sinkId,
   onOutput,
   settingsLibraries,
+  watch,
 }: ShellProps) {
   const messages = catalogue();
   const [store] = useState<LayoutStore>(() => layoutStore ?? noLayoutStore());
@@ -484,7 +487,7 @@ export function Shell({
   useLayoutEffect(() => {
     scrollContentToTop();
   }, [pageId]);
-  const items = withPins(navItems(messages.shell, messages.destinations), pins);
+  const items = withPins(navItems(messages.shell, messages.destinations, watch !== undefined), pins);
   const currentLandmarks = landmarksForClass(width);
   const navActive = navActivePath(activePath, items);
   const pinTarget = pinForPlace(activePath, itemId, library, messages);
@@ -736,6 +739,7 @@ export function Shell({
             served={library?.kind === 'folder'}
             libraryFact={libraryFact}
             libraries={settingsLibraries}
+            watch={watch}
             width={width}
           />
         </View>

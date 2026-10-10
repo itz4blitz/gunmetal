@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { browserPlayable, sourcesFromDocument, videoFromDocument } from './video-types.ts';
 
-const source = { id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', titles: 3 };
+const source = { id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', kind: 'movies' as const, items: 3 };
 
 test('a sources document is read whole', () => {
   expect(sourcesFromDocument({ sources: [source] })).toStrictEqual({ sources: [source] });
@@ -19,13 +19,18 @@ test('anything not a sources document is refused', () => {
   expect(sourcesFromDocument({ sources: [{ ...source, id: '' }] })).toBeUndefined();
   expect(sourcesFromDocument({ sources: [{ ...source, name: '' }] })).toBeUndefined();
   expect(sourcesFromDocument({ sources: [{ ...source, path: 'media/milms' }] })).toBeUndefined();
-  expect(sourcesFromDocument({ sources: [{ ...source, titles: -1 }] })).toBeUndefined();
-  expect(sourcesFromDocument({ sources: [{ ...source, titles: 1.5 }] })).toBeUndefined();
-  expect(sourcesFromDocument({ sources: [{ ...source, titles: 'three' }] })).toBeUndefined();
+  expect(sourcesFromDocument({ sources: [{ ...source, kind: 'photos' }] })).toBeUndefined();
+  expect(sourcesFromDocument({ sources: [{ ...source, kind: 'music' }] })).toStrictEqual({
+    sources: [{ ...source, kind: 'music' }],
+  });
+  expect(sourcesFromDocument({ sources: [{ ...source, kind: 'shows' }] })).toStrictEqual({
+    sources: [{ ...source, kind: 'shows' }],
+  });
+  expect(sourcesFromDocument({ sources: [{ ...source, items: -1 }] })).toBeUndefined();
+  expect(sourcesFromDocument({ sources: [{ ...source, items: 1.5 }] })).toBeUndefined();
+  expect(sourcesFromDocument({ sources: [{ ...source, items: 'three' }] })).toBeUndefined();
   expect(sourcesFromDocument({ sources: [source, { ...source }] })).toBeUndefined();
-  expect(
-    sourcesFromDocument({ sources: Array.from({ length: 65 }, () => source) }),
-  ).toBeUndefined();
+  expect(sourcesFromDocument({ sources: Array.from({ length: 65 }, () => source) })).toBeUndefined();
 });
 
 const movie = {

@@ -16,6 +16,20 @@ test('primary nav items are Home, Search, Library, Store and Settings', () => {
   ]);
 });
 
+test('a host with a watch area gets Watch between Library and Store', () => {
+  expect(navItems(shellMessages(), destinationMessages(), true)).toStrictEqual([
+    { path: '/', label: 'Home', icon: 'home' },
+    { path: '/search', label: 'Search', icon: 'search' },
+    { path: '/library', label: 'Library', icon: 'library' },
+    { path: '/watch', label: 'Watch', icon: 'watch' },
+    { path: '/store', label: 'Store', icon: 'store' },
+    { path: '/settings', label: 'Settings', icon: 'settings' },
+  ]);
+  expect(navItems(shellMessages(), destinationMessages(), false)).toStrictEqual(
+    navItems(shellMessages(), destinationMessages()),
+  );
+});
+
 test('withPins appends pins that are not already listed, in pin order', () => {
   const items: readonly NavItem[] = [
     { path: '/', label: 'Home', icon: 'home' },

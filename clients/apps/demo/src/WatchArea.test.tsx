@@ -11,7 +11,7 @@ afterEach(cleanup);
 
 const emptySources: SourcesDocument = { sources: [] };
 const oneSource: SourcesDocument = {
-  sources: [{ id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', titles: 2 }],
+  sources: [{ id: 'a1a1a1a1a1a1a1a1', name: 'Movies', path: '/media/movies', kind: 'movies', items: 2 }],
 };
 const emptyVideo: VideoDocument = { kind: 'video', titles: [] };
 const twoTitles: VideoDocument = {
@@ -52,8 +52,21 @@ beforeEach(() => {
 test('with no sources the area points at the settings libraries', async () => {
   render(<WatchArea />);
   await waitFor(() => {
-    expect(screen.getByText('No libraries yet. Add one in Settings → Libraries.')).not.toBeNull();
+    expect(screen.getByText('No movie or TV libraries yet. Add one in Settings → Libraries.')).not.toBeNull();
   });
+});
+
+test('a server with only a music library still has nothing to watch, and says where to add one', async () => {
+  mocked.loadSources.mockResolvedValue({
+    ok: true,
+    value: { sources: [{ id: 'e5e5e5e5e5e5e5e5', name: 'Songs', path: '/media/music', kind: 'music', items: 40 }] },
+  });
+  render(<WatchArea />);
+  await waitFor(() => {
+    expect(mocked.loadVideoDocument).toHaveBeenCalledTimes(1);
+  });
+  expect(screen.getByText('No movie or TV libraries yet. Add one in Settings → Libraries.')).not.toBeNull();
+  expect(screen.queryByText('No video files found in the configured libraries yet.')).toBeNull();
 });
 
 test('a source with no files yet says so', async () => {

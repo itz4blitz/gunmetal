@@ -63,6 +63,8 @@ export type DestinationProps = {
   libraryFact?: string | undefined;
   /** Libraries content for the settings page. Absent, the section stays hidden. */
   libraries?: ReactNode | undefined;
+  /** The watch area for `/watch`. Absent, that address is not found. */
+  watch?: ReactNode | undefined;
   width: WidthClass;
   onPlayNextAlbum?: (albumId: string) => void;
   onAddAlbumToQueue?: (albumId: string) => void;
@@ -110,6 +112,7 @@ export function Destination({
   served,
   libraryFact,
   libraries,
+  watch,
   width,
   onPlayNextAlbum,
   onAddAlbumToQueue,
@@ -130,12 +133,20 @@ export function Destination({
   const artists = useMemo(() => indexArtists(library ?? { albums: [], artists: [] }), [library]);
   const byArtist = useMemo(() => albumsByArtistIndex(library ?? { albums: [], artists: [] }), [library]);
 
-  if (match.kind === 'not-found') {
+  if (match.kind === 'not-found' || (match.route.path === '/watch' && watch === undefined)) {
     return (
       <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
         <Text id="destination-headline" accessibilityRole="header">
           {messages.destinations.notFoundHeadline}
         </Text>
+      </View>
+    );
+  }
+
+  if (match.route.path === '/watch') {
+    return (
+      <View id="destination" key={enterKey} dataSet={{ pageEnter: '1' }}>
+        {watch}
       </View>
     );
   }

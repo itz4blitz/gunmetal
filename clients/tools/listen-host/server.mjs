@@ -1,21 +1,29 @@
-// Library host for the Gunmetal demo. It reads the music folder, writes a
-// folder-library document the client accepts, and streams the audio.
-// Paths never appear in URLs: a track id is a hash, and the file map is
-// the only way to open one.
+// Library host for the Gunmetal demo. It reads the libraries the owner set
+// (each one a name, a kind and a folder), writes the documents the client
+// accepts, and streams the media. No folder is read unless it is in that
+// list. Paths never appear in URLs: a track id is a hash, and the file map
+// is the only way to open one.
 
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, openSync, readSync, closeSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, relative, sep } from 'node:path';
+import { basename, extname, join, relative, sep } from 'node:path';
 import { readdir } from 'node:fs/promises';
 
-const musicRoot = process.env.MUSIC ?? '/music';
+// An older deployment that named MUSIC is carried into the libraries list
+// once (loadLibraries) and is never read on its own again. An unset MUSIC
+// adds no folder: /music is not assumed.
+const legacyMusicRoot = process.env.MUSIC ?? '';
+// `LOOKUPS=off` keeps the artwork and artist-photo lookups off the network.
+const lookups = process.env.LOOKUPS !== 'off';
 const cacheRoot = process.env.CACHE ?? '/cache';
 const staticRoot = process.env.STATIC ?? '';
 const port = Number(process.env.PORT ?? 8788);
 const host = process.env.HOST ?? '0.0.0.0';
 
-const sourcesPath = join(cacheRoot, 'video-sources.json');
+const librariesPath = join(cacheRoot, 'libraries.json');
+const legacySourcesPath = join(cacheRoot, 'video-sources.json');
+const KINDS = new Set(['music', 'movies', 'shows']);
 const VIDEO = new Set(['.mp4', '.m4v', '.mkv', '.webm', '.mov']);
 const VIDEO_WALK_MAX_FILES = 20_000;
 const VIDEO_WALK_MAX_DEPTH = 8;
@@ -405,25 +413,70 @@ function writeJsonFile(path, value) {
   writeFileSync(path, JSON.stringify(value, undefined, 2));
 }
 
-function loadSources() {
-  const read = readJsonFile(sourcesPath, { sources: [] });
-  if (!Array.isArray(read.sources)) {
-    return [];
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
   }
-  return read.sources.filter(
-    (source) =>
-      typeof source?.id === 'string' &&
-      typeof source?.name === 'string' &&
-      typeof source?.path === 'string' &&
-      source.path.startsWith('/'),
-  );
 }
 
-function saveSources() {
-  writeJsonFile(
-    sourcesPath,
-    { sources: video.sources.map(({ id, name, path }) => ({ id, name, path })) },
-  );
+function libraryId(path) {
+  return idOf(`library:${path}`);
+}
+
+/**
+ * The libraries the owner set. A server from before libraries had kinds has
+ * no such file: its music folder and its video sources are carried over
+ * once, as libraries the owner can see and remove, and the file is written
+ * so that never happens twice.
+ */
+function loadLibraries() {
+  const kept = readJsonFile(librariesPath, undefined);
+  if (Array.isArray(kept?.sources)) {
+    return kept.sources
+      .filter(
+        (source) =>
+          typeof source?.id === 'string' &&
+          /^[a-f0-9]{16}$/.test(source.id) &&
+          typeof source.name === 'string' &&
+          source.name !== '' &&
+          typeof source.path === 'string' &&
+          source.path.startsWith('/') &&
+          KINDS.has(source.kind),
+      )
+      .map(({ id, name, kind, path }) => ({ id, name, kind, path, items: 0 }));
+  }
+  const carried = [];
+  if (isDirectory(legacyMusicRoot)) {
+    carried.push({ id: libraryId(legacyMusicRoot), name: 'Music', kind: 'music', path: legacyMusicRoot, items: 0 });
+  }
+  const legacy = readJsonFile(legacySourcesPath, undefined);
+  for (const source of Array.isArray(legacy?.sources) ? legacy.sources : []) {
+    if (typeof source?.name !== 'string' || source.name === '' || typeof source.path !== 'string' || !source.path.startsWith('/')) {
+      continue;
+    }
+    if (carried.some((candidate) => candidate.path === source.path)) {
+      continue;
+    }
+    const shows = /\b(tv|shows?|series)/i.test(`${source.name} ${basename(source.path)}`);
+    carried.push({
+      id: libraryId(source.path),
+      name: source.name,
+      kind: shows ? 'shows' : 'movies',
+      path: source.path,
+      items: 0,
+    });
+  }
+  libraries.sources = carried;
+  saveLibraries();
+  return carried;
+}
+
+function saveLibraries() {
+  writeJsonFile(librariesPath, {
+    sources: libraries.sources.map(({ id, name, kind, path }) => ({ id, name, kind, path })),
+  });
 }
 
 /** Episode numbering, S01E02 style, or a dated episode. Neither means a film. */
@@ -521,7 +574,8 @@ function metaOf(file) {
   return extname(file).toLowerCase() === '.flac' ? flacMeta(file) : mp3Meta(file);
 }
 
-export function buildLibrary(files) {
+/** `roots` are the library folders the files came from; the first folder under one names an untagged artist. */
+export function buildLibrary(files, roots = [legacyMusicRoot]) {
   const albums = new Map();
   const media = new Map();
   let skipped = 0;
@@ -538,7 +592,8 @@ export function buildLibrary(files) {
       continue;
     }
     const base = file.slice(file.lastIndexOf(sep) + 1);
-    const folder = relative(musicRoot, file).split(sep)[0] ?? 'Unknown artist';
+    const root = roots.find((candidate) => file.startsWith(`${candidate}${sep}`)) ?? '';
+    const folder = relative(root, file).split(sep)[0] ?? 'Unknown artist';
     const tags = meta.tags;
     const albumArtist = clean(tags.get('ALBUMARTIST') || tags.get('ARTIST') || folder, 'Unknown artist');
     const trackArtist = clean(tags.get('ARTIST') || albumArtist, albumArtist);
@@ -1607,22 +1662,28 @@ async function serveStoreCatalog(req, res) {
   }
 }
 
+const libraries = { sources: [] };
+
 const video = {
-  sources: [],
   titles: [],
   media: new Map(),
   body: '{"kind":"video","titles":[]}',
 };
 
+const music = {
+  state: { library: { kind: 'folder', albums: [], artists: [] }, media: new Map(), covers: new Map(), skipped: 0 },
+  portraits: new Map(),
+  body: '{"kind":"folder","albums":[],"artists":[]}',
+  // Counts the rebuilds, so a lookup that began for an older library stops publishing.
+  generation: 0,
+};
+
+function rowOf(source) {
+  return { id: source.id, name: source.name, kind: source.kind, path: source.path, items: source.items };
+}
+
 function sourcesDocument() {
-  return {
-    sources: video.sources.map((source) => ({
-      id: source.id,
-      name: source.name,
-      path: source.path,
-      titles: source.titles ?? 0,
-    })),
-  };
+  return { sources: libraries.sources.map(rowOf) };
 }
 
 function videoDocument() {
@@ -1632,21 +1693,94 @@ function videoDocument() {
 async function rescanVideo() {
   const titles = [];
   video.media = new Map();
-  for (const source of video.sources) {
+  for (const source of libraries.sources) {
+    if (source.kind === 'music') {
+      continue;
+    }
     try {
       const scanned = await scanVideoSource(source);
-      source.titles = scanned.titles.length;
+      source.items = scanned.titles.length;
       titles.push(...scanned.titles);
       for (const [id, hit] of scanned.media) {
         video.media.set(id, hit);
       }
     } catch {
-      source.titles = 0;
+      source.items = 0;
     }
   }
   titles.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
   video.titles = titles;
   video.body = JSON.stringify(videoDocument());
+}
+
+function publishMusic() {
+  music.body = JSON.stringify(music.state.library);
+}
+
+let lookupChain = Promise.resolve();
+
+/** One lookup run at a time, so the public services see one paced caller. A run for a replaced library is dropped. */
+function queueLookups(generation) {
+  lookupChain = lookupChain
+    .then(async () => {
+      if (generation !== music.generation) {
+        return;
+      }
+      const { state, portraits } = music;
+      const publish = () => {
+        if (generation === music.generation) {
+          publishMusic();
+        }
+      };
+      const artwork = await fillMissingArtwork(state.library.albums, state.covers, { publish });
+      publish();
+      console.log(`artwork looked=${artwork.looked} filled=${artwork.filled} failed=${artwork.failed}`);
+      const photos = await fillArtistPhotos(state.library.artists, portraits, { publish });
+      publish();
+      console.log(`artists looked=${photos.looked} filled=${photos.filled} failed=${photos.failed}`);
+    })
+    .catch((error) => {
+      console.log(`artwork failed=${error instanceof Error ? error.message : 'lookup'}`);
+    });
+}
+
+/** Reads every music library into one folder-library document. */
+async function rescanMusic() {
+  const sources = libraries.sources.filter((source) => source.kind === 'music');
+  const found = new Set();
+  for (const source of sources) {
+    const files = [];
+    try {
+      await walk(source.path, files);
+    } catch {
+      // A folder that went away is an empty library, not a crash.
+    }
+    for (const file of files) {
+      found.add(file);
+    }
+  }
+  const state = buildLibrary([...found].sort(), sources.map((source) => source.path));
+  for (const source of sources) {
+    let items = 0;
+    for (const hit of state.media.values()) {
+      if (hit.file.startsWith(`${source.path}${sep}`)) {
+        items += 1;
+      }
+    }
+    source.items = items;
+  }
+  music.state = state;
+  music.portraits = new Map();
+  music.generation += 1;
+  publishMusic();
+  console.log(`library albums=${state.library.albums.length} tracks=${state.media.size} skipped=${state.skipped}`);
+  if (lookups) {
+    queueLookups(music.generation);
+  }
+}
+
+function rescan(source) {
+  return source.kind === 'music' ? rescanMusic() : rescanVideo();
 }
 
 async function serveSourcesApi(req, res, url) {
@@ -1670,20 +1804,21 @@ async function serveSourcesApi(req, res, url) {
       }
       const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
       const path = typeof body?.path === 'string' ? body.path.trim() : '';
-      if (name === '' || !path.startsWith('/') || path.includes('..') || path.includes('\0')) {
-        return json(400, { error: 'a name and an absolute path inside the container are required' });
+      const kind = body?.kind;
+      if (name === '' || !KINDS.has(kind) || !path.startsWith('/') || path.includes('..') || path.includes('\0')) {
+        return json(400, { error: 'a library needs a name, a kind (music, movies or shows) and an absolute path' });
       }
-      if (!existsSync(path) || !statSync(path).isDirectory()) {
-        return json(400, { error: 'the path is not a directory this container can see' });
+      if (!isDirectory(path)) {
+        return json(400, { error: 'the path is not a directory this server can see' });
       }
-      if (video.sources.some((source) => source.path === path)) {
-        return json(409, { error: 'that path is already a source' });
+      if (libraries.sources.some((source) => source.path === path)) {
+        return json(409, { error: 'that path is already a library' });
       }
-      const source = { id: idOf(`video-source:${path}`), name, path, titles: 0 };
-      video.sources.push(source);
-      saveSources();
-      await rescanVideo();
-      return json(201, source);
+      const source = { id: libraryId(path), name, kind, path, items: 0 };
+      libraries.sources.push(source);
+      saveLibraries();
+      await rescan(source);
+      return json(201, rowOf(source));
     }
     return json(405, { error: 'use GET, POST or DELETE' });
   }
@@ -1691,48 +1826,29 @@ async function serveSourcesApi(req, res, url) {
   if (match === null) {
     return json(404, { error: 'no such source route' });
   }
-  const source = video.sources.find((candidate) => candidate.id === match[1]);
+  const source = libraries.sources.find((candidate) => candidate.id === match[1]);
   if (source === undefined) {
     return json(404, { error: 'no such source' });
   }
   if (match[2] === '/rescan' && req.method === 'POST') {
-    await rescanVideo();
-    return json(200, source);
+    await rescan(source);
+    return json(200, rowOf(source));
   }
   if (match[2] === undefined && req.method === 'DELETE') {
-    video.sources = video.sources.filter((candidate) => candidate.id !== source.id);
-    saveSources();
-    await rescanVideo();
+    libraries.sources = libraries.sources.filter((candidate) => candidate.id !== source.id);
+    saveLibraries();
+    await rescan(source);
     return json(200, sourcesDocument());
   }
   return json(405, { error: 'use DELETE, or POST with /rescan' });
 }
 
 async function main() {
-  const files = [];
-  await walk(musicRoot, files);
-  files.sort();
-  const state = buildLibrary(files);
-  const portraits = new Map();
-  let body = JSON.stringify(state.library);
-  const publish = () => {
-    body = JSON.stringify(state.library);
-  };
-
-  video.sources = loadSources();
+  mkdirSync(cacheRoot, { recursive: true });
+  libraries.sources = loadLibraries();
   await rescanVideo();
-  console.log(`video sources=${video.sources.length} titles=${video.titles.length}`);
-  console.log(`library albums=${state.library.albums.length} tracks=${state.media.size} skipped=${state.skipped}`);
-  void (async () => {
-    const artwork = await fillMissingArtwork(state.library.albums, state.covers, { publish });
-    publish();
-    console.log(`artwork looked=${artwork.looked} filled=${artwork.filled} failed=${artwork.failed}`);
-    const photos = await fillArtistPhotos(state.library.artists, portraits, { publish });
-    publish();
-    console.log(`artists looked=${photos.looked} filled=${photos.filled} failed=${photos.failed}`);
-  })().catch((error) => {
-    console.log(`artwork failed=${error instanceof Error ? error.message : 'lookup'}`);
-  });
+  console.log(`video libraries=${libraries.sources.length} titles=${video.titles.length}`);
+  await rescanMusic();
 
   const CSP = [
     "default-src 'none'",
@@ -1801,12 +1917,12 @@ async function main() {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.end(req.method === 'HEAD' ? undefined : body);
+        res.end(req.method === 'HEAD' ? undefined : music.body);
         return;
       }
       const portrait = /^\/media\/library\/artists\/([a-f0-9]{16})\.(jpg|png)$/.exec(url.pathname);
       if (portrait !== null) {
-        const hit = portraits.get(portrait[1]);
+        const hit = music.portraits.get(portrait[1]);
         if (hit === undefined || (portrait[2] === 'png') !== (hit.type === 'image/png')) {
           res.statusCode = 404;
           res.end();
@@ -1817,7 +1933,7 @@ async function main() {
       }
       const cover = /^\/media\/library\/covers\/([a-f0-9]{16})\.(jpg|png)$/.exec(url.pathname);
       if (cover !== null) {
-        const hit = state.covers.get(cover[1]);
+        const hit = music.state.covers.get(cover[1]);
         if (hit === undefined || (cover[2] === 'png') !== (hit.type === 'image/png')) {
           res.statusCode = 404;
           res.end();
@@ -1828,7 +1944,7 @@ async function main() {
       }
       const track = /^\/media\/library\/([a-f0-9]{16})$/.exec(url.pathname);
       if (track !== null) {
-        const hit = state.media.get(track[1]);
+        const hit = music.state.media.get(track[1]);
         if (hit === undefined) {
           res.statusCode = 404;
           res.end();
@@ -1857,8 +1973,9 @@ async function main() {
       res.statusCode = 404;
       res.end();
     }, req, res);
-  }).listen(port, host, () => {
-    console.log(`listening ${host}:${port}`);
+  }).listen(port, host, function listening() {
+    // The bound port, which is the asked one unless that was 0.
+    console.log(`listening ${host}:${this.address().port}`);
   });
 }
 

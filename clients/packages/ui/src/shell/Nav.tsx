@@ -13,13 +13,20 @@ export type NavItem = {
   itemId?: string;
 };
 
-export function navItems(messages: ShellMessages, destinations: DestinationMessages): readonly NavItem[] {
+/** Watch is listed only for a host that passes a watch area. */
+export function navItems(
+  messages: ShellMessages,
+  destinations: DestinationMessages,
+  withWatch = false,
+): readonly NavItem[] {
   // Section pages are pins. The argument stays so the shell can keep passing the catalogue.
   void destinations;
+  const watch: readonly NavItem[] = withWatch ? [{ path: '/watch', label: messages.navWatch, icon: 'watch' }] : [];
   return [
     { path: '/', label: messages.navHome, icon: 'home' },
     { path: '/search', label: messages.navSearch, icon: 'search' },
     { path: '/library', label: messages.navLibrary, icon: 'library' },
+    ...watch,
     { path: '/store', label: messages.navStore, icon: 'store' },
     { path: '/settings', label: messages.navSettings, icon: 'settings' },
   ];
