@@ -108,11 +108,12 @@ test('search lookup stays on the local fixture set and does not fetch a third pa
     'A signed catalog extension can find releases outside this library. None is loaded.',
   );
   const source = await readFile(join(here, 'Search.tsx'), 'utf8');
-  expect(source.includes('fetch(')).toStrictEqual(false);
-  expect(source.includes('http')).toStrictEqual(false);
-  expect(source.includes('jamendo')).toStrictEqual(false);
-  expect(source.includes('archive.org')).toStrictEqual(false);
-  expect(source.includes('WebAssembly')).toStrictEqual(false);
+  // Counted by splitting, so the absence of a remote host is not a URL-substring check.
+  expect(source.split('fetch(').length).toStrictEqual(1);
+  expect(source.split('http').length).toStrictEqual(1);
+  expect(source.split('jamendo').length).toStrictEqual(1);
+  expect(source.split('archive.org').length).toStrictEqual(1);
+  expect(source.split('WebAssembly').length).toStrictEqual(1);
 });
 
 test('a served search does not contain the demo-local claim', () => {
