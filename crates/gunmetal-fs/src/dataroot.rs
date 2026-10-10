@@ -525,7 +525,7 @@ impl Settler {
                     // it in `Ok` here keeps one repair path; a helper that
                     // only returned `Ok` would not pass Clippy on Linux.
                     #[cfg(target_os = "linux")]
-                    let mode = Ok(mode_for(required));
+                    let mode: io::Result<Mode> = Ok(mode_for(required));
                     #[cfg(not(target_os = "linux"))]
                     let mode = mode_for(required);
                     mode.and_then(|mode| repair(mode).map_err(io::Error::from))
@@ -580,8 +580,10 @@ impl Settler {
                 // reason the create fails shows up there as well, as the
                 // error the inspection reports, so its result needs no
                 // handling here.
+                // `map` keeps the error type and never uses it, so the `Ok`
+                // has to name one. Linux `mode_for` returns `Mode` alone.
                 #[cfg(target_os = "linux")]
-                let mode = Ok(mode_for(DIR_MODE));
+                let mode: io::Result<Mode> = Ok(mode_for(DIR_MODE));
                 #[cfg(not(target_os = "linux"))]
                 let mode = mode_for(DIR_MODE);
                 let _ = mode.map(|mode| rustix::fs::mkdirat(root, dir.name(), mode));
