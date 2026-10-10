@@ -109,7 +109,7 @@ test('search lookup stays on the local fixture set and does not fetch a third pa
   );
   const source = await readFile(join(here, 'Search.tsx'), 'utf8');
   expect(source.includes('fetch(')).toStrictEqual(false);
-  expect(source.includes('https://')).toStrictEqual(false);
+  expect(source.includes('http')).toStrictEqual(false);
   expect(source.includes('jamendo')).toStrictEqual(false);
   expect(source.includes('archive.org')).toStrictEqual(false);
   expect(source.includes('WebAssembly')).toStrictEqual(false);

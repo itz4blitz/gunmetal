@@ -4,9 +4,9 @@
 use std::fs;
 use std::io::ErrorKind;
 
-use gunmetal_fs::root::{
-    FsError, LinkPolicy, LinkReason, LinkRefusal, MAX_LINK_TEXT, MAX_LINKS, Op,
-};
+#[cfg(target_os = "linux")]
+use gunmetal_fs::root::MAX_LINK_TEXT;
+use gunmetal_fs::root::{FsError, LinkPolicy, LinkReason, LinkRefusal, MAX_LINKS, Op};
 
 use crate::support::{Scratch, at, contents, identity, io, outside, raw};
 
@@ -249,6 +249,11 @@ fn collapses_dot_dot_in_link_text_by_name() {
 /// its text, although it would lead to the same file.
 ///
 /// Verifies: SEC-MED-034
+///
+/// The links at and over the limit need a kernel whose own limit on a
+/// link's text is higher than Gunmetal's, so the test runs on Linux,
+/// where such links can exist.
+#[cfg(target_os = "linux")]
 #[test]
 fn judges_link_text_up_to_the_limit_and_refuses_longer_text_unresolved() {
     assert_eq!(MAX_LINK_TEXT, 1024);

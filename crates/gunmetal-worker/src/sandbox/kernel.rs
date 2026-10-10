@@ -1,8 +1,10 @@
 //! The kernel calls confinement is made of, behind a trait.
 //!
 //! [`confine_with`](super::confine::confine_with) holds the order and the
-//! decisions and is tested against a recording kernel. [`Linux`] is the
-//! real one: each method is one call with no decision in it.
+//! decisions and is tested against a recording kernel. On Linux,
+//! [`Native`] is the real one: each method is one call with no decision
+//! in it. Elsewhere [`Native`] refuses every floor step, so a worker ends
+//! without reading a job rather than serve unconfined (SEC-MED-024).
 //!
 //! No method here needs `unsafe`, and that sets one limit: the worker
 //! cannot close a descriptor it has only a number for. The launcher marks
@@ -13,19 +15,26 @@
 //! extra remains.
 
 use super::limits::Limit;
+#[cfg(target_os = "linux")]
 use super::syscalls::{ALLOWLIST, Allowed, Check, Test, checks};
 use super::tier::Landlock;
+#[cfg(target_os = "linux")]
 use landlock::{
     ABI, Access, AccessFs, AccessNet, Ruleset, RulesetAttr, RulesetCreated, RulesetStatus, Scope,
 };
+#[cfg(target_os = "linux")]
 use rustix::fs::{CWD, Dir, Mode, OFlags};
+#[cfg(target_os = "linux")]
 use rustix::process::{DumpableBehavior, Rlimit};
+#[cfg(target_os = "linux")]
 use seccompiler::{
     BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
     SeccompRule, TargetArch,
 };
+#[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
 use std::io;
+#[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
 
 /// What confinement asks of the kernel.
@@ -52,31 +61,44 @@ pub(crate) trait Kernel {
 }
 
 /// The running kernel.
-pub(crate) struct Linux;
+#[cfg(target_os = "linux")]
+pub(crate) struct Native;
+
+/// The kernel where the worker cannot confine itself. The floor refuses,
+/// so [`confine`](super::confine::confine) fails and the worker ends
+/// without reading a job; there is no unconfined worker (SEC-MED-024).
+#[cfg(not(target_os = "linux"))]
+pub(crate) struct Native;
 
 /// The architecture's seccomp target and the allowlist column that holds
 /// its call numbers.
+#[cfg(target_os = "linux")]
 type NativeArch = (TargetArch, fn(&Allowed) -> i64);
 
 /// The seccomp target and the allowlist column for the architecture this
 /// build is for. `None` on an architecture seccompiler does not support,
 /// 32-bit ARM among them, where workers run at the reduced tier
 /// (SEC-MED-024).
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const NATIVE: Option<NativeArch> = Some((TargetArch::x86_64, |allowed| allowed.x86_64));
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const NATIVE: Option<NativeArch> = Some((TargetArch::aarch64, |allowed| allowed.aarch64));
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
 const NATIVE: Option<NativeArch> = None;
 
 /// Flags for listing a `/proc/self` directory: read-only, a directory,
 /// and closed on exec so the listing descriptor is not inherited.
+#[cfg(target_os = "linux")]
 const PROC_DIR_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
     .union(OFlags::CLOEXEC);
 
 /// The numeric names in a directory of `/proc/self`, and the number of
 /// the descriptor that was opened to read them.
+#[cfg(target_os = "linux")]
 fn numbers(directory: &str) -> io::Result<(i32, Vec<u32>)> {
     #[expect(
         clippy::disallowed_methods,
@@ -106,6 +128,7 @@ fn numbers(directory: &str) -> io::Result<(i32, Vec<u32>)> {
 }
 
 /// One comparison, in seccompiler's terms.
+#[cfg(target_os = "linux")]
 fn condition(check: &Check) -> Result<SeccompCondition, seccompiler::BackendError> {
     let operator = match check.test {
         Test::Is => SeccompCmpOp::Eq,
@@ -120,6 +143,7 @@ fn condition(check: &Check) -> Result<SeccompCondition, seccompiler::BackendErro
 }
 
 /// Accepts only a cleared dumpable flag.
+#[cfg(target_os = "linux")]
 fn require_not_dumpable(behavior: DumpableBehavior) -> io::Result<()> {
     match behavior {
         DumpableBehavior::NotDumpable => Ok(()),
@@ -137,6 +161,7 @@ fn require_not_dumpable(behavior: DumpableBehavior) -> io::Result<()> {
 /// keeps a worker from UDP is the seccomp filter, which lists no call
 /// that makes a socket; where the filter is missing nothing does, and the
 /// notice names seccomp.
+#[cfg(target_os = "linux")]
 fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
     let abi = ABI::V6;
     Ruleset::default()
@@ -149,6 +174,7 @@ fn landlock_ruleset() -> Result<RulesetCreated, landlock::RulesetError> {
 /// What Landlock's own account of a ruleset comes to. A kernel older than
 /// the ruleset enforces the rules it has and says so; that is reported as
 /// it is, not as the whole ruleset (SEC-MED-024).
+#[cfg(target_os = "linux")]
 fn coverage(status: &RulesetStatus) -> Landlock {
     match status {
         RulesetStatus::FullyEnforced => Landlock::Full,
@@ -162,6 +188,7 @@ fn coverage(status: &RulesetStatus) -> Landlock {
 /// an error there). A row with checks has one rule that needs all of
 /// them, and an error building it is returned, so a guarded row can never
 /// compile to an unconditional one.
+#[cfg(target_os = "linux")]
 fn rules(conditions: Vec<SeccompCondition>) -> Result<Vec<SeccompRule>, seccompiler::BackendError> {
     if conditions.is_empty() {
         Ok(Vec::new())
@@ -174,6 +201,7 @@ fn rules(conditions: Vec<SeccompCondition>) -> Result<Vec<SeccompRule>, seccompi
 /// allowed when its checks hold, and anything else kills the process.
 /// `None` when there is no native architecture, as on 32-bit ARM, or when
 /// any part of the filter fails to build.
+#[cfg(target_os = "linux")]
 fn program_for(native: Option<NativeArch>, pid: u32) -> Option<BpfProgram> {
     native.and_then(|(arch, number)| {
         ALLOWLIST
@@ -202,11 +230,13 @@ fn program_for(native: Option<NativeArch>, pid: u32) -> Option<BpfProgram> {
 }
 
 /// The compiled filter for this architecture.
+#[cfg(target_os = "linux")]
 fn program(pid: u32) -> Option<BpfProgram> {
     program_for(NATIVE, pid)
 }
 
-impl Kernel for Linux {
+#[cfg(target_os = "linux")]
+impl Kernel for Native {
     fn threads(&mut self) -> io::Result<usize> {
         numbers("/proc/self/task").map(|(_, tasks)| tasks.len())
     }
@@ -256,9 +286,9 @@ impl Kernel for Linux {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::{Kernel, Linux, NativeArch, coverage, numbers, program, program_for, rules};
+    use super::{Kernel, Native, NativeArch, coverage, numbers, program, program_for, rules};
     use crate::sandbox::tier::Landlock;
     use landlock::RulesetStatus;
     use seccompiler::{
@@ -449,7 +479,7 @@ mod tests {
 
     #[test]
     fn the_running_process_lists_its_threads_and_descriptors() {
-        let mut linux = Linux;
+        let mut linux = Native;
         assert!(linux.threads().unwrap() >= 1);
         let descriptors = linux.descriptors().unwrap();
         assert!(descriptors.contains(&0));
@@ -490,7 +520,7 @@ mod tests {
     }
 
     /// An architecture seccompiler has no target for, 32-bit ARM among
-    /// them, gets no filter, so [`Linux::seccomp`] reports the control
+    /// them, gets no filter, so [`Native::seccomp`] reports the control
     /// missing there.
     #[test]
     fn no_native_architecture_means_no_filter() {
@@ -692,7 +722,7 @@ mod tests {
     fn landlock_refuses_every_path_on_the_thread_that_enforced_it() {
         let offered = kernel_has_landlock();
         let whole = kernel_has_every_landlock_rule();
-        let (enforced, listing) = std::thread::spawn(|| (Linux.landlock(), list_by_path()))
+        let (enforced, listing) = std::thread::spawn(|| (Native.landlock(), list_by_path()))
             .join()
             .unwrap();
         assert_eq!(
@@ -732,7 +762,7 @@ mod tests {
     fn landlock_is_reported_missing_on_a_kernel_without_it() {
         let (enforced, listing) = std::thread::spawn(|| {
             take_away(&[444, 445, 446]);
-            (Linux.landlock(), list_by_path())
+            (Native.landlock(), list_by_path())
         })
         .join()
         .unwrap();
@@ -756,7 +786,7 @@ mod tests {
     fn seccomp_is_reported_missing_on_a_kernel_without_it() {
         let installed = std::thread::spawn(|| {
             take_away(&[SECCOMP_CALL]);
-            Linux.seccomp()
+            Native.seccomp()
         })
         .join()
         .unwrap();
@@ -925,8 +955,8 @@ mod tests {
                 let helper = rustix::thread::gettid().as_raw_nonzero().get();
                 asked_from.set(seccomp_of(helper)).unwrap();
                 tid.store(helper, Ordering::SeqCst);
-                Linux.no_new_privs().unwrap();
-                let installed = Linux.seccomp();
+                Native.no_new_privs().unwrap();
+                let installed = Native.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
                 let _spun = std::iter::repeat_with(|| {
                     std::hint::spin_loop();
@@ -1058,7 +1088,7 @@ mod tests {
     fn a_kernel_that_refuses_no_new_privs_is_reported_with_its_error() {
         let refused = std::thread::spawn(|| {
             refuse_no_new_privs();
-            Linux.no_new_privs().map_err(|error| error.raw_os_error())
+            Native.no_new_privs().map_err(|error| error.raw_os_error())
         })
         .join()
         .unwrap();
@@ -1079,7 +1109,7 @@ mod tests {
     fn the_running_process_can_clear_dumpable_and_set_no_new_privs() {
         use rustix::process::DumpableBehavior;
 
-        let mut linux = Linux;
+        let mut linux = Native;
         rustix::process::set_dumpable_behavior(DumpableBehavior::Dumpable).unwrap();
         linux.undumpable().unwrap();
         assert_eq!(
@@ -1095,7 +1125,7 @@ mod tests {
         use crate::sandbox::limits::Limit;
         use rustix::process::{Resource, getrlimit};
 
-        let mut linux = Linux;
+        let mut linux = Native;
         linux
             .limit(Limit {
                 resource: Resource::Core,
@@ -1122,5 +1152,99 @@ mod tests {
             verdict(DumpableBehavior::DumpableReadableOnlyByRoot),
             Err("dumpable is DumpableReadableOnlyByRoot".to_owned())
         );
+    }
+}
+
+/// Why every floor step is refused where the crate has no confinement.
+#[cfg(not(target_os = "linux"))]
+const PLATFORM: &str = "the worker's confinement is implemented for Linux only";
+
+#[cfg(not(target_os = "linux"))]
+impl Kernel for Native {
+    fn threads(&mut self) -> io::Result<usize> {
+        Err(io::Error::other(PLATFORM))
+    }
+
+    fn limit(&mut self, _limit: Limit) -> io::Result<()> {
+        Err(io::Error::other(PLATFORM))
+    }
+
+    fn undumpable(&mut self) -> io::Result<()> {
+        Err(io::Error::other(PLATFORM))
+    }
+
+    fn descriptors(&mut self) -> io::Result<Vec<u32>> {
+        Err(io::Error::other(PLATFORM))
+    }
+
+    fn no_new_privs(&mut self) -> io::Result<()> {
+        Err(io::Error::other(PLATFORM))
+    }
+
+    /// Never called: the floor refuses first. It answers as a kernel
+    /// with no Landlock answers.
+    fn landlock(&mut self) -> Landlock {
+        Landlock::Missing
+    }
+
+    /// Never called: the floor refuses first. It answers as a kernel
+    /// with no filter answers.
+    fn seccomp(&mut self) -> bool {
+        false
+    }
+}
+
+#[cfg(all(test, not(target_os = "linux")))]
+mod elsewhere {
+    //! The kernel type of every platform the crate builds on but cannot
+    //! confine a worker on: the floor refuses, and the worker ends.
+
+    use super::Native;
+    use crate::sandbox::confine::{ConfineError, Step, confine_with};
+    use crate::sandbox::kernel::Kernel;
+    use crate::sandbox::limits::Profile;
+    use crate::sandbox::tier::Landlock;
+    use std::io;
+
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn the_floor_is_refused_so_a_worker_never_serves_unconfined() {
+        let error = confine_with(&mut Native, Profile::Scan).unwrap_err();
+        assert_eq!(
+            error,
+            ConfineError::Refused {
+                step: Step::Threads,
+                errno: None,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "the kernel refused a confinement step (Threads, None)"
+        );
+    }
+
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn every_step_of_the_floor_carries_the_same_refusal() {
+        let refused = |error: &io::Error| error.to_string();
+        let mut kernel = Native;
+        assert_eq!(refused(&kernel.threads().unwrap_err()), super::PLATFORM);
+        for limit in Profile::Scan.limits() {
+            assert_eq!(refused(&kernel.limit(limit).unwrap_err()), super::PLATFORM);
+        }
+        assert_eq!(refused(&kernel.undumpable().unwrap_err()), super::PLATFORM);
+        assert_eq!(refused(&kernel.descriptors().unwrap_err()), super::PLATFORM);
+        assert_eq!(
+            refused(&kernel.no_new_privs().unwrap_err()),
+            super::PLATFORM
+        );
+    }
+
+    /// Verifies: SEC-MED-024
+    #[test]
+    fn the_unreached_answers_are_a_kernel_without_confinement() {
+        let mut kernel = Native;
+        assert_eq!(kernel.landlock(), Landlock::Missing);
+        assert!(!kernel.seccomp());
     }
 }
