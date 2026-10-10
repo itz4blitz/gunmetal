@@ -401,7 +401,7 @@ fn refuses_secrets_nested_deeper_than_a_data_path_reaches() {
 }
 
 /// A name that is not text can exist on Linux's byte-transparent
-/// filesystems, and the door refuses it. ThemacOS filesystems refuse to
+/// filesystems, and the door refuses it. The macOS filesystems refuse to
 /// create such a name at all (`EILSEQ`), so the test runs where the
 /// hostile input can exist.
 #[cfg(target_os = "linux")]
