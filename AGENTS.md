@@ -2,9 +2,11 @@
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before writing any code. The
   testing rules there are mandatory: test first, deep assertions, 100%
-  coverage, zero surviving mutants.
-- `scripts/gate.sh` is the definition of done. Run it before reporting work
-  as finished, and report its real output.
+  coverage. CI does not run mutation testing
+  ([D-98](docs/decisions.md#d-98-no-mutation-gate)).
+- `GATE_SKIP_MUTANTS=1 scripts/gate.sh` is the definition of done. Run it
+  before reporting work as finished, and report its real output. CI does
+  the same. Do not add `mutants` or `mutants-warm` jobs back.
 - When the turn changes Rust, Cargo, Clippy, or Qodana files, `scripts/qodana.sh`
   has to pass before the work is finished, and its real output is part of the
   report. It fails when Cargo did not load, when the sanity check still

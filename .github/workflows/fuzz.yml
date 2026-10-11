@@ -3,12 +3,15 @@ name: Fuzz
 # Coverage-guided fuzzing of every registered harness (SEC-TM-033,
 # SEC-MED-029): for an hour each night, and for ten minutes on each pull
 # request that changes the parsers, the harnesses, their dependencies or
-# this setup. A pull request fuzzes every harness, not only those whose
-# files it touches, because a change to shared core code reaches all of
-# them. A crash, an input that takes more than 5 seconds, or more than
-# 1 GiB of memory fails the job and keeps the input as an artifact. Stable
-# `cargo test` replays the committed seeds in the gate (SEC-MED-028); this
-# job is where new inputs are found.
+# this setup. One harness runs at a time. The other three project runners
+# stay on the merge gate, and the next nightly waits instead of cancelling
+# the pass already on that one runner (record 33). A pull request fuzzes
+# every harness, not only those whose files it touches, because a change
+# to shared core code reaches all of them. A crash, an input that takes
+# more than 5 seconds, or more than 1 GiB of memory fails the job and
+# keeps the input as an artifact. Stable `cargo test` replays the
+# committed seeds in the gate (SEC-MED-028); this job is where new inputs
+# are found.
 #
 # The canary job proves on every run that these settings fail the job on
 # each kind of finding: it fuzzes three targets with planted bugs and
@@ -30,8 +33,11 @@ on:
 permissions: {}
 
 concurrency:
-  group: fuzz-${{ github.ref }}
-  cancel-in-progress: true
+  group: fuzz-${{ github.ref }}-${{ github.event_name }}
+  # A new push cancels that pull request's fuzz run. A nightly run does
+  # not cancel the previous one: with one harness at a time, a full pass
+  # takes longer than a day, and cancelling it would drop the hour budget.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # libFuzzer instrumentation needs nightly, pinned by date just as the
@@ -80,6 +86,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         target: ${{ fromJSON(needs.targets.outputs.harnesses) }}
     env:
@@ -134,6 +141,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         finding: [crash, timeout, oom]
     env:
