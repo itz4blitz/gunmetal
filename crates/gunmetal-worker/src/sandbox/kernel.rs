@@ -932,6 +932,9 @@ mod tests {
         struct Release<'a>(&'a AtomicBool);
 
         impl Drop for Release<'_> {
+            // The coverage gate counts this function on its own. Inlining
+            // it leaves that copy unexecuted, so the gate misses it.
+            #[inline(never)]
             fn drop(&mut self) {
                 self.0.store(true, Ordering::SeqCst);
             }
@@ -958,24 +961,29 @@ mod tests {
                 Native.no_new_privs().unwrap();
                 let installed = Native.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
-                // A loop in this function, not a closure. The coverage
-                // gate counts a closure on its own, and this one runs only
-                // on the helper thread, which some runs never recorded.
-                // The body runs at least once on every schedule.
+                // The first look is thrown away, so the not-yet arm runs
+                // even when the flag is already set. A later look leaves.
+                // Both arms run on every schedule.
+                let mut first = true;
                 loop {
                     std::hint::spin_loop();
-                    if seen.load(Ordering::SeqCst) {
+                    let observed = seen.load(Ordering::SeqCst);
+                    let ready = if first { false } else { observed };
+                    first = false;
+                    if ready {
                         break;
                     }
                 }
             });
             let release = Release(&seen);
-            // Same for the wait on this thread: one function, and the
-            // body runs before the outcome is consulted.
+            // The same for this thread: one ignored look, then the outcome.
             let mut finished = None;
+            let mut first = true;
             for _ in 0..LOOKS {
                 std::thread::sleep(Duration::from_millis(1));
-                let state = outcome.load(Ordering::SeqCst);
+                let observed = outcome.load(Ordering::SeqCst);
+                let state = if first { 0 } else { observed };
+                first = false;
                 if state != 0 {
                     finished = Some(state);
                     break;
