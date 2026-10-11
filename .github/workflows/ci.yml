@@ -3,13 +3,11 @@ name: CI
 # Runs on pull requests from branches and forks with a read-only token and no
 # secrets. Never use pull_request_target or workflow_run here (SEC-SUP-013).
 #
-# The `checks` job runs every step of the gate except mutation testing, and
-# the `mutants` jobs split the mutants between them, so none is skipped.
-# Decision D-01: a pull request into a wave branch (wave-0, wave-1, ...)
-# mutation-tests only the code it changes; a pull request into main, every
-# push to main or a wave branch, and the nightly run on main mutation-test
-# the whole workspace. Either way the job named `gate` is the one required
-# check, and it fails unless every other job succeeded.
+# The `checks` job runs scripts/gate.sh with mutation testing skipped.
+# Decision D-98: CI does not run mutation testing. A full pass held the
+# four runners for about a day and blocked every merge. The job named
+# `gate` is the one required check, and it fails unless every other job
+# succeeded.
 on:
   push:
     branches: [main, "wave-*"]
@@ -60,99 +58,10 @@ jobs:
       # cargo-vet publishes no prebuilt binaries after 0.10.0, so build the
       # exact version from crates.io; cargo checks each crate's checksum
       # against the index, and --locked uses cargo-vet's own lockfile.
-      # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39, newer
-      # than the runner image, so build that pin the same way.
       - run: cargo install cargo-vet --version 0.10.2 --locked
-      - run: |
-          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
-            cargo install cargo-mutants --version 27.1.0 --locked
-          fi
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
-
-  # Compiles the mutation test binaries once and saves the shared cache the
-  # shards restore. The encoded rustflags match cargo-mutants 27.1.0.
-  # Workspace crates are cached because the default keeps only dependencies,
-  # and the shards need the test binaries. This job also installs
-  # cargo-mutants so the restored cache includes that binary.
-  mutants-warm:
-    runs-on: [self-hosted, gunmetal-mutants]
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.98.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: mutants
-          add-job-id-key: false
-          cache-workspace-crates: true
-          cache-on-failure: true
-      - run: |
-          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
-            cargo install cargo-mutants --version 27.1.0 --locked
-          fi
-      - run: scripts/gate.sh
-        env:
-          GATE_MUTANTS_WARM: 1
-
-  # The mutation run, one shard per job, for every event.
-  mutants:
-    needs: mutants-warm
-    # The ten shards run on GitHub-hosted runners; a pull request can
-    # rewrite this line, so the required `gate` check below is what keeps
-    # the result honest.
-    runs-on: [self-hosted, gunmetal-mutants]
-    # 6 hours, the longest a GitHub-hosted job may run; about 800 mutants at
-    # 20 to 35 seconds each is 4.5 to 8 hours split across the ten shards.
-    # A timed-out shard fails `gate`.
-    timeout-minutes: 360
-    permissions:
-      contents: read
-    strategy:
-      # A missed mutant in one shard must not hide the others' results.
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          # The diff-scoped mutation run needs the base branch's history.
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
-        with:
-          toolchain: 1.98.1
-      # Shards restore the warm job's cache and must not save: they would
-      # upload a target dir full of mutated incremental state.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: mutants
-          add-job-id-key: false
-          cache-workspace-crates: true
-          save-if: false
-      # No musl build, and the gnu build needs glibc 2.39. The warm job's
-      # cache restores the binary when it is already present.
-      - run: |
-          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
-            cargo install cargo-mutants --version 27.1.0 --locked
-          fi
-      - run: scripts/gate.sh
-        env:
-          # The base branch, only for a pull request into a wave branch
-          # (D-01); every other run tests the whole workspace's mutants.
-          # Event data reaches the script through env, never through ${{ }}
-          # in run (SEC-SUP-014).
-          GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}
-          # Mutant i of that list belongs to shard i mod 10, so the ten jobs
-          # test every mutant exactly once.
-          GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10
 
   # SEC-MED-004: the core's tests, property tests included, on a target where
   # usize is 32 bits wide, so a length that only fits in 64 bits is caught.
@@ -256,11 +165,10 @@ jobs:
 
   # The one check main's ruleset requires. It waits for every other job and
   # runs even when one failed or was cancelled, because a skipped required
-  # check counts as passed. Every job must have succeeded: a missed or
-  # timed-out mutant in any shard fails this job.
+  # check counts as passed. Every job must have succeeded.
   gate:
     if: ${{ always() }}
-    needs: [checks, mutants-warm, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
+    needs: [checks, core-32-bit, locked-self-test, gate-switches-self-test]
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions: {}

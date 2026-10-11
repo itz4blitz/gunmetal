@@ -2741,3 +2741,17 @@ retired. See [record 31](adr/0031-github-is-the-source-of-truth.md).
 
 Answered 2026-10-11: one harness at a time. See
 [record 33](adr/0033-fuzz-one-runner.md).
+
+### D-98 No mutation gate
+
+- **Question.** The ten mutant shards hold all four runners for about a
+  day, so `checks` can pass and `gate` still cannot, and nothing merges.
+  Keep `cargo-mutants` in CI?
+- **Recommendation.** No. Take the `mutants-warm` and `mutants` jobs out
+  of CI. `checks` still runs `scripts/gate.sh` with
+  `GATE_SKIP_MUTANTS=1`. The script keeps the switches for a person who
+  wants a shard. Coverage, Clippy, and the other short jobs stay the
+  merge gate.
+
+Answered 2026-10-11: CI does not run mutation testing. See
+[record 34](adr/0034-no-mutation-gate.md).

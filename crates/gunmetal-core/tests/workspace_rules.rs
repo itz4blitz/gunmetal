@@ -1981,12 +1981,12 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
     ));
 }
 
-/// Mutation testing is split across jobs and loses no mutant, in a full run
-/// and in a pull request's diff-scoped run alike: the gate's switches cannot
-/// be combined into a run that tests nothing, the shards partition one list,
-/// and the one required check fails unless every job it waits for succeeded.
+/// CI does not run mutation testing (record 34). The script can still shard
+/// or skip a local run, and it refuses a switch it cannot read or a
+/// combination that would test nothing. The one required check fails unless
+/// every job it waits for succeeded, and those jobs are the short ones.
 #[test]
-fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
+fn the_required_check_does_not_run_mutation_testing() {
     // The script refuses a switch it cannot read, and skipping mutation
     // testing together with a switch that chooses which mutants to test.
     for line in [
@@ -2046,41 +2046,22 @@ fi
         workflow_jobs(CI),
         [
             "checks",
-            "mutants-warm",
-            "mutants",
             "core-32-bit",
             "locked-self-test",
             "gate-switches-self-test",
             "gate",
         ]
     );
+    // No warm-up and no shard. CI does not install cargo-mutants.
+    assert!(!CI.contains("mutants-warm"));
+    assert!(!CI.contains("cargo-mutants"));
+    assert!(!workflow_jobs(CI).iter().any(|job| *job == "mutants"));
 
-    // The checks job never mutation-tests; the shards always do.
+    // The checks job skips mutation testing and does not choose a shard.
     let checks = workflow_job(CI, "checks");
     assert!(checks.contains(&"GATE_SKIP_MUTANTS: 1"));
     assert!(checks.contains(&"- run: scripts/gate.sh"));
     assert!(!checks.iter().any(|line| line.contains("GATE_MUTANTS_")));
-
-    // Shards 0 to 9 of 10 run for every event: each index once, and a failed
-    // shard does not cancel the others, so one run reports every missed
-    // mutant. A pull request into a wave branch scopes them to its diff,
-    // which needs the base branch's history. Record 17 sends every shard
-    // to the project's own runners with 15 hours. There is no GitHub-hosted
-    // path. Both lines are pinned whole.
-    let mutants = workflow_job(CI, "mutants");
-    for line in [
-        OWN_RUNNER,
-        "timeout-minutes: 360",
-        "fail-fast: false",
-        "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]",
-        "fetch-depth: 0",
-        "GATE_MUTANTS_DIFF: ${{ github.event_name == 'pull_request' && startsWith(github.base_ref, 'wave-') && format('origin/{0}', github.base_ref) || '' }}",
-        "GATE_MUTANTS_SHARD: ${{ matrix.shard }}/10",
-        "- run: scripts/gate.sh",
-    ] {
-        assert!(mutants.contains(&line), "{line}");
-    }
-    assert!(!mutants.iter().any(|line| line.starts_with("if:")));
 
     // The required check waits for every other job, runs even when one of
     // them failed or was cancelled (a skipped job would count as passed),
@@ -2349,7 +2330,9 @@ fn every_build_uses_one_exact_toolchain_release() {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
         "{channel} is not an exact release"
     );
-    assert_eq!(workflow_toolchains(CI), [channel; 5]);
+    // checks, the 32-bit core test, and the lock-file self-test. The switch
+    // self-test and the gate job install no toolchain. CI has no mutant job.
+    assert_eq!(workflow_toolchains(CI), [channel; 3]);
     assert_eq!(workflow_toolchains(DAILY_DENY), [channel]);
 }
 
