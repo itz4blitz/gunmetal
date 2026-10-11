@@ -498,11 +498,29 @@ mod tests {
         assert_eq!(program_for(None, 4321), None);
     }
 
+    /// Listing `directory`: success, or the kind of error the kernel gave.
+    /// The kind is kept as the kernel reported it, so a missing name and a
+    /// file do not collapse into one another.
+    fn listed(directory: &str) -> Result<(), ErrorKind> {
+        numbers(directory).map(|_| ()).map_err(|error| error.kind())
+    }
+
     /// Whether this thread can list a directory by path, or why not.
     fn list_by_path() -> Result<(), ErrorKind> {
-        numbers("/proc/self/task")
-            .map(|_| ())
-            .map_err(|error| error.kind())
+        listed("/proc/self/task")
+    }
+
+    /// A path the kernel will not list comes back as that error's kind.
+    /// Landlock is what refuses this thread's task directory on a kernel
+    /// that has it. A missing name and a file exercise the same mapping
+    /// where the kernel has no Landlock.
+    #[test]
+    fn a_failed_listing_keeps_the_kernels_error_kind() {
+        assert_eq!(
+            listed("/proc/self/does-not-exist"),
+            Err(ErrorKind::NotFound)
+        );
+        assert_eq!(listed("/proc/self/status"), Err(ErrorKind::NotADirectory));
     }
 
     /// Where the kernel lists its active security modules. The file is on

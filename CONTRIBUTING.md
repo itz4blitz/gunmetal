@@ -16,32 +16,31 @@ These are not guidelines. A change that breaks one does not merge.
    values, or an independent reference written only for the test.
 5. **100% coverage** of lines, regions and functions. Rust has no stable
    branch coverage yet, so regions stand in for branches. No exclusions.
-6. **Zero surviving mutants.** Every survivor is either killed with a real
-   behavioural assertion or removed by restructuring the code so the
-   equivalent mutant cannot be generated. Do not write a test whose only
-   purpose is to match one mutant's syntax, and do not skip mutants. A
-   mutant that times out also fails the gate: a hang is not a detection, so
-   assert termination (see `collect_all` in `ebml.rs`) and make it fail fast.
+6. **Mutation testing is not a merge check.** A full `cargo-mutants` pass
+   takes about a day on the four runners and blocked every merge. CI does
+   not run it ([D-98](docs/decisions.md#d-98-no-mutation-gate)). Do not add
+   `mutants` or `mutants-warm` jobs back. The script can still run a shard
+   when asked. A hang is still a bug in the code under test: assert
+   termination (see `collect_all` in `ebml.rs`) and make it fail fast.
 7. **Prove behaviour at the lowest layer that can observe it.** Parsing and
    decision logic are proven by unit and property tests in the core crate.
    Higher layers test wiring only.
 
-Run everything with:
+Run the merge check with:
 
 ```bash
-scripts/gate.sh
+GATE_SKIP_MUTANTS=1 scripts/gate.sh
 ```
 
-On a machine without network, `GATE_OFFLINE=1 scripts/gate.sh` runs the
+On a machine without network, `GATE_OFFLINE=1` as well runs the
 dependency checks against cached data.
 
-The mutation run is the slow step. `GATE_SKIP_MUTANTS=1` runs every step
-except it, and `GATE_MUTANTS_SHARD=k/n` runs only it, on shard `k` of `n`
-(counting from 0) of the mutants it would otherwise test, with or without
-`GATE_MUTANTS_DIFF`. The `n` shards together test every one of those
-mutants exactly once, so a gate may be run as one command or as those
-`n + 1`. The script refuses a switch it cannot read, and
-`GATE_SKIP_MUTANTS=1` together with either of the other two.
+CI runs that same command. It does not run mutation testing. The script
+still accepts `GATE_MUTANTS_SHARD=k/n` (shard `k` of `n`, counting from
+0), `GATE_MUTANTS_DIFF`, and `GATE_MUTANTS_WARM` for a person who wants
+a shard. It refuses a switch it cannot read, and it refuses
+`GATE_SKIP_MUTANTS=1` together with a switch that chooses which mutants
+to test.
 
 ## Security
 

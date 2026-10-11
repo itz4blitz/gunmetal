@@ -1,0 +1,18 @@
+# Forgejo warns on every permissions key and ignores it (record 24).
+# The canary in workflow-lint.yml is a scratch file, not one of these
+# names, so zizmor still has to fail that audit there.
+rules:
+  excessive-permissions:
+    ignore:
+      - ci.yml
+      - codeql.yml
+      - dependency-age.yml
+      - docs.yml
+      - fuzz.yml
+      - qodana.yml
+      - scorecard.yml
+      - settings-drift.yml
+      - standards-watch.yml
+      - supply-chain.yml
+      - wasm.yml
+      - workflow-lint.yml
