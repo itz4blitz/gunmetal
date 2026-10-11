@@ -150,6 +150,7 @@ checks() {
 
   echo "==> tests with 100% coverage"
   cargo llvm-cov --locked --workspace \
+    --show-missing-lines \
     --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
 
   echo "==> documentation tests"

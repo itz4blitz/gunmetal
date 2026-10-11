@@ -1767,6 +1767,104 @@ mod tests {
         }
     }
 
+    /// Every branch of the oracles, called directly. The property tests
+    /// reach these too, but a seed can miss one, and one missed line fails
+    /// the coverage gate.
+    #[test]
+    fn the_oracles_take_every_branch() {
+        assert_eq!(depth_oracle(&[b"..".to_vec()]), None);
+        assert_eq!(
+            depth_oracle(&[b"a".to_vec(), b".".to_vec(), b"..".to_vec(), b"b".to_vec(),]),
+            Some(1)
+        );
+        assert_eq!(depth_oracle(&[b"".to_vec()]), None);
+        assert_eq!(depth_oracle(&[b"a/b".to_vec()]), None);
+        assert_eq!(depth_oracle(&[vec![b'a', 0]]), None);
+
+        let root = RawPath(vec![b"a".to_vec()]);
+        let child = RawPath(vec![b"a".to_vec(), b"b".to_vec()]);
+        let cousin = RawPath(vec![b"ab".to_vec()]);
+        let other = RawPath(vec![b"b".to_vec()]);
+        let top = RawPath(Vec::new());
+        assert_eq!(
+            beneath_oracle(&child, &top),
+            Some(vec![b"a".to_vec(), b"b".to_vec()])
+        );
+        assert_eq!(beneath_oracle(&root, &root), Some(Vec::new()));
+        assert_eq!(beneath_oracle(&cousin, &root), None);
+        assert_eq!(beneath_oracle(&other, &root), None);
+        assert_eq!(beneath_oracle(&child, &root), Some(vec![b"b".to_vec()]));
+
+        assert_eq!(
+            link_oracle(&root, &RelPath(Vec::new()), b"/../a"),
+            vec![b"a".to_vec()]
+        );
+        assert_eq!(
+            link_oracle(&root, &RelPath(Vec::new()), b"b/../c"),
+            vec![b"a".to_vec(), b"c".to_vec()]
+        );
+
+        let target = RawPath(vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]);
+        let shallow = RawPath(vec![b"a".to_vec()]);
+        let deep = RawPath(vec![b"a".to_vec(), b"b".to_vec()]);
+        let tail = RelPath(vec![b"c".to_vec()]);
+        assert_eq!(
+            classify_oracle(&target, &other, &[shallow.clone(), deep.clone()], &[]),
+            LinkVerdict::Approved {
+                index: 1,
+                rest: tail.clone(),
+            }
+        );
+        assert_eq!(
+            classify_oracle(&target, &other, &[deep.clone(), shallow.clone()], &[]),
+            LinkVerdict::Approved {
+                index: 0,
+                rest: tail.clone(),
+            }
+        );
+        assert_eq!(
+            classify_oracle(
+                &target,
+                &other,
+                std::slice::from_ref(&shallow),
+                std::slice::from_ref(&deep),
+            ),
+            LinkVerdict::OtherLibrary { index: 0 }
+        );
+        assert_eq!(
+            classify_oracle(
+                &target,
+                &other,
+                std::slice::from_ref(&deep),
+                std::slice::from_ref(&shallow),
+            ),
+            LinkVerdict::Approved {
+                index: 0,
+                rest: tail.clone(),
+            }
+        );
+        assert_eq!(
+            classify_oracle(
+                &RawPath(vec![b"z".to_vec()]),
+                &other,
+                std::slice::from_ref(&root),
+                std::slice::from_ref(&child),
+            ),
+            LinkVerdict::Outside
+        );
+        assert_eq!(
+            classify_oracle(&child, &root, &[], &[]),
+            LinkVerdict::Own(RelPath(vec![b"b".to_vec()]))
+        );
+        assert_eq!(
+            classify_oracle(&child, &other, &[root], &[]),
+            LinkVerdict::Approved {
+                index: 0,
+                rest: RelPath(vec![b"b".to_vec()]),
+            }
+        );
+    }
+
     proptest! {
         /// Verifies: SEC-TM-043
         #[test]
