@@ -2111,6 +2111,34 @@ fi
     }
 }
 
+/// Verifies: SEC-MED-029
+///
+/// The four runners are shared with the merge gate. Fuzzing keeps the
+/// ten-minute pull-request budget and the one-hour nightly budget, and
+/// each matrix runs one harness at a time. A later nightly waits, so a
+/// new night does not cancel the pass already on that one runner.
+#[test]
+fn fuzzing_uses_one_runner_and_keeps_its_time_budget() {
+    let fuzz = workflow_job(FUZZ, "fuzz");
+    assert!(fuzz.contains(&"max-parallel: 1"), "fuzz matrix");
+    assert!(
+        fuzz.contains(
+            &"FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '600' || '3600' }}"
+        ),
+        "pull requests stay at ten minutes and nights stay at one hour"
+    );
+    let canary = workflow_job(FUZZ, "canary");
+    assert!(canary.contains(&"max-parallel: 1"), "canary matrix");
+    assert!(has_line(
+        FUZZ,
+        "group: fuzz-${{ github.ref }}-${{ github.event_name }}"
+    ));
+    assert!(has_line(
+        FUZZ,
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
+    ));
+}
+
 /// Every Actions job runs on the project's own runners, registered with
 /// this repository: the Unraid floor and the premier-cicd burst fleet.
 /// Record 15 once left the small jobs on GitHub-hosted `ubuntu-latest`;

@@ -2727,3 +2727,17 @@ Answered 2026-10-08: remove the field. See
 
 Answered 2026-10-09: GitHub is the source of truth; the Forgejo is
 retired. See [record 31](adr/0031-github-is-the-source-of-truth.md).
+
+### D-97 Fuzz one runner
+
+- **Question.** The nightly fuzz pass runs every harness for an hour, all
+  at once, on the same four runners as the merge gate. That holds the
+  pool for about ten hours. Keep the ten-minute and one-hour budgets,
+  and run one harness at a time?
+- **Recommendation.** Yes. One harness at a time leaves three runners for
+  the merge gate. The budgets, the input limits and the canaries stay.
+  The next nightly run waits, so it does not cancel a pass that is still
+  in its hour.
+
+Answered 2026-10-11: one harness at a time. See
+[record 33](adr/0033-fuzz-one-runner.md).
