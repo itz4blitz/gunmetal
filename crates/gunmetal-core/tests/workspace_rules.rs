@@ -1960,9 +1960,13 @@ fn every_cargo_command_in_the_gate_refuses_a_stale_lock_file() {
             "cargo run \"$locked\" -q -p xtask -- native-code target/native-code.json",
             "cargo llvm-cov --locked --workspace \\",
             "cargo test --locked --workspace --doc",
-            "cargo mutants --workspace --no-shuffle \"${scope[@]}\" --cargo-arg=--locked",
+            "cargo mutants --workspace --no-shuffle --in-place \"${scope[@]}\" --cargo-arg=--locked",
         ]
     );
+    assert!(has_line(
+        GATE,
+        "CARGO_ENCODED_RUSTFLAGS=--cap-lints=warn cargo test --locked --workspace --no-run"
+    ));
     assert!(has_line(GATE, "locked=--locked"));
     assert!(has_line(GATE, "locked=--frozen"));
     // CI proves it: a crate added without a lock file update fails the gate.
@@ -1991,6 +1995,9 @@ fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
         r#"if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then"#,
         r#"if [[ "$skip_mutants" == 1 && -n "$mutants_diff$mutants_shard" ]]; then"#,
         r#"usage "GATE_SKIP_MUTANTS=1 cannot be combined with GATE_MUTANTS_DIFF or GATE_MUTANTS_SHARD: it tests no mutants, and they choose which to test""#,
+        r#"*) usage "GATE_MUTANTS_WARM must be 0 or 1, not '$mutants_warm'" ;;"#,
+        r#"if [[ "$mutants_warm" == 1 && ( "$skip_mutants" == 1 || -n "$mutants_diff$mutants_shard" ) ]]; then"#,
+        r#"usage "GATE_MUTANTS_WARM=1 cannot be combined with GATE_SKIP_MUTANTS, GATE_MUTANTS_DIFF, or GATE_MUTANTS_SHARD: warm compiles the test binaries and tests no mutants, and the other switches choose mutants or skip them""#,
     ] {
         assert!(has_line(GATE, line), "{line}");
     }
@@ -2011,18 +2018,23 @@ fn the_sharded_gate_runs_every_mutant_behind_one_required_check() {
     echo "only shard ${mutants_shard} of those mutants"
     scope+=(--shard "$mutants_shard" --sharding round-robin)
   fi
-  cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
+  cargo mutants --workspace --no-shuffle --in-place "${scope[@]}" --cargo-arg=--locked
 }
 "#
     ));
-    // What runs: every other step unless this is a shard, and mutation
-    // testing unless it is skipped. Nothing follows that could undo it.
+    // What runs: warm compiles only; otherwise every other step unless this
+    // is a shard, and mutation testing unless warm or skipped. Nothing
+    // follows that could undo it.
     assert!(GATE.ends_with(
         r#"
-if [[ -z "$mutants_shard" ]]; then
+if [[ "$mutants_warm" == 1 ]]; then
+  mutants_warm_build
+elif [[ -z "$mutants_shard" ]]; then
   checks
 fi
-if [[ "$skip_mutants" == 1 ]]; then
+if [[ "$mutants_warm" == 1 ]]; then
+  :
+elif [[ "$skip_mutants" == 1 ]]; then
   echo "==> mutation testing skipped (GATE_SKIP_MUTANTS=1)"
 else
   mutants
@@ -2034,6 +2046,7 @@ fi
         workflow_jobs(CI),
         [
             "checks",
+            "mutants-warm",
             "mutants",
             "core-32-bit",
             "locked-self-test",
@@ -2307,7 +2320,7 @@ fn every_build_uses_one_exact_toolchain_release() {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
         "{channel} is not an exact release"
     );
-    assert_eq!(workflow_toolchains(CI), [channel; 4]);
+    assert_eq!(workflow_toolchains(CI), [channel; 5]);
     assert_eq!(workflow_toolchains(DAILY_DENY), [channel]);
 }
 
