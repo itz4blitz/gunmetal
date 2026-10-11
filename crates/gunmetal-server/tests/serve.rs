@@ -15,7 +15,9 @@ use gunmetal_fs::host::HostFacts;
 use gunmetal_fs::path::{DataDir, DataPath};
 use gunmetal_server::cli::{self, Exit};
 use gunmetal_testkit::tempdir::TempDir;
-use rustix::process::{DumpableBehavior, Resource, Rlimit};
+#[cfg(target_os = "linux")]
+use rustix::process::DumpableBehavior;
+use rustix::process::{Resource, Rlimit};
 
 /// Output a test can read back.
 #[derive(Clone, Default)]
@@ -119,7 +121,9 @@ fn serve_on_an_empty_directory_creates_the_layout_and_switches_core_dumps_off() 
             .map(|file| file.metadata().expect("metadata").permissions().mode());
         assert_eq!(mode, Ok(0o100_600));
     }
-    // The process can no longer dump core, and reads its own flag as such.
+    // The process can no longer dump core. The dumpable flag it is read
+    // back from is Linux's; the core limit it sets is read everywhere.
+    #[cfg(target_os = "linux")]
     assert_eq!(
         rustix::process::dumpable_behavior(),
         Ok(DumpableBehavior::NotDumpable)

@@ -215,6 +215,7 @@ test('the catalogue returns trusted shell and destination strings', () => {
       settingsJobNotInBuild: 'Not in this build',
       settingsJobCoverArt: 'Built into this library host. Cover Art Archive.',
       settingsJobThemes: 'Not a separate plugin. Themes are the settings appearance control.',
+      settingsLibraries: 'Libraries',
       settingsJobHome: 'Not a separate plugin.',
       /* Playback controls: levelling, crossfade and the output device. Append-only. */
       settingsPlaybackOff: 'Off',

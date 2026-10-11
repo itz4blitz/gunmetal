@@ -26,10 +26,23 @@ test('settings sections are the five 2026 catalogue panes in listed order', () =
   expect(defaultSettingsSection()).toStrictEqual('appearance');
 });
 
+test('with libraries content, the libraries pane sits third in the order', () => {
+  expect(settingsSections(true)).toStrictEqual([
+    'appearance',
+    'playback',
+    'libraries',
+    'connected',
+    'about',
+    'privacy',
+  ]);
+});
+
 test('a settings route names its pane, and any other path names none', () => {
   expect(settingsSectionFromPath('/settings')).toStrictEqual('appearance');
   expect(settingsSectionFromPath('/settings/appearance')).toStrictEqual('appearance');
   expect(settingsSectionFromPath('/settings/playback')).toStrictEqual('playback');
+  expect(settingsSectionFromPath('/settings/libraries')).toStrictEqual('libraries');
+  expect(settingsSectionFromPath('/settings/extensions')).toStrictEqual(undefined);
   expect(settingsSectionFromPath('/settings/about')).toStrictEqual('about');
   expect(settingsSectionFromPath('/settings/privacy')).toStrictEqual('privacy');
   expect(settingsSectionFromPath('/settings/connected')).toStrictEqual('connected');
@@ -59,12 +72,14 @@ test('release badges are honest R1 or R2', () => {
   expect(settingsRelease('about')).toStrictEqual('R1');
   expect(settingsRelease('privacy')).toStrictEqual('R1');
   expect(settingsRelease('connected')).toStrictEqual('R2');
+  expect(settingsRelease('libraries')).toStrictEqual('R2');
 });
 
 test('section titles and nav items are the catalogue literals', () => {
   const messages = destinationMessages();
   expect(settingsSectionTitle('appearance', messages)).toStrictEqual('Appearance');
   expect(settingsSectionTitle('playback', messages)).toStrictEqual('Playback');
+  expect(settingsSectionTitle('libraries', messages)).toStrictEqual('Libraries');
   expect(settingsSectionTitle('connected', messages)).toStrictEqual('Connected services');
   expect(settingsSectionTitle('about', messages)).toStrictEqual('About this connection');
   expect(settingsSectionTitle('privacy', messages)).toStrictEqual('Privacy');
@@ -75,6 +90,24 @@ test('section titles and nav items are the catalogue literals', () => {
     { id: 'about', label: 'About this connection' },
     { id: 'privacy', label: 'Privacy' },
   ]);
+  expect(settingsNavItems(messages, true)).toStrictEqual([
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'playback', label: 'Playback' },
+    { id: 'libraries', label: 'Libraries' },
+    { id: 'connected', label: 'Connected services' },
+    { id: 'about', label: 'About this connection' },
+    { id: 'privacy', label: 'Privacy' },
+  ]);
+  expect(settingsSectionPath('libraries')).toStrictEqual('/settings/libraries');
+});
+
+test('every section has its own path', () => {
+  expect(settingsSectionPath('appearance')).toStrictEqual('/settings/appearance');
+  expect(settingsSectionPath('playback')).toStrictEqual('/settings/playback');
+  expect(settingsSectionPath('libraries')).toStrictEqual('/settings/libraries');
+  expect(settingsSectionPath('connected')).toStrictEqual('/settings/connected');
+  expect(settingsSectionPath('about')).toStrictEqual('/settings/about');
+  expect(settingsSectionPath('privacy')).toStrictEqual('/settings/privacy');
 });
 
 test('job detail and status are the catalogue literals, with no plugin version or badge', () => {

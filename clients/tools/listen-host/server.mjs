@@ -4,7 +4,7 @@
 // the only way to open one.
 
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, openSync, readSync, closeSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, openSync, readSync, closeSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, relative, sep } from 'node:path';
 import { readdir } from 'node:fs/promises';
@@ -14,6 +14,12 @@ const cacheRoot = process.env.CACHE ?? '/cache';
 const staticRoot = process.env.STATIC ?? '';
 const port = Number(process.env.PORT ?? 8788);
 const host = process.env.HOST ?? '0.0.0.0';
+
+const sourcesPath = join(cacheRoot, 'video-sources.json');
+const VIDEO = new Set(['.mp4', '.m4v', '.mkv', '.webm', '.mov']);
+const VIDEO_WALK_MAX_FILES = 20_000;
+const VIDEO_WALK_MAX_DEPTH = 8;
+const API_BODY_MAX = 64 * 1024;
 
 const AUDIO = new Set(['.flac', '.mp3']);
 const MAX_BLOCK = 20 * 1024 * 1024;
@@ -380,6 +386,137 @@ async function walk(dir, out) {
   }
 }
 
+function videoContentType(ext) {
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mkv') return 'video/x-matroska';
+  return 'video/quicktime';
+}
+
+function readJsonFile(path, fallback) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(path, value) {
+  writeFileSync(path, JSON.stringify(value, undefined, 2));
+}
+
+function loadSources() {
+  const read = readJsonFile(sourcesPath, { sources: [] });
+  if (!Array.isArray(read.sources)) {
+    return [];
+  }
+  return read.sources.filter(
+    (source) =>
+      typeof source?.id === 'string' &&
+      typeof source?.name === 'string' &&
+      typeof source?.path === 'string' &&
+      source.path.startsWith('/'),
+  );
+}
+
+function saveSources() {
+  writeJsonFile(
+    sourcesPath,
+    { sources: video.sources.map(({ id, name, path }) => ({ id, name, path })) },
+  );
+}
+
+/** Episode numbering, S01E02 style, or a dated episode. Neither means a film. */
+function videoEpisodeOf(name) {
+  const numbered = /\bs(\d{1,2})[ ._-]?e(\d{1,3})\b/i.exec(name);
+  if (numbered !== null) {
+    return { season: Number(numbered[1]), episode: Number(numbered[2]) };
+  }
+  const dated = /\b(\d{4})[-.](\d{2})[-.](\d{2})\b/.exec(name);
+  if (dated !== null) {
+    return { season: Number(dated[1]), episode: Number(`${dated[2]}${dated[3]}`) };
+  }
+  return undefined;
+}
+
+function videoTitleOf(name) {
+  return name.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function videoWalk(dir, out, depth, budget) {
+  if (depth > VIDEO_WALK_MAX_DEPTH || out.length >= budget.max) {
+    return;
+  }
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (out.length >= budget.max || entry.name.startsWith('.')) {
+      continue;
+    }
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await videoWalk(full, out, depth + 1, budget);
+      continue;
+    }
+    if (!VIDEO.has(extname(entry.name).toLowerCase())) {
+      continue;
+    }
+    const stat = statSync(full);
+    out.push({ file: full, bytes: stat.size, modified: stat.mtime.toISOString() });
+  }
+}
+
+/** Reads one source's tree into titles and the id-to-file map, bounded. */
+async function scanVideoSource(source) {
+  const found = [];
+  await videoWalk(source.path, found, 1, { max: VIDEO_WALK_MAX_FILES });
+  const titles = [];
+  const media = new Map();
+  for (const item of found) {
+    const base = item.file.slice(source.path.length + 1);
+    const last = base.lastIndexOf(sep);
+    const name = base.slice(last + 1, base.length - extname(item.file).length);
+    const episode = videoEpisodeOf(name);
+    const id = idOf(`video:${item.file}`);
+    const folder = last === -1 ? source.name : videoTitleOf(base.slice(0, last));
+    titles.push({
+      id,
+      title: videoTitleOf(name),
+      kind: episode === undefined ? 'movie' : 'episode',
+      ...(episode === undefined ? {} : { show: folder, ...episode }),
+      container: extname(item.file).toLowerCase(),
+      bytes: item.bytes,
+      modified: item.modified,
+    });
+    media.set(id, { file: item.file, type: videoContentType(extname(item.file).toLowerCase()) });
+  }
+  titles.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return { titles, media };
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > API_BODY_MAX) {
+        reject(new Error('the body is too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 function metaOf(file) {
   return extname(file).toLowerCase() === '.flac' ? flacMeta(file) : mp3Meta(file);
 }
@@ -535,11 +672,15 @@ export function archiveImageUrl(value) {
     return false;
   }
   const host = parsed.hostname;
-  const archive = host === 'archive.org' || host.endsWith('.archive.org');
+  // The suffix is compared label by label, so a host like
+  // not-archive.org cannot ride the archive's suffix.
+  const archive =
+    host === 'archive.org' || host.split('.').slice(-2).join('.') === 'archive.org';
   if (!archive) {
     return false;
   }
-  return parsed.pathname.startsWith('/download/') || parsed.pathname.startsWith('/0/items/');
+  const segments = parsed.pathname.split('/');
+  return segments[1] === 'download' || (segments[1] === '0' && segments[2] === 'items');
 }
 
 export function publicCoverUrl(albumId, ext) {
@@ -1143,7 +1284,12 @@ async function artistFetch(url, ctx, depth) {
     return undefined;
   }
   const type = headerOf(response, 'content-type');
-  const bytes = await readCapped(response, parsed.hostname.endsWith('wikimedia.org') && parsed.pathname.includes('/wikipedia/commons/') ? ARTWORK_IMAGE_MAX : ARTWORK_JSON_MAX);
+  // The image cap is the same two hosts the hop allowlist treats as Commons files.
+  // A suffix check would also match a name that merely ends in those labels.
+  const wikimediaImage =
+    (parsed.hostname === 'upload.wikimedia.org' || parsed.hostname === 'thumb.wikimedia.org') &&
+    parsed.pathname.includes('/wikipedia/commons/');
+  const bytes = await readCapped(response, wikimediaImage ? ARTWORK_IMAGE_MAX : ARTWORK_JSON_MAX);
   if (bytes === undefined) {
     return undefined;
   }
@@ -1269,9 +1415,7 @@ export async function fillArtistPhotos(artists, portraits, options) {
 }
 
 export function guardRequest(handler, req, res) {
-  try {
-    handler(req, res);
-  } catch {
+  const fail = () => {
     try {
       if (!res.writableEnded) {
         if (!res.headersSent) {
@@ -1282,6 +1426,14 @@ export function guardRequest(handler, req, res) {
     } catch {
       // The request handler must not throw.
     }
+  };
+  try {
+    const result = handler(req, res);
+    if (result instanceof Promise) {
+      result.catch(fail);
+    }
+  } catch {
+    fail();
   }
 }
 
@@ -1455,6 +1607,107 @@ async function serveStoreCatalog(req, res) {
   }
 }
 
+const video = {
+  sources: [],
+  titles: [],
+  media: new Map(),
+  body: '{"kind":"video","titles":[]}',
+};
+
+function sourcesDocument() {
+  return {
+    sources: video.sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      path: source.path,
+      titles: source.titles ?? 0,
+    })),
+  };
+}
+
+function videoDocument() {
+  return { kind: 'video', titles: video.titles };
+}
+
+async function rescanVideo() {
+  const titles = [];
+  video.media = new Map();
+  for (const source of video.sources) {
+    try {
+      const scanned = await scanVideoSource(source);
+      source.titles = scanned.titles.length;
+      titles.push(...scanned.titles);
+      for (const [id, hit] of scanned.media) {
+        video.media.set(id, hit);
+      }
+    } catch {
+      source.titles = 0;
+    }
+  }
+  titles.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  video.titles = titles;
+  video.body = JSON.stringify(videoDocument());
+}
+
+async function serveSourcesApi(req, res, url) {
+  const json = (code, value) => {
+    res.statusCode = code;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(value));
+  };
+  if (url.pathname === '/api/sources') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      return json(200, sourcesDocument());
+    }
+    if (req.method === 'POST') {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        return json(400, { error: 'the body is not json' });
+      }
+      const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
+      const path = typeof body?.path === 'string' ? body.path.trim() : '';
+      if (name === '' || !path.startsWith('/') || path.includes('..') || path.includes('\0')) {
+        return json(400, { error: 'a name and an absolute path inside the container are required' });
+      }
+      if (!existsSync(path) || !statSync(path).isDirectory()) {
+        return json(400, { error: 'the path is not a directory this container can see' });
+      }
+      if (video.sources.some((source) => source.path === path)) {
+        return json(409, { error: 'that path is already a source' });
+      }
+      const source = { id: idOf(`video-source:${path}`), name, path, titles: 0 };
+      video.sources.push(source);
+      saveSources();
+      await rescanVideo();
+      return json(201, source);
+    }
+    return json(405, { error: 'use GET, POST or DELETE' });
+  }
+  const match = /^\/api\/sources\/([a-f0-9]{16})(\/rescan)?$/.exec(url.pathname);
+  if (match === null) {
+    return json(404, { error: 'no such source route' });
+  }
+  const source = video.sources.find((candidate) => candidate.id === match[1]);
+  if (source === undefined) {
+    return json(404, { error: 'no such source' });
+  }
+  if (match[2] === '/rescan' && req.method === 'POST') {
+    await rescanVideo();
+    return json(200, source);
+  }
+  if (match[2] === undefined && req.method === 'DELETE') {
+    video.sources = video.sources.filter((candidate) => candidate.id !== source.id);
+    saveSources();
+    await rescanVideo();
+    return json(200, sourcesDocument());
+  }
+  return json(405, { error: 'use DELETE, or POST with /rescan' });
+}
+
 async function main() {
   const files = [];
   await walk(musicRoot, files);
@@ -1465,6 +1718,10 @@ async function main() {
   const publish = () => {
     body = JSON.stringify(state.library);
   };
+
+  video.sources = loadSources();
+  await rescanVideo();
+  console.log(`video sources=${video.sources.length} titles=${video.titles.length}`);
   console.log(`library albums=${state.library.albums.length} tracks=${state.media.size} skipped=${state.skipped}`);
   void (async () => {
     const artwork = await fillMissingArtwork(state.library.albums, state.covers, { publish });
@@ -1496,11 +1753,35 @@ async function main() {
   ].join('; ');
 
   createServer((req, res) => {
-    guardRequest(() => {
+    guardRequest(async () => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const sourcesApi = url.pathname === '/api/sources' || url.pathname.startsWith('/api/sources/');
+      if (!sourcesApi && req.method !== 'GET' && req.method !== 'HEAD') {
         res.statusCode = 405;
         res.end();
+        return;
+      }
+      if (sourcesApi) {
+        await serveSourcesApi(req, res, url);
+        return;
+      }
+      if (url.pathname === '/video-library.json') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.end(req.method === 'HEAD' ? undefined : video.body);
+        return;
+      }
+      const film = /^\/media\/video\/([a-f0-9]{16})$/.exec(url.pathname);
+      if (film !== null) {
+        const hit = video.media.get(film[1]);
+        if (hit === undefined) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        sendFile(req, res, hit.file, hit.type);
         return;
       }
       if (url.pathname === '/extensions/catalog.json') {
