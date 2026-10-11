@@ -60,6 +60,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
+      # Caching is for this CI only; release workflows must not restore or save
+      # caches (SEC-SUP-015). This job uses stable Rust; the fuzz jobs use nightly.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: fuzz-targets
+          add-job-id-key: false
+          cache-workspace-crates: true
       - id: list
         run: |
           harnesses="$(cargo run --locked --quiet -p xtask -- fuzz-targets)"
@@ -85,9 +92,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ env.NIGHTLY }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: fuzz-nightly
+          add-job-id-key: false
+          cache-workspace-crates: true
       # No prebuilt cargo-fuzz binary is published with checksums, so build
       # the exact version from crates.io with its own lockfile (SEC-SUP-011).
-      - run: cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+      - run: |
+          if ! cargo +"$NIGHTLY" fuzz --version 2>/dev/null | grep -F -q '0.13.2'; then
+            cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+          fi
       # cargo-fuzz has no --locked flag, so fail here if fuzz/Cargo.lock is
       # stale; the build below then resolves nothing new (SEC-SUP-020).
       - run: cargo +"$NIGHTLY" fetch --locked --manifest-path fuzz/Cargo.toml
@@ -130,7 +145,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ env.NIGHTLY }}
-      - run: cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: fuzz-nightly
+          add-job-id-key: false
+          cache-workspace-crates: true
+      - run: |
+          if ! cargo +"$NIGHTLY" fuzz --version 2>/dev/null | grep -F -q '0.13.2'; then
+            cargo +"$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+          fi
       - run: cargo +"$NIGHTLY" fetch --locked --manifest-path fuzz/Cargo.toml
       # The run must fail, and on the planted bug: an artifact of the
       # finding's kind (crash-, timeout- or oom-) tells it from a build

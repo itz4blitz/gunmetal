@@ -46,6 +46,11 @@ jobs:
       # Caching is for this CI only: release workflows must never restore or
       # save caches (SEC-SUP-015).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: checks
+          add-job-id-key: false
+          cache-workspace-crates: true
+          cache-on-failure: true
       # Exact tool versions, downloaded with SHA-256 verification; no fallback
       # to unverified installers (SEC-SUP-011).
       - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
@@ -58,13 +63,48 @@ jobs:
       # cargo-mutants 27.1.0's only Linux binary needs glibc 2.39, newer
       # than the runner image, so build that pin the same way.
       - run: cargo install cargo-vet --version 0.10.2 --locked
-      - run: cargo install cargo-mutants --version 27.1.0 --locked
+      - run: |
+          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
+            cargo install cargo-mutants --version 27.1.0 --locked
+          fi
       - run: scripts/gate.sh
         env:
           GATE_SKIP_MUTANTS: 1
 
+  # Compiles the mutation test binaries once and saves the shared cache the
+  # shards restore. The encoded rustflags match cargo-mutants 27.1.0.
+  # Workspace crates are cached because the default keeps only dependencies,
+  # and the shards need the test binaries. This job also installs
+  # cargo-mutants so the restored cache includes that binary.
+  mutants-warm:
+    runs-on: [self-hosted, gunmetal-mutants]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: mutants
+          add-job-id-key: false
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - run: |
+          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
+            cargo install cargo-mutants --version 27.1.0 --locked
+          fi
+      - run: scripts/gate.sh
+        env:
+          GATE_MUTANTS_WARM: 1
+
   # The mutation run, one shard per job, for every event.
   mutants:
+    needs: mutants-warm
     # The ten shards run on GitHub-hosted runners; a pull request can
     # rewrite this line, so the required `gate` check below is what keeps
     # the result honest.
@@ -89,12 +129,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
-      # The shards share one cache; only the first saves it.
+      # Shards restore the warm job's cache and must not save: they would
+      # upload a target dir full of mutated incremental state.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          save-if: ${{ matrix.shard == 0 }}
-      # No musl build, and the gnu build needs glibc 2.39.
-      - run: cargo install cargo-mutants --version 27.1.0 --locked
+          shared-key: mutants
+          add-job-id-key: false
+          cache-workspace-crates: true
+          save-if: false
+      # No musl build, and the gnu build needs glibc 2.39. The warm job's
+      # cache restores the binary when it is already present.
+      - run: |
+          if ! cargo mutants --version 2>/dev/null | grep -F -q '27.1.0'; then
+            cargo install cargo-mutants --version 27.1.0 --locked
+          fi
       - run: scripts/gate.sh
         env:
           # The base branch, only for a pull request into a wave branch
@@ -121,6 +169,11 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: i686-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: core-i686
+          add-job-id-key: false
+          cache-workspace-crates: true
       - run: |
           if command -v sudo >/dev/null 2>&1; then
             sudo apt-get update
@@ -146,6 +199,12 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: checks
+          add-job-id-key: false
+          cache-workspace-crates: true
+          save-if: false
       - name: The gate fails on a manifest the lock file does not match
         run: |
           mkdir -p crates/locked-self-test/src
@@ -190,6 +249,10 @@ jobs:
           refused GATE_MUTANTS_SHARD=0/10000
           refused GATE_MUTANTS_SHARD=0/10 GATE_SKIP_MUTANTS=1
           refused GATE_MUTANTS_DIFF=origin/main GATE_SKIP_MUTANTS=1
+          refused GATE_MUTANTS_WARM=yes
+          refused GATE_MUTANTS_WARM=1 GATE_SKIP_MUTANTS=1
+          refused GATE_MUTANTS_WARM=1 GATE_MUTANTS_SHARD=0/10
+          refused GATE_MUTANTS_WARM=1 GATE_MUTANTS_DIFF=origin/main
 
   # The one check main's ruleset requires. It waits for every other job and
   # runs even when one failed or was cancelled, because a skipped required
@@ -197,7 +260,7 @@ jobs:
   # timed-out mutant in any shard fails this job.
   gate:
     if: ${{ always() }}
-    needs: [checks, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
+    needs: [checks, mutants-warm, mutants, core-32-bit, locked-self-test, gate-switches-self-test]
     runs-on: [self-hosted, gunmetal-mutants]
     timeout-minutes: 5
     permissions: {}

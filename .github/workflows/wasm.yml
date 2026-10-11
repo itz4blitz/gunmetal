@@ -44,6 +44,14 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
+      # Caching is for this CI only; release workflows must not restore or save
+      # caches (SEC-SUP-015).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: wasm
+          add-job-id-key: false
+          cache-workspace-crates: true
+          env-vars: RUSTFLAGS
       - name: The facade builds for wasm32 under its lint tables
         run: cargo build --locked -p gunmetal-wasm --target wasm32-unknown-unknown
       # tsify puts each mirror type's declaration into the module, where the

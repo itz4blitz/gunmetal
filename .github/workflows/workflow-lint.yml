@@ -30,9 +30,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
+      # Caching is for this CI only; release workflows must not restore or save
+      # caches (SEC-SUP-015).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: workflow-lint
+          add-job-id-key: false
+          cache-workspace-crates: true
       # crates.io checksums the crate; --locked uses zizmor's own lockfile
-      # (SEC-SUP-011).
-      - run: cargo install zizmor --version 1.30.1 --locked
+      # (SEC-SUP-011). The cache restores ~/.cargo/bin, so skip a rebuild
+      # when that binary is already this version.
+      - run: |
+          if ! zizmor --version 2>/dev/null | grep -F -q '1.30.1'; then
+            cargo install zizmor --version 1.30.1 --locked
+          fi
       # Every finding fails the job, whatever its severity: some audits that
       # SEC-SUP-011 (unpinned-tools, adhoc-packages), SEC-SUP-012
       # (excessive-permissions) and SEC-SUP-028 (dependabot-cooldown,
@@ -169,4 +180,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: workflow-lint
+          add-job-id-key: false
+          cache-workspace-crates: true
       - run: cargo run --locked --quiet -p xtask -- js-deps
