@@ -958,19 +958,29 @@ mod tests {
                 Native.no_new_privs().unwrap();
                 let installed = Native.seccomp();
                 outcome.store(u8::from(installed).saturating_add(1), Ordering::SeqCst);
-                let _spun = std::iter::repeat_with(|| {
+                // A loop in this function, not a closure. The coverage
+                // gate counts a closure on its own, and this one runs only
+                // on the helper thread, which some runs never recorded.
+                // The body runs at least once on every schedule.
+                loop {
                     std::hint::spin_loop();
-                    seen.load(Ordering::SeqCst)
-                })
-                .any(|done| done);
+                    if seen.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
             });
             let release = Release(&seen);
-            let finished = std::iter::repeat_with(|| {
+            // Same for the wait on this thread: one function, and the
+            // body runs before the outcome is consulted.
+            let mut finished = None;
+            for _ in 0..LOOKS {
                 std::thread::sleep(Duration::from_millis(1));
-                outcome.load(Ordering::SeqCst)
-            })
-            .take(LOOKS)
-            .find(|&state| state != 0);
+                let state = outcome.load(Ordering::SeqCst);
+                if state != 0 {
+                    finished = Some(state);
+                    break;
+                }
+            }
             let asked_into = seccomp_of(tid.load(Ordering::SeqCst));
             drop(release);
             (finished, asked_into)
