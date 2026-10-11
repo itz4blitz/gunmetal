@@ -20,9 +20,15 @@
 # job per shard, because a single job cannot finish a large mutation run
 # within its time limit.
 #
+# GATE_MUTANTS_WARM=1 compiles the test binaries cargo-mutants reuses, with
+# the same encoded rustflags cargo-mutants injects, and runs no checks and
+# no mutants. CI uses it once before the shards so they restore a shared cache.
+#
 # GATE_SKIP_MUTANTS=1 cannot be combined with either of the other two, since
-# they choose which mutants to test. With none of them the script runs every
-# step over the whole workspace, which is the definition of done.
+# they choose which mutants to test. GATE_MUTANTS_WARM=1 cannot be combined
+# with any of them, since warm compiles only and the others choose mutants or
+# skip them. With none of them the script runs every step over the whole
+# workspace, which is the definition of done.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -35,9 +41,14 @@ usage() {
 mutants_diff="${GATE_MUTANTS_DIFF:-}"
 mutants_shard="${GATE_MUTANTS_SHARD:-}"
 skip_mutants="${GATE_SKIP_MUTANTS:-0}"
+mutants_warm="${GATE_MUTANTS_WARM:-0}"
 case "$skip_mutants" in
   0 | 1) ;;
   *) usage "GATE_SKIP_MUTANTS must be 0 or 1, not '$skip_mutants'" ;;
+esac
+case "$mutants_warm" in
+  0 | 1) ;;
+  *) usage "GATE_MUTANTS_WARM must be 0 or 1, not '$mutants_warm'" ;;
 esac
 if [[ -n "$mutants_shard" && ! "$mutants_shard" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]]; then
   usage "GATE_MUTANTS_SHARD must be k/n with 0 <= k < n <= 9999, not '$mutants_shard'"
@@ -47,6 +58,9 @@ if [[ -n "$mutants_shard" ]] && ((BASH_REMATCH[1] >= BASH_REMATCH[2])); then
 fi
 if [[ "$skip_mutants" == 1 && -n "$mutants_diff$mutants_shard" ]]; then
   usage "GATE_SKIP_MUTANTS=1 cannot be combined with GATE_MUTANTS_DIFF or GATE_MUTANTS_SHARD: it tests no mutants, and they choose which to test"
+fi
+if [[ "$mutants_warm" == 1 && ( "$skip_mutants" == 1 || -n "$mutants_diff$mutants_shard" ) ]]; then
+  usage "GATE_MUTANTS_WARM=1 cannot be combined with GATE_SKIP_MUTANTS, GATE_MUTANTS_DIFF, or GATE_MUTANTS_SHARD: warm compiles the test binaries and tests no mutants, and the other switches choose mutants or skip them"
 fi
 
 # A distro-packaged Rust has no rustup llvm-tools component, so point
@@ -145,8 +159,23 @@ checks() {
   cargo test --locked --workspace --doc
 }
 
+# Compiles the test binaries cargo-mutants reuses, with the same rustflags
+# cargo-mutants 27.1.0 injects when RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS
+# are unset.
+mutants_warm_build() {
+  echo "==> mutation build warm"
+  if [[ -n "${CARGO_ENCODED_RUSTFLAGS:-}" || -n "${RUSTFLAGS:-}" ]]; then
+    usage "GATE_MUTANTS_WARM=1 requires CARGO_ENCODED_RUSTFLAGS and RUSTFLAGS to be unset: cargo-mutants only emits --cap-lints=warn when both are unset"
+  fi
+  CARGO_ENCODED_RUSTFLAGS=--cap-lints=warn cargo test --locked --workspace --no-run
+}
+
 # Mutation testing: the whole workspace or the code changed since a ref, and
-# of those mutants either all or one shard.
+# of those mutants either all or one shard. --in-place lets rustc reuse target/;
+# cargo-mutants' default copied tree does not. CI uses a disposable checkout;
+# an interrupted local run can leave a `/* ~ changed by cargo-mutants ~ */`
+# marker in a source file. --iterate is not used: a caught mutant must be
+# tested again on every gate run.
 mutants() {
   echo "==> mutation testing, zero survivors"
   scope=()
@@ -161,13 +190,17 @@ mutants() {
     echo "only shard ${mutants_shard} of those mutants"
     scope+=(--shard "$mutants_shard" --sharding round-robin)
   fi
-  cargo mutants --workspace --no-shuffle "${scope[@]}" --cargo-arg=--locked
+  cargo mutants --workspace --no-shuffle --in-place "${scope[@]}" --cargo-arg=--locked
 }
 
-if [[ -z "$mutants_shard" ]]; then
+if [[ "$mutants_warm" == 1 ]]; then
+  mutants_warm_build
+elif [[ -z "$mutants_shard" ]]; then
   checks
 fi
-if [[ "$skip_mutants" == 1 ]]; then
+if [[ "$mutants_warm" == 1 ]]; then
+  :
+elif [[ "$skip_mutants" == 1 ]]; then
   echo "==> mutation testing skipped (GATE_SKIP_MUTANTS=1)"
 else
   mutants
