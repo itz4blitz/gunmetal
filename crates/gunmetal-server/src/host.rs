@@ -13,7 +13,9 @@
 //!   (SEC-STD-023).
 
 use rustix::io::Errno;
-use rustix::process::{DumpableBehavior, Resource, Rlimit};
+#[cfg(target_os = "linux")]
+use rustix::process::DumpableBehavior;
+use rustix::process::{Resource, Rlimit};
 
 /// Who the process runs as, as the kernel reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,10 +49,10 @@ impl Privileges {
     ///
     /// The kernel's error when the capability sets cannot be read.
     pub fn probe() -> Result<Self, Errno> {
-        rustix::thread::capabilities(None).map(|sets| Self {
+        capability_sets().map(|(effective, permitted)| Self {
             euid: rustix::process::geteuid().as_raw(),
-            effective: sets.effective.bits(),
-            permitted: sets.permitted.bits(),
+            effective,
+            permitted,
         })
     }
 
@@ -91,8 +93,27 @@ impl PrivilegeError {
     }
 }
 
+/// The capability sets the kernel reports. Only Linux has a capability
+/// facility to ask about: elsewhere the sets are empty by definition, and
+/// the root check still binds (D-09 keeps R1's servers on Linux, where
+/// the real sets are read).
+#[cfg(target_os = "linux")]
+fn capability_sets() -> Result<(u64, u64), Errno> {
+    rustix::thread::capabilities(None).map(|sets| (sets.effective.bits(), sets.permitted.bits()))
+}
+
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Linux body answers with the kernel's error, and the caller reads both alike"
+)]
+fn capability_sets() -> Result<(u64, u64), Errno> {
+    Ok((0, 0))
+}
+
 /// Sets the core file size limit to 0 and clears the dumpable flag
-/// (SEC-STD-023).
+/// (SEC-STD-023). The dumpable flag is Linux's; elsewhere the limit alone
+/// keeps a crash from writing a core image.
 ///
 /// # Errors
 ///
@@ -102,8 +123,17 @@ pub fn disable_core_dumps() -> Result<(), Errno> {
         current: Some(0),
         maximum: Some(0),
     };
-    rustix::process::setrlimit(Resource::Core, none)
-        .and_then(|()| rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable))
+    // Returned whole, so a kernel error stays the kernel's `Result` and is
+    // not a branch of this function that the tests cannot reach.
+    #[cfg(target_os = "linux")]
+    {
+        rustix::process::setrlimit(Resource::Core, none)
+            .and_then(|()| rustix::process::set_dumpable_behavior(DumpableBehavior::NotDumpable))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        rustix::process::setrlimit(Resource::Core, none)
+    }
 }
 
 #[cfg(test)]

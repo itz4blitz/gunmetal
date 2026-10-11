@@ -34,6 +34,7 @@ export type DestinationMessages = {
   settingsAppearance: string;
   settingsPlayback: string;
   settingsPlaybackPlaceholder: string;
+  settingsLibraries: string;
   settingsConnected: string;
   settingsConnectedEmpty: string;
   settingsExtensions: string;
@@ -227,6 +228,7 @@ export function destinationMessages(): DestinationMessages {
     settingsAppearance: 'Appearance',
     settingsPlayback: 'Playback',
     settingsPlaybackPlaceholder: "Playback uses this server's files.",
+    settingsLibraries: 'Libraries',
     settingsConnected: 'Connected services',
     settingsConnectedEmpty: 'No connected services.',
     settingsExtensions: 'Extensions / Plugins',

@@ -1,23 +1,28 @@
 //! Opening one file beneath a root: regular files only, read-only, and by
 //! the bytes of their names.
 
+#[cfg(target_os = "linux")]
 use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
+#[cfg(target_os = "linux")]
 use std::mem::MaybeUninit;
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::PathBuf;
 
 use gunmetal_fs::open::FileKind;
+#[cfg(target_os = "linux")]
 use gunmetal_fs::pool::Pool;
 use gunmetal_fs::root::{FsError, LinkPolicy, Op};
 use rustix::fs::OFlags;
+#[cfg(target_os = "linux")]
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::{Errno, FdFlags};
 
-use crate::support::{
-    LONG, Scratch, assert_not_root, at, contents, fifo, identity, io, rel, set_mode, socket,
-};
+#[cfg(target_os = "linux")]
+use crate::support::{LONG, fifo};
+use crate::support::{Scratch, assert_not_root, at, contents, identity, io, rel, set_mode, socket};
 
 /// What opening `path` beneath `scratch`'s library gives, without the file.
 fn opening(scratch: &Scratch, path: &str) -> Result<(), FsError> {
@@ -87,9 +92,12 @@ fn opens_read_only_without_blocking_and_closed_on_exec() {
 
 /// Opening a FIFO for reading waits for a writer unless the open asks not
 /// to, and no writer ever comes here. The open runs on a pool so that a
-/// door that did wait would fail this test instead of hanging it.
+/// door that did wait would fail this test instead of hanging it. The
+/// FIFO helper is Linux's, so the test runs there; the refusals that do
+/// not need a FIFO are proven below on every platform.
 ///
 /// Verifies: SEC-MED-035
+#[cfg(target_os = "linux")]
 #[test]
 fn refuses_a_fifo_named_like_a_track_without_waiting_for_a_writer() {
     let scratch = Scratch::new("fs-open-fifo");
@@ -155,9 +163,12 @@ fn refuses_a_device_whatever_led_to_it() {
 
 /// What the door found an entry to be is enough to refuse it: a FIFO, a
 /// socket or a directory is not opened at all, as a watch for opens shows.
-/// The same watch does see a regular file opened.
+/// The same watch does see a regular file opened. The watch is inotify's,
+/// so the test runs on Linux; the refusals themselves are also proven by
+/// the socket and directory tests above, on every platform.
 ///
 /// Verifies: SEC-MED-035
+#[cfg(target_os = "linux")]
 #[test]
 fn refuses_what_is_not_a_regular_file_before_opening_it() {
     let scratch = Scratch::new("fs-open-unopened");
@@ -223,6 +234,10 @@ fn reports_a_file_it_may_not_read() {
 }
 
 /// Verifies: SEC-MED-040
+/// Their names need a byte-transparent filesystem, which the macOS ones
+/// are not: those refuse to create such a name at all (`EILSEQ`), so the
+/// test runs on Linux, where the hostile input can exist.
+#[cfg(target_os = "linux")]
 #[test]
 fn opens_names_that_are_not_utf8_or_hold_controls_by_their_bytes() {
     let scratch = Scratch::new("fs-open-bytes");

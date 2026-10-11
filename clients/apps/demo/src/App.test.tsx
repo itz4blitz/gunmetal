@@ -175,7 +175,7 @@ function storeRows(): (string | null)[][] {
   ]);
 }
 
-test('settings keeps its five sections and the store lists the records', () => {
+test('settings lists the demo panes, libraries included and extensions absent, and the store lists the records', () => {
   window.localStorage.clear();
   window.history.pushState(null, '', '/');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1600 });
@@ -185,6 +185,7 @@ test('settings keeps its five sections and the store lists the records', () => {
   expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toStrictEqual([
     'Appearance',
     'Playback',
+    'Libraries',
     'Connected services',
     'About this connection',
     'Privacy',
@@ -492,6 +493,19 @@ test('a device list that arrives after unmount is ignored', async () => {
   } finally {
     Reflect.deleteProperty(navigator, 'mediaDevices');
   }
+});
+
+test('the area switch swaps the music shell for the Watch area and back', async () => {
+  window.history.pushState(null, '', '/');
+  render(<App />);
+  expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#watch-area')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
+  expect(document.querySelector('#watch-area')).not.toBeNull();
+  expect(document.querySelector('#shell-wordmark')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Music' }));
+  expect(document.querySelector('#shell-wordmark')).not.toBeNull();
+  expect(document.querySelector('#watch-area')).toBeNull();
 });
 
 test('a devicechange re-lists the outputs, and unmount removes the listener', async () => {

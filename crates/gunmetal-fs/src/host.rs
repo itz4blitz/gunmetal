@@ -112,7 +112,7 @@ impl Filesystem {
     fn of_statfs(stat: &StatFs) -> Self {
         // `f_type`'s integer type depends on the target; widen it.
         #[cfg_attr(
-            target_pointer_width = "64",
+            all(target_os = "linux", target_pointer_width = "64"),
             expect(
                 clippy::useless_conversion,
                 reason = "f_type is already an i64 on the 64-bit Linux targets R1 builds for"

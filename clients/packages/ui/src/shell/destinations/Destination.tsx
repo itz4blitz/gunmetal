@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { Text, View } from 'react-native-web';
 import type { MessageCatalogue } from '../../messages/catalogue.ts';
 import type { MatchResult } from '../../router/match.ts';
@@ -60,6 +61,8 @@ export type DestinationProps = {
   served?: boolean | undefined;
   /** About-page library size. Set only when the library is a folder. */
   libraryFact?: string | undefined;
+  /** Libraries content for the settings page. Absent, the section stays hidden. */
+  libraries?: ReactNode | undefined;
   width: WidthClass;
   onPlayNextAlbum?: (albumId: string) => void;
   onAddAlbumToQueue?: (albumId: string) => void;
@@ -106,6 +109,7 @@ export function Destination({
   onLibraryRetry,
   served,
   libraryFact,
+  libraries,
   width,
   onPlayNextAlbum,
   onAddAlbumToQueue,
@@ -280,6 +284,7 @@ export function Destination({
         onOpenPath={onOpenPath}
         pluginSlots={pluginSlots}
         libraryFact={libraryFact}
+        libraries={libraries}
         messages={messages.destinations}
         shellMessages={messages.shell}
         theme={theme}

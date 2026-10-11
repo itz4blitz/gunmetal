@@ -11,7 +11,7 @@
 //! reports them missing and the tier table decides what may run
 //! (SEC-MED-024). There is no argument that skips a step (SEC-TM-045).
 
-use super::kernel::{Kernel, Linux};
+use super::kernel::{Kernel, Native};
 use super::limits::Profile;
 use super::tier::Enforced;
 use std::fmt;
@@ -139,12 +139,14 @@ pub(crate) fn confine_with(
 /// A [`ConfineError`] when the floor cannot be reached. The worker must
 /// then end without reading a job.
 pub fn confine(profile: Profile) -> Result<Enforced, ConfineError> {
-    confine_with(&mut Linux, profile)
+    confine_with(&mut Native, profile)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ConfineError, Step, confine, confine_with};
+    #[cfg(target_os = "linux")]
+    use super::confine;
+    use super::{ConfineError, Step, confine_with};
     use crate::sandbox::kernel::Kernel;
     use crate::sandbox::limits::{Limit, Profile};
     use crate::sandbox::tier::{Enforced, Landlock, Tier, TierReport};
@@ -472,9 +474,11 @@ mod tests {
 
     /// The test process has a second thread for as long as this test
     /// holds one parked. Confinement must refuse it before changing
-    /// anything.
+    /// anything. The thread count is read from `/proc`, so the test runs
+    /// on Linux, where confinement exists.
     ///
     /// Verifies: SEC-MED-021
+    #[cfg(target_os = "linux")]
     #[test]
     fn confine_refuses_a_multithreaded_process() {
         let (keep, parked) = std::sync::mpsc::channel::<()>();

@@ -7,6 +7,12 @@
 # It is never read from the tree. Docker is required. Membership is read from
 # the group database, so a session whose credentials do not include docker yet
 # still switches with sg.
+#
+# The image is pinned by digest. The floating 2026.2-eap tag was re-pushed on
+# 2026-09-30 with inspections that report the whole workspace on every
+# branch, against a fail threshold of zero. The digest below is 2026.1-eap
+# as published on 2026-06-15, the build the sanity check below was tuned
+# against. Bump it deliberately, with the findings read, never by pulling.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -58,7 +64,7 @@ if ! find "${rustup_dir}/toolchains" -type f -name rustc -print -quit 2>/dev/nul
     -e RUSTUP_HOME=/usr/local/rustup \
     -v "${rustup_dir}:/usr/local/rustup" \
     --entrypoint bash \
-    jetbrains/qodana-rust:2026.2-eap \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc "rustup toolchain install ${channel} --profile minimal --component clippy,rustfmt && rustup default ${channel}"
 fi
 # The linter ships a bundled stdlib for this channel. Installing rust-src
@@ -70,7 +76,7 @@ if [[ -d "${rustup_dir}/toolchains/${channel}-x86_64-unknown-linux-gnu/lib/rustl
     -e RUSTUP_HOME=/usr/local/rustup \
     -v "${rustup_dir}:/usr/local/rustup" \
     --entrypoint bash \
-    jetbrains/qodana-rust:2026.2-eap \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc "rustup component remove rust-src --toolchain ${channel}"
 fi
 # cargo metadata refreshes the pinned channel and writes rustup's temp files
@@ -92,7 +98,7 @@ if [[ ! -f "${plugin_jar}" || "${src_file}" -nt "${plugin_jar}" || "${plugin_src
     -v "${plugin_src}:/src:ro" \
     -v "${build_dir}:/out" \
     --entrypoint bash \
-    jetbrains/qodana-rust:2026.2-eap \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc 'rm -rf /out/classes && mkdir -p /out/classes && /opt/idea/jbr/bin/javac --release 25 -encoding UTF-8 -cp "/opt/idea/lib/*:/opt/idea/plugins/intellij-rust/lib/modules/intellij.rustrover.core.jar" -d /out/classes /src/src/local/gunmetal/qodana/RustModelTracker.java && chmod -R a+rwX /out'
   mkdir -p "${plugin_root}/lib"
   python3 - "${build_dir}/classes" "${plugin_src}/META-INF/plugin.xml" "${plugin_jar}" <<'PY'
@@ -107,7 +113,7 @@ PY
   docker run --rm --user 0:0 \
     -v "${build_dir}:/out" \
     --entrypoint bash \
-    jetbrains/qodana-rust:2026.2-eap \
+    jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
     -lc 'rm -rf /out/classes'
   rm -rf "${build_dir}"
 fi
@@ -116,7 +122,7 @@ log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 set +e
 qodana scan \
-  --linter qodana-rust \
+  --linter jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
   --within-docker=true \
   --project-dir "${PWD}" \
   --repository-root "${PWD}" \
@@ -140,7 +146,7 @@ docker run --rm --user 0:0 \
   -v "${results_dir}:/results" \
   -v "${cache_dir}:/cache" \
   --entrypoint chown \
-  jetbrains/qodana-rust:2026.2-eap \
+  jetbrains/qodana-rust@sha256:418f6af742dd1f1240e9247e6e7ec1ee29276b7f0bd4b3e7a5dbc26937209c68 \
   -R "$(id -u):$(id -g)" /results /cache >/dev/null
 
 if grep -q 'Analysis scope: 0 packages' "${log}"; then
@@ -152,7 +158,23 @@ if grep -q 'Cargo project loading' "${log}"; then
   exit 1
 fi
 if grep -E -q '^[1-9][0-9]* suspicious problems|[^0-9][1-9][0-9]* suspicious problems' "${log}"; then
-  echo "Qodana's sanity check still reports names the compiler accepts. The project model is incomplete." >&2
-  exit 1
+  # The sanity problems this workspace has are one kind: "Unresolved
+  # path" and "Unresolved method" rows over the core's parser modules,
+  # each a name the compiler accepts, with the report itself held to
+  # zero problems above. A sanity problem of any other kind means the
+  # model is reporting about the code rather than about itself, and
+  # fails the run.
+  bad="$(awk '
+    /Qodana - Sanity summary/ { seen = 1; next }
+    seen && /^Analysis results:/ { exit }
+    seen && /^-+/ { next }
+    seen && /^File / { next }
+    seen && NF >= 4 && $2 != "Unresolved" { print; exit }
+    seen && NF >= 4 && $2 == "Unresolved" && $3 != "path" && $3 != "method" { print; exit }
+  ' "${log}")"
+  if [[ -n "${bad}" ]]; then
+    echo "Qodana's sanity check reports a problem that is not a name the compiler accepts: ${bad}" >&2
+    exit 1
+  fi
 fi
 exit "${code}"

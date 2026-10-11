@@ -3,6 +3,7 @@
 
 use std::fs::{self, File};
 use std::io::Write as _;
+#[cfg(target_os = "linux")]
 use std::mem::MaybeUninit;
 use std::os::fd::AsFd as _;
 use std::os::unix::fs::MetadataExt as _;
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use gunmetal_fs::fingerprint::{Mark, fingerprint};
 use gunmetal_fs::walk::Visit;
+#[cfg(target_os = "linux")]
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::Errno;
 
@@ -18,6 +20,7 @@ use crate::support::{
 };
 
 /// Every way a file or a directory can be changed, as inotify names them.
+#[cfg(target_os = "linux")]
 const CHANGES: WatchFlags = WatchFlags::ATTRIB
     .union(WatchFlags::CLOSE_WRITE)
     .union(WatchFlags::CREATE)
@@ -67,8 +70,10 @@ fn walks_and_reads_a_library_it_may_not_write_and_leaves_it_as_it_was() {
         set_mode(&scratch.path(path), 0o555);
     }
     let before = snapshot(&scratch.path("music"));
+    #[cfg(target_os = "linux")]
     let watch = inotify::init(CreateFlags::NONBLOCK.union(CreateFlags::CLOEXEC))
         .expect("an inotify instance");
+    #[cfg(target_os = "linux")]
     for path in ["music", "music/Album"] {
         inotify::add_watch(&watch, scratch.path(path), CHANGES).expect("watch the directory");
     }
@@ -122,24 +127,32 @@ fn walks_and_reads_a_library_it_may_not_write_and_leaves_it_as_it_was() {
         );
     }
 
-    let mut buffer = [MaybeUninit::<u8>::uninit(); 1024];
-    let mut events = inotify::Reader::new(&watch, &mut buffer);
-    assert_eq!(
-        events.next().map(|event| event.events()),
-        Err(Errno::AGAIN),
-        "the library saw a change"
-    );
+    #[cfg(target_os = "linux")]
+    {
+        let mut buffer = [MaybeUninit::<u8>::uninit(); 1024];
+        let mut events = inotify::Reader::new(&watch, &mut buffer);
+        assert_eq!(
+            events.next().map(|event| event.events()),
+            Err(Errno::AGAIN),
+            "the library saw a change"
+        );
+    }
     assert_eq!(snapshot(&scratch.path("music")), before);
 
     // The watch does report a change when there is one, so its silence
     // above means something. This also lets the scratch directory go.
     set_mode(&scratch.path("music/Album"), 0o755);
-    assert_eq!(
-        events
-            .next()
-            .map(|event| event.events().contains(ReadFlags::ATTRIB)),
-        Ok(true)
-    );
+    #[cfg(target_os = "linux")]
+    {
+        let mut buffer = [MaybeUninit::<u8>::uninit(); 1024];
+        let mut events = inotify::Reader::new(&watch, &mut buffer);
+        assert_eq!(
+            events
+                .next()
+                .map(|event| event.events().contains(ReadFlags::ATTRIB)),
+            Ok(true)
+        );
+    }
     set_mode(&scratch.path("music"), 0o755);
 }
 

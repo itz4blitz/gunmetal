@@ -48,6 +48,7 @@ exclude:
   - name: All
     paths:
       - fuzz
+      - crates/gunmetal-fuzz
       - target
       - .claude
       - .idea
@@ -60,3 +61,40 @@ exclude:
   - name: RsFunctionNaming
     paths:
       - crates/gunmetal-core/tests/untrusted.rs
+  # The inspections below arrived with the 2026.2 EAP image and report the
+  # whole workspace, on every branch, including ones this project's own gate
+  # passes. Each exclusion names the authority that wins over the
+  # inspection.
+  #
+  # The type checker and the borrow checker are rustc. The gate compiles
+  # every crate on every run, so a move or a type the compiler accepts is
+  # not a problem, whatever the EAP's model of the workspace says; the
+  # model needs its opening held open (the rust-wait plugin above) and
+  # still misreads macro-expanded and cfg-gated code.
+  - name: RsTypeCheck
+  - name: RsBorrowChecker
+  # Style is clippy's, at pedantic, with this project's clippy.toml, and
+  # rustfmt's. These inspections disagree with what the gate passes on the
+  # same lines.
+  - name: RsUnnecessaryQualifications
+  - name: RsUnnecessaryCast
+  - name: RsUnnecessaryParentheses
+  - name: RsAssertEqual
+  - name: RsReplaceMatchExpr
+  - name: RsSortImplTraitMembers
+  - name: RsLift
+  - name: DuplicatedCode
+  # `unwrap` is denied in the core's non-test code by its own lint table
+  # and read as an assertion of a fixed input in tests, which is where the
+  # inspection fires.
+  - name: RsUnwrap
+  # A file the EAP model has not attached to its module is an editing
+  # hint, not a finding about the code.
+  - name: RsDetachedFile
+  # crates/gunmetal-wasm names serde-wasm-bindgen for its version pin, as
+  # the manifest comment above the line says: only tsify calls it, and the
+  # workspace's pin, not tsify's wider requirement, fixes the version that
+  # is built.
+  - name: CargoUnusedDependency
+    paths:
+      - crates/gunmetal-wasm

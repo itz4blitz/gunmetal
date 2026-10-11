@@ -10,10 +10,14 @@ homepage.workspace = true
 
 [dependencies]
 gunmetal-core = { path = "../gunmetal-core", version = "0.0.0" }
-landlock.workspace = true
 rustix = { workspace = true, features = ["fs", "net", "process", "std", "thread"] }
-seccompiler.workspace = true
 serde = { workspace = true, features = ["alloc", "derive"] }
+
+# Landlock and seccomp are Linux facilities (D-09). Elsewhere the worker
+# refuses to confine itself, and so never serves a job (SEC-MED-024).
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+seccompiler.workspace = true
 
 [dev-dependencies]
 rustix = { workspace = true, features = ["process", "std"] }

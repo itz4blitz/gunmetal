@@ -12,6 +12,7 @@ mod launch;
 mod limits;
 pub mod programs;
 mod self_test;
+#[cfg(target_os = "linux")]
 mod syscalls;
 mod tier;
 

@@ -15,6 +15,7 @@ mod support;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{ErrorKind, Write};
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
@@ -242,6 +243,12 @@ fn lists_the_streams_that_have_a_directory_in_name_order() {
 }
 
 /// Verifies: SEC-HIS-015
+///
+/// The lookalike names differ from a real stream's only in case, so they
+/// need a case-sensitive filesystem. The macOS default ones fold case,
+/// and the lookalikes cannot exist beside the stream they mimic; the
+/// test runs on Linux.
+#[cfg(target_os = "linux")]
 #[test]
 fn lists_only_a_directory_whose_name_a_stream_has() {
     let dir = TempDir::new();
@@ -282,6 +289,10 @@ fn lists_only_a_directory_whose_name_a_stream_has() {
     );
 }
 
+/// The foreign names include one that is not text, which needs a
+/// byte-transparent filesystem; the macOS ones refuse to create it
+/// (`EILSEQ`), so the test runs on Linux.
+#[cfg(target_os = "linux")]
 #[test]
 fn lists_segments_oldest_first_and_everything_else_as_foreign() {
     let dir = TempDir::new();
@@ -661,6 +672,11 @@ fn leaves_a_link_and_a_directory_whose_names_no_segment_has() {
     );
 }
 
+/// The blocked entry is a directory where a segment's file belongs: the
+/// removal is refused with `EISDIR` on Linux, whose typed kind the test
+/// reads. macOS answers `EPERM` for the same call, so the test runs on
+/// Linux, where the typed refusal is what the kernel says.
+#[cfg(target_os = "linux")]
 #[test]
 fn removes_every_segment_it_can_past_a_directory_named_like_one() {
     let dir = TempDir::new();

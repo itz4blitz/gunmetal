@@ -11,7 +11,7 @@
 use super::args::TypedArgs;
 use super::descriptors::mark_from;
 use super::exit::Exit;
-use super::kernel::{Kernel, Linux};
+use super::kernel::{Kernel, Native};
 use super::programs::Program;
 use std::fmt;
 use std::io;
@@ -141,7 +141,7 @@ pub fn launch(program: Program, args: TypedArgs, fds: Inherited) -> Result<Child
 /// (SEC-MED-022). When `/proc/self/fd` cannot be listed nothing is
 /// marked, and confinement refuses the worker if an extra reached it.
 fn mark_others_close_on_exec() {
-    Linux
+    Native
         .descriptors()
         .iter()
         .for_each(|open| mark_from(3, open));
@@ -177,7 +177,9 @@ fn spawn(executable: &str, args: TypedArgs, fds: Inherited) -> Result<Child, Spa
 
 #[cfg(test)]
 mod tests {
-    use super::{Inherited, SpawnError, mark_others_close_on_exec, spawn};
+    #[cfg(target_os = "linux")]
+    use super::mark_others_close_on_exec;
+    use super::{Inherited, SpawnError, spawn};
     use crate::sandbox::args::{Job, TypedArgs};
     use crate::sandbox::descriptors::SERIAL;
     use crate::sandbox::limits::Profile;
@@ -226,6 +228,11 @@ mod tests {
         assert_eq!(octet, [0x5a]);
     }
 
+    /// Where `/proc/self/fd` lists the open descriptors, the launcher
+    /// marks them, and this reads the mark back. Elsewhere the listing
+    /// fails, nothing is marked, and the integration test reads the
+    /// refusal that follows.
+    #[cfg(target_os = "linux")]
     #[test]
     fn extra_descriptors_are_marked_close_on_exec() {
         use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};

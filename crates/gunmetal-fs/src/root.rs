@@ -801,50 +801,75 @@ mod tests {
             root.own().inspect(&[]).map(|facts| facts.kind),
             Ok(FileKind::Dir)
         );
-        let at_the_limit = format!("{}track.flac", "./".repeat(507));
-        let over = format!("{}/track.flac", "./".repeat(507));
-        assert_eq!((at_the_limit.len(), over.len()), (1024, 1025));
-        std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
-            .expect("make a link at the limit");
-        std::os::unix::fs::symlink(&over, temp.path().join("music/over.flac"))
-            .expect("make a long link");
-        root.open_file(&rel(&names("limit.flac")).expect("path"))
-            .expect("the link at the limit is followed");
-        assert_eq!(
-            root.open_file(&rel(&names("over.flac")).expect("path"))
-                .map(|_| ()),
-            Err(FsError::LinkTooLong {
-                len: 1025,
-                max: MAX_LINK_TEXT
-            })
-        );
+        // A link at the limit is followed, and one over it is refused.
+        // Linux's own limit on a link's text is 4096, so a text at and
+        // over Gunmetal's 1024 can exist there. Where the kernel's
+        // PATH_MAX is 1024, its own limit is one below Gunmetal's, so the
+        // longest link that can exist is made instead; the refusal is
+        // proven where an over-limit link can exist.
+        #[cfg(target_os = "linux")]
+        {
+            let at_the_limit = format!("{}track.flac", "./".repeat(507));
+            let over = format!("{}/track.flac", "./".repeat(507));
+            assert_eq!((at_the_limit.len(), over.len()), (1024, 1025));
+            std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
+                .expect("make a link at the limit");
+            std::os::unix::fs::symlink(&over, temp.path().join("music/over.flac"))
+                .expect("make a long link");
+            root.open_file(&rel(&names("limit.flac")).expect("path"))
+                .expect("the link at the limit is followed");
+            assert_eq!(
+                root.open_file(&rel(&names("over.flac")).expect("path"))
+                    .map(|_| ()),
+                Err(FsError::LinkTooLong {
+                    len: over.len(),
+                    max: MAX_LINK_TEXT
+                })
+            );
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let at_the_limit = format!("{}12345678.flac", "./".repeat(505));
+            assert_eq!(at_the_limit.len(), 1023);
+            std::fs::write(temp.path().join("music/12345678.flac"), b"fLaC")
+                .expect("the link's target");
+            std::os::unix::fs::symlink(&at_the_limit, temp.path().join("music/limit.flac"))
+                .expect("make a link at the limit");
+            root.open_file(&rel(&names("limit.flac")).expect("path"))
+                .expect("the link at the limit is followed");
+        }
     }
 
-    /// The type is read again from the open handle: a FIFO the judgement
-    /// took for a regular file is opened without blocking and refused. No
-    /// writer ever comes, so the open runs on a pool: a door that waited
-    /// for one would fail this test instead of hanging it.
+    /// The type is read again from the open handle: an entry the judgement
+    /// took for a regular file is opened without blocking and refused. On
+    /// Linux the entry is a FIFO, whose open would wait for a writer that
+    /// never comes, so the open runs on a pool: a door that waited for one
+    /// would fail this test instead of hanging it. Where rustix has no
+    /// FIFO helper, the entry is a directory, which refuses through the
+    /// same read of the open handle.
     ///
     /// Verifies: SEC-MED-035
     #[test]
     fn refuses_what_the_open_handle_shows_is_not_a_regular_file() {
         let (temp, root) = library("fs-unit-handle-kind");
+        #[cfg(target_os = "linux")]
         rustix::fs::mkfifoat(
             rustix::fs::CWD,
             temp.path().join("music/pipe.flac"),
             Mode::from_raw_mode(0o644),
         )
         .expect("make a FIFO");
+        #[cfg(not(target_os = "linux"))]
+        std::fs::create_dir(temp.path().join("music/pipe.flac")).expect("make a directory");
+        #[cfg(target_os = "linux")]
+        let found = FileKind::Fifo;
+        #[cfg(not(target_os = "linux"))]
+        let found = FileKind::Dir;
         let mut judged = judge(&root, "pipe.flac");
         judged.kind = FileKind::File;
         let opened = Pool::new(1).run(Duration::from_secs(30), move || {
             root.own().file(&names("pipe.flac"), &judged).err()
         });
-        assert_eq!(
-            opened,
-            Ok(Some(FsError::NotRegular {
-                found: FileKind::Fifo
-            }))
-        );
+        assert_eq!(opened, Ok(Some(FsError::NotRegular { found })));
     }
 }
