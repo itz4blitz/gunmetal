@@ -2,9 +2,11 @@
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before writing any code. The
   testing rules there are mandatory: test first, deep assertions, 100%
-  coverage, zero surviving mutants.
-- `scripts/gate.sh` is the definition of done. Run it before reporting work
-  as finished, and report its real output.
+  coverage. CI does not run mutation testing
+  ([D-98](docs/decisions.md#d-98-no-mutation-gate)).
+- `GATE_SKIP_MUTANTS=1 scripts/gate.sh` is the definition of done. Run it
+  before reporting work as finished, and report its real output. CI does
+  the same. Do not add `mutants` or `mutants-warm` jobs back.
 - When the turn changes Rust, Cargo, Clippy, or Qodana files, `scripts/qodana.sh`
   has to pass before the work is finished, and its real output is part of the
   report. It fails when Cargo did not load, when the sanity check still
@@ -18,8 +20,16 @@
 - `gunmetal-core` is pure logic: no I/O, no `unsafe`, no panics on any input.
   Malformed media must come back as a typed error.
 - Do not add a code directory, crate or dependency until a test needs it.
-- The public repository is `https://github.com/itz4blitz/gunmetal`.
-  Clone, push and open pull requests there.
+- The source of truth is GitHub:
+  `https://github.com/itz4blitz/gunmetal`
+  ([D-96](docs/decisions.md#d-96-source-of-truth-github),
+  [record 31](docs/adr/0031-github-is-the-source-of-truth.md)). Clone,
+  push and open pull requests there, and nowhere else. The Premier
+  Forgejo (`git.taild1bbf.ts.net`) is a read-only archive: never push to
+  it, never open a pull request there. Actions run only on the
+  project's own runners — the Unraid floor and the `premier-cicd` burst
+  fleet — registered with this repository, never on GitHub-hosted
+  runners.
 - Pull requests written by a coding agent carry the `agent-written` label
   and are reviewed exactly like a contribution from an outside contributor:
   a human reads every line, confirms that each new dependency exists and is

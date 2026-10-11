@@ -881,14 +881,22 @@ mod tests {
         poll_read(&mut reader, wait)
     }
 
+    /// How many times one read may be interrupted before the helper gives
+    /// up and reports the interruption. A bound, like every other wait in
+    /// the worker's tests, so a broken retry cannot hang the run.
+    const INTERRUPTED_RETRIES: u32 = 8;
+
     /// Polls `reader` until it yields octets, the wait ends, or the read
     /// fails for a reason other than having nothing ready.
     ///
     /// One function, not one per reader. The coverage gate counts each
     /// generic copy on its own, and the socket these tests keep never
-    /// takes the arm a stand-in reader is here to reach.
+    /// takes the arm a stand-in reader is here to reach. An interruption
+    /// is tried again, up to [`INTERRUPTED_RETRIES`], because a signal can
+    /// arrive before the wait does.
     fn poll_read(reader: &mut dyn Read, wait: Duration) -> Result<usize, io::ErrorKind> {
         let started = std::time::Instant::now();
+        let mut interrupted = 0_u32;
         loop {
             match reader.read(&mut [0_u8; 1]) {
                 Ok(count) => return Ok(count),
@@ -897,6 +905,12 @@ mod tests {
                         return Err(io::ErrorKind::WouldBlock);
                     }
                     std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    interrupted += 1;
+                    if interrupted >= INTERRUPTED_RETRIES {
+                        return Err(io::ErrorKind::Interrupted);
+                    }
                 }
                 Err(error) => return Err(error.kind()),
             }
@@ -957,6 +971,91 @@ mod tests {
             poll_read(&mut Never, Duration::ZERO),
             Err(io::ErrorKind::WouldBlock)
         );
+    }
+
+    /// A reader with a script: each entry answers one read with an error
+    /// of that kind, and when the script runs out, `last` answers every
+    /// read after it. Counting the reads it was asked for.
+    struct Scripted {
+        script: Vec<io::ErrorKind>,
+        last: Result<usize, io::ErrorKind>,
+        reads: u32,
+    }
+
+    impl io::Read for Scripted {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            let answer = match self.script.pop() {
+                Some(kind) => Err(io::Error::from(kind)),
+                None => match self.last {
+                    Ok(read) => Ok(read),
+                    Err(kind) => Err(io::Error::from(kind)),
+                },
+            };
+            answer.map(|read| read.min(buf.len()))
+        }
+    }
+
+    /// One interruption is retried and the answer that follows wins: the
+    /// reader answers three octets where one was asked, the helper hands
+    /// back the one the buffer held, and exactly two reads were made.
+    #[test]
+    fn an_interrupted_read_is_retried_and_the_next_answer_wins() {
+        let mut reader = Scripted {
+            script: vec![io::ErrorKind::Interrupted],
+            last: Ok(3),
+            reads: 0,
+        };
+        assert_eq!(poll_read(&mut reader, Duration::ZERO), Ok(1));
+        assert_eq!(reader.reads, 2);
+    }
+
+    /// Three interruptions still give way to the answer that follows them,
+    /// clamped to the one octet the caller's buffer holds.
+    #[test]
+    fn three_interrupted_reads_are_all_retried() {
+        let mut reader = Scripted {
+            script: vec![
+                io::ErrorKind::Interrupted,
+                io::ErrorKind::Interrupted,
+                io::ErrorKind::Interrupted,
+            ],
+            last: Ok(3),
+            reads: 0,
+        };
+        assert_eq!(poll_read(&mut reader, Duration::ZERO), Ok(1));
+        assert_eq!(reader.reads, 4);
+    }
+
+    /// A failure that is not an interruption reaches the caller as it is.
+    #[test]
+    fn a_later_failure_is_not_taken_for_an_interruption() {
+        let mut reader = Scripted {
+            script: vec![io::ErrorKind::Interrupted],
+            last: Err(io::ErrorKind::NotConnected),
+            reads: 0,
+        };
+        assert_eq!(
+            poll_read(&mut reader, Duration::ZERO),
+            Err(io::ErrorKind::NotConnected)
+        );
+        assert_eq!(reader.reads, 2);
+    }
+
+    /// A reader that never stops interrupting is reported as interrupted
+    /// after the bound, which asked for exactly the bound's reads.
+    #[test]
+    fn a_read_interrupted_forever_is_reported_after_the_bound() {
+        let mut reader = Scripted {
+            script: Vec::new(),
+            last: Err(io::ErrorKind::Interrupted),
+            reads: 0,
+        };
+        assert_eq!(
+            poll_read(&mut reader, Duration::ZERO),
+            Err(io::ErrorKind::Interrupted)
+        );
+        assert_eq!(reader.reads, INTERRUPTED_RETRIES);
     }
 
     /// Runs `transmit` over `whole` with a first call that answers with

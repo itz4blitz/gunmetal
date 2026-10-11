@@ -6,7 +6,6 @@
   <a href="https://github.com/itz4blitz/gunmetal"><img src="https://img.shields.io/badge/source-itz4blitz%2Fgunmetal-3fb950" alt="Source: itz4blitz/gunmetal"></a>
   <img src="https://img.shields.io/badge/status-pre--alpha-d98f2b" alt="Status: pre-alpha">
   <img src="https://img.shields.io/badge/coverage-100%25-3fb950" alt="Coverage: 100%">
-  <img src="https://img.shields.io/badge/surviving%20mutants-0-3fb950" alt="Surviving mutants: 0">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-9aa7b4" alt="License: AGPL-3.0-or-later"></a>
 </p>
 
@@ -125,9 +124,6 @@ Every commit, from the first one, has to pass the same gate:
 - **Test first.** The failing test is written and seen to fail before the
   code that satisfies it.
 - **100% coverage** of lines, regions and functions, with no exclusions.
-- **Zero surviving mutants.** The tests have to notice every change a
-  mutation tool can make to the code. A mutant that hangs the tests counts
-  as a failure too.
 - **No panics on any input.** Malformed media comes back as a typed error
   that says what was wrong and where.
 - **No `unsafe`** in the core.
@@ -137,19 +133,19 @@ The full rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Building
 
 You need Rust 1.85 or newer, plus
-[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and
-[cargo-mutants](https://mutants.rs).
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov).
 
 ```bash
 git clone https://github.com/itz4blitz/gunmetal.git
 ```
 
 ```bash
-scripts/gate.sh
+GATE_SKIP_MUTANTS=1 scripts/gate.sh
 ```
 
-The gate runs the formatter, the linter, the tests with the coverage
-requirement, and mutation testing. CI runs the same script. The Rust
+The gate runs the formatter, the linter, and the tests with the coverage
+requirement. CI runs the same command and does not run mutation testing
+([D-98](docs/decisions.md#d-98-no-mutation-gate)). The Rust
 workspace builds on Linux today: the jailed worker's sandbox uses
 seccomp and landlock, which do not exist on macOS.
 
