@@ -75,14 +75,31 @@ pub(crate) struct Native;
 #[cfg(target_os = "linux")]
 type NativeArch = (TargetArch, fn(&Allowed) -> i64);
 
+/// The allowlist column for one architecture. A named function, not a
+/// closure: the coverage gate counts a closure stored as a function
+/// pointer on its own, and that copy can stay unexecuted.
+#[cfg(all(target_os = "linux", any(test, target_arch = "x86_64")))]
+#[inline(never)]
+fn x86_64_call(allowed: &Allowed) -> i64 {
+    allowed.x86_64
+}
+
+/// The allowlist column for one architecture. A named function, not a
+/// closure, for the same reason as `x86_64_call`.
+#[cfg(all(target_os = "linux", any(test, target_arch = "aarch64")))]
+#[inline(never)]
+fn aarch64_call(allowed: &Allowed) -> i64 {
+    allowed.aarch64
+}
+
 /// The seccomp target and the allowlist column for the architecture this
 /// build is for. `None` on an architecture seccompiler does not support,
 /// 32-bit ARM among them, where workers run at the reduced tier
 /// (SEC-MED-024).
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const NATIVE: Option<NativeArch> = Some((TargetArch::x86_64, |allowed| allowed.x86_64));
+const NATIVE: Option<NativeArch> = Some((TargetArch::x86_64, x86_64_call));
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const NATIVE: Option<NativeArch> = Some((TargetArch::aarch64, |allowed| allowed.aarch64));
+const NATIVE: Option<NativeArch> = Some((TargetArch::aarch64, aarch64_call));
 #[cfg(all(
     target_os = "linux",
     not(any(target_arch = "x86_64", target_arch = "aarch64"))
@@ -183,6 +200,14 @@ fn coverage(status: &RulesetStatus) -> Landlock {
     }
 }
 
+/// One rule, in the list seccompiler wants. Named so the coverage gate
+/// counts the call, not a closure copied out of line.
+#[cfg(target_os = "linux")]
+#[inline(never)]
+fn one_rule(rule: SeccompRule) -> Vec<SeccompRule> {
+    vec![rule]
+}
+
 /// The rules for one allowlist row. A row without checks has no rule,
 /// which is how seccompiler spells "always" (a rule with no condition is
 /// an error there). A row with checks has one rule that needs all of
@@ -193,7 +218,7 @@ fn rules(conditions: Vec<SeccompCondition>) -> Result<Vec<SeccompRule>, seccompi
     if conditions.is_empty() {
         Ok(Vec::new())
     } else {
-        SeccompRule::new(conditions).map(|rule| vec![rule])
+        SeccompRule::new(conditions).map(one_rule)
     }
 }
 
@@ -374,9 +399,9 @@ mod tests {
     }
 
     /// The x86-64 column of the allowlist.
-    const ON_X86_64: NativeArch = (TargetArch::x86_64, |allowed| allowed.x86_64);
+    const ON_X86_64: NativeArch = (TargetArch::x86_64, super::x86_64_call);
     /// The `AArch64` column of the allowlist.
-    const ON_AARCH64: NativeArch = (TargetArch::aarch64, |allowed| allowed.aarch64);
+    const ON_AARCH64: NativeArch = (TargetArch::aarch64, super::aarch64_call);
 
     /// Runs the compiled filter for `native` over each case and returns
     /// the verdicts, after checking it uses only instructions [`run`]
