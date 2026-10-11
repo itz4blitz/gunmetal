@@ -2111,9 +2111,10 @@ fi
     }
 }
 
-/// Every Actions job runs on the project's Unraid runners. Record 15 left
-/// checks, bots, forks and the small jobs on GitHub-hosted `ubuntu-latest`.
-/// Record 17 removes that split.
+/// Every Actions job runs on the project's own runners, registered with
+/// this repository: the Unraid floor and the premier-cicd burst fleet.
+/// Record 15 once left the small jobs on GitHub-hosted `ubuntu-latest`;
+/// record 17 removed that split, and record 31 keeps the rule under GitHub.
 #[test]
 fn every_actions_job_runs_on_the_project_runners() {
     for (path, workflow) in [

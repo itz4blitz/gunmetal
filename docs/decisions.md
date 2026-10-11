@@ -138,6 +138,14 @@ The owner directed these in conversation on 2026-10-06.
 
 | Decision | Answer |
 |---|---|
+| D-89 Source of truth forge | Forgejo on the Premier tailnet is the source of truth: `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`, hosted on the Unraid box. GitHub is not the working forge. Disclosure (D-63) stays on a public URL until a public reporting path exists. Recorded as [record 16](adr/0016-forgejo-source-of-truth.md). |
+| D-90 Actions runners | Every Actions job runs on the project's self-hosted runners (`[self-hosted, gunmetal-mutants]`). No GitHub-hosted `ubuntu-latest`. Recorded as [record 17](adr/0017-all-actions-on-own-runners.md). |
+| D-91 Forgejo tenants | Palam is its own Forgejo organisation and AWS account. Premier Studio, Palam, and personal repos (`itz4blitz`, `kbdevopz`) stay separate. Premier burst must not live in `palam-cicd`. Recorded as [record 18](adr/0018-forgejo-tenants-and-ecs.md). |
+| D-92 Runner shape | Forgejo burst copies Palam's `ph-ci` shape (Terraform, ephemeral VMs, spend fuse). No new ECS Fargate stack. Recorded as [record 19](adr/0019-copy-palam-ci-shape.md). |
+| D-93 Premier CI account | Dedicated account `premier-cicd` `109792548422` (`aws-premier-cicd@premierstudio.ai`, `us-east-2`). IaC is `PremierStudio/premier-cicd`. Recorded as [record 20](adr/0020-premier-cicd-account.md). |
+| D-94 Forgejo action references | Third-party Actions are absolute SHA-pinned GitHub URLs, because the runner resolves short names against `data.forgejo.org` and that mirror does not have them. `permissions:` stays despite Forgejo's warning. Recorded as [record 29](adr/0029-forgejo-action-references.md). |
+| D-95 No Actions permissions field | Workflows do not set `permissions:`. Forgejo ignores it and warns on every job. The zizmor canary still proves the audit. Supersedes that part of D-94. Recorded as [record 30](adr/0030-no-actions-permissions-field.md). |
+| D-96 Source of truth GitHub | GitHub is the source of truth: `https://github.com/itz4blitz/gunmetal`. Clone, push and open pull requests there; Actions run only on the project's own runners (the Unraid floor and the premier-cicd burst fleet) registered with the repository. The Premier Forgejo is a read-only archive and nothing is pushed to it again. Supersedes D-89, D-94 and D-95; D-90 stands. Recorded as [record 31](adr/0031-github-is-the-source-of-truth.md). |
 
 ## Decide first
 
@@ -2620,3 +2628,102 @@ Answered 2026-10-03: recommendation accepted and applied.
 
 Answered 2026-10-03: recommendation accepted and applied.
 
+### D-89 Source of truth forge
+
+- **Question.** Is GitHub still the repository the project clones, reviews
+  and merges from, or has that moved to the Premier Studio Forgejo on
+  Unraid over Tailscale?
+- **Recommendation.** Treat Forgejo as the source of truth at
+  `https://git.taild1bbf.ts.net/PremierStudio/gunmetal`. GitHub is not the
+  working forge. Do not move vulnerability reporting or crate
+  `repository` URLs onto a MagicDNS name that does not resolve off the
+  tailnet.
+
+Answered 2026-10-06: Forgejo is the source of truth; GitHub is not the
+working forge. See [record 16](adr/0016-forgejo-source-of-truth.md).
+
+### D-90 Actions runners
+
+- **Question.** Do any Actions jobs still run on GitHub-hosted
+  `ubuntu-latest`, as record 15 allowed for checks, bots, forks and
+  wave-branch diffs?
+- **Recommendation.** No. Every job uses `[self-hosted, gunmetal-mutants]`.
+
+Answered 2026-10-06: every Actions job runs on the project's own runners.
+See [record 17](adr/0017-all-actions-on-own-runners.md).
+
+### D-91 Forgejo tenants
+
+- **Question.** Do Palam repositories, Premier Studio repositories, and
+  Justin's and Karlis's personal repositories share one Forgejo
+  organisation and one AWS runner account?
+- **Recommendation.** No. Four tenants: `PremierStudio`, `Palam`,
+  `itz4blitz`, `kbdevopz`. Palam burst compute stays in `palam-cicd`.
+  Premier burst compute stays in `premierstudio`. Personal repos stay
+  under the person's user.
+
+Answered 2026-10-06: tenants stay separate. See
+[record 18](adr/0018-forgejo-tenants-and-ecs.md).
+
+### D-92 Runner shape
+
+- **Question.** Should Forgejo burst runners be a new ECS Fargate stack,
+  or the same shape as Palam's `ph-ci` pool?
+- **Recommendation.** Copy `ph-ci`: Terraform, ephemeral VMs, spend fuse.
+  The Forgejo runner binary and Tailscale join are the only differences.
+
+Answered 2026-10-06: copy Palam's shape; do not invent ECS. See
+[record 19](adr/0019-copy-palam-ci-shape.md).
+
+### D-93 Premier CI account
+
+- **Question.** Where does Premier Forgejo burst compute live in AWS?
+- **Recommendation.** A dedicated member account, not `premierstudio`
+  and not `palam-cicd`.
+
+Answered 2026-10-06: `premier-cicd` `109792548422`. See
+[record 20](adr/0020-premier-cicd-account.md).
+
+### D-94 Forgejo action references
+
+- **Question.** Short `uses: owner/repo@sha` names fail on the Forgejo
+  runners, and every run warns that `permissions:` is unsupported. Remove
+  the field, or keep it and point third-party actions at GitHub by URL?
+- **Recommendation.** Keep `permissions:` (SEC-SUP-012, zizmor). Fetch
+  actions the `data.forgejo.org` mirror does not have from
+  `https://github.com/...@<sha>`. Declare `gunmetal-mutants` for
+  actionlint. Read the gate's `needs` with `node`, not `jq`.
+
+Answered 2026-10-08: that is the CI fix. See
+[record 29](adr/0029-forgejo-action-references.md).
+The `permissions:` half was superseded the same day. See
+[D-95](#d-95-no-actions-permissions-field).
+
+### D-95 No Actions permissions field
+
+- **Question.** Forgejo prints a warning on every job that a workflow
+  or job has a `permissions` field, and ignores the field. Keep it for
+  zizmor, or remove it?
+- **Recommendation.** Remove it. The warning is what people see on every
+  run, and the field does not grant or deny anything on this forge.
+  Keep the scratch canary that proves zizmor still fails default
+  permissions.
+
+Answered 2026-10-08: remove the field. See
+[record 30](adr/0030-no-actions-permissions-field.md).
+
+### D-96 Source of truth GitHub
+
+- **Question.** The Premier Forgejo has been the source of truth since
+  D-89, and the public GitHub repository drifted behind it while its
+  sync dropped the Forgejo-era records. Move the project to GitHub and
+  retire the Forgejo?
+- **Recommendation.** Yes. GitHub `itz4blitz/gunmetal` is the source of
+  truth and the only place anyone clones, pushes or opens a pull
+  request. Actions run only on the project's own runners, registered
+  with the repository. The Forgejo stays as a
+  read-only archive, and its branches are carried over so nothing is
+  lost.
+
+Answered 2026-10-09: GitHub is the source of truth; the Forgejo is
+retired. See [record 31](adr/0031-github-is-the-source-of-truth.md).
