@@ -2053,9 +2053,9 @@ fi
         ]
     );
     // No warm-up and no shard. CI does not install cargo-mutants.
+    // The job list above is the whole set, so there is no mutants job either.
     assert!(!CI.contains("mutants-warm"));
     assert!(!CI.contains("cargo-mutants"));
-    assert!(!workflow_jobs(CI).iter().any(|job| *job == "mutants"));
 
     // The checks job skips mutation testing and does not choose a shard.
     let checks = workflow_job(CI, "checks");
